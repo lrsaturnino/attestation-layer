@@ -14,6 +14,7 @@ from .parser import RequirementParser
 from .status import decide_status
 from .adapter import default_generic_adapter
 from .conformance import AdapterConformanceFixture, assert_adapter_conforms
+from .python_adapter import PythonPackageAdapter
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -51,6 +52,17 @@ def main(argv: list[str] | None = None) -> int:
     status_cmd.add_argument("file", type=Path)
 
     subcommands.add_parser("conformance", help="Run the generic adapter conformance suite.")
+
+    python_conformance_cmd = subcommands.add_parser(
+        "python-conformance", help="Run conformance against a Python package adapter."
+    )
+    python_conformance_cmd.add_argument("package_root", type=Path)
+    python_conformance_cmd.add_argument("--package-name")
+    python_conformance_cmd.add_argument("--resolved-ref", default="operation")
+    python_conformance_cmd.add_argument("--resolved-type", default="action")
+    python_conformance_cmd.add_argument("--unresolved-ref", default="definitely_missing_symbol")
+    python_conformance_cmd.add_argument("--ambiguous-ref", default="duplicate_symbol")
+    python_conformance_cmd.add_argument("--ambiguous-type", default="action")
 
     args = parser.parse_args(argv)
 
@@ -109,6 +121,28 @@ def main(argv: list[str] | None = None) -> int:
             for check in report.checks:
                 print(f"  - {check}")
             return 0
+        if args.command == "python-conformance":
+            adapter = PythonPackageAdapter(
+                args.package_root,
+                package_name=args.package_name or args.package_root.name,
+            )
+            report = assert_adapter_conforms(
+                adapter,
+                _python_conformance_fixture(
+                    resolved_ref=args.resolved_ref,
+                    resolved_type=args.resolved_type,
+                    unresolved_ref=args.unresolved_ref,
+                    ambiguous_ref=args.ambiguous_ref,
+                    ambiguous_type=args.ambiguous_type,
+                ),
+            )
+            print(f"Adapter: {report.adapter_id}")
+            print(f"Target: {report.target_kind}")
+            print(f"Package: {adapter.package_name}")
+            print("Conformance: passed")
+            for check in report.checks:
+                print(f"  - {check}")
+            return 0
     except (OSError, ValidationError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -161,6 +195,32 @@ def _generic_conformance_fixture() -> AdapterConformanceFixture:
         resolved_ref=SymbolRef(name="operation", expected_type="action"),
         unresolved_ref=SymbolRef(name="definitely_missing_symbol"),
         ambiguous_ref=SymbolRef(name="ambiguous_operation", expected_type="action"),
+        sample_ir=ir,
+    )
+
+
+def _python_conformance_fixture(
+    *,
+    resolved_ref: str = "operation",
+    resolved_type: str = "action",
+    unresolved_ref: str = "definitely_missing_symbol",
+    ambiguous_ref: str = "duplicate_symbol",
+    ambiguous_type: str = "action",
+) -> AdapterConformanceFixture:
+    ir = RequirementParser().parse_ir(
+        (
+            "For every operation request:\n"
+            "if actor is approved\n"
+            "then operation must succeed.\n"
+        ),
+        requirement_id="REQ-PY-CONFORMANCE-001",
+        title="Python adapter conformance fixture",
+        claim_kind="state_precondition",
+    )
+    return AdapterConformanceFixture(
+        resolved_ref=SymbolRef(name=resolved_ref, expected_type=resolved_type),
+        unresolved_ref=SymbolRef(name=unresolved_ref),
+        ambiguous_ref=SymbolRef(name=ambiguous_ref, expected_type=ambiguous_type),
         sample_ir=ir,
     )
 

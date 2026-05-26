@@ -82,6 +82,12 @@ Run adapter conformance against the Phase 0 generic adapter:
 uv run nlreq conformance
 ```
 
+Run adapter conformance against the Phase 1 Python package adapter:
+
+```bash
+uv run nlreq python-conformance tests/fixtures/adapters/pythonpkg/samplepkg --package-name samplepkg
+```
+
 Expected validation output:
 
 ```text
@@ -96,6 +102,8 @@ Status: ACCEPTED_WITH_EVIDENCE
 Example packages live under `requirements/`.
 
 The Phase 0 completion record is in [docs/phase-0-completion.md](./docs/phase-0-completion.md).
+The Phase 1 Python adapter slice is described in
+[docs/phase-1-python-adapter.md](./docs/phase-1-python-adapter.md).
 
 ## License
 

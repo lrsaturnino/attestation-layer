@@ -47,3 +47,13 @@ def test_validate_reports_ambiguous_bindings(tmp_path: Path, capsys) -> None:
     assert exit_code == 0
     assert "Bindings: ambiguous" in output
     assert "Status: REFUSED_AMBIGUOUS" in output
+
+
+def test_conformance_reports_generic_adapter(capsys) -> None:
+    exit_code = main(["conformance"])
+
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Adapter: generic" in output
+    assert "Conformance: passed" in output
