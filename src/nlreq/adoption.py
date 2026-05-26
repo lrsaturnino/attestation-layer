@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Any
 
 from pydantic import ValidationError
@@ -14,6 +15,7 @@ from .python_package import validate_python_package
 
 INDEX_VERSION = "0.1"
 REPORT_VERSION = "0.1"
+REQUIREMENT_ID_PATTERN = re.compile(r"\bREQ-[A-Z0-9][A-Z0-9-]*\b")
 REVIEW_CHECKLIST_ITEMS = [
     ("controlled_form_matches_intent", "Controlled form matches original intent."),
     ("claim_shape_matches_controlled_form", "Claim shape matches controlled form."),
@@ -72,12 +74,62 @@ def build_ci_report(
     }
 
 
+def build_soft_gate_report(
+    packages_dir: Path,
+    *,
+    requirement_ids: list[str],
+    python_adapter: PythonPackageAdapter | None = None,
+) -> dict[str, Any]:
+    package_index = build_package_index(packages_dir, python_adapter=python_adapter)
+    referenced_ids = _stable_unique(requirement_ids)
+    packages_by_id = {
+        package["requirement_id"]: package
+        for package in package_index["packages"]
+        if package["requirement_id"]
+    }
+    findings = _soft_gate_findings(referenced_ids, packages_by_id)
+    blocking_findings = [finding for finding in findings if finding["severity"] == "blocker"]
+    warning_findings = [finding for finding in findings if finding["severity"] == "warning"]
+    return {
+        "report_version": REPORT_VERSION,
+        "mode": "soft_gate",
+        "result": "blocked" if blocking_findings else "pass",
+        "references": referenced_ids,
+        "summary": {
+            **package_index["summary"],
+            "referenced": len(referenced_ids),
+            "missing_references": sum(
+                1 for finding in findings if finding["category"] == "missing_requirement_reference"
+            ),
+            "unknown_references": sum(
+                1 for finding in findings if finding["category"] == "unknown_requirement_reference"
+            ),
+            "blocking_findings": len(blocking_findings),
+            "warning_findings": len(warning_findings),
+            "findings": len(findings),
+        },
+        "findings": findings,
+        "referenced_packages": [
+            packages_by_id[requirement_id]
+            for requirement_id in referenced_ids
+            if requirement_id in packages_by_id
+        ],
+        "package_index": package_index,
+    }
+
+
+def extract_requirement_ids(text: str) -> list[str]:
+    return _stable_unique(REQUIREMENT_ID_PATTERN.findall(text))
+
+
 def ci_report_markdown(report: dict[str, Any]) -> str:
     summary = report["summary"]
+    mode = report["mode"]
+    title = "NLReq Soft Gate Report" if mode == "soft_gate" else "NLReq CI Shadow Report"
     lines = [
-        "# NLReq CI Shadow Report",
+        f"# {title}",
         "",
-        f"Mode: `{report['mode']}`",
+        f"Mode: `{mode}`",
         f"Result: `{report['result']}`",
         "",
         "## Summary",
@@ -89,9 +141,24 @@ def ci_report_markdown(report: dict[str, Any]) -> str:
         f"- Refused packages: {summary['refused']}",
         f"- Findings: {summary['findings']}",
         "",
-        "## Findings",
-        "",
     ]
+    if mode == "soft_gate":
+        lines.extend(
+            [
+                f"- Referenced requirements: {summary['referenced']}",
+                f"- Blocking findings: {summary['blocking_findings']}",
+                "",
+                "## References",
+                "",
+            ]
+        )
+        references = report.get("references", [])
+        if references:
+            lines.append(", ".join(f"`{requirement_id}`" for requirement_id in references))
+        else:
+            lines.append("No requirement references found.")
+        lines.append("")
+    lines.extend(["## Findings", ""])
     findings = report["findings"]
     if not findings:
         lines.append("No findings.")
@@ -403,6 +470,103 @@ def _ci_findings(packages: list[dict[str, Any]]) -> list[dict[str, str | None]]:
     return findings
 
 
+def _soft_gate_findings(
+    referenced_ids: list[str], packages_by_id: dict[str, dict[str, Any]]
+) -> list[dict[str, str | None]]:
+    if not referenced_ids:
+        return [
+            _finding(
+                "blocker",
+                "missing_requirement_reference",
+                None,
+                "",
+                "implementation change does not reference a requirement package",
+            )
+        ]
+
+    findings: list[dict[str, str | None]] = []
+    for requirement_id in referenced_ids:
+        package = packages_by_id.get(requirement_id)
+        if package is None:
+            findings.append(
+                _finding(
+                    "blocker",
+                    "unknown_requirement_reference",
+                    requirement_id,
+                    "",
+                    "referenced requirement package was not found",
+                )
+            )
+            continue
+
+        path = package["path"]
+        validation_status = package["validation_status"]
+        if validation_status != "valid":
+            message = "; ".join(package["validation_errors"]) or (
+                f"package validation status is {validation_status}"
+            )
+            findings.append(
+                _finding("blocker", _validation_category(message), requirement_id, path, message)
+            )
+
+        status = package["status"]
+        if status is None:
+            findings.append(
+                _finding(
+                    "blocker",
+                    "status",
+                    requirement_id,
+                    path,
+                    "referenced package has no status",
+                )
+            )
+        elif not str(status).startswith("ACCEPTED"):
+            findings.append(
+                _finding(
+                    "blocker",
+                    "status",
+                    requirement_id,
+                    path,
+                    f"referenced package status is {status}",
+                )
+            )
+
+        review = package["review"]
+        if review["decision"] != "approved":
+            findings.append(
+                _finding(
+                    "blocker",
+                    "pending_reviews",
+                    requirement_id,
+                    path,
+                    "referenced package review decision is not approved",
+                )
+            )
+
+        evidence = package["evidence"]
+        if evidence["pending_reviews"]:
+            findings.append(
+                _finding(
+                    "blocker",
+                    "pending_reviews",
+                    requirement_id,
+                    path,
+                    "pending reviews: " + ", ".join(evidence["pending_reviews"]),
+                )
+            )
+        if evidence["unsupported_claims"]:
+            findings.append(
+                _finding(
+                    "warning",
+                    "unsupported_claims",
+                    requirement_id,
+                    path,
+                    "unsupported claims: " + ", ".join(evidence["unsupported_claims"]),
+                )
+            )
+    return findings
+
+
 def _finding(
     severity: str,
     category: str,
@@ -440,3 +604,13 @@ def _path(path: Path) -> str:
 
 def _escape_markdown_table(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", " ")
+
+
+def _stable_unique(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    unique: list[str] = []
+    for value in values:
+        if value not in seen:
+            unique.append(value)
+            seen.add(value)
+    return unique

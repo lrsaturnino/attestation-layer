@@ -26,3 +26,15 @@ Build a shadow CI report:
 ```bash
 uv run nlreq ci-report requirements
 ```
+
+Run the soft gate against an accepted package:
+
+```bash
+uv run nlreq soft-gate requirements --requirement-id REQ-AUTH-001
+```
+
+Run the soft gate against the refused negative fixture:
+
+```bash
+uv run nlreq soft-gate requirements --requirement-id REQ-REFUSED-UNBOUND-001
+```

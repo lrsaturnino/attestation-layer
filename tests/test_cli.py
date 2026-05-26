@@ -173,3 +173,87 @@ def test_review_template_outputs_required_checklist(capsys) -> None:
     assert "Requirement: `REQ-AUTH-001`" in output
     assert "Controlled form matches original intent." in output
     assert "- [ ] approved" in output
+
+
+def test_soft_gate_passes_for_accepted_requirement(tmp_path: Path, capsys) -> None:
+    package_root = tmp_path / "requirements"
+    build_package(
+        controlled_text=(FIXTURES / "authorization_precondition.nlreq").read_text(),
+        output_dir=package_root / "REQ-AUTH-001",
+        requirement_id="REQ-AUTH-001",
+        title="Unauthorized operation is rejected before state changes",
+        claim_kind="authorization_precondition",
+    )
+
+    exit_code = main(["soft-gate", str(package_root), "--requirement-id", "REQ-AUTH-001"])
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["mode"] == "soft_gate"
+    assert output["result"] == "pass"
+    assert output["references"] == ["REQ-AUTH-001"]
+    assert output["summary"]["blocking_findings"] == 0
+
+
+def test_soft_gate_reports_missing_reference_without_failing_by_default(capsys) -> None:
+    exit_code = main(["soft-gate", "requirements"])
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["result"] == "blocked"
+    assert output["summary"]["missing_references"] == 1
+    assert output["findings"][0]["category"] == "missing_requirement_reference"
+
+
+def test_soft_gate_can_fail_on_blocking(capsys) -> None:
+    exit_code = main(["soft-gate", "requirements", "--fail-on-blocking"])
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert output["result"] == "blocked"
+
+
+def test_soft_gate_extracts_references_from_file(tmp_path: Path, capsys) -> None:
+    package_root = tmp_path / "requirements"
+    references = tmp_path / "pr-body.md"
+    references.write_text("Implements REQ-AUTH-001 and mentions REQ-AUTH-001 again.\n")
+    build_package(
+        controlled_text=(FIXTURES / "authorization_precondition.nlreq").read_text(),
+        output_dir=package_root / "REQ-AUTH-001",
+        requirement_id="REQ-AUTH-001",
+        title="Unauthorized operation is rejected before state changes",
+        claim_kind="authorization_precondition",
+    )
+
+    exit_code = main(["soft-gate", str(package_root), "--references-file", str(references)])
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["result"] == "pass"
+    assert output["references"] == ["REQ-AUTH-001"]
+
+
+def test_soft_gate_blocks_unknown_requirement(capsys) -> None:
+    exit_code = main(["soft-gate", "requirements", "--requirement-id", "REQ-UNKNOWN-999"])
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["result"] == "blocked"
+    assert output["summary"]["unknown_references"] == 1
+    assert output["findings"][0]["category"] == "unknown_requirement_reference"
+
+
+def test_soft_gate_blocks_refused_requirement(capsys) -> None:
+    exit_code = main(
+        [
+            "soft-gate",
+            "requirements",
+            "--requirement-id",
+            "REQ-REFUSED-UNBOUND-001",
+        ]
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["result"] == "blocked"
+    assert any(finding["category"] == "status" for finding in output["findings"])

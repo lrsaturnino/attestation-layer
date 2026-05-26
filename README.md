@@ -120,6 +120,18 @@ uv run nlreq ci-report requirements \
 uv run nlreq review-template REQ-AUTH-001
 ```
 
+Run the Phase 4 soft gate:
+
+```bash
+uv run nlreq soft-gate requirements --requirement-id REQ-AUTH-001
+
+uv run nlreq soft-gate requirements \
+  --references-file /tmp/pr-body.md \
+  --out /tmp/nlreq-soft-gate.json \
+  --markdown-out /tmp/nlreq-soft-gate.md \
+  --fail-on-blocking
+```
+
 Expected validation output:
 
 ```text
@@ -140,6 +152,8 @@ The Phase 2 Python evidence package slice is described in
 [docs/phase-2-python-evidence.md](./docs/phase-2-python-evidence.md).
 The Phase 3 adoption workflow slice is described in
 [docs/phase-3-adoption-workflow.md](./docs/phase-3-adoption-workflow.md).
+The Phase 4 soft gate pilot is described in
+[docs/phase-4-soft-gate-pilot.md](./docs/phase-4-soft-gate-pilot.md).
 
 Adoption references:
 

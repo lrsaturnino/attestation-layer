@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 from pathlib import Path
 
@@ -10,7 +9,9 @@ from pydantic import ValidationError
 from .adoption import (
     build_ci_report,
     build_package_index,
+    build_soft_gate_report,
     ci_report_markdown,
+    extract_requirement_ids,
     review_checklist_template,
 )
 from .jsonutil import canonical_json
@@ -107,6 +108,27 @@ def main(argv: list[str] | None = None) -> int:
     ci_report_cmd.add_argument("--out", type=Path)
     ci_report_cmd.add_argument("--markdown-out", type=Path)
     _add_python_adapter_options(ci_report_cmd)
+
+    soft_gate_cmd = subcommands.add_parser(
+        "soft-gate", help="Run the Phase 4 soft gate against requirement references."
+    )
+    soft_gate_cmd.add_argument("packages_dir", nargs="?", type=Path, default=Path("requirements"))
+    soft_gate_cmd.add_argument("--requirement-id", action="append", default=[])
+    soft_gate_cmd.add_argument(
+        "--references-file",
+        action="append",
+        type=Path,
+        default=[],
+        help="Read requirement references from a PR body, commit message, or report file.",
+    )
+    soft_gate_cmd.add_argument("--out", type=Path)
+    soft_gate_cmd.add_argument("--markdown-out", type=Path)
+    soft_gate_cmd.add_argument(
+        "--fail-on-blocking",
+        action="store_true",
+        help="Return non-zero when soft-gate blockers are found.",
+    )
+    _add_python_adapter_options(soft_gate_cmd)
 
     review_template_cmd = subcommands.add_parser(
         "review-template", help="Render the human review checklist template."
@@ -253,6 +275,30 @@ def main(argv: list[str] | None = None) -> int:
             if not wrote_output:
                 print(canonical_json(report), end="")
             return 0
+        if args.command == "soft-gate":
+            requirement_ids = _requirement_ids_from_args(args)
+            report = build_soft_gate_report(
+                args.packages_dir,
+                requirement_ids=requirement_ids,
+                python_adapter=_optional_python_adapter(args),
+            )
+            wrote_output = False
+            if args.out:
+                from .jsonutil import write_json
+
+                write_json(args.out, report)
+                print(f"Soft gate report: {args.out}")
+                wrote_output = True
+            if args.markdown_out:
+                args.markdown_out.parent.mkdir(parents=True, exist_ok=True)
+                args.markdown_out.write_text(ci_report_markdown(report))
+                print(f"Soft gate report markdown: {args.markdown_out}")
+                wrote_output = True
+            if not wrote_output:
+                print(canonical_json(report), end="")
+            if args.fail_on_blocking and report["result"] == "blocked":
+                return 1
+            return 0
         if args.command == "review-template":
             template = review_checklist_template(args.requirement_id)
             if args.out:
@@ -284,6 +330,19 @@ def _optional_python_adapter(args: argparse.Namespace) -> PythonPackageAdapter |
         project_root=args.project_root,
         test_paths=args.test_path,
     )
+
+
+def _requirement_ids_from_args(args: argparse.Namespace) -> list[str]:
+    requirement_ids = list(args.requirement_id)
+    for references_file in args.references_file:
+        requirement_ids.extend(extract_requirement_ids(references_file.read_text()))
+    seen: set[str] = set()
+    unique: list[str] = []
+    for requirement_id in requirement_ids:
+        if requirement_id not in seen:
+            unique.append(requirement_id)
+            seen.add(requirement_id)
+    return unique
 
 
 def _line_for_evidence(evidence: EvidenceObject, claim_id: str, label: str) -> str:

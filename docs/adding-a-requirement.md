@@ -83,3 +83,24 @@ uv run nlreq ci-report requirements --out /tmp/nlreq-ci-report.json
 ```
 
 In shadow mode, CI reports findings without blocking the build.
+
+## 6. Reference The Requirement In An Implementation PR
+
+Implementation PRs should include the requirement id in the PR body or commit
+message:
+
+```text
+Requirement: REQ-EXAMPLE-001
+```
+
+Run the soft gate in report-only mode:
+
+```bash
+uv run nlreq soft-gate requirements --references-file /tmp/pr-body.md
+```
+
+After the workflow is stable, CI can opt into non-zero failures for blockers:
+
+```bash
+uv run nlreq soft-gate requirements --references-file /tmp/pr-body.md --fail-on-blocking
+```

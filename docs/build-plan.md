@@ -1048,6 +1048,29 @@ Deliverables:
 - adapter authoring guide,
 - and documentation for adding a requirement.
 
+### Phase 4: Soft Gate Pilot (Weeks 27-30)
+
+Goal: let implementation workflows require visible requirement-package
+references while keeping enforcement opt-in.
+
+Deliverables:
+
+- soft-gate report,
+- requirement reference extraction from PR body or commit-message text,
+- JSON and Markdown gate output,
+- explicit non-zero exit mode for CI jobs that opt in,
+- blocked/pass result over referenced packages,
+- documentation for soft-gate rollout,
+- and tests for pass, missing-reference, unknown-reference, and refused-package
+  paths.
+
+Success criterion:
+
+An implementation PR or local CI job can reference `REQ-...` ids and receive a
+deterministic report showing whether each referenced requirement exists,
+validates, is approved, and has an accepted status. By default the command
+reports blockers without failing; `--fail-on-blocking` enables opt-in failure.
+
 ---
 
 ## 14. Phase 0 Tooling

@@ -60,6 +60,9 @@ The report is shadow-mode by default: it returns success after producing the
 report and does not block the build. Downstream CI can decide when to convert
 specific findings into soft or hard gates.
 
+Phase 4 starts that conversion with `nlreq soft-gate`; see
+`docs/phase-4-soft-gate-pilot.md`.
+
 ## Review Checklist
 
 Render a Markdown checklist for a package under review:
