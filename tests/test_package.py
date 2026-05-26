@@ -223,6 +223,23 @@ def test_validate_package_rejects_stale_status(tmp_path: Path) -> None:
         validate_package(out)
 
 
+def test_validate_package_rejects_stale_verification_tasks(tmp_path: Path) -> None:
+    out = tmp_path / "REQ-AUTH-001"
+    build_package(
+        controlled_text=(FIXTURES / "authorization_precondition.nlreq").read_text(),
+        output_dir=out,
+        requirement_id="REQ-AUTH-001",
+        title="Unauthorized operation is rejected before state changes",
+        claim_kind="authorization_precondition",
+    )
+    tasks = read_json(out / "verification-tasks.json")
+    tasks[0]["input_hash"] = "sha256:stale"
+    write_json(out / "verification-tasks.json", tasks)
+
+    with pytest.raises(ValueError, match="verification-tasks.json"):
+        validate_package(out)
+
+
 def test_validate_package_rejects_stale_smt_file(tmp_path: Path) -> None:
     out = tmp_path / "REQ-AUTH-001"
     build_package(

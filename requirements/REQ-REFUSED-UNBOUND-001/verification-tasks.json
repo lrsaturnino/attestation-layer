@@ -3,6 +3,7 @@
     "backend": "core_smt",
     "description": "SMT consistency and supported-claim check for REQ-REFUSED-UNBOUND-001.",
     "id": "C1",
+    "input_hash": "sha256:8ed6876e6d853417153b930a6b283d1691825b81202095801b35dff413e16daf",
     "payload": {
       "claim_kind": "authorization_precondition",
       "requirement_id": "REQ-REFUSED-UNBOUND-001"

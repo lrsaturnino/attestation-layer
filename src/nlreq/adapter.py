@@ -3,6 +3,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any
 
+from .jsonutil import sha256_json
 from .models import (
     EvidenceCapability,
     EvidenceLevel,
@@ -132,6 +133,7 @@ class GenericAdapter(Adapter):
                 id="C1",
                 backend="core_smt",
                 description=f"SMT consistency and supported-claim check for {ir.requirement_id}.",
+                input_hash=sha256_json(ir),
                 payload={"requirement_id": ir.requirement_id, "claim_kind": ir.claim.kind},
             )
         ]

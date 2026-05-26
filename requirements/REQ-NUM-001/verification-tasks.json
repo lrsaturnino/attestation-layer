@@ -3,6 +3,7 @@
     "backend": "core_smt",
     "description": "SMT consistency and supported-claim check for REQ-NUM-001.",
     "id": "C1",
+    "input_hash": "sha256:b2553c9c2029d4b1983a1f9011acd40568d68e9b2425ce76d789aaecd5ba9f05",
     "payload": {
       "claim_kind": "numeric_invariant",
       "requirement_id": "REQ-NUM-001"

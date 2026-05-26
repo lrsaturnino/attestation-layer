@@ -3,6 +3,7 @@
     "backend": "core_smt",
     "description": "SMT consistency and supported-claim check for REQ-AUTH-001.",
     "id": "C1",
+    "input_hash": "sha256:528bb373bc6214046ca0896269bc26c59918f994a66c8e761716f5b5bfba6036",
     "payload": {
       "claim_kind": "authorization_precondition",
       "requirement_id": "REQ-AUTH-001"
