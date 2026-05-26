@@ -1,11 +1,14 @@
 {
   "ambiguous": false,
+  "ambiguous_symbol_spans": {},
+  "ambiguous_symbols": [],
   "claims": [
     {
       "backend_results": [
         {
           "backend": "generic_adapter",
           "details": {
+            "ambiguous_symbols": [],
             "missing_symbols": [
               "operator"
             ]

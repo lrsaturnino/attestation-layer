@@ -138,6 +138,20 @@
       "title": "Ambiguous",
       "type": "boolean"
     },
+    "ambiguous_symbol_spans": {
+      "additionalProperties": {
+        "$ref": "#/$defs/SourceSpan"
+      },
+      "title": "Ambiguous Symbol Spans",
+      "type": "object"
+    },
+    "ambiguous_symbols": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Ambiguous Symbols",
+      "type": "array"
+    },
     "claims": {
       "items": {
         "$ref": "#/$defs/EvidenceClaim"

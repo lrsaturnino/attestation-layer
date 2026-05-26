@@ -148,6 +148,31 @@ def test_refused_package_points_to_unbound_fragment(tmp_path: Path) -> None:
     assert status.source_span.text == "operator is not authorized"
 
 
+def test_ambiguous_package_is_refused_as_ambiguous(tmp_path: Path) -> None:
+    out = tmp_path / "REQ-REFUSED-AMBIGUOUS-001"
+
+    build_package(
+        controlled_text=(
+            "For every operation request:\n"
+            "if ambiguous_actor is not authorized\n"
+            "then operation must be rejected before state_change.\n"
+        ),
+        output_dir=out,
+        requirement_id="REQ-REFUSED-AMBIGUOUS-001",
+        title="Ambiguous actor example",
+        claim_kind="authorization_precondition",
+    )
+
+    _ir, evidence, status = validate_package(out)
+
+    assert evidence.ambiguous is True
+    assert evidence.ambiguous_symbols == ["ambiguous_actor"]
+    assert evidence.unbound_symbols == []
+    assert status.status == FinalStatus.REFUSED_AMBIGUOUS
+    assert status.source_span is not None
+    assert status.source_span.text == "ambiguous_actor is not authorized"
+
+
 def test_validate_package_rejects_invalid_auxiliary_artifact(tmp_path: Path) -> None:
     out = tmp_path / "REQ-AUTH-001"
     build_package(

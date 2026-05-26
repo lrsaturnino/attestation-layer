@@ -271,6 +271,8 @@ class EvidenceObject(BaseModel):
     ir_hash: str | None = None
     claims: list[EvidenceClaim] = Field(default_factory=list)
     ambiguous: bool = False
+    ambiguous_symbols: list[str] = Field(default_factory=list)
+    ambiguous_symbol_spans: dict[str, SourceSpan] = Field(default_factory=dict)
     unbound_symbols: list[str] = Field(default_factory=list)
     unbound_symbol_spans: dict[str, SourceSpan] = Field(default_factory=dict)
     unsupported_claims: list[str] = Field(default_factory=list)

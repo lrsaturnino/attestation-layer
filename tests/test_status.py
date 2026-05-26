@@ -45,6 +45,28 @@ def test_refuses_unbound_symbols_before_missing_evidence() -> None:
     assert decision.source_span == span
 
 
+def test_refuses_ambiguous_symbols_before_unbound_symbols() -> None:
+    span = SourceSpan(
+        document="controlled",
+        start_char=32,
+        end_char=65,
+        text="ambiguous_actor is not authorized",
+    )
+    evidence = EvidenceObject(
+        requirement_id="REQ-1",
+        ambiguous=True,
+        ambiguous_symbols=["ambiguous_actor"],
+        ambiguous_symbol_spans={"ambiguous_actor": span},
+        unbound_symbols=["missing_symbol"],
+    )
+
+    decision = decide_status(evidence)
+
+    assert decision.status == FinalStatus.REFUSED_AMBIGUOUS
+    assert "ambiguous_actor" in decision.reason
+    assert decision.source_span == span
+
+
 def test_review_status_for_missing_evidence() -> None:
     evidence = EvidenceObject(
         requirement_id="REQ-1",

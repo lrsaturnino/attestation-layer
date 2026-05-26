@@ -150,6 +150,12 @@ def default_generic_adapter() -> GenericAdapter:
             "operation_status": {"type": "state"},
             "counter": {"type": "quantity"},
             "limit": {"type": "quantity"},
+            "ambiguous_actor": {
+                "matches": [
+                    {"name": "ambiguous_actor_primary", "type": "principal"},
+                    {"name": "ambiguous_actor_delegate", "type": "principal"},
+                ]
+            },
             "ambiguous_operation": {
                 "matches": [
                     {"name": "ambiguous_operation_v1", "type": "action"},

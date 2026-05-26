@@ -1,5 +1,5 @@
 from nlreq.adapter import GenericAdapter, default_generic_adapter
-from nlreq.bindings import bind_ir
+from nlreq.bindings import bind_ir, bind_ir_with_diagnostics
 from nlreq.conformance import AdapterConformanceFixture, assert_adapter_conforms
 from nlreq.models import EvidenceLevel, SymbolRef
 from nlreq.parser import RequirementParser
@@ -59,6 +59,21 @@ def test_bind_ir_adds_bindings() -> None:
 
     assert missing == []
     assert sorted(bound.bindings) == ["actor", "operation", "state_change"]
+
+
+def test_bind_ir_reports_ambiguous_symbols_separately() -> None:
+    ir = RequirementParser().parse_ir(
+        "For every operation request:\nif ambiguous_actor is not authorized\nthen operation must be rejected before state_change.\n",
+        requirement_id="REQ-AMBIGUOUS-001",
+        title="Ambiguous actor",
+        claim_kind="authorization_precondition",
+    )
+
+    diagnostics = bind_ir_with_diagnostics(ir, default_generic_adapter())
+
+    assert diagnostics.missing_symbols == []
+    assert diagnostics.ambiguous_symbols == ["ambiguous_actor"]
+    assert sorted(diagnostics.bound_ir.bindings) == ["operation", "state_change"]
 
 
 def test_generic_adapter_passes_conformance_suite() -> None:

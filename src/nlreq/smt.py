@@ -54,13 +54,18 @@ def smt_check_requirement(ir: RequirementIR) -> BackendResult:
     )
 
 
-def static_resolution_result(ir: RequirementIR, missing_symbols: list[str]) -> BackendResult:
-    if missing_symbols:
+def static_resolution_result(
+    ir: RequirementIR, missing_symbols: list[str], ambiguous_symbols: list[str]
+) -> BackendResult:
+    if missing_symbols or ambiguous_symbols:
         return BackendResult(
             backend="generic_adapter",
             status="invalid",
             evidence_level=EvidenceLevel.STATICALLY_RESOLVED,
-            details={"missing_symbols": missing_symbols},
+            details={
+                "ambiguous_symbols": ambiguous_symbols,
+                "missing_symbols": missing_symbols,
+            },
         )
     return BackendResult(
         backend="generic_adapter",
@@ -75,9 +80,12 @@ def evidence_for_ir(
     *,
     ir_hash: str,
     missing_symbols: list[str],
+    ambiguous_symbols: list[str] | None = None,
+    ambiguous_symbol_spans: dict[str, SourceSpan] | None = None,
     unbound_symbol_spans: dict[str, SourceSpan] | None = None,
 ) -> EvidenceObject:
-    static = static_resolution_result(ir, missing_symbols)
+    ambiguous_symbols = ambiguous_symbols or []
+    static = static_resolution_result(ir, missing_symbols, ambiguous_symbols)
     consistency = check_self_consistency(ir)
     smt = smt_check_requirement(ir)
     failed = []
@@ -118,6 +126,9 @@ def evidence_for_ir(
         requirement_id=ir.requirement_id,
         ir_hash=ir_hash,
         claims=claims,
+        ambiguous=bool(ambiguous_symbols),
+        ambiguous_symbols=ambiguous_symbols,
+        ambiguous_symbol_spans=ambiguous_symbol_spans or {},
         unbound_symbols=missing_symbols,
         unbound_symbol_spans=unbound_symbol_spans or {},
         failed_checks=failed,

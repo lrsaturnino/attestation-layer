@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from .adapter import GenericAdapter, default_generic_adapter
-from .bindings import bind_ir
+from .bindings import bind_ir_with_diagnostics
 from .jsonutil import canonical_json, sha256_json, write_json
 from .models import (
     AssumptionsArtifact,
@@ -39,13 +39,16 @@ def build_package(
         approved_by="phase0@example.invalid",
         approved_at="2026-05-26T00:00:00Z",
     )
-    bound_ir, missing = bind_ir(ir, adapter)
+    binding = bind_ir_with_diagnostics(ir, adapter)
+    bound_ir = binding.bound_ir
     ir_hash = sha256_json(bound_ir)
     evidence = evidence_for_ir(
         bound_ir,
         ir_hash=ir_hash,
-        missing_symbols=missing,
-        unbound_symbol_spans=_unbound_symbol_spans(bound_ir, missing),
+        missing_symbols=binding.missing_symbols,
+        ambiguous_symbols=binding.ambiguous_symbols,
+        ambiguous_symbol_spans=_symbol_spans(bound_ir, binding.ambiguous_symbols),
+        unbound_symbol_spans=_symbol_spans(bound_ir, binding.missing_symbols),
     )
     status = decide_status(evidence)
 
@@ -124,22 +127,41 @@ def _expect(condition: bool, message: str) -> None:
         raise ValueError(message)
 
 
-def _unbound_symbol_spans(ir: RequirementIR, missing: list[str]) -> dict[str, SourceSpan]:
-    missing_set = set(missing)
+def _symbol_spans(ir: RequirementIR, symbols: list[str]) -> dict[str, SourceSpan]:
+    symbol_set = set(symbols)
     spans: dict[str, SourceSpan] = {}
+    if ir.claim.action in symbol_set:
+        action_span = _action_source_span(ir)
+        if action_span:
+            spans[ir.claim.action] = action_span
     for predicate in ir.claim.condition:
         for arg in predicate.args:
-            if arg.kind == "identifier" and str(arg.value) in missing_set:
+            if arg.kind == "identifier" and str(arg.value) in symbol_set:
                 spans.setdefault(str(arg.value), predicate.source_span)
-    if ir.claim.expected.target in missing_set:
+    if ir.claim.expected.target in symbol_set:
         spans.setdefault(ir.claim.expected.target, ir.claim.expected.source_span)
     if (
         ir.claim.expected.value
         and ir.claim.expected.value.kind == "identifier"
-        and str(ir.claim.expected.value.value) in missing_set
+        and str(ir.claim.expected.value.value) in symbol_set
     ):
         spans.setdefault(str(ir.claim.expected.value.value), ir.claim.expected.source_span)
     return spans
+
+
+def _action_source_span(ir: RequirementIR) -> SourceSpan | None:
+    needle = f"then {ir.claim.action} must"
+    start = ir.source.controlled_text.find(needle)
+    if start < 0:
+        return None
+    start_char = start + len("then ")
+    end_char = start_char + len(ir.claim.action)
+    return SourceSpan(
+        document="controlled_requirement",
+        start_char=start_char,
+        end_char=end_char,
+        text=ir.source.controlled_text[start_char:end_char],
+    )
 
 
 def _requirement_markdown(ir: RequirementIR) -> str:

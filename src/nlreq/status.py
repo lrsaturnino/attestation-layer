@@ -5,7 +5,16 @@ from .models import EvidenceObject, FinalStatus, StatusDecision
 
 def decide_status(evidence: EvidenceObject) -> StatusDecision:
     """Pure status decision from evidence state."""
-    if evidence.ambiguous:
+    if evidence.ambiguous or evidence.ambiguous_symbols:
+        if evidence.ambiguous_symbols:
+            ambiguous = ", ".join(evidence.ambiguous_symbols)
+            first_ambiguous = evidence.ambiguous_symbols[0]
+            return StatusDecision(
+                status=FinalStatus.REFUSED_AMBIGUOUS,
+                reason=f"Ambiguous symbols: {ambiguous}.",
+                next_actions=["Choose one binding for each ambiguous symbol or rewrite the requirement."],
+                source_span=evidence.ambiguous_symbol_spans.get(first_ambiguous),
+            )
         return StatusDecision(
             status=FinalStatus.REFUSED_AMBIGUOUS,
             reason="Requirement is ambiguous.",

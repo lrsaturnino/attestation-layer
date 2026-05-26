@@ -1,5 +1,7 @@
 {
   "ambiguous": false,
+  "ambiguous_symbol_spans": {},
+  "ambiguous_symbols": [],
   "claims": [
     {
       "achieved_evidence": "STATICALLY_RESOLVED",

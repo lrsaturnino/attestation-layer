@@ -1,7 +1,16 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 from .adapter import Adapter
 from .models import RequirementIR, SymbolBinding, SymbolRef
+
+
+@dataclass(frozen=True)
+class BindingDiagnostics:
+    bound_ir: RequirementIR
+    missing_symbols: list[str]
+    ambiguous_symbols: list[str]
 
 
 def refs_for_ir(ir: RequirementIR) -> list[SymbolRef]:
@@ -21,9 +30,18 @@ def refs_for_ir(ir: RequirementIR) -> list[SymbolRef]:
 
 
 def bind_ir(ir: RequirementIR, adapter: Adapter) -> tuple[RequirementIR, list[str]]:
+    diagnostics = bind_ir_with_diagnostics(ir, adapter)
+    return diagnostics.bound_ir, diagnostics.missing_symbols
+
+
+def bind_ir_with_diagnostics(ir: RequirementIR, adapter: Adapter) -> BindingDiagnostics:
     missing: list[str] = []
+    ambiguous: list[str] = []
     bindings: dict[str, SymbolBinding] = {}
     for resolution in adapter.resolve_symbols(refs_for_ir(ir)):
+        if resolution.status == "ambiguous":
+            ambiguous.append(resolution.ref.name)
+            continue
         if resolution.status != "resolved" or not resolution.symbols:
             missing.append(resolution.ref.name)
             continue
@@ -34,4 +52,8 @@ def bind_ir(ir: RequirementIR, adapter: Adapter) -> tuple[RequirementIR, list[st
             symbol_type=symbol.symbol_type,
             confidence="generic_symbol_table" if adapter.adapter_id == "generic" else "adapter_resolved",
         )
-    return ir.model_copy(update={"bindings": bindings}), missing
+    return BindingDiagnostics(
+        bound_ir=ir.model_copy(update={"bindings": bindings}),
+        missing_symbols=missing,
+        ambiguous_symbols=ambiguous,
+    )
