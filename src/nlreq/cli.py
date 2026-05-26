@@ -7,7 +7,13 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
-from .jsonutil import canonical_json, to_jsonable
+from .adoption import (
+    build_ci_report,
+    build_package_index,
+    ci_report_markdown,
+    review_checklist_template,
+)
+from .jsonutil import canonical_json
 from .models import EvidenceObject, RequirementIR, StatusDecision, SymbolRef
 from .package import build_package, validate_package
 from .parser import RequirementParser
@@ -86,6 +92,27 @@ def main(argv: list[str] | None = None) -> int:
     python_validate_cmd.add_argument("--package-name")
     python_validate_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     python_validate_cmd.add_argument("--test-path", action="append", type=Path, default=[])
+
+    index_cmd = subcommands.add_parser(
+        "package-index", help="Build a report-only index of requirement packages."
+    )
+    index_cmd.add_argument("packages_dir", nargs="?", type=Path, default=Path("requirements"))
+    index_cmd.add_argument("--out", type=Path)
+    _add_python_adapter_options(index_cmd)
+
+    ci_report_cmd = subcommands.add_parser(
+        "ci-report", help="Build a shadow-mode CI report for requirement packages."
+    )
+    ci_report_cmd.add_argument("packages_dir", nargs="?", type=Path, default=Path("requirements"))
+    ci_report_cmd.add_argument("--out", type=Path)
+    ci_report_cmd.add_argument("--markdown-out", type=Path)
+    _add_python_adapter_options(ci_report_cmd)
+
+    review_template_cmd = subcommands.add_parser(
+        "review-template", help="Render the human review checklist template."
+    )
+    review_template_cmd.add_argument("requirement_id", nargs="?")
+    review_template_cmd.add_argument("--out", type=Path)
 
     args = parser.parse_args(argv)
 
@@ -193,10 +220,70 @@ def main(argv: list[str] | None = None) -> int:
             ir, evidence, status = validate_python_package(args.package_dir, adapter)
             _print_package_validation(ir, evidence, status)
             return 0
+        if args.command == "package-index":
+            package_index = build_package_index(
+                args.packages_dir,
+                python_adapter=_optional_python_adapter(args),
+            )
+            if args.out:
+                from .jsonutil import write_json
+
+                write_json(args.out, package_index)
+                print(f"Package index: {args.out}")
+            else:
+                print(canonical_json(package_index), end="")
+            return 0
+        if args.command == "ci-report":
+            report = build_ci_report(
+                args.packages_dir,
+                python_adapter=_optional_python_adapter(args),
+            )
+            wrote_output = False
+            if args.out:
+                from .jsonutil import write_json
+
+                write_json(args.out, report)
+                print(f"CI report: {args.out}")
+                wrote_output = True
+            if args.markdown_out:
+                args.markdown_out.parent.mkdir(parents=True, exist_ok=True)
+                args.markdown_out.write_text(ci_report_markdown(report))
+                print(f"CI report markdown: {args.markdown_out}")
+                wrote_output = True
+            if not wrote_output:
+                print(canonical_json(report), end="")
+            return 0
+        if args.command == "review-template":
+            template = review_checklist_template(args.requirement_id)
+            if args.out:
+                args.out.parent.mkdir(parents=True, exist_ok=True)
+                args.out.write_text(template)
+                print(f"Review checklist: {args.out}")
+            else:
+                print(template, end="")
+            return 0
     except (OSError, ValidationError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     return 1
+
+
+def _add_python_adapter_options(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--python-package-root", type=Path)
+    parser.add_argument("--package-name")
+    parser.add_argument("--project-root", type=Path, default=Path.cwd())
+    parser.add_argument("--test-path", action="append", type=Path, default=[])
+
+
+def _optional_python_adapter(args: argparse.Namespace) -> PythonPackageAdapter | None:
+    if args.python_package_root is None:
+        return None
+    return PythonPackageAdapter(
+        args.python_package_root,
+        package_name=args.package_name or args.python_package_root.name,
+        project_root=args.project_root,
+        test_paths=args.test_path,
+    )
 
 
 def _line_for_evidence(evidence: EvidenceObject, claim_id: str, label: str) -> str:

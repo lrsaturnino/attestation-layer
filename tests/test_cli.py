@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 from nlreq.cli import main
@@ -114,3 +115,61 @@ def test_python_package_and_validate_commands(tmp_path: Path, capsys) -> None:
     assert "Package:" in output
     assert "Requirement: REQ-PY-CLI-001" in output
     assert "Status: ACCEPTED_WITH_EVIDENCE" in output
+
+
+def test_package_index_reports_package_statuses(tmp_path: Path, capsys) -> None:
+    package_root = tmp_path / "requirements"
+    build_package(
+        controlled_text=(FIXTURES / "authorization_precondition.nlreq").read_text(),
+        output_dir=package_root / "REQ-AUTH-001",
+        requirement_id="REQ-AUTH-001",
+        title="Unauthorized operation is rejected before state changes",
+        claim_kind="authorization_precondition",
+    )
+    build_package(
+        controlled_text=(FIXTURES / "unbound_symbol.nlreq").read_text(),
+        output_dir=package_root / "REQ-REFUSED-UNBOUND-001",
+        requirement_id="REQ-REFUSED-UNBOUND-001",
+        title="Unbound operator example",
+        claim_kind="authorization_precondition",
+    )
+
+    exit_code = main(["package-index", str(package_root)])
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["summary"]["total"] == 2
+    assert output["summary"]["valid"] == 2
+    assert output["summary"]["accepted"] == 1
+    assert output["summary"]["refused"] == 1
+    assert output["summary"]["unresolved_bindings"] == 1
+
+
+def test_ci_report_is_shadow_mode_and_reports_findings(tmp_path: Path, capsys) -> None:
+    package_root = tmp_path / "requirements"
+    build_package(
+        controlled_text=(FIXTURES / "unbound_symbol.nlreq").read_text(),
+        output_dir=package_root / "REQ-REFUSED-UNBOUND-001",
+        requirement_id="REQ-REFUSED-UNBOUND-001",
+        title="Unbound operator example",
+        claim_kind="authorization_precondition",
+    )
+
+    exit_code = main(["ci-report", str(package_root)])
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["mode"] == "shadow"
+    assert output["result"] == "report_only"
+    assert output["summary"]["findings"] >= 1
+    assert any(finding["category"] == "unresolved_bindings" for finding in output["findings"])
+
+
+def test_review_template_outputs_required_checklist(capsys) -> None:
+    exit_code = main(["review-template", "REQ-AUTH-001"])
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert "Requirement: `REQ-AUTH-001`" in output
+    assert "Controlled form matches original intent." in output
+    assert "- [ ] approved" in output

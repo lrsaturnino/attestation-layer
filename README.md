@@ -108,6 +108,18 @@ uv run nlreq python-validate /tmp/REQ-PY-001 \
   --test-path tests/fixtures/adapters/pythonpkg
 ```
 
+Build Phase 3 adoption artifacts:
+
+```bash
+uv run nlreq package-index requirements --out requirements/index.json
+
+uv run nlreq ci-report requirements \
+  --out /tmp/nlreq-ci-report.json \
+  --markdown-out /tmp/nlreq-ci-report.md
+
+uv run nlreq review-template REQ-AUTH-001
+```
+
 Expected validation output:
 
 ```text
@@ -126,6 +138,15 @@ The Phase 1 Python adapter slice is described in
 [docs/phase-1-python-adapter.md](./docs/phase-1-python-adapter.md).
 The Phase 2 Python evidence package slice is described in
 [docs/phase-2-python-evidence.md](./docs/phase-2-python-evidence.md).
+The Phase 3 adoption workflow slice is described in
+[docs/phase-3-adoption-workflow.md](./docs/phase-3-adoption-workflow.md).
+
+Adoption references:
+
+- [Adapter authoring guide](./docs/adapter-authoring-guide.md)
+- [Adding a requirement](./docs/adding-a-requirement.md)
+- [Review checklist template](./docs/review-checklist-template.md)
+- [Examples](./docs/examples.md)
 
 ## License
 
