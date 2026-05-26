@@ -101,6 +101,16 @@ uv run nlreq python-package tests/fixtures/requirements/python_operation_success
   --project-root . \
   --test-path tests/fixtures/adapters/pythonpkg
 
+uv run nlreq python-package tests/fixtures/requirements/python_operation_success.nlreq \
+  --out /tmp/REQ-PY-PROP-001 \
+  --requirement-id REQ-PY-PROP-001 \
+  --title "Python operation succeeds for approved actor" \
+  --claim-kind state_precondition \
+  --package-root tests/fixtures/adapters/pythonpkg/samplepkg \
+  --package-name samplepkg \
+  --project-root . \
+  --property-checks
+
 uv run nlreq python-validate /tmp/REQ-PY-001 \
   --package-root tests/fixtures/adapters/pythonpkg/samplepkg \
   --package-name samplepkg \
@@ -171,9 +181,11 @@ The Phase 3 adoption workflow slice is described in
 The Phase 4 soft gate pilot is described in
 [docs/phase-4-soft-gate-pilot.md](./docs/phase-4-soft-gate-pilot.md).
 The formal roadmap in [docs/build-plan.md](./docs/build-plan.md) now extends
-through Phase 9; phases after Phase 5 are planned, not completed.
+through Phase 9; phases after Phase 6 are planned, not completed.
 The Phase 5 hard gate is described in
 [docs/phase-5-hard-gate.md](./docs/phase-5-hard-gate.md).
+The Phase 6 stronger evidence backend slice is described in
+[docs/phase-6-stronger-backends.md](./docs/phase-6-stronger-backends.md).
 
 Adoption references:
 

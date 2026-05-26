@@ -93,6 +93,7 @@ def test_python_package_and_validate_commands(tmp_path: Path, capsys) -> None:
             str(Path(__file__).parents[1]),
             "--test-path",
             str(PY_FIXTURE_ROOT),
+            "--property-checks",
         ]
     )
     validate_exit = main(
@@ -107,6 +108,7 @@ def test_python_package_and_validate_commands(tmp_path: Path, capsys) -> None:
             str(Path(__file__).parents[1]),
             "--test-path",
             str(PY_FIXTURE_ROOT),
+            "--property-checks",
         ]
     )
 

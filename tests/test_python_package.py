@@ -1,3 +1,4 @@
+import shutil
 from pathlib import Path
 
 import pytest
@@ -39,6 +40,9 @@ def test_build_python_package_records_adapter_evidence(tmp_path: Path) -> None:
         "review.json",
         "verification-tasks.json",
         "adapter-results.json",
+        "generated-tests.json",
+        "counterexamples.json",
+        "normalized-traces.json",
         "evidence.json",
         "status.json",
         "implementation-spec.md",
@@ -83,10 +87,127 @@ def test_validate_python_package_rejects_stale_adapter_result(tmp_path: Path) ->
         validate_python_package(out, adapter)
 
 
-def _adapter() -> PythonPackageAdapter:
+def test_build_python_package_records_generated_property_evidence(tmp_path: Path) -> None:
+    out = tmp_path / "REQ-PY-PROP-001"
+    adapter = _adapter(property_checks=True)
+
+    build_python_package(
+        controlled_text=(
+            "For every operation request:\n"
+            "if actor is approved\n"
+            "then operation must succeed.\n"
+        ),
+        output_dir=out,
+        requirement_id="REQ-PY-PROP-001",
+        title="Python operation succeeds for approved actor",
+        claim_kind="state_precondition",
+        adapter=adapter,
+    )
+
+    _ir, evidence, status = validate_python_package(out, adapter)
+
+    assert status.status == FinalStatus.ACCEPTED_WITH_EVIDENCE
+    assert [claim.id for claim in evidence.claims] == [
+        "C-static",
+        "C-consistency",
+        "C-smt",
+        "PY-SYMBOLS",
+        "PY-PROPERTY",
+        "PYTEST",
+    ]
+    property_claim = next(claim for claim in evidence.claims if claim.id == "PY-PROPERTY")
+    assert property_claim.required_evidence == EvidenceLevel.TEST_VALIDATED
+    assert property_claim.achieved_evidence == EvidenceLevel.TEST_VALIDATED
+    assert property_claim.backend_results[0].details["coverage"]["threshold_met"] is True
+    generated_tests = read_json(out / "generated-tests.json")
+    assert generated_tests[0]["task_id"] == "PY-PROPERTY"
+    assert "from samplepkg.core import operation" in generated_tests[0]["content"]
+    assert read_json(out / "counterexamples.json") == []
+    assert read_json(out / "normalized-traces.json") == []
+
+
+def test_build_python_package_records_property_counterexample_artifact(tmp_path: Path) -> None:
+    package = tmp_path / "badpkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    (package / "core.py").write_text(
+        "def operation() -> bool:\n"
+        "    return False\n\n"
+        "def actor() -> str:\n"
+        "    return 'fixture-actor'\n"
+    )
+    out = tmp_path / "REQ-PY-PROP-FAIL-001"
+    adapter = _adapter(
+        package_root=package,
+        package_name="badpkg",
+        property_checks=True,
+        test_paths=[],
+    )
+
+    build_python_package(
+        controlled_text=(
+            "For every operation request:\n"
+            "if actor is approved\n"
+            "then operation must succeed.\n"
+        ),
+        output_dir=out,
+        requirement_id="REQ-PY-PROP-FAIL-001",
+        title="Python operation succeeds for approved actor",
+        claim_kind="state_precondition",
+        adapter=adapter,
+    )
+
+    _ir, evidence, status = validate_python_package(out, adapter)
+
+    assert status.status == FinalStatus.REFUSED_FAILED_CHECK
+    property_claim = next(claim for claim in evidence.claims if claim.id == "PY-PROPERTY")
+    assert property_claim.achieved_evidence is None
+    counterexamples = read_json(out / "counterexamples.json")
+    assert counterexamples[0]["expected"] is True
+    assert counterexamples[0]["actual"] is False
+
+
+def test_validate_python_package_rejects_stale_source_hash(tmp_path: Path) -> None:
+    package = tmp_path / "copypkg"
+    shutil.copytree(FIXTURE_PACKAGE, package)
+    out = tmp_path / "REQ-PY-SOURCE-STALE-001"
+    adapter = _adapter(package_root=package, package_name="copypkg", property_checks=True)
+    build_python_package(
+        controlled_text=(
+            "For every operation request:\n"
+            "if actor is approved\n"
+            "then operation must succeed.\n"
+        ),
+        output_dir=out,
+        requirement_id="REQ-PY-SOURCE-STALE-001",
+        title="Python operation succeeds for approved actor",
+        claim_kind="state_precondition",
+        adapter=adapter,
+    )
+    (package / "core.py").write_text(
+        "def operation() -> bool:\n"
+        "    return True\n\n"
+        "def actor() -> str:\n"
+        "    return 'changed-actor'\n\n"
+        "def state_change() -> str:\n"
+        "    return 'changed'\n"
+    )
+
+    with pytest.raises(ValueError, match="Python source hashes"):
+        validate_python_package(out, adapter)
+
+
+def _adapter(
+    *,
+    package_root: Path = FIXTURE_PACKAGE,
+    package_name: str = "samplepkg",
+    property_checks: bool = False,
+    test_paths: list[Path] | None = None,
+) -> PythonPackageAdapter:
     return PythonPackageAdapter(
-        FIXTURE_PACKAGE,
-        package_name="samplepkg",
+        package_root,
+        package_name=package_name,
         project_root=REPO_ROOT,
-        test_paths=[TEST_PATH],
+        test_paths=[TEST_PATH] if test_paths is None else test_paths,
+        property_checks=property_checks,
     )

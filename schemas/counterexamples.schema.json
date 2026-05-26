@@ -1,0 +1,75 @@
+{
+  "$defs": {
+    "Counterexample": {
+      "additionalProperties": false,
+      "properties": {
+        "actual": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actual"
+        },
+        "backend": {
+          "title": "Backend",
+          "type": "string"
+        },
+        "claim_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Claim Id"
+        },
+        "counterexample_id": {
+          "title": "Counterexample Id",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "expected": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected"
+        },
+        "inputs": {
+          "additionalProperties": true,
+          "title": "Inputs",
+          "type": "object"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        }
+      },
+      "required": [
+        "counterexample_id",
+        "backend",
+        "description"
+      ],
+      "title": "Counterexample",
+      "type": "object"
+    }
+  },
+  "items": {
+    "$ref": "#/$defs/Counterexample"
+  },
+  "title": "CounterexamplesArtifact",
+  "type": "array"
+}

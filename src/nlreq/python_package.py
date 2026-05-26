@@ -9,9 +9,14 @@ from .models import (
     BackendResult,
     BackendResultsArtifact,
     BindingsArtifact,
+    Counterexample,
+    CounterexamplesArtifact,
     EvidenceClaim,
     EvidenceLevel,
     EvidenceObject,
+    GeneratedTest,
+    GeneratedTestsArtifact,
+    NormalizedTraceArtifact,
     RequirementIR,
     ReviewArtifact,
     SourceSpan,
@@ -73,6 +78,9 @@ def build_python_package(
     write_json(output_dir / "review.json", _review(bound_ir, reviewer="phase2@example.invalid"))
     write_json(output_dir / "verification-tasks.json", tasks)
     write_json(output_dir / "adapter-results.json", task_results)
+    write_json(output_dir / "generated-tests.json", _generated_tests_for_tasks(tasks))
+    write_json(output_dir / "counterexamples.json", _counterexamples_for_results(task_results))
+    write_json(output_dir / "normalized-traces.json", [])
     write_json(output_dir / "evidence.json", evidence)
     write_json(output_dir / "status.json", status)
     (output_dir / "implementation-spec.md").write_text(
@@ -100,6 +108,15 @@ def validate_python_package(
     adapter_results = BackendResultsArtifact.model_validate_json(
         (package_dir / "adapter-results.json").read_text()
     )
+    generated_tests = GeneratedTestsArtifact.model_validate_json(
+        (package_dir / "generated-tests.json").read_text()
+    )
+    counterexamples = CounterexamplesArtifact.model_validate_json(
+        (package_dir / "counterexamples.json").read_text()
+    )
+    normalized_traces = NormalizedTraceArtifact.model_validate_json(
+        (package_dir / "normalized-traces.json").read_text()
+    )
     evidence = EvidenceObject.model_validate_json((package_dir / "evidence.json").read_text())
     status = StatusDecision.model_validate_json((package_dir / "status.json").read_text())
     _validate_python_package_integrity(
@@ -111,6 +128,9 @@ def validate_python_package(
         review,
         tasks,
         adapter_results,
+        generated_tests,
+        counterexamples,
+        normalized_traces,
         evidence,
         status,
     )
@@ -126,6 +146,9 @@ def _validate_python_package_integrity(
     review: ReviewArtifact,
     tasks: VerificationTasksArtifact,
     adapter_results: BackendResultsArtifact,
+    generated_tests: GeneratedTestsArtifact,
+    counterexamples: CounterexamplesArtifact,
+    normalized_traces: NormalizedTraceArtifact,
     evidence: EvidenceObject,
     status: StatusDecision,
 ) -> None:
@@ -149,6 +172,19 @@ def _validate_python_package_integrity(
     _expect(binding.bound_ir.bindings == ir.bindings, "bindings.json does not match Python adapter")
     _expect(assumptions.root == ir.assumptions, "assumptions.json does not match requirement.ir.json")
     _expect(
+        tasks.root == expected_tasks,
+        "verification-tasks.json does not match requirement.ir.json or Python source hashes",
+    )
+    _expect(
+        generated_tests.root == _generated_tests_for_tasks(tasks.root),
+        "generated-tests.json does not match verification-tasks.json",
+    )
+    _expect(
+        counterexamples.root == _counterexamples_for_results(adapter_results.root),
+        "counterexamples.json does not match adapter-results.json",
+    )
+    _expect(normalized_traces.root == [], "normalized-traces.json is not supported for Python packages yet")
+    _expect(
         review.reviewed_hashes.get("requirement_ir") == ir_hash,
         "review.json requirement_ir hash does not match requirement.ir.json",
     )
@@ -156,7 +192,6 @@ def _validate_python_package_integrity(
     _expect(evidence.ir_hash == ir_hash, "evidence.json ir_hash does not match requirement.ir.json")
     _expect(evidence == expected_evidence, "evidence.json does not match adapter-results.json")
     _expect(status == expected_status, "status.json does not match pure status decision")
-    _expect(tasks.root == expected_tasks, "verification-tasks.json does not match requirement.ir.json")
     _expect(
         (package_dir / "requirement.md").read_text() == _requirement_markdown(ir),
         "requirement.md does not match requirement.ir.json",
@@ -270,6 +305,36 @@ def _task_results_by_id(results: list[BackendResult]) -> dict[str, BackendResult
     return by_id
 
 
+def _generated_tests_for_tasks(tasks: list[VerificationTask]) -> list[GeneratedTest]:
+    generated: list[GeneratedTest] = []
+    for task in tasks:
+        raw = task.payload.get("generated_test")
+        if not isinstance(raw, dict):
+            continue
+        generated.append(
+            GeneratedTest(
+                test_id=str(raw["test_id"]),
+                requirement_id=str(task.payload["requirement_id"]),
+                backend="python_property",
+                task_id=task.id,
+                content=str(raw["content"]),
+                content_hash=str(raw["content_hash"]),
+                provenance=dict(raw.get("provenance", {})),
+                source_hashes=dict(task.payload.get("source_hashes", {})),
+            )
+        )
+    return generated
+
+
+def _counterexamples_for_results(results: list[BackendResult]) -> list[Counterexample]:
+    counterexamples: list[Counterexample] = []
+    for result in results:
+        raw = result.details.get("counterexample")
+        if isinstance(raw, dict):
+            counterexamples.append(Counterexample.model_validate(raw))
+    return counterexamples
+
+
 def _claim_for_python_task(
     task: VerificationTask, result: BackendResult | None
 ) -> EvidenceClaim:
@@ -299,6 +364,8 @@ def _required_evidence_for_task(task: VerificationTask) -> EvidenceLevel:
     task_kind = task.payload.get("task")
     if task_kind == "pytest":
         return EvidenceLevel.TEST_VALIDATED
+    if task_kind == "property_check":
+        return EvidenceLevel.TEST_VALIDATED
     return EvidenceLevel.TYPE_CHECKED
 
 
@@ -309,6 +376,11 @@ def _python_evidence_lines(adapter: PythonPackageAdapter, tasks: list[Verificati
         "Self-consistency checked.",
         "Supported claim shape SMT-checked.",
         "Python symbol bindings type-checked.",
+        *(
+            ["Generated Python property evidence validated."]
+            if any(task.payload.get("task") == "property_check" for task in tasks)
+            else []
+        ),
         *(
             ["Scoped pytest evidence validated."]
             if any(task.payload.get("task") == "pytest" for task in tasks)

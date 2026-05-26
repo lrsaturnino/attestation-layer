@@ -1101,6 +1101,8 @@ Packages and adapters outside the configured scope remain report-only.
 Goal: add evidence sources that go beyond static resolution, SMT shape checks,
 and scoped pytest execution.
 
+Design anchor: `docs/adr/0008-phase-6-stronger-evidence-backends.md`.
+
 Deliverables:
 
 - property-based test generation for supported claim shapes,

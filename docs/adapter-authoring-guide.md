@@ -40,6 +40,8 @@ Adapters must not inflate evidence levels. Report only what was checked:
 - static binding resolution maps to `STATICALLY_RESOLVED`;
 - shape/type checks map to `TYPE_CHECKED`;
 - scoped passing tests map to `TEST_VALIDATED`;
+- generated property checks map to `TEST_VALIDATED` unless a stronger backend
+  actually proves the claim;
 - trace validation maps to `TRACE_VALIDATED`;
 - model checking maps to `BOUNDED_CHECKED` or `PROVEN_INDUCTIVE`.
 

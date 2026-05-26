@@ -90,6 +90,11 @@ def main(argv: list[str] | None = None) -> int:
     python_package_cmd.add_argument("--package-name")
     python_package_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     python_package_cmd.add_argument("--test-path", action="append", type=Path, default=[])
+    python_package_cmd.add_argument(
+        "--property-checks",
+        action="store_true",
+        help="Generate deterministic Python property checks for supported claims.",
+    )
 
     python_validate_cmd = subcommands.add_parser(
         "python-validate", help="Validate a Python-adapter requirement package."
@@ -99,6 +104,11 @@ def main(argv: list[str] | None = None) -> int:
     python_validate_cmd.add_argument("--package-name")
     python_validate_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     python_validate_cmd.add_argument("--test-path", action="append", type=Path, default=[])
+    python_validate_cmd.add_argument(
+        "--property-checks",
+        action="store_true",
+        help="Recompute deterministic Python property checks for supported claims.",
+    )
 
     index_cmd = subcommands.add_parser(
         "package-index", help="Build a report-only index of requirement packages."
@@ -258,6 +268,7 @@ def main(argv: list[str] | None = None) -> int:
                 package_name=args.package_name or args.package_root.name,
                 project_root=args.project_root,
                 test_paths=args.test_path,
+                property_checks=args.property_checks,
             )
             build_python_package(
                 controlled_text=args.file.read_text(),
@@ -275,6 +286,7 @@ def main(argv: list[str] | None = None) -> int:
                 package_name=args.package_name or args.package_root.name,
                 project_root=args.project_root,
                 test_paths=args.test_path,
+                property_checks=args.property_checks,
             )
             ir, evidence, status = validate_python_package(args.package_dir, adapter)
             _print_package_validation(ir, evidence, status)
@@ -381,6 +393,11 @@ def _add_python_adapter_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--package-name")
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
     parser.add_argument("--test-path", action="append", type=Path, default=[])
+    parser.add_argument(
+        "--property-checks",
+        action="store_true",
+        help="Enable deterministic Python property checks for package validation.",
+    )
 
 
 def _optional_python_adapter(args: argparse.Namespace) -> PythonPackageAdapter | None:
@@ -391,6 +408,7 @@ def _optional_python_adapter(args: argparse.Namespace) -> PythonPackageAdapter |
         package_name=args.package_name or args.python_package_root.name,
         project_root=args.project_root,
         test_paths=args.test_path,
+        property_checks=args.property_checks,
     )
 
 

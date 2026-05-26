@@ -258,6 +258,66 @@ class BackendResultsArtifact(RootModel[list[BackendResult]]):
     pass
 
 
+class Counterexample(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    counterexample_id: str
+    backend: str
+    claim_id: str | None = None
+    description: str
+    inputs: dict[str, Any] = Field(default_factory=dict)
+    expected: Any | None = None
+    actual: Any | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class CounterexamplesArtifact(RootModel[list[Counterexample]]):
+    pass
+
+
+class GeneratedTest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    test_id: str
+    requirement_id: str
+    backend: str
+    task_id: str
+    content: str
+    content_hash: str
+    provenance: dict[str, Any] = Field(default_factory=dict)
+    source_hashes: dict[str, str] = Field(default_factory=dict)
+
+
+class GeneratedTestsArtifact(RootModel[list[GeneratedTest]]):
+    pass
+
+
+class TraceEvent(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    event_id: str
+    timestamp: str | int
+    actor: str | None = None
+    action: str
+    pre_state: dict[str, Any] | None = None
+    post_state: dict[str, Any] | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class NormalizedTrace(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    trace_id: str
+    adapter_id: str
+    source_hash: str
+    events: list[TraceEvent]
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class NormalizedTraceArtifact(RootModel[list[NormalizedTrace]]):
+    pass
+
+
 class EvidenceClaim(BaseModel):
     model_config = ConfigDict(extra="forbid")
 

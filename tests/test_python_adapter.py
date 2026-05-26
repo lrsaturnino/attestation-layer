@@ -111,6 +111,24 @@ def test_python_adapter_reports_phase_1_evidence_capabilities() -> None:
     ]
 
 
+def test_python_adapter_reports_property_check_capability() -> None:
+    adapter = PythonPackageAdapter(
+        FIXTURE_PACKAGE,
+        package_name="samplepkg",
+        property_checks=True,
+    )
+    symbol = adapter.resolve_symbols([SymbolRef(name="operation", expected_type="action")])[0].symbols[0]
+
+    capabilities = adapter.available_evidence([symbol])
+
+    assert [cap.evidence_level for cap in capabilities] == [
+        EvidenceLevel.STATICALLY_RESOLVED,
+        EvidenceLevel.TYPE_CHECKED,
+        EvidenceLevel.TEST_VALIDATED,
+    ]
+    assert "property" in capabilities[-1].description
+
+
 def test_python_adapter_generates_symbol_and_pytest_tasks_for_bound_ir() -> None:
     adapter = PythonPackageAdapter(
         FIXTURE_PACKAGE,
@@ -144,6 +162,31 @@ def test_python_adapter_generates_symbol_and_pytest_tasks_for_bound_ir() -> None
             "symbol_type": "function",
         },
     ]
+
+
+def test_python_adapter_generates_property_task_for_supported_claim() -> None:
+    adapter = PythonPackageAdapter(
+        FIXTURE_PACKAGE,
+        package_name="samplepkg",
+        property_checks=True,
+    )
+    ir = RequirementParser().parse_ir(
+        "For every operation request:\nif actor is approved\nthen operation must succeed.\n",
+        requirement_id="REQ-PY-PROP-001",
+        title="Python operation succeeds for approved actor",
+        claim_kind="state_precondition",
+    )
+    diagnostics = bind_ir_with_diagnostics(ir, adapter)
+
+    tasks = adapter.generate_tasks(diagnostics.bound_ir)
+
+    assert [task.id for task in tasks] == ["PY-SYMBOLS", "PY-PROPERTY"]
+    property_task = tasks[1]
+    assert property_task.payload["task"] == "property_check"
+    assert property_task.payload["action_symbol"] == "samplepkg.core.operation"
+    assert property_task.payload["source_hashes"]["core.py"].startswith("sha256:")
+    assert property_task.payload["generated_test"]["content_hash"].startswith("sha256:")
+    assert "from samplepkg.core import operation" in property_task.payload["generated_test"]["content"]
 
 
 def test_python_adapter_collects_backend_results() -> None:
@@ -209,6 +252,61 @@ def test_python_adapter_runs_generated_pytest_task() -> None:
     assert result.status == "valid"
     assert result.evidence_level == EvidenceLevel.TEST_VALIDATED
     assert result.details["returncode"] == 0
+
+
+def test_python_adapter_runs_generated_property_task() -> None:
+    adapter = PythonPackageAdapter(
+        FIXTURE_PACKAGE,
+        package_name="samplepkg",
+        project_root=REPO_ROOT,
+        property_checks=True,
+    )
+    ir = RequirementParser().parse_ir(
+        "For every operation request:\nif actor is approved\nthen operation must succeed.\n",
+        requirement_id="REQ-PY-PROP-001",
+        title="Python operation succeeds for approved actor",
+        claim_kind="state_precondition",
+    )
+    diagnostics = bind_ir_with_diagnostics(ir, adapter)
+
+    result = adapter.run_task(adapter.generate_tasks(diagnostics.bound_ir)[1])
+
+    assert result.backend == "python_property"
+    assert result.status == "valid"
+    assert result.evidence_level == EvidenceLevel.TEST_VALIDATED
+    assert result.details["coverage"]["threshold_met"] is True
+
+
+def test_python_adapter_reports_property_counterexample(tmp_path: Path) -> None:
+    package = tmp_path / "badpkg"
+    package.mkdir()
+    (package / "__init__.py").write_text("")
+    (package / "core.py").write_text(
+        "def operation() -> bool:\n"
+        "    return False\n\n"
+        "def actor() -> str:\n"
+        "    return 'fixture-actor'\n"
+    )
+    adapter = PythonPackageAdapter(
+        package,
+        package_name="badpkg",
+        project_root=tmp_path,
+        property_checks=True,
+    )
+    ir = RequirementParser().parse_ir(
+        "For every operation request:\nif actor is approved\nthen operation must succeed.\n",
+        requirement_id="REQ-PY-PROP-FAIL-001",
+        title="Python operation succeeds for approved actor",
+        claim_kind="state_precondition",
+    )
+    diagnostics = bind_ir_with_diagnostics(ir, adapter)
+
+    result = adapter.run_task(adapter.generate_tasks(diagnostics.bound_ir)[1])
+
+    assert result.backend == "python_property"
+    assert result.status == "counterexample"
+    assert result.details["counterexample"]["expected"] is True
+    assert result.details["counterexample"]["actual"] is False
 
 
 def test_python_adapter_passes_conformance_suite() -> None:

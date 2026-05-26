@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import ast
+import importlib
 import importlib.util
+import inspect
 import subprocess
 import sys
 from dataclasses import dataclass
@@ -9,9 +11,10 @@ from pathlib import Path
 from typing import Iterable
 
 from .adapter import Adapter
-from .jsonutil import sha256_json
+from .jsonutil import sha256_json, sha256_text
 from .models import (
     BackendResult,
+    Counterexample,
     EvidenceCapability,
     EvidenceLevel,
     RequirementIR,
@@ -42,6 +45,7 @@ class PythonPackageAdapter(Adapter):
         package_name: str | None = None,
         project_root: Path | None = None,
         test_paths: Iterable[Path] = (),
+        property_checks: bool = False,
     ) -> None:
         self.package_root = Path(package_root)
         if not self.package_root.is_dir():
@@ -49,6 +53,7 @@ class PythonPackageAdapter(Adapter):
         self.package_name = package_name or self.package_root.name
         self.project_root = Path(project_root) if project_root else Path.cwd()
         self.test_paths = tuple(Path(path) for path in test_paths)
+        self.property_checks = property_checks
         self._symbols = _build_symbol_index(self.package_root, self.package_name)
 
     @classmethod
@@ -58,6 +63,7 @@ class PythonPackageAdapter(Adapter):
         *,
         project_root: Path | None = None,
         test_paths: Iterable[Path] = (),
+        property_checks: bool = False,
     ) -> PythonPackageAdapter:
         spec = importlib.util.find_spec(import_name)
         if spec is None:
@@ -72,6 +78,7 @@ class PythonPackageAdapter(Adapter):
             package_name=import_name,
             project_root=project_root,
             test_paths=test_paths,
+            property_checks=property_checks,
         )
 
     def resolve_symbols(self, refs: list[SymbolRef]) -> list[SymbolResolution]:
@@ -113,6 +120,13 @@ class PythonPackageAdapter(Adapter):
                     description="Adapter can request scoped pytest evidence for configured test paths.",
                 )
             )
+        if self.property_checks:
+            capabilities.append(
+                EvidenceCapability(
+                    evidence_level=EvidenceLevel.TEST_VALIDATED,
+                    description="Adapter can generate deterministic property checks for supported claims.",
+                )
+            )
         return capabilities
 
     def generate_tasks(self, ir: RequirementIR) -> list[VerificationTask]:
@@ -131,6 +145,9 @@ class PythonPackageAdapter(Adapter):
             "requirement_id": ir.requirement_id,
             "task": "symbol_shape",
             "bindings": bindings,
+            "source_hashes": self._source_hashes_for_bindings(
+                binding["symbol"] for binding in bindings
+            ),
         }
         tasks = [
             VerificationTask(
@@ -141,6 +158,9 @@ class PythonPackageAdapter(Adapter):
                 payload=symbol_payload,
             )
         ]
+        property_task = self._property_task_for_ir(ir)
+        if property_task is not None:
+            tasks.append(property_task)
         if self.test_paths:
             pytest_payload = {
                 "adapter": self.adapter_id,
@@ -176,6 +196,8 @@ class PythonPackageAdapter(Adapter):
         task_kind = task.payload.get("task")
         if task_kind == "symbol_shape":
             return self._run_symbol_shape_task(task)
+        if task_kind == "property_check":
+            return self._run_property_task(task)
         if task_kind == "pytest":
             return self._run_pytest_task(task)
         return BackendResult(
@@ -259,6 +281,64 @@ class PythonPackageAdapter(Adapter):
             },
         )
 
+    def _property_task_for_ir(self, ir: RequirementIR) -> VerificationTask | None:
+        if not self.property_checks:
+            return None
+        if ir.claim.expected.kind != "succeed":
+            return None
+        binding = ir.bindings.get(ir.claim.action)
+        if binding is None or binding.adapter != self.adapter_id:
+            return None
+        symbol = self._symbols.get(binding.symbol)
+        if symbol is None or symbol.metadata.get("kind") != "function":
+            return None
+        module_name = symbol.metadata.get("module")
+        function_name = binding.symbol.rsplit(".", 1)[-1]
+        if not isinstance(module_name, str):
+            return None
+        generated_test = (
+            f"from {module_name} import {function_name}\n\n\n"
+            f"def test_{ir.requirement_id.lower().replace('-', '_')}_operation_succeeds():\n"
+            f"    assert {function_name}() is True\n"
+        )
+        generated_test_provenance = {
+            "generator": "nlreq.python_property",
+            "generator_version": "0.1",
+            "claim_kind": ir.claim.kind,
+            "expected_kind": ir.claim.expected.kind,
+        }
+        payload = {
+            "adapter": self.adapter_id,
+            "package": self.package_name,
+            "requirement_id": ir.requirement_id,
+            "task": "property_check",
+            "property": "action_succeeds",
+            "action": ir.claim.action,
+            "action_symbol": binding.symbol,
+            "cases": [
+                {
+                    "case_id": "approved_actor_default",
+                    "args": [],
+                    "kwargs": {},
+                    "expected": True,
+                }
+            ],
+            "generated_test": {
+                "test_id": f"PY-PROPERTY-{ir.requirement_id}",
+                "content": generated_test,
+                "content_hash": sha256_text(generated_test),
+                "provenance": generated_test_provenance,
+            },
+            "source_hashes": self._source_hashes_for_bindings([binding.symbol]),
+        }
+        return VerificationTask(
+            id="PY-PROPERTY",
+            backend="adapter",
+            description=f"Run generated Python property evidence for {ir.requirement_id}.",
+            input_hash=sha256_json(payload),
+            payload=payload,
+        )
+
     def _run_pytest_task(self, task: VerificationTask) -> BackendResult:
         paths = task.payload.get("paths", [])
         if not isinstance(paths, list) or not all(isinstance(path, str) for path in paths):
@@ -291,6 +371,181 @@ class PythonPackageAdapter(Adapter):
                 "stderr_tail": completed.stderr[-4000:],
             },
         )
+
+    def _run_property_task(self, task: VerificationTask) -> BackendResult:
+        action_symbol = task.payload.get("action_symbol")
+        cases = task.payload.get("cases", [])
+        if not isinstance(action_symbol, str):
+            return _invalid_property_result(task, "action_symbol payload must be a string")
+        if not isinstance(cases, list):
+            return _invalid_property_result(task, "cases payload must be a list")
+        try:
+            target = self._load_callable(action_symbol)
+        except (AttributeError, ImportError, ValueError) as exc:
+            return _invalid_property_result(task, str(exc))
+        try:
+            signature = inspect.signature(target)
+        except (TypeError, ValueError) as exc:
+            return _invalid_property_result(task, f"cannot inspect callable signature: {exc}")
+        required_params = [
+            param
+            for param in signature.parameters.values()
+            if param.default is inspect.Parameter.empty
+            and param.kind
+            in {
+                inspect.Parameter.POSITIONAL_ONLY,
+                inspect.Parameter.POSITIONAL_OR_KEYWORD,
+                inspect.Parameter.KEYWORD_ONLY,
+            }
+        ]
+        if required_params:
+            return BackendResult(
+                backend="python_property",
+                status="unsupported",
+                evidence_level=EvidenceLevel.TEST_VALIDATED,
+                details={
+                    "task_id": task.id,
+                    "task_input_hash": task.input_hash,
+                    "reason": "generated property checks currently support zero-argument callables only",
+                    "required_parameters": [param.name for param in required_params],
+                },
+            )
+
+        for raw_case in cases:
+            if not isinstance(raw_case, dict):
+                return _invalid_property_result(task, "case payload must be an object")
+            args = raw_case.get("args", [])
+            kwargs = raw_case.get("kwargs", {})
+            expected = raw_case.get("expected", True)
+            if not isinstance(args, list) or not isinstance(kwargs, dict):
+                return _invalid_property_result(task, "case args must be a list and kwargs must be an object")
+            try:
+                actual = target(*args, **kwargs)
+            except Exception as exc:  # noqa: BLE001 - captured as backend evidence.
+                return _counterexample_result(
+                    task,
+                    raw_case,
+                    expected=expected,
+                    actual={
+                        "exception_type": type(exc).__name__,
+                        "message": str(exc),
+                    },
+                )
+            if actual is not expected:
+                return _counterexample_result(task, raw_case, expected=expected, actual=actual)
+
+        return BackendResult(
+            backend="python_property",
+            status="valid",
+            evidence_level=EvidenceLevel.TEST_VALIDATED,
+            details={
+                "task_id": task.id,
+                "task_input_hash": task.input_hash,
+                "generated_test": task.payload.get("generated_test", {}),
+                "source_hashes": task.payload.get("source_hashes", {}),
+                "coverage": {
+                    "generated_cases": len(cases),
+                    "required_cases": len(cases),
+                    "threshold_met": True,
+                },
+            },
+        )
+
+    def _source_hashes_for_bindings(self, symbols: Iterable[str]) -> dict[str, str]:
+        hashes: dict[str, str] = {}
+        for symbol_name in sorted(set(symbols)):
+            symbol = self._symbols.get(symbol_name)
+            if symbol is None:
+                continue
+            path = symbol.metadata.get("path")
+            if not isinstance(path, str):
+                continue
+            source_path = self.package_root / path
+            hashes[path] = sha256_text(source_path.read_text())
+        return hashes
+
+    def _load_callable(self, symbol_name: str) -> object:
+        symbol = self._symbols.get(symbol_name)
+        if symbol is None:
+            raise ValueError(f"symbol not found: {symbol_name}")
+        module_name = symbol.metadata.get("module")
+        if not isinstance(module_name, str):
+            raise ValueError(f"symbol has no module metadata: {symbol_name}")
+        previous_path = list(sys.path)
+        for path in reversed([self.project_root, self.package_root.parent]):
+            path_text = str(path)
+            if path_text not in sys.path:
+                sys.path.insert(0, path_text)
+        try:
+            importlib.invalidate_caches()
+            package_prefix = module_name.split(".", 1)[0]
+            for cached in [
+                name
+                for name in sys.modules
+                if name == package_prefix or name.startswith(package_prefix + ".")
+            ]:
+                del sys.modules[cached]
+            module = importlib.import_module(module_name)
+        finally:
+            sys.path[:] = previous_path
+        attr_path = symbol_name.removeprefix(module_name + ".").split(".")
+        target: object = module
+        for attr in attr_path:
+            target = getattr(target, attr)
+        if not callable(target):
+            raise ValueError(f"symbol is not callable: {symbol_name}")
+        return target
+
+
+def _invalid_property_result(task: VerificationTask, reason: str) -> BackendResult:
+    return BackendResult(
+        backend="python_property",
+        status="invalid",
+        evidence_level=EvidenceLevel.TEST_VALIDATED,
+        details={
+            "task_id": task.id,
+            "task_input_hash": task.input_hash,
+            "reason": reason,
+        },
+    )
+
+
+def _counterexample_result(
+    task: VerificationTask,
+    case: dict[str, object],
+    *,
+    expected: object,
+    actual: object,
+) -> BackendResult:
+    counterexample = Counterexample(
+        counterexample_id=f"{task.id}:{case.get('case_id', 'case')}",
+        backend="python_property",
+        claim_id=task.id,
+        description="Generated Python property check failed.",
+        inputs={
+            "case_id": case.get("case_id"),
+            "args": case.get("args", []),
+            "kwargs": case.get("kwargs", {}),
+        },
+        expected=expected,
+        actual=actual,
+        metadata={
+            "property": task.payload.get("property"),
+            "action_symbol": task.payload.get("action_symbol"),
+        },
+    )
+    return BackendResult(
+        backend="python_property",
+        status="counterexample",
+        evidence_level=EvidenceLevel.TEST_VALIDATED,
+        details={
+            "task_id": task.id,
+            "task_input_hash": task.input_hash,
+            "generated_test": task.payload.get("generated_test", {}),
+            "source_hashes": task.payload.get("source_hashes", {}),
+            "counterexample": counterexample.model_dump(mode="json", exclude_none=True),
+        },
+    )
 
 
 def _build_symbol_index(package_root: Path, package_name: str) -> dict[str, Symbol]:

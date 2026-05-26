@@ -59,7 +59,27 @@ uv run nlreq hard-gate requirements \
 
 The refused-package hard-gate command is expected to exit non-zero.
 
+Build a Python package with generated property evidence:
+
+```bash
+uv run nlreq python-package tests/fixtures/requirements/python_operation_success.nlreq \
+  --out /tmp/REQ-PY-PROP-001 \
+  --requirement-id REQ-PY-PROP-001 \
+  --title "Python operation succeeds for approved actor" \
+  --claim-kind state_precondition \
+  --package-root tests/fixtures/adapters/pythonpkg/samplepkg \
+  --package-name samplepkg \
+  --project-root . \
+  --property-checks
+```
+
 Phase 5 artifact examples:
 
 - `docs/examples/gate-policy.example.json`
 - `docs/examples/waiver.example.json`
+
+Phase 6 artifact schemas:
+
+- `schemas/counterexamples.schema.json`
+- `schemas/generated-tests.schema.json`
+- `schemas/normalized-traces.schema.json`
