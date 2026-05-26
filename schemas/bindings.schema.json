@@ -1,0 +1,44 @@
+{
+  "$defs": {
+    "SymbolBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "title": "Adapter",
+          "type": "string"
+        },
+        "confidence": {
+          "enum": [
+            "generic_symbol_table",
+            "manual_override",
+            "adapter_resolved",
+            "llm_suggested"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "symbol": {
+          "title": "Symbol",
+          "type": "string"
+        },
+        "symbol_type": {
+          "title": "Symbol Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "adapter",
+        "symbol",
+        "symbol_type",
+        "confidence"
+      ],
+      "title": "SymbolBinding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": {
+    "$ref": "#/$defs/SymbolBinding"
+  },
+  "title": "BindingsArtifact",
+  "type": "object"
+}

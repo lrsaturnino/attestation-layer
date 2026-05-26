@@ -1,5 +1,9 @@
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
+from nlreq.jsonutil import write_json
 from nlreq.models import FinalStatus
 from nlreq.package import build_package, validate_package
 
@@ -74,3 +78,18 @@ def test_refused_package_points_to_unbound_fragment(tmp_path: Path) -> None:
     assert status.status == FinalStatus.REFUSED_UNBOUND_SYMBOLS
     assert status.source_span is not None
     assert status.source_span.text == "operator is not authorized"
+
+
+def test_validate_package_rejects_invalid_auxiliary_artifact(tmp_path: Path) -> None:
+    out = tmp_path / "REQ-AUTH-001"
+    build_package(
+        controlled_text=(FIXTURES / "authorization_precondition.nlreq").read_text(),
+        output_dir=out,
+        requirement_id="REQ-AUTH-001",
+        title="Unauthorized operation is rejected before state changes",
+        claim_kind="authorization_precondition",
+    )
+    write_json(out / "review.json", {"review_id": "RVW-INVALID"})
+
+    with pytest.raises(ValidationError):
+        validate_package(out)

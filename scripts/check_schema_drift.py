@@ -3,13 +3,25 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from nlreq.models import EvidenceObject, RequirementIR, StatusDecision
+from nlreq.models import (
+    AssumptionsArtifact,
+    BindingsArtifact,
+    EvidenceObject,
+    RequirementIR,
+    ReviewArtifact,
+    StatusDecision,
+    VerificationTasksArtifact,
+)
 
 
 SCHEMAS = {
     "requirement-ir-0.1.schema.json": RequirementIR,
+    "assumptions.schema.json": AssumptionsArtifact,
+    "bindings.schema.json": BindingsArtifact,
     "evidence.schema.json": EvidenceObject,
+    "review.schema.json": ReviewArtifact,
     "status-decision.schema.json": StatusDecision,
+    "verification-tasks.schema.json": VerificationTasksArtifact,
 }
 
 

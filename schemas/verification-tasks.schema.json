@@ -1,0 +1,54 @@
+{
+  "$defs": {
+    "VerificationTask": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "enum": [
+            "core_smt",
+            "adapter"
+          ],
+          "title": "Backend",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "input_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Input Hash"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id",
+        "backend",
+        "description"
+      ],
+      "title": "VerificationTask",
+      "type": "object"
+    }
+  },
+  "items": {
+    "$ref": "#/$defs/VerificationTask"
+  },
+  "title": "VerificationTasksArtifact",
+  "type": "array"
+}

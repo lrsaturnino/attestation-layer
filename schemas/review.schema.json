@@ -1,0 +1,132 @@
+{
+  "$defs": {
+    "ReviewChecklist": {
+      "additionalProperties": false,
+      "properties": {
+        "assumptions_explicit": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Assumptions Explicit",
+          "type": "string"
+        },
+        "bindings_justified": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Bindings Justified",
+          "type": "string"
+        },
+        "claim_shape_matches_controlled_form": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Claim Shape Matches Controlled Form",
+          "type": "string"
+        },
+        "controlled_form_matches_intent": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Controlled Form Matches Intent",
+          "type": "string"
+        },
+        "evidence_level_appropriate": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Evidence Level Appropriate",
+          "type": "string"
+        },
+        "source_spans_present": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Source Spans Present",
+          "type": "string"
+        },
+        "unsupported_claims_hidden": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Unsupported Claims Hidden",
+          "type": "string"
+        }
+      },
+      "required": [
+        "controlled_form_matches_intent",
+        "claim_shape_matches_controlled_form",
+        "source_spans_present",
+        "assumptions_explicit",
+        "bindings_justified",
+        "evidence_level_appropriate",
+        "unsupported_claims_hidden"
+      ],
+      "title": "ReviewChecklist",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "checklist": {
+      "$ref": "#/$defs/ReviewChecklist"
+    },
+    "decision": {
+      "enum": [
+        "approved",
+        "needs_review",
+        "rejected"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "review_id": {
+      "title": "Review Id",
+      "type": "string"
+    },
+    "reviewed_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Reviewed Hashes",
+      "type": "object"
+    },
+    "reviewer": {
+      "title": "Reviewer",
+      "type": "string"
+    },
+    "self_audit": {
+      "default": false,
+      "title": "Self Audit",
+      "type": "boolean"
+    },
+    "timestamp": {
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "required": [
+    "review_id",
+    "reviewer",
+    "decision",
+    "reviewed_hashes",
+    "checklist",
+    "timestamp"
+  ],
+  "title": "ReviewArtifact",
+  "type": "object"
+}

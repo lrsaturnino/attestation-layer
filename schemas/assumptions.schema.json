@@ -1,0 +1,10 @@
+{
+  "items": {
+    "additionalProperties": {
+      "type": "string"
+    },
+    "type": "object"
+  },
+  "title": "AssumptionsArtifact",
+  "type": "array"
+}

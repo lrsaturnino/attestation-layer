@@ -3,7 +3,7 @@ from __future__ import annotations
 from enum import Enum
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 
 SUPPORTED_IR_VERSION = "0.1"
@@ -142,6 +142,14 @@ class SymbolBinding(BaseModel):
     confidence: Literal["generic_symbol_table", "manual_override", "adapter_resolved", "llm_suggested"]
 
 
+class BindingsArtifact(RootModel[dict[str, SymbolBinding]]):
+    pass
+
+
+class AssumptionsArtifact(RootModel[list[dict[str, str]]]):
+    pass
+
+
 class RequirementIR(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -207,6 +215,34 @@ class VerificationTask(BaseModel):
     description: str
     input_hash: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class VerificationTasksArtifact(RootModel[list[VerificationTask]]):
+    pass
+
+
+class ReviewChecklist(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    controlled_form_matches_intent: Literal["pass", "fail", "n/a"]
+    claim_shape_matches_controlled_form: Literal["pass", "fail", "n/a"]
+    source_spans_present: Literal["pass", "fail", "n/a"]
+    assumptions_explicit: Literal["pass", "fail", "n/a"]
+    bindings_justified: Literal["pass", "fail", "n/a"]
+    evidence_level_appropriate: Literal["pass", "fail", "n/a"]
+    unsupported_claims_hidden: Literal["pass", "fail", "n/a"]
+
+
+class ReviewArtifact(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    review_id: str
+    reviewer: str
+    decision: Literal["approved", "needs_review", "rejected"]
+    self_audit: bool = False
+    reviewed_hashes: dict[str, str]
+    checklist: ReviewChecklist
+    timestamp: str
 
 
 class BackendResult(BaseModel):

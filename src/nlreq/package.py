@@ -5,7 +5,14 @@ from pathlib import Path
 from .adapter import GenericAdapter, default_generic_adapter
 from .bindings import bind_ir
 from .jsonutil import canonical_json, sha256_json, write_json
-from .models import Approval, RequirementIR, SourceSpan
+from .models import (
+    AssumptionsArtifact,
+    BindingsArtifact,
+    RequirementIR,
+    ReviewArtifact,
+    SourceSpan,
+    VerificationTasksArtifact,
+)
 from .parser import RequirementParser
 from .smt import evidence_for_ir, smt2_for_ir
 from .status import decide_status
@@ -59,6 +66,12 @@ def build_package(
 
 def validate_package(package_dir: Path) -> tuple[RequirementIR, object, object]:
     ir = RequirementIR.model_validate_json((package_dir / "requirement.ir.json").read_text())
+    BindingsArtifact.model_validate_json((package_dir / "bindings.json").read_text())
+    AssumptionsArtifact.model_validate_json((package_dir / "assumptions.json").read_text())
+    ReviewArtifact.model_validate_json((package_dir / "review.json").read_text())
+    VerificationTasksArtifact.model_validate_json(
+        (package_dir / "verification-tasks.json").read_text()
+    )
     from .models import EvidenceObject, StatusDecision
 
     evidence = EvidenceObject.model_validate_json((package_dir / "evidence.json").read_text())
