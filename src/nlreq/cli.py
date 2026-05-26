@@ -11,6 +11,7 @@ from .jsonutil import canonical_json, to_jsonable
 from .models import EvidenceObject, RequirementIR, StatusDecision, SymbolRef
 from .package import build_package, validate_package
 from .parser import RequirementParser
+from .python_package import build_python_package, validate_python_package
 from .status import decide_status
 from .adapter import default_generic_adapter
 from .conformance import AdapterConformanceFixture, assert_adapter_conforms
@@ -63,6 +64,28 @@ def main(argv: list[str] | None = None) -> int:
     python_conformance_cmd.add_argument("--unresolved-ref", default="definitely_missing_symbol")
     python_conformance_cmd.add_argument("--ambiguous-ref", default="duplicate_symbol")
     python_conformance_cmd.add_argument("--ambiguous-type", default="action")
+
+    python_package_cmd = subcommands.add_parser(
+        "python-package", help="Build a Python-adapter requirement package."
+    )
+    python_package_cmd.add_argument("file", type=Path)
+    python_package_cmd.add_argument("--out", type=Path, required=True)
+    python_package_cmd.add_argument("--requirement-id", required=True)
+    python_package_cmd.add_argument("--title", required=True)
+    python_package_cmd.add_argument("--claim-kind", required=True)
+    python_package_cmd.add_argument("--package-root", type=Path, required=True)
+    python_package_cmd.add_argument("--package-name")
+    python_package_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    python_package_cmd.add_argument("--test-path", action="append", type=Path, default=[])
+
+    python_validate_cmd = subcommands.add_parser(
+        "python-validate", help="Validate a Python-adapter requirement package."
+    )
+    python_validate_cmd.add_argument("package_dir", type=Path)
+    python_validate_cmd.add_argument("--package-root", type=Path, required=True)
+    python_validate_cmd.add_argument("--package-name")
+    python_validate_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    python_validate_cmd.add_argument("--test-path", action="append", type=Path, default=[])
 
     args = parser.parse_args(argv)
 
@@ -142,6 +165,33 @@ def main(argv: list[str] | None = None) -> int:
             print("Conformance: passed")
             for check in report.checks:
                 print(f"  - {check}")
+            return 0
+        if args.command == "python-package":
+            adapter = PythonPackageAdapter(
+                args.package_root,
+                package_name=args.package_name or args.package_root.name,
+                project_root=args.project_root,
+                test_paths=args.test_path,
+            )
+            build_python_package(
+                controlled_text=args.file.read_text(),
+                output_dir=args.out,
+                requirement_id=args.requirement_id,
+                title=args.title,
+                claim_kind=args.claim_kind,
+                adapter=adapter,
+            )
+            print(f"Package: {args.out}")
+            return 0
+        if args.command == "python-validate":
+            adapter = PythonPackageAdapter(
+                args.package_root,
+                package_name=args.package_name or args.package_root.name,
+                project_root=args.project_root,
+                test_paths=args.test_path,
+            )
+            ir, evidence, status = validate_python_package(args.package_dir, adapter)
+            _print_package_validation(ir, evidence, status)
             return 0
     except (OSError, ValidationError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)

@@ -5,6 +5,7 @@ from pathlib import Path
 
 from nlreq.models import (
     AssumptionsArtifact,
+    BackendResultsArtifact,
     BindingsArtifact,
     EvidenceObject,
     RequirementIR,
@@ -17,6 +18,7 @@ from nlreq.models import (
 SCHEMAS = {
     "requirement-ir-0.1.schema.json": RequirementIR,
     "assumptions.schema.json": AssumptionsArtifact,
+    "backend-results.schema.json": BackendResultsArtifact,
     "bindings.schema.json": BindingsArtifact,
     "evidence.schema.json": EvidenceObject,
     "review.schema.json": ReviewArtifact,

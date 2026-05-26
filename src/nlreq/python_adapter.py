@@ -224,7 +224,11 @@ class PythonPackageAdapter(Adapter):
                 backend=self.adapter_id,
                 status="invalid",
                 evidence_level=EvidenceLevel.TYPE_CHECKED,
-                details={"task_id": task.id, "reason": "bindings payload must be a list"},
+                details={
+                    "task_id": task.id,
+                    "task_input_hash": task.input_hash,
+                    "reason": "bindings payload must be a list",
+                },
             )
         for raw in bindings:
             if not isinstance(raw, dict):
@@ -249,6 +253,7 @@ class PythonPackageAdapter(Adapter):
             evidence_level=EvidenceLevel.TYPE_CHECKED,
             details={
                 "task_id": task.id,
+                "task_input_hash": task.input_hash,
                 "validated_bindings": len(bindings) - len(invalid),
                 "invalid_bindings": invalid,
             },
@@ -261,7 +266,11 @@ class PythonPackageAdapter(Adapter):
                 backend="pytest",
                 status="invalid",
                 evidence_level=EvidenceLevel.TEST_VALIDATED,
-                details={"task_id": task.id, "reason": "paths payload must be a list of strings"},
+                details={
+                    "task_id": task.id,
+                    "task_input_hash": task.input_hash,
+                    "reason": "paths payload must be a list of strings",
+                },
             )
         completed = subprocess.run(
             [sys.executable, "-m", "pytest", *paths],
@@ -276,6 +285,7 @@ class PythonPackageAdapter(Adapter):
             evidence_level=EvidenceLevel.TEST_VALIDATED,
             details={
                 "task_id": task.id,
+                "task_input_hash": task.input_hash,
                 "returncode": completed.returncode,
                 "stdout_tail": completed.stdout[-4000:],
                 "stderr_tail": completed.stderr[-4000:],

@@ -88,6 +88,26 @@ Run adapter conformance against the Phase 1 Python package adapter:
 uv run nlreq python-conformance tests/fixtures/adapters/pythonpkg/samplepkg --package-name samplepkg
 ```
 
+Build and validate a Python-adapter evidence package:
+
+```bash
+uv run nlreq python-package tests/fixtures/requirements/python_operation_success.nlreq \
+  --out /tmp/REQ-PY-001 \
+  --requirement-id REQ-PY-001 \
+  --title "Python operation succeeds for approved actor" \
+  --claim-kind state_precondition \
+  --package-root tests/fixtures/adapters/pythonpkg/samplepkg \
+  --package-name samplepkg \
+  --project-root . \
+  --test-path tests/fixtures/adapters/pythonpkg
+
+uv run nlreq python-validate /tmp/REQ-PY-001 \
+  --package-root tests/fixtures/adapters/pythonpkg/samplepkg \
+  --package-name samplepkg \
+  --project-root . \
+  --test-path tests/fixtures/adapters/pythonpkg
+```
+
 Expected validation output:
 
 ```text
@@ -104,6 +124,8 @@ Example packages live under `requirements/`.
 The Phase 0 completion record is in [docs/phase-0-completion.md](./docs/phase-0-completion.md).
 The Phase 1 Python adapter slice is described in
 [docs/phase-1-python-adapter.md](./docs/phase-1-python-adapter.md).
+The Phase 2 Python evidence package slice is described in
+[docs/phase-2-python-evidence.md](./docs/phase-2-python-evidence.md).
 
 ## License
 

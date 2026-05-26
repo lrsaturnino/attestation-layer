@@ -254,6 +254,10 @@ class BackendResult(BaseModel):
     details: dict[str, Any] = Field(default_factory=dict)
 
 
+class BackendResultsArtifact(RootModel[list[BackendResult]]):
+    pass
+
+
 class EvidenceClaim(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
