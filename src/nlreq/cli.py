@@ -6,6 +6,15 @@ from pathlib import Path
 
 from pydantic import ValidationError
 
+from .agent_workflow import (
+    agent_pr_comment_markdown,
+    append_agent_audit_entry,
+    build_agent_audit_entry,
+    build_agent_implementation_task,
+    build_agent_verifier_handoff,
+    load_continuous_run,
+    package_input_refs,
+)
 from .adoption import (
     build_ci_report,
     build_package_index,
@@ -25,7 +34,7 @@ from .gate import (
     load_gate_policy,
     load_gate_waivers,
 )
-from .jsonutil import canonical_json
+from .jsonutil import canonical_json, read_json
 from .models import EvidenceObject, RequirementIR, StatusDecision, SymbolRef
 from .openapi_adapter import OpenApiAdapter
 from .openapi_package import build_openapi_package, validate_openapi_package
@@ -231,6 +240,65 @@ def main(argv: list[str] | None = None) -> int:
     continuous_cmd.add_argument("--out", type=Path)
     continuous_cmd.add_argument("--markdown-out", type=Path)
     _add_adapter_validation_options(continuous_cmd)
+
+    agent_task_cmd = subcommands.add_parser(
+        "agent-task",
+        help="Build a Phase 9 implementation task payload for coder agents.",
+    )
+    agent_task_cmd.add_argument("packages_dir", nargs="?", type=Path, default=Path("requirements"))
+    agent_task_cmd.add_argument("--requirement-id", action="append", default=[])
+    agent_task_cmd.add_argument("--references-file", action="append", type=Path, default=[])
+    agent_task_cmd.add_argument("--workflow-id")
+    agent_task_cmd.add_argument("--step-id")
+    agent_task_cmd.add_argument("--allowed-path", action="append", default=[])
+    agent_task_cmd.add_argument("--reviewer-constraint", action="append", default=[])
+    agent_task_cmd.add_argument("--out", type=Path)
+    _add_adapter_validation_options(agent_task_cmd)
+
+    agent_verify_cmd = subcommands.add_parser(
+        "agent-verify",
+        help="Build a Phase 9 verifier handoff and retry payloads.",
+    )
+    agent_verify_cmd.add_argument("packages_dir", nargs="?", type=Path, default=Path("requirements"))
+    agent_verify_cmd.add_argument("--requirement-id", action="append", default=[])
+    agent_verify_cmd.add_argument("--references-file", action="append", type=Path, default=[])
+    agent_verify_cmd.add_argument("--workflow-id")
+    agent_verify_cmd.add_argument("--step-id")
+    agent_verify_cmd.add_argument("--policy", type=Path)
+    agent_verify_cmd.add_argument("--waiver", action="append", type=Path, default=[])
+    agent_verify_cmd.add_argument("--changed-path", action="append", default=[])
+    agent_verify_cmd.add_argument("--changed-paths-file", action="append", type=Path, default=[])
+    agent_verify_cmd.add_argument("--continuous-run", type=Path)
+    agent_verify_cmd.add_argument("--out", type=Path)
+    agent_verify_cmd.add_argument("--markdown-out", type=Path)
+    _add_adapter_validation_options(agent_verify_cmd)
+
+    agent_comment_cmd = subcommands.add_parser(
+        "agent-pr-comment",
+        help="Render a Phase 9 verifier handoff as PR Markdown.",
+    )
+    agent_comment_cmd.add_argument("handoff", type=Path)
+    agent_comment_cmd.add_argument("--out", type=Path)
+
+    agent_audit_cmd = subcommands.add_parser(
+        "agent-audit",
+        help="Append a Phase 9 agent audit log entry.",
+    )
+    agent_audit_cmd.add_argument("--log", type=Path, required=True)
+    agent_audit_cmd.add_argument("--workflow-id", required=True)
+    agent_audit_cmd.add_argument("--step-id", required=True)
+    agent_audit_cmd.add_argument(
+        "--agent-role",
+        choices=["specifier", "coder", "verifier", "reviewer"],
+        required=True,
+    )
+    agent_audit_cmd.add_argument("--tool", required=True)
+    agent_audit_cmd.add_argument("--input-package", action="append", type=Path, default=[])
+    agent_audit_cmd.add_argument("--output-artifact", action="append", type=Path, default=[])
+    agent_audit_cmd.add_argument("--git-ref")
+    agent_audit_cmd.add_argument("--decision-status")
+    agent_audit_cmd.add_argument("--decision-summary")
+    agent_audit_cmd.add_argument("--human-approval", action="append", default=[])
 
     review_template_cmd = subcommands.add_parser(
         "review-template", help="Render the human review checklist template."
@@ -505,6 +573,90 @@ def main(argv: list[str] | None = None) -> int:
                 wrote_output = True
             if not wrote_output:
                 print(canonical_json(report), end="")
+            return 0
+        if args.command == "agent-task":
+            requirement_ids = _requirement_ids_from_args(args)
+            task = build_agent_implementation_task(
+                args.packages_dir,
+                requirement_ids=requirement_ids,
+                workflow_id=args.workflow_id,
+                step_id=args.step_id,
+                allowed_paths=args.allowed_path,
+                reviewer_constraints=args.reviewer_constraint,
+                python_adapter=_optional_python_adapter(args),
+                openapi_adapter=_optional_openapi_adapter(args),
+            )
+            if args.out:
+                from .jsonutil import write_json
+
+                write_json(args.out, task)
+                print(f"Agent implementation task: {args.out}")
+            else:
+                print(canonical_json(task), end="")
+            return 0
+        if args.command == "agent-verify":
+            requirement_ids = _requirement_ids_from_args(args)
+            handoff = build_agent_verifier_handoff(
+                args.packages_dir,
+                requirement_ids=requirement_ids,
+                workflow_id=args.workflow_id,
+                step_id=args.step_id,
+                python_adapter=_optional_python_adapter(args),
+                openapi_adapter=_optional_openapi_adapter(args),
+                hard_gate_policy=load_gate_policy(args.policy) if args.policy else None,
+                hard_gate_waivers=load_gate_waivers(args.waiver) if args.policy else [],
+                changed_paths=_changed_paths_from_args(args),
+                continuous_run=load_continuous_run(args.continuous_run),
+            )
+            wrote_output = False
+            if args.out:
+                from .jsonutil import write_json
+
+                write_json(args.out, handoff)
+                print(f"Agent verifier handoff: {args.out}")
+                wrote_output = True
+            if args.markdown_out:
+                args.markdown_out.parent.mkdir(parents=True, exist_ok=True)
+                args.markdown_out.write_text(agent_pr_comment_markdown(handoff))
+                print(f"Agent verifier markdown: {args.markdown_out}")
+                wrote_output = True
+            if not wrote_output:
+                print(canonical_json(handoff), end="")
+            return 0
+        if args.command == "agent-pr-comment":
+            handoff = read_json(args.handoff)
+            markdown = agent_pr_comment_markdown(handoff)
+            if args.out:
+                args.out.parent.mkdir(parents=True, exist_ok=True)
+                args.out.write_text(markdown)
+                print(f"Agent PR comment: {args.out}")
+            else:
+                print(markdown, end="")
+            return 0
+        if args.command == "agent-audit":
+            entry = build_agent_audit_entry(
+                workflow_id=args.workflow_id,
+                step_id=args.step_id,
+                agent_role=args.agent_role,
+                tool=args.tool,
+                input_packages=package_input_refs(args.input_package),
+                output_artifact_paths=args.output_artifact,
+                git_ref=args.git_ref,
+                decision={
+                    key: value
+                    for key, value in {
+                        "status": args.decision_status,
+                        "summary": args.decision_summary,
+                    }.items()
+                    if value is not None
+                },
+                human_approvals=[
+                    {"approval": approval} for approval in args.human_approval
+                ],
+            )
+            entries = append_agent_audit_entry(args.log, entry)
+            print(f"Agent audit log: {args.log}")
+            print(f"Entries: {len(entries)}")
             return 0
         if args.command == "review-template":
             template = review_checklist_template(args.requirement_id)

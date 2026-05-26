@@ -194,6 +194,20 @@ uv run nlreq continuous-attestation requirements \
   --markdown-out /tmp/nlreq-continuous.md
 ```
 
+Build a Phase 9 agent verifier handoff:
+
+```bash
+uv run nlreq agent-task requirements \
+  --requirement-id REQ-AUTH-001 \
+  --allowed-path src/auth.py \
+  --out /tmp/nlreq-agent-task.json
+
+uv run nlreq agent-verify requirements \
+  --requirement-id REQ-AUTH-001 \
+  --out /tmp/nlreq-agent-handoff.json \
+  --markdown-out /tmp/nlreq-agent-handoff.md
+```
+
 Expected validation output:
 
 ```text
@@ -217,7 +231,7 @@ The Phase 3 adoption workflow slice is described in
 The Phase 4 soft gate pilot is described in
 [docs/phase-4-soft-gate-pilot.md](./docs/phase-4-soft-gate-pilot.md).
 The formal roadmap in [docs/build-plan.md](./docs/build-plan.md) now extends
-through Phase 9; phases after Phase 8 are planned, not completed.
+through Phase 9.
 The Phase 5 hard gate is described in
 [docs/phase-5-hard-gate.md](./docs/phase-5-hard-gate.md).
 The Phase 6 stronger evidence backend slice is described in
@@ -226,6 +240,8 @@ The Phase 7 OpenAPI adapter expansion is described in
 [docs/phase-7-openapi-adapter.md](./docs/phase-7-openapi-adapter.md).
 The Phase 8 continuous attestation slice is described in
 [docs/phase-8-continuous-attestation.md](./docs/phase-8-continuous-attestation.md).
+The Phase 9 agent workflow integration slice is described in
+[docs/phase-9-agent-workflow.md](./docs/phase-9-agent-workflow.md).
 
 Adoption references:
 

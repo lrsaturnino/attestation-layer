@@ -42,6 +42,23 @@ The `continuous-attestation` command emits a JSON object with:
 Continuous run artifacts are time-indexed reports. They reference requirement
 packages but do not rewrite reviewed package artifacts.
 
+## Agent Workflow Artifacts
+
+Phase 9 adds agent workflow artifacts:
+
+- `agent_implementation_task`: task payload for coder agents, including
+  requirement ids, package hashes, status, review state, required evidence,
+  assumptions, allowed paths, reviewer constraints, and blockers.
+- `agent_verifier_handoff`: verification summary for reviewers and coder retry,
+  including package summaries, gate reports, continuous-attestation summaries,
+  findings, retry payloads, and review focus.
+- `agent_audit_entry`: append-only provenance entry for one workflow step,
+  including agent role, tool invocation, input package hashes, output artifact
+  hashes, git ref, decision summary, timestamp, and human approval references.
+
+Agent workflow artifacts are orchestration artifacts. They do not satisfy
+evidence levels by themselves.
+
 ## Normalized Trace Artifact
 
 Normalized traces use the existing `NormalizedTraceArtifact` schema. A trace
@@ -73,6 +90,7 @@ Allowed redaction status values for a clean Phase 8 run are `redacted` and
 | Core SMT backend | `SMT_CHECKED` |
 | Scoped pytest or generated property runs | `TEST_VALIDATED` |
 | Normalized traces | None by default in Phase 8 |
+| Agent audit entries | None |
 
 Trace artifacts are ingested and reported in Phase 8, but they do not satisfy
 `TRACE_VALIDATED` until an adapter-specific trace validator defines and executes

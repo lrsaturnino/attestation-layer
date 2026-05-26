@@ -1185,6 +1185,8 @@ Goal: integrate the Attestation Layer into an agent-driven implementation loop
 where humans review specifications and exceptions, not raw code diffs by
 default.
 
+Design anchor: `docs/adr/0011-phase-9-agent-workflow-integration.md`.
+
 Deliverables:
 
 - specifier-agent prompt and package-generation workflow,

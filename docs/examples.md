@@ -68,6 +68,20 @@ uv run nlreq continuous-attestation requirements \
   --markdown-out /tmp/nlreq-continuous.md
 ```
 
+Build an agent implementation task and verifier handoff:
+
+```bash
+uv run nlreq agent-task requirements \
+  --requirement-id REQ-AUTH-001 \
+  --allowed-path src/auth.py \
+  --out /tmp/nlreq-agent-task.json
+
+uv run nlreq agent-verify requirements \
+  --requirement-id REQ-AUTH-001 \
+  --out /tmp/nlreq-agent-handoff.json \
+  --markdown-out /tmp/nlreq-agent-handoff.md
+```
+
 Build a Python package with generated property evidence:
 
 ```bash
