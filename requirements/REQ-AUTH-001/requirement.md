@@ -1,0 +1,6 @@
+# REQ-AUTH-001
+
+For every operation request:
+if actor is not authorized
+then operation must be rejected before state_change.
+

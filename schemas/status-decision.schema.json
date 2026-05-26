@@ -1,0 +1,83 @@
+{
+  "$defs": {
+    "FinalStatus": {
+      "enum": [
+        "ACCEPTED_WITH_EVIDENCE",
+        "ACCEPTED_FOR_IMPLEMENTATION_WITH_REVIEW",
+        "REFUSED_AMBIGUOUS",
+        "REFUSED_UNBOUND_SYMBOLS",
+        "REFUSED_UNSUPPORTED_CLAIM",
+        "REFUSED_FAILED_CHECK",
+        "REFUSED_TIMEOUT",
+        "NEEDS_SPEC_COVERAGE"
+      ],
+      "title": "FinalStatus",
+      "type": "string"
+    },
+    "SourceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "title": "Document",
+          "type": "string"
+        },
+        "end_char": {
+          "minimum": 0,
+          "title": "End Char",
+          "type": "integer"
+        },
+        "start_char": {
+          "minimum": 0,
+          "title": "Start Char",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "start_char",
+        "end_char",
+        "text"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "next_actions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Next Actions",
+      "type": "array"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    },
+    "source_span": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SourceSpan"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "status": {
+      "$ref": "#/$defs/FinalStatus"
+    }
+  },
+  "required": [
+    "status",
+    "reason"
+  ],
+  "title": "StatusDecision",
+  "type": "object"
+}

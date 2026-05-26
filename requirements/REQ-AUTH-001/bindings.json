@@ -1,0 +1,20 @@
+{
+  "actor": {
+    "adapter": "generic",
+    "confidence": "generic_symbol_table",
+    "symbol": "actor",
+    "symbol_type": "principal"
+  },
+  "operation": {
+    "adapter": "generic",
+    "confidence": "generic_symbol_table",
+    "symbol": "operation",
+    "symbol_type": "action"
+  },
+  "state_change": {
+    "adapter": "generic",
+    "confidence": "generic_symbol_table",
+    "symbol": "state_change",
+    "symbol_type": "state_transition"
+  }
+}

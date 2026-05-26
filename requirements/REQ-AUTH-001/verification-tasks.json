@@ -1,0 +1,11 @@
+[
+  {
+    "backend": "core_smt",
+    "description": "SMT consistency and supported-claim check for REQ-AUTH-001.",
+    "id": "C1",
+    "payload": {
+      "claim_kind": "authorization_precondition",
+      "requirement_id": "REQ-AUTH-001"
+    }
+  }
+]

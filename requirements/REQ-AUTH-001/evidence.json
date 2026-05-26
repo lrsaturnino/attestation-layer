@@ -1,0 +1,45 @@
+{
+  "ambiguous": false,
+  "claims": [
+    {
+      "achieved_evidence": "CONSISTENCY_CHECKED",
+      "backend_results": [
+        {
+          "backend": "core_smt",
+          "details": {
+            "solver_result": "sat"
+          },
+          "evidence_level": "CONSISTENCY_CHECKED",
+          "status": "valid"
+        }
+      ],
+      "description": "Supported claims are internally consistent.",
+      "id": "C-consistency",
+      "required_evidence": "CONSISTENCY_CHECKED"
+    },
+    {
+      "achieved_evidence": "SMT_CHECKED",
+      "backend_results": [
+        {
+          "backend": "core_smt",
+          "details": {
+            "checked": "supported_phase_0_claim_shape"
+          },
+          "evidence_level": "SMT_CHECKED",
+          "status": "valid"
+        }
+      ],
+      "description": "Supported claim shape is SMT-checked under declared assumptions.",
+      "id": "C-smt",
+      "required_evidence": "SMT_CHECKED"
+    }
+  ],
+  "failed_checks": [],
+  "ir_hash": "sha256:528bb373bc6214046ca0896269bc26c59918f994a66c8e761716f5b5bfba6036",
+  "needs_spec_coverage": false,
+  "pending_reviews": [],
+  "requirement_id": "REQ-AUTH-001",
+  "timeouts": [],
+  "unbound_symbols": [],
+  "unsupported_claims": []
+}

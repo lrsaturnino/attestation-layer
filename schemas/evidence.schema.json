@@ -1,0 +1,179 @@
+{
+  "$defs": {
+    "BackendResult": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "title": "Backend",
+          "type": "string"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "evidence_level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "enum": [
+            "valid",
+            "invalid",
+            "counterexample",
+            "timeout",
+            "unsupported",
+            "needs_review"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "backend",
+        "status"
+      ],
+      "title": "BackendResult",
+      "type": "object"
+    },
+    "EvidenceClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "achieved_evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "backend_results": {
+          "items": {
+            "$ref": "#/$defs/BackendResult"
+          },
+          "title": "Backend Results",
+          "type": "array"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "required_evidence": {
+          "$ref": "#/$defs/EvidenceLevel"
+        }
+      },
+      "required": [
+        "id",
+        "description",
+        "required_evidence"
+      ],
+      "title": "EvidenceClaim",
+      "type": "object"
+    },
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "ambiguous": {
+      "default": false,
+      "title": "Ambiguous",
+      "type": "boolean"
+    },
+    "claims": {
+      "items": {
+        "$ref": "#/$defs/EvidenceClaim"
+      },
+      "title": "Claims",
+      "type": "array"
+    },
+    "failed_checks": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Failed Checks",
+      "type": "array"
+    },
+    "ir_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Ir Hash"
+    },
+    "needs_spec_coverage": {
+      "default": false,
+      "title": "Needs Spec Coverage",
+      "type": "boolean"
+    },
+    "pending_reviews": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Pending Reviews",
+      "type": "array"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "timeouts": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Timeouts",
+      "type": "array"
+    },
+    "unbound_symbols": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unbound Symbols",
+      "type": "array"
+    },
+    "unsupported_claims": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unsupported Claims",
+      "type": "array"
+    }
+  },
+  "required": [
+    "requirement_id"
+  ],
+  "title": "EvidenceObject",
+  "type": "object"
+}

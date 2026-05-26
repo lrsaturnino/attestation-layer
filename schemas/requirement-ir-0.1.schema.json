@@ -1,0 +1,416 @@
+{
+  "$defs": {
+    "Approval": {
+      "additionalProperties": false,
+      "properties": {
+        "approved_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved At"
+        },
+        "approved_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved By"
+        },
+        "self_audit": {
+          "default": false,
+          "title": "Self Audit",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "approved",
+            "needs_review",
+            "rejected"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Approval",
+      "type": "object"
+    },
+    "Claim": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "title": "Action",
+          "type": "string"
+        },
+        "condition": {
+          "items": {
+            "$ref": "#/$defs/Predicate"
+          },
+          "title": "Condition",
+          "type": "array"
+        },
+        "expected": {
+          "$ref": "#/$defs/ExpectedResult"
+        },
+        "forall": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "title": "Forall",
+          "type": "array"
+        },
+        "kind": {
+          "enum": [
+            "authorization_precondition",
+            "state_precondition",
+            "state_postcondition",
+            "numeric_invariant",
+            "event_state_correspondence",
+            "bounded_temporal"
+          ],
+          "title": "Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "action",
+        "forall",
+        "condition",
+        "expected"
+      ],
+      "title": "Claim",
+      "type": "object"
+    },
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    },
+    "ExpectedResult": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "rejected",
+            "rejected_before",
+            "succeed",
+            "emit",
+            "set",
+            "not_change",
+            "increase",
+            "decrease"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "source_span": {
+          "$ref": "#/$defs/SourceSpan"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ValueRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "kind",
+        "source_span"
+      ],
+      "title": "ExpectedResult",
+      "type": "object"
+    },
+    "Predicate": {
+      "additionalProperties": false,
+      "properties": {
+        "args": {
+          "items": {
+            "$ref": "#/$defs/ValueRef"
+          },
+          "title": "Args",
+          "type": "array"
+        },
+        "op": {
+          "enum": [
+            "eq",
+            "neq",
+            "authorized",
+            "not_authorized",
+            "approved",
+            "not_approved",
+            "gt",
+            "lt",
+            "gte",
+            "lte",
+            "in"
+          ],
+          "title": "Op",
+          "type": "string"
+        },
+        "source_span": {
+          "$ref": "#/$defs/SourceSpan"
+        }
+      },
+      "required": [
+        "op",
+        "args",
+        "source_span"
+      ],
+      "title": "Predicate",
+      "type": "object"
+    },
+    "RequiredEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_path": {
+          "title": "Claim Path",
+          "type": "string"
+        },
+        "minimum_level": {
+          "$ref": "#/$defs/EvidenceLevel"
+        }
+      },
+      "required": [
+        "claim_path",
+        "minimum_level"
+      ],
+      "title": "RequiredEvidence",
+      "type": "object"
+    },
+    "RequirementSource": {
+      "additionalProperties": false,
+      "properties": {
+        "controlled_text": {
+          "title": "Controlled Text",
+          "type": "string"
+        },
+        "controlled_text_approval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Approval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "original_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Original Text"
+        }
+      },
+      "required": [
+        "controlled_text"
+      ],
+      "title": "RequirementSource",
+      "type": "object"
+    },
+    "SourceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "title": "Document",
+          "type": "string"
+        },
+        "end_char": {
+          "minimum": 0,
+          "title": "End Char",
+          "type": "integer"
+        },
+        "start_char": {
+          "minimum": 0,
+          "title": "Start Char",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "start_char",
+        "end_char",
+        "text"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    },
+    "SymbolBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "title": "Adapter",
+          "type": "string"
+        },
+        "confidence": {
+          "enum": [
+            "generic_symbol_table",
+            "manual_override",
+            "adapter_resolved",
+            "llm_suggested"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "symbol": {
+          "title": "Symbol",
+          "type": "string"
+        },
+        "symbol_type": {
+          "title": "Symbol Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "adapter",
+        "symbol",
+        "symbol_type",
+        "confidence"
+      ],
+      "title": "SymbolBinding",
+      "type": "object"
+    },
+    "ValueRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "identifier",
+            "number",
+            "string"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "ValueRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "assumptions": {
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "bindings": {
+      "additionalProperties": {
+        "$ref": "#/$defs/SymbolBinding"
+      },
+      "title": "Bindings",
+      "type": "object"
+    },
+    "claim": {
+      "$ref": "#/$defs/Claim"
+    },
+    "ir_version": {
+      "default": "0.1",
+      "title": "Ir Version",
+      "type": "string"
+    },
+    "required_evidence": {
+      "items": {
+        "$ref": "#/$defs/RequiredEvidence"
+      },
+      "title": "Required Evidence",
+      "type": "array"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "source": {
+      "$ref": "#/$defs/RequirementSource"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "title",
+    "source",
+    "claim"
+  ],
+  "title": "RequirementIR",
+  "type": "object"
+}

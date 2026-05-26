@@ -1,0 +1,106 @@
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+
+from pydantic import ValidationError
+
+from .jsonutil import canonical_json, to_jsonable
+from .models import EvidenceObject, RequirementIR
+from .package import build_package, validate_package
+from .parser import RequirementParser
+from .status import decide_status
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(prog="nlreq")
+    subcommands = parser.add_subparsers(dest="command", required=True)
+
+    parse_cmd = subcommands.add_parser("parse", help="Parse controlled language to AST JSON.")
+    parse_cmd.add_argument("file", type=Path)
+
+    ir_cmd = subcommands.add_parser("ir", help="Parse controlled language to IR JSON.")
+    ir_cmd.add_argument("file", type=Path)
+    ir_cmd.add_argument("--requirement-id", required=True)
+    ir_cmd.add_argument("--title", required=True)
+    ir_cmd.add_argument("--claim-kind", required=True)
+
+    package_cmd = subcommands.add_parser("package", help="Build a Phase 0 requirement package.")
+    package_cmd.add_argument("file", type=Path)
+    package_cmd.add_argument("--out", type=Path, required=True)
+    package_cmd.add_argument("--requirement-id", required=True)
+    package_cmd.add_argument("--title", required=True)
+    package_cmd.add_argument("--claim-kind", required=True)
+
+    validate_ir_cmd = subcommands.add_parser("validate-ir", help="Validate IR JSON.")
+    validate_ir_cmd.add_argument("file", type=Path)
+
+    validate_cmd = subcommands.add_parser("validate", help="Validate a package directory.")
+    validate_cmd.add_argument("package_dir", type=Path)
+
+    status_cmd = subcommands.add_parser("decide-status", help="Compute status from evidence JSON.")
+    status_cmd.add_argument("file", type=Path)
+
+    args = parser.parse_args(argv)
+
+    try:
+        if args.command == "parse":
+            print(canonical_json(RequirementParser().parse(args.file.read_text())))
+            return 0
+        if args.command == "ir":
+            ir = RequirementParser().parse_ir(
+                args.file.read_text(),
+                requirement_id=args.requirement_id,
+                title=args.title,
+                claim_kind=args.claim_kind,
+            )
+            print(canonical_json(ir))
+            return 0
+        if args.command == "package":
+            build_package(
+                controlled_text=args.file.read_text(),
+                output_dir=args.out,
+                requirement_id=args.requirement_id,
+                title=args.title,
+                claim_kind=args.claim_kind,
+            )
+            print(f"Package: {args.out}")
+            return 0
+        if args.command == "validate-ir":
+            RequirementIR.model_validate_json(args.file.read_text())
+            print("IR: valid")
+            return 0
+        if args.command == "validate":
+            ir, evidence, status = validate_package(args.package_dir)
+            print(f"Requirement: {ir.requirement_id}")
+            print("IR: valid")
+            print("Bindings: valid" if not evidence.unbound_symbols else "Bindings: invalid")
+            print(_line_for_evidence(evidence, "C-consistency", "Consistency"))
+            print(_line_for_evidence(evidence, "C-smt", "SMT"))
+            print(f"Status: {status.status.value}")
+            if status.next_actions:
+                print("Next:")
+                for action in status.next_actions:
+                    print(f"  - {action}")
+            return 0
+        if args.command == "decide-status":
+            evidence = EvidenceObject.model_validate_json(args.file.read_text())
+            print(canonical_json(decide_status(evidence)))
+            return 0
+    except (OSError, ValidationError, ValueError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 1
+    return 1
+
+
+def _line_for_evidence(evidence: EvidenceObject, claim_id: str, label: str) -> str:
+    for claim in evidence.claims:
+        if claim.id == claim_id:
+            return f"{label}: {'checked' if claim.achieved_evidence else 'missing'}"
+    return f"{label}: missing"
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

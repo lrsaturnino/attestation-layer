@@ -1,0 +1,51 @@
+start: requirement
+
+requirement: "For" "every" entity ":" NEWLINE condition_block "then" name "must" expected_result "."? NEWLINE*
+
+condition_block: "if" condition NEWLINE ("and" condition NEWLINE)*
+
+condition: auth_condition
+         | negated_equality
+         | approved
+         | comparison
+         | membership
+         | equality
+
+auth_condition: value "is" "not" "authorized"
+approved: value "is" ["not"] "approved"
+negated_equality: value "is" "not" value
+comparison: value comparator value
+membership: value "is" "in" value
+equality: value ("is" | "equals") value
+
+expected_result: "be" "rejected" "before" name  -> rejected_before
+               | "be" "rejected"                -> rejected
+               | "succeed"                      -> succeed
+               | "emit" name                    -> emit
+               | "set" name "to" value          -> set_value
+               | "not" "change" name            -> not_change
+               | "increase" name "by" value     -> increase
+               | "decrease" name "by" value     -> decrease
+
+comparator: "is" "greater" "than" -> gt
+          | "is" "less" "than"    -> lt
+          | "is" "at" "least"     -> gte
+          | "is" "at" "most"      -> lte
+          | ">"                    -> gt
+          | "<"                    -> lt
+          | ">="                   -> gte
+          | "<="                   -> lte
+
+entity: name+
+value: SIGNED_NUMBER -> number
+     | ESCAPED_STRING -> string
+     | name
+
+name: CNAME
+
+%import common.CNAME
+%import common.ESCAPED_STRING
+%import common.SIGNED_NUMBER
+%import common.NEWLINE
+%import common.WS_INLINE
+%ignore WS_INLINE
