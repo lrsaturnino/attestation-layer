@@ -61,6 +61,7 @@
   "pending_reviews": [],
   "requirement_id": "REQ-STATE-001",
   "timeouts": [],
+  "unbound_symbol_spans": {},
   "unbound_symbols": [],
   "unsupported_claims": []
 }
