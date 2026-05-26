@@ -8,7 +8,7 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from .jsonutil import canonical_json, to_jsonable
-from .models import EvidenceObject, RequirementIR, SymbolRef
+from .models import EvidenceObject, RequirementIR, StatusDecision, SymbolRef
 from .package import build_package, validate_package
 from .parser import RequirementParser
 from .status import decide_status
@@ -41,6 +41,11 @@ def main(argv: list[str] | None = None) -> int:
 
     validate_cmd = subcommands.add_parser("validate", help="Validate a package directory.")
     validate_cmd.add_argument("package_dir", type=Path)
+
+    validate_all_cmd = subcommands.add_parser(
+        "validate-all", help="Validate all package directories under a root."
+    )
+    validate_all_cmd.add_argument("packages_dir", nargs="?", type=Path, default=Path("requirements"))
 
     status_cmd = subcommands.add_parser("decide-status", help="Compute status from evidence JSON.")
     status_cmd.add_argument("file", type=Path)
@@ -78,18 +83,19 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "validate":
             ir, evidence, status = validate_package(args.package_dir)
-            print(f"Requirement: {ir.requirement_id}")
-            print("IR: valid")
-            print("Bindings: valid" if not evidence.unbound_symbols else "Bindings: invalid")
-            print(_line_for_evidence(evidence, "C-consistency", "Consistency"))
-            print(_line_for_evidence(evidence, "C-smt", "SMT"))
-            print(f"Status: {status.status.value}")
-            if status.source_span:
-                print(f'Fragment: "{status.source_span.text}"')
-            if status.next_actions:
-                print("Next:")
-                for action in status.next_actions:
-                    print(f"  - {action}")
+            _print_package_validation(ir, evidence, status)
+            return 0
+        if args.command == "validate-all":
+            summaries = []
+            package_dirs = _package_dirs(args.packages_dir)
+            if not package_dirs:
+                raise ValueError(f"no package directories found under {args.packages_dir}")
+            for package_dir in package_dirs:
+                ir, evidence, status = validate_package(package_dir)
+                summaries.append((ir.requirement_id, status.status.value))
+            print(f"Packages: {len(summaries)} valid")
+            for requirement_id, status_value in summaries:
+                print(f"  - {requirement_id}: {status_value}")
             return 0
         if args.command == "decide-status":
             evidence = EvidenceObject.model_validate_json(args.file.read_text())
@@ -114,6 +120,30 @@ def _line_for_evidence(evidence: EvidenceObject, claim_id: str, label: str) -> s
         if claim.id == claim_id:
             return f"{label}: {'checked' if claim.achieved_evidence else 'missing'}"
     return f"{label}: missing"
+
+
+def _package_dirs(root: Path) -> list[Path]:
+    if not root.exists():
+        return []
+    return sorted(path for path in root.iterdir() if (path / "requirement.ir.json").is_file())
+
+
+def _print_package_validation(ir: RequirementIR, evidence: EvidenceObject, status: StatusDecision) -> None:
+    print(f"Requirement: {ir.requirement_id}")
+    print("IR: valid")
+    if evidence.ambiguous_symbols:
+        print("Bindings: ambiguous")
+    else:
+        print("Bindings: valid" if not evidence.unbound_symbols else "Bindings: invalid")
+    print(_line_for_evidence(evidence, "C-consistency", "Consistency"))
+    print(_line_for_evidence(evidence, "C-smt", "SMT"))
+    print(f"Status: {status.status.value}")
+    if status.source_span:
+        print(f'Fragment: "{status.source_span.text}"')
+    if status.next_actions:
+        print("Next:")
+        for action in status.next_actions:
+            print(f"  - {action}")
 
 
 def _generic_conformance_fixture() -> AdapterConformanceFixture:

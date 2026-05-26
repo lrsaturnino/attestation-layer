@@ -49,6 +49,7 @@ Install and test with `uv`:
 uv sync --extra dev
 uv run python scripts/check_schema_drift.py
 uv run pytest
+uv run nlreq validate-all requirements
 ```
 
 Parse a controlled requirement:
@@ -69,6 +70,12 @@ uv run nlreq package tests/fixtures/requirements/authorization_precondition.nlre
 uv run nlreq validate requirements/REQ-AUTH-001
 ```
 
+Validate every committed example package:
+
+```bash
+uv run nlreq validate-all requirements
+```
+
 Run adapter conformance against the Phase 0 generic adapter:
 
 ```bash
@@ -87,6 +94,8 @@ Status: ACCEPTED_WITH_EVIDENCE
 ```
 
 Example packages live under `requirements/`.
+
+The Phase 0 completion record is in [docs/phase-0-completion.md](./docs/phase-0-completion.md).
 
 ## License
 

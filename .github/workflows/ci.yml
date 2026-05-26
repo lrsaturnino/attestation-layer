@@ -22,3 +22,6 @@ jobs:
 
       - name: Run tests
         run: uv run pytest
+
+      - name: Validate committed packages
+        run: uv run nlreq validate-all requirements
