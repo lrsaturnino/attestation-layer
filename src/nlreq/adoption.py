@@ -6,7 +6,9 @@ from typing import Any
 
 from pydantic import ValidationError
 
-from .jsonutil import sha256_text
+from .openapi_adapter import OpenApiAdapter
+from .openapi_package import validate_openapi_package
+from .jsonutil import read_json, sha256_text
 from .models import EvidenceObject, RequirementIR, ReviewArtifact, StatusDecision
 from .package import validate_package
 from .python_adapter import PythonPackageAdapter
@@ -43,12 +45,22 @@ ARTIFACT_FILES = [
 
 
 def build_package_index(
-    packages_dir: Path, *, python_adapter: PythonPackageAdapter | None = None
+    packages_dir: Path,
+    *,
+    python_adapter: PythonPackageAdapter | None = None,
+    openapi_adapter: OpenApiAdapter | None = None,
 ) -> dict[str, Any]:
     package_dirs = find_package_dirs(packages_dir)
     if not package_dirs:
         raise ValueError(f"no package directories found under {packages_dir}")
-    packages = [_summarize_package(path, python_adapter=python_adapter) for path in package_dirs]
+    packages = [
+        _summarize_package(
+            path,
+            python_adapter=python_adapter,
+            openapi_adapter=openapi_adapter,
+        )
+        for path in package_dirs
+    ]
     return {
         "index_version": INDEX_VERSION,
         "packages_root": _path(packages_dir),
@@ -58,9 +70,16 @@ def build_package_index(
 
 
 def build_ci_report(
-    packages_dir: Path, *, python_adapter: PythonPackageAdapter | None = None
+    packages_dir: Path,
+    *,
+    python_adapter: PythonPackageAdapter | None = None,
+    openapi_adapter: OpenApiAdapter | None = None,
 ) -> dict[str, Any]:
-    package_index = build_package_index(packages_dir, python_adapter=python_adapter)
+    package_index = build_package_index(
+        packages_dir,
+        python_adapter=python_adapter,
+        openapi_adapter=openapi_adapter,
+    )
     findings = _ci_findings(package_index["packages"])
     return {
         "report_version": REPORT_VERSION,
@@ -82,8 +101,13 @@ def build_soft_gate_report(
     *,
     requirement_ids: list[str],
     python_adapter: PythonPackageAdapter | None = None,
+    openapi_adapter: OpenApiAdapter | None = None,
 ) -> dict[str, Any]:
-    package_index = build_package_index(packages_dir, python_adapter=python_adapter)
+    package_index = build_package_index(
+        packages_dir,
+        python_adapter=python_adapter,
+        openapi_adapter=openapi_adapter,
+    )
     referenced_ids = _stable_unique(requirement_ids)
     packages_by_id = {
         package["requirement_id"]: package
@@ -219,21 +243,36 @@ def find_package_dirs(root: Path) -> list[Path]:
 
 
 def _summarize_package(
-    package_dir: Path, *, python_adapter: PythonPackageAdapter | None
+    package_dir: Path,
+    *,
+    python_adapter: PythonPackageAdapter | None,
+    openapi_adapter: OpenApiAdapter | None,
 ) -> dict[str, Any]:
     validation_status = "valid"
     validation_errors: list[str] = []
-    validation_kind = "python_package" if (package_dir / "adapter-results.json").is_file() else "generic"
+    ir = _read_model(package_dir / "requirement.ir.json", RequirementIR)
+    validation_kind = _validation_kind(package_dir, ir)
     if validation_kind == "python_package" and python_adapter is None:
         validation_status = "skipped"
         validation_errors.append("python adapter validation requires --python-package-root")
-        ir = _read_model(package_dir / "requirement.ir.json", RequirementIR)
+        evidence = _read_model(package_dir / "evidence.json", EvidenceObject)
+        status = _read_model(package_dir / "status.json", StatusDecision)
+    elif validation_kind == "openapi" and openapi_adapter is None:
+        validation_status = "skipped"
+        validation_errors.append("OpenAPI adapter validation requires --openapi-document")
+        evidence = _read_model(package_dir / "evidence.json", EvidenceObject)
+        status = _read_model(package_dir / "status.json", StatusDecision)
+    elif validation_kind == "adapter_package":
+        validation_status = "skipped"
+        validation_errors.append("adapter package validation requires a matching adapter")
         evidence = _read_model(package_dir / "evidence.json", EvidenceObject)
         status = _read_model(package_dir / "status.json", StatusDecision)
     else:
         try:
             if validation_kind == "python_package":
                 ir, evidence, status = validate_python_package(package_dir, python_adapter)
+            elif validation_kind == "openapi":
+                ir, evidence, status = validate_openapi_package(package_dir, openapi_adapter)
             else:
                 ir, evidence, status = validate_package(package_dir)
         except (OSError, ValidationError, ValueError) as exc:
@@ -277,6 +316,30 @@ def _adapter_id(ir: RequirementIR | None, validation_kind: str) -> str:
     if adapter_ids:
         return "mixed"
     return validation_kind
+
+
+def _validation_kind(package_dir: Path, ir: RequirementIR | None) -> str:
+    if not (package_dir / "adapter-results.json").is_file():
+        return "generic"
+    if ir:
+        adapter_ids = sorted({binding.adapter for binding in ir.bindings.values()})
+        if len(adapter_ids) == 1 and adapter_ids[0] in {"python_package", "openapi"}:
+            return adapter_ids[0]
+    try:
+        raw_results = read_json(package_dir / "adapter-results.json")
+    except (OSError, ValueError):
+        return "adapter_package"
+    if isinstance(raw_results, list):
+        backends = {
+            item.get("backend")
+            for item in raw_results
+            if isinstance(item, dict) and isinstance(item.get("backend"), str)
+        }
+        if "openapi" in backends:
+            return "openapi"
+        if backends.intersection({"python_package", "python_property", "pytest"}):
+            return "python_package"
+    return "adapter_package"
 
 
 def _review_summary(review: ReviewArtifact | None) -> dict[str, Any]:

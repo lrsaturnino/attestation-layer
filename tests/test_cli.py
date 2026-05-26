@@ -10,6 +10,9 @@ from nlreq.package import build_package
 FIXTURES = Path(__file__).parent / "fixtures" / "requirements"
 PY_FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "adapters" / "pythonpkg"
 PY_FIXTURE_PACKAGE = PY_FIXTURE_ROOT / "samplepkg"
+OPENAPI_FIXTURE_DOCUMENT = (
+    Path(__file__).parent / "fixtures" / "adapters" / "openapi" / "sample-openapi.json"
+)
 
 
 def test_validate_all_reports_all_packages(capsys) -> None:
@@ -121,6 +124,53 @@ def test_python_package_and_validate_commands(tmp_path: Path, capsys) -> None:
     assert "Status: ACCEPTED_WITH_EVIDENCE" in output
 
 
+def test_openapi_package_and_validate_commands(tmp_path: Path, capsys) -> None:
+    requirement = tmp_path / "openapi_requirement.nlreq"
+    requirement.write_text(
+        "For every operation request:\n"
+        "if actor is not authorized\n"
+        "then operation must be rejected before state_change.\n"
+    )
+    out = tmp_path / "REQ-OPENAPI-CLI-001"
+
+    build_exit = main(
+        [
+            "openapi-package",
+            str(requirement),
+            "--out",
+            str(out),
+            "--requirement-id",
+            "REQ-OPENAPI-CLI-001",
+            "--title",
+            "Unauthorized OpenAPI operation is rejected",
+            "--claim-kind",
+            "authorization_precondition",
+            "--document",
+            str(OPENAPI_FIXTURE_DOCUMENT),
+            "--openapi-name",
+            "sample-api",
+        ]
+    )
+    validate_exit = main(
+        [
+            "openapi-validate",
+            str(out),
+            "--document",
+            str(OPENAPI_FIXTURE_DOCUMENT),
+            "--openapi-name",
+            "sample-api",
+        ]
+    )
+
+    output = capsys.readouterr().out
+
+    assert build_exit == 0
+    assert validate_exit == 0
+    assert "Package:" in output
+    assert "Requirement: REQ-OPENAPI-CLI-001" in output
+    assert "Status: ACCEPTED_WITH_EVIDENCE" in output
+
+
 def test_package_index_reports_package_statuses(tmp_path: Path, capsys) -> None:
     package_root = tmp_path / "requirements"
     build_package(
@@ -147,6 +197,59 @@ def test_package_index_reports_package_statuses(tmp_path: Path, capsys) -> None:
     assert output["summary"]["accepted"] == 1
     assert output["summary"]["refused"] == 1
     assert output["summary"]["unresolved_bindings"] == 1
+
+
+def test_package_index_validates_openapi_packages_with_configured_adapter(
+    tmp_path: Path, capsys
+) -> None:
+    package_root = tmp_path / "requirements"
+    requirement = tmp_path / "openapi_requirement.nlreq"
+    requirement.write_text(
+        "For every operation request:\n"
+        "if actor is approved\n"
+        "then operation must succeed.\n"
+    )
+    out = package_root / "REQ-OPENAPI-INDEX-001"
+    assert (
+        main(
+            [
+                "openapi-package",
+                str(requirement),
+                "--out",
+                str(out),
+                "--requirement-id",
+                "REQ-OPENAPI-INDEX-001",
+                "--title",
+                "Approved OpenAPI operation succeeds",
+                "--claim-kind",
+                "state_precondition",
+                "--document",
+                str(OPENAPI_FIXTURE_DOCUMENT),
+                "--openapi-name",
+                "sample-api",
+            ]
+        )
+        == 0
+    )
+    capsys.readouterr()
+
+    exit_code = main(
+        [
+            "package-index",
+            str(package_root),
+            "--openapi-document",
+            str(OPENAPI_FIXTURE_DOCUMENT),
+            "--openapi-name",
+            "sample-api",
+        ]
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["summary"]["total"] == 1
+    assert output["summary"]["valid"] == 1
+    assert output["packages"][0]["validation_kind"] == "openapi"
+    assert output["packages"][0]["adapter"] == "openapi"
 
 
 def test_ci_report_is_shadow_mode_and_reports_findings(tmp_path: Path, capsys) -> None:

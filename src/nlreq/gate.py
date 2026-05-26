@@ -10,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .adoption import build_package_index
 from .jsonutil import read_json
 from .models import EvidenceLevel, FinalStatus
+from .openapi_adapter import OpenApiAdapter
 from .python_adapter import PythonPackageAdapter
 
 
@@ -131,9 +132,14 @@ def build_hard_gate_report(
     waivers: list[GateWaiver] | None = None,
     changed_paths: list[str] | None = None,
     python_adapter: PythonPackageAdapter | None = None,
+    openapi_adapter: OpenApiAdapter | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
-    package_index = build_package_index(packages_dir, python_adapter=python_adapter)
+    package_index = build_package_index(
+        packages_dir,
+        python_adapter=python_adapter,
+        openapi_adapter=openapi_adapter,
+    )
     referenced_ids = _stable_unique(requirement_ids)
     packages_by_id = {
         package["requirement_id"]: package

@@ -16,7 +16,8 @@ Implement the adapter methods exercised by `nlreq.conformance.assert_adapter_con
 
 The generic adapter in `src/nlreq/adapter.py` is the smallest reference. The
 Python package adapter in `src/nlreq/python_adapter.py` is the first real
-adapter.
+adapter. The OpenAPI adapter in `src/nlreq/openapi_adapter.py` is the second
+real adapter and the reference for declaration-level evidence.
 
 ## Conformance
 
@@ -31,6 +32,7 @@ Run conformance before integrating package generation:
 
 ```bash
 uv run nlreq python-conformance tests/fixtures/adapters/pythonpkg/samplepkg --package-name samplepkg
+uv run nlreq openapi-conformance tests/fixtures/adapters/openapi/sample-openapi.json --openapi-name sample-api
 ```
 
 ## Evidence Rules

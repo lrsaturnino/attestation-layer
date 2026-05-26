@@ -88,6 +88,13 @@ Run adapter conformance against the Phase 1 Python package adapter:
 uv run nlreq python-conformance tests/fixtures/adapters/pythonpkg/samplepkg --package-name samplepkg
 ```
 
+Run adapter conformance against the Phase 7 OpenAPI adapter:
+
+```bash
+uv run nlreq openapi-conformance tests/fixtures/adapters/openapi/sample-openapi.json \
+  --openapi-name sample-api
+```
+
 Build and validate a Python-adapter evidence package:
 
 ```bash
@@ -118,10 +125,30 @@ uv run nlreq python-validate /tmp/REQ-PY-001 \
   --test-path tests/fixtures/adapters/pythonpkg
 ```
 
+Build and validate an OpenAPI-adapter evidence package:
+
+```bash
+uv run nlreq openapi-package tests/fixtures/requirements/authorization_precondition.nlreq \
+  --out /tmp/REQ-OPENAPI-001 \
+  --requirement-id REQ-OPENAPI-001 \
+  --title "Unauthorized OpenAPI operation is rejected before state changes" \
+  --claim-kind authorization_precondition \
+  --document tests/fixtures/adapters/openapi/sample-openapi.json \
+  --openapi-name sample-api
+
+uv run nlreq openapi-validate /tmp/REQ-OPENAPI-001 \
+  --document tests/fixtures/adapters/openapi/sample-openapi.json \
+  --openapi-name sample-api
+```
+
 Build Phase 3 adoption artifacts:
 
 ```bash
 uv run nlreq package-index requirements --out requirements/index.json
+
+uv run nlreq package-index requirements \
+  --openapi-document tests/fixtures/adapters/openapi/sample-openapi.json \
+  --openapi-name sample-api
 
 uv run nlreq ci-report requirements \
   --out /tmp/nlreq-ci-report.json \
@@ -181,11 +208,13 @@ The Phase 3 adoption workflow slice is described in
 The Phase 4 soft gate pilot is described in
 [docs/phase-4-soft-gate-pilot.md](./docs/phase-4-soft-gate-pilot.md).
 The formal roadmap in [docs/build-plan.md](./docs/build-plan.md) now extends
-through Phase 9; phases after Phase 6 are planned, not completed.
+through Phase 9; phases after Phase 7 are planned, not completed.
 The Phase 5 hard gate is described in
 [docs/phase-5-hard-gate.md](./docs/phase-5-hard-gate.md).
 The Phase 6 stronger evidence backend slice is described in
 [docs/phase-6-stronger-backends.md](./docs/phase-6-stronger-backends.md).
+The Phase 7 OpenAPI adapter expansion is described in
+[docs/phase-7-openapi-adapter.md](./docs/phase-7-openapi-adapter.md).
 
 Adoption references:
 

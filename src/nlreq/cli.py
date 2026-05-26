@@ -22,6 +22,8 @@ from .gate import (
 )
 from .jsonutil import canonical_json
 from .models import EvidenceObject, RequirementIR, StatusDecision, SymbolRef
+from .openapi_adapter import OpenApiAdapter
+from .openapi_package import build_openapi_package, validate_openapi_package
 from .package import build_package, validate_package
 from .parser import RequirementParser
 from .python_package import build_python_package, validate_python_package
@@ -78,6 +80,17 @@ def main(argv: list[str] | None = None) -> int:
     python_conformance_cmd.add_argument("--ambiguous-ref", default="duplicate_symbol")
     python_conformance_cmd.add_argument("--ambiguous-type", default="action")
 
+    openapi_conformance_cmd = subcommands.add_parser(
+        "openapi-conformance", help="Run conformance against an OpenAPI adapter."
+    )
+    openapi_conformance_cmd.add_argument("document", type=Path)
+    openapi_conformance_cmd.add_argument("--openapi-name")
+    openapi_conformance_cmd.add_argument("--resolved-ref", default="operation")
+    openapi_conformance_cmd.add_argument("--resolved-type", default="action")
+    openapi_conformance_cmd.add_argument("--unresolved-ref", default="definitely_missing_symbol")
+    openapi_conformance_cmd.add_argument("--ambiguous-ref", default="duplicate_operation")
+    openapi_conformance_cmd.add_argument("--ambiguous-type", default="action")
+
     python_package_cmd = subcommands.add_parser(
         "python-package", help="Build a Python-adapter requirement package."
     )
@@ -110,12 +123,30 @@ def main(argv: list[str] | None = None) -> int:
         help="Recompute deterministic Python property checks for supported claims.",
     )
 
+    openapi_package_cmd = subcommands.add_parser(
+        "openapi-package", help="Build an OpenAPI-adapter requirement package."
+    )
+    openapi_package_cmd.add_argument("file", type=Path)
+    openapi_package_cmd.add_argument("--out", type=Path, required=True)
+    openapi_package_cmd.add_argument("--requirement-id", required=True)
+    openapi_package_cmd.add_argument("--title", required=True)
+    openapi_package_cmd.add_argument("--claim-kind", required=True)
+    openapi_package_cmd.add_argument("--document", type=Path, required=True)
+    openapi_package_cmd.add_argument("--openapi-name")
+
+    openapi_validate_cmd = subcommands.add_parser(
+        "openapi-validate", help="Validate an OpenAPI-adapter requirement package."
+    )
+    openapi_validate_cmd.add_argument("package_dir", type=Path)
+    openapi_validate_cmd.add_argument("--document", type=Path, required=True)
+    openapi_validate_cmd.add_argument("--openapi-name")
+
     index_cmd = subcommands.add_parser(
         "package-index", help="Build a report-only index of requirement packages."
     )
     index_cmd.add_argument("packages_dir", nargs="?", type=Path, default=Path("requirements"))
     index_cmd.add_argument("--out", type=Path)
-    _add_python_adapter_options(index_cmd)
+    _add_adapter_validation_options(index_cmd)
 
     ci_report_cmd = subcommands.add_parser(
         "ci-report", help="Build a shadow-mode CI report for requirement packages."
@@ -123,7 +154,7 @@ def main(argv: list[str] | None = None) -> int:
     ci_report_cmd.add_argument("packages_dir", nargs="?", type=Path, default=Path("requirements"))
     ci_report_cmd.add_argument("--out", type=Path)
     ci_report_cmd.add_argument("--markdown-out", type=Path)
-    _add_python_adapter_options(ci_report_cmd)
+    _add_adapter_validation_options(ci_report_cmd)
 
     soft_gate_cmd = subcommands.add_parser(
         "soft-gate", help="Run the Phase 4 soft gate against requirement references."
@@ -144,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Return non-zero when soft-gate blockers are found.",
     )
-    _add_python_adapter_options(soft_gate_cmd)
+    _add_adapter_validation_options(soft_gate_cmd)
 
     hard_gate_cmd = subcommands.add_parser(
         "hard-gate", help="Run the Phase 5 scoped hard gate against requirement references."
@@ -175,7 +206,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     hard_gate_cmd.add_argument("--out", type=Path)
     hard_gate_cmd.add_argument("--markdown-out", type=Path)
-    _add_python_adapter_options(hard_gate_cmd)
+    _add_adapter_validation_options(hard_gate_cmd)
 
     review_template_cmd = subcommands.add_parser(
         "review-template", help="Render the human review checklist template."
@@ -262,6 +293,28 @@ def main(argv: list[str] | None = None) -> int:
             for check in report.checks:
                 print(f"  - {check}")
             return 0
+        if args.command == "openapi-conformance":
+            adapter = OpenApiAdapter(
+                args.document,
+                document_name=args.openapi_name or args.document.stem,
+            )
+            report = assert_adapter_conforms(
+                adapter,
+                _openapi_conformance_fixture(
+                    resolved_ref=args.resolved_ref,
+                    resolved_type=args.resolved_type,
+                    unresolved_ref=args.unresolved_ref,
+                    ambiguous_ref=args.ambiguous_ref,
+                    ambiguous_type=args.ambiguous_type,
+                ),
+            )
+            print(f"Adapter: {report.adapter_id}")
+            print(f"Target: {report.target_kind}")
+            print(f"Document: {adapter.document_name}")
+            print("Conformance: passed")
+            for check in report.checks:
+                print(f"  - {check}")
+            return 0
         if args.command == "python-package":
             adapter = PythonPackageAdapter(
                 args.package_root,
@@ -291,10 +344,34 @@ def main(argv: list[str] | None = None) -> int:
             ir, evidence, status = validate_python_package(args.package_dir, adapter)
             _print_package_validation(ir, evidence, status)
             return 0
+        if args.command == "openapi-package":
+            adapter = OpenApiAdapter(
+                args.document,
+                document_name=args.openapi_name or args.document.stem,
+            )
+            build_openapi_package(
+                controlled_text=args.file.read_text(),
+                output_dir=args.out,
+                requirement_id=args.requirement_id,
+                title=args.title,
+                claim_kind=args.claim_kind,
+                adapter=adapter,
+            )
+            print(f"Package: {args.out}")
+            return 0
+        if args.command == "openapi-validate":
+            adapter = OpenApiAdapter(
+                args.document,
+                document_name=args.openapi_name or args.document.stem,
+            )
+            ir, evidence, status = validate_openapi_package(args.package_dir, adapter)
+            _print_package_validation(ir, evidence, status)
+            return 0
         if args.command == "package-index":
             package_index = build_package_index(
                 args.packages_dir,
                 python_adapter=_optional_python_adapter(args),
+                openapi_adapter=_optional_openapi_adapter(args),
             )
             if args.out:
                 from .jsonutil import write_json
@@ -308,6 +385,7 @@ def main(argv: list[str] | None = None) -> int:
             report = build_ci_report(
                 args.packages_dir,
                 python_adapter=_optional_python_adapter(args),
+                openapi_adapter=_optional_openapi_adapter(args),
             )
             wrote_output = False
             if args.out:
@@ -330,6 +408,7 @@ def main(argv: list[str] | None = None) -> int:
                 args.packages_dir,
                 requirement_ids=requirement_ids,
                 python_adapter=_optional_python_adapter(args),
+                openapi_adapter=_optional_openapi_adapter(args),
             )
             wrote_output = False
             if args.out:
@@ -357,6 +436,7 @@ def main(argv: list[str] | None = None) -> int:
                 waivers=load_gate_waivers(args.waiver),
                 changed_paths=_changed_paths_from_args(args),
                 python_adapter=_optional_python_adapter(args),
+                openapi_adapter=_optional_openapi_adapter(args),
             )
             wrote_output = False
             if args.out:
@@ -388,7 +468,7 @@ def main(argv: list[str] | None = None) -> int:
     return 1
 
 
-def _add_python_adapter_options(parser: argparse.ArgumentParser) -> None:
+def _add_adapter_validation_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--python-package-root", type=Path)
     parser.add_argument("--package-name")
     parser.add_argument("--project-root", type=Path, default=Path.cwd())
@@ -398,6 +478,8 @@ def _add_python_adapter_options(parser: argparse.ArgumentParser) -> None:
         action="store_true",
         help="Enable deterministic Python property checks for package validation.",
     )
+    parser.add_argument("--openapi-document", type=Path)
+    parser.add_argument("--openapi-name")
 
 
 def _optional_python_adapter(args: argparse.Namespace) -> PythonPackageAdapter | None:
@@ -409,6 +491,15 @@ def _optional_python_adapter(args: argparse.Namespace) -> PythonPackageAdapter |
         project_root=args.project_root,
         test_paths=args.test_path,
         property_checks=args.property_checks,
+    )
+
+
+def _optional_openapi_adapter(args: argparse.Namespace) -> OpenApiAdapter | None:
+    if args.openapi_document is None:
+        return None
+    return OpenApiAdapter(
+        args.openapi_document,
+        document_name=args.openapi_name or args.openapi_document.stem,
     )
 
 
@@ -509,6 +600,32 @@ def _python_conformance_fixture(
         requirement_id="REQ-PY-CONFORMANCE-001",
         title="Python adapter conformance fixture",
         claim_kind="state_precondition",
+    )
+    return AdapterConformanceFixture(
+        resolved_ref=SymbolRef(name=resolved_ref, expected_type=resolved_type),
+        unresolved_ref=SymbolRef(name=unresolved_ref),
+        ambiguous_ref=SymbolRef(name=ambiguous_ref, expected_type=ambiguous_type),
+        sample_ir=ir,
+    )
+
+
+def _openapi_conformance_fixture(
+    *,
+    resolved_ref: str = "operation",
+    resolved_type: str = "action",
+    unresolved_ref: str = "definitely_missing_symbol",
+    ambiguous_ref: str = "duplicate_operation",
+    ambiguous_type: str = "action",
+) -> AdapterConformanceFixture:
+    ir = RequirementParser().parse_ir(
+        (
+            "For every operation request:\n"
+            "if actor is not authorized\n"
+            "then operation must be rejected before state_change.\n"
+        ),
+        requirement_id="REQ-OPENAPI-CONFORMANCE-001",
+        title="OpenAPI adapter conformance fixture",
+        claim_kind="authorization_precondition",
     )
     return AdapterConformanceFixture(
         resolved_ref=SymbolRef(name=resolved_ref, expected_type=resolved_type),

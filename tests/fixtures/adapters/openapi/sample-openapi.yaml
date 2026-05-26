@@ -1,0 +1,21 @@
+openapi: 3.1.0
+info:
+  title: Sample Operation API
+  version: 1.0.0
+security:
+  - bearerAuth: []
+paths:
+  /operation:
+    post:
+      operationId: operation
+      x-nlreq-state-transition: state_change
+      responses:
+        200:
+          description: Accepted
+        401:
+          description: Unauthorized
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer

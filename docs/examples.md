@@ -73,6 +73,22 @@ uv run nlreq python-package tests/fixtures/requirements/python_operation_success
   --property-checks
 ```
 
+Build an OpenAPI package with declaration-level evidence:
+
+```bash
+uv run nlreq openapi-package tests/fixtures/requirements/authorization_precondition.nlreq \
+  --out /tmp/REQ-OPENAPI-001 \
+  --requirement-id REQ-OPENAPI-001 \
+  --title "Unauthorized OpenAPI operation is rejected before state changes" \
+  --claim-kind authorization_precondition \
+  --document tests/fixtures/adapters/openapi/sample-openapi.json \
+  --openapi-name sample-api
+
+uv run nlreq openapi-validate /tmp/REQ-OPENAPI-001 \
+  --document tests/fixtures/adapters/openapi/sample-openapi.json \
+  --openapi-name sample-api
+```
+
 Phase 5 artifact examples:
 
 - `docs/examples/gate-policy.example.json`
@@ -83,3 +99,7 @@ Phase 6 artifact schemas:
 - `schemas/counterexamples.schema.json`
 - `schemas/generated-tests.schema.json`
 - `schemas/normalized-traces.schema.json`
+
+Phase 7 adapter fixture:
+
+- `tests/fixtures/adapters/openapi/sample-openapi.json`

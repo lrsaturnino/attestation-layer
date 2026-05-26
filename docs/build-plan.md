@@ -1126,6 +1126,8 @@ reported deterministically without weakening the pure status-decision contract.
 Goal: prove that the package, evidence, and status model is truly adapter-neutral
 by adding additional real ecosystems.
 
+Design anchor: `docs/adr/0009-phase-7-adapter-expansion.md`.
+
 Candidate adapters:
 
 - TypeScript service adapter,
