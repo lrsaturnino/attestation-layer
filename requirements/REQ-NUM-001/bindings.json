@@ -1,0 +1,20 @@
+{
+  "counter": {
+    "adapter": "generic",
+    "confidence": "generic_symbol_table",
+    "symbol": "counter",
+    "symbol_type": "quantity"
+  },
+  "limit": {
+    "adapter": "generic",
+    "confidence": "generic_symbol_table",
+    "symbol": "limit",
+    "symbol_type": "quantity"
+  },
+  "operation": {
+    "adapter": "generic",
+    "confidence": "generic_symbol_table",
+    "symbol": "operation",
+    "symbol_type": "action"
+  }
+}

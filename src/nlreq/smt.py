@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from z3 import Bool, Solver, unsat
 
+from .jsonutil import sha256_text
 from .models import (
     BackendResult,
     EvidenceClaim,
@@ -45,20 +46,49 @@ def smt_check_requirement(ir: RequirementIR) -> BackendResult:
         backend="core_smt",
         status="valid",
         evidence_level=EvidenceLevel.SMT_CHECKED,
-        details={"checked": "supported_phase_0_claim_shape"},
+        details={
+            "checked": "supported_phase_0_claim_shape",
+            "query_hash": sha256_text(smt2_for_ir(ir)),
+        },
+    )
+
+
+def static_resolution_result(ir: RequirementIR, missing_symbols: list[str]) -> BackendResult:
+    if missing_symbols:
+        return BackendResult(
+            backend="generic_adapter",
+            status="invalid",
+            evidence_level=EvidenceLevel.STATICALLY_RESOLVED,
+            details={"missing_symbols": missing_symbols},
+        )
+    return BackendResult(
+        backend="generic_adapter",
+        status="valid",
+        evidence_level=EvidenceLevel.STATICALLY_RESOLVED,
+        details={"resolved_symbols": sorted(ir.bindings)},
     )
 
 
 def evidence_for_ir(ir: RequirementIR, *, ir_hash: str, missing_symbols: list[str]) -> EvidenceObject:
+    static = static_resolution_result(ir, missing_symbols)
     consistency = check_self_consistency(ir)
     smt = smt_check_requirement(ir)
     failed = []
+    if static.status != "valid":
+        failed.append("C-static")
     if consistency.status != "valid":
         failed.append("C-consistency")
     if smt.status != "valid":
         failed.append("C-smt")
 
     claims = [
+        EvidenceClaim(
+            id="C-static",
+            description="Symbols are statically resolved by the generic adapter.",
+            required_evidence=EvidenceLevel.STATICALLY_RESOLVED,
+            achieved_evidence=EvidenceLevel.STATICALLY_RESOLVED if static.status == "valid" else None,
+            backend_results=[static],
+        ),
         EvidenceClaim(
             id="C-consistency",
             description="Supported claims are internally consistent.",
@@ -86,6 +116,23 @@ def evidence_for_ir(ir: RequirementIR, *, ir_hash: str, missing_symbols: list[st
     )
 
 
+def smt2_for_ir(ir: RequirementIR) -> str:
+    declarations: list[str] = []
+    assertions: list[str] = []
+    declared: set[str] = set()
+    for predicate in ir.claim.condition:
+        if predicate.op not in {"authorized", "not_authorized", "approved", "not_approved"}:
+            continue
+        name = _smt_atom_name(predicate)
+        if name not in declared:
+            declarations.append(f"(declare-const {name} Bool)")
+            declared.add(name)
+        assertions.append(f"(assert {'(not ' + name + ')' if predicate.op.startswith('not_') else name})")
+
+    body = "\n".join(declarations + assertions + ["(check-sat)"])
+    return f"; Phase 0 SMT query for {ir.requirement_id}\n{body}\n"
+
+
 def _direct_contradictions(predicates: list[Predicate]) -> list[str]:
     seen: set[tuple[str, tuple[str, ...]]] = set()
     contradictions: list[str] = []
@@ -108,3 +155,9 @@ def _direct_contradictions(predicates: list[Predicate]) -> list[str]:
 
 def _atom_name(predicate: Predicate) -> str:
     return f"{predicate.op.replace('not_', '')}:{':'.join(str(arg.value) for arg in predicate.args)}"
+
+
+def _smt_atom_name(predicate: Predicate) -> str:
+    base = predicate.op.replace("not_", "")
+    args = "_".join(str(arg.value).replace("-", "_") for arg in predicate.args)
+    return f"{base}_{args}"

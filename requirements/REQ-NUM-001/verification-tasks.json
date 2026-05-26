@@ -1,0 +1,11 @@
+[
+  {
+    "backend": "core_smt",
+    "description": "SMT consistency and supported-claim check for REQ-NUM-001.",
+    "id": "C1",
+    "payload": {
+      "claim_kind": "numeric_invariant",
+      "requirement_id": "REQ-NUM-001"
+    }
+  }
+]

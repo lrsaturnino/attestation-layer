@@ -8,9 +8,9 @@
           "backend": "generic_adapter",
           "details": {
             "resolved_symbols": [
-              "actor",
-              "operation",
-              "state_change"
+              "counter",
+              "limit",
+              "operation"
             ]
           },
           "evidence_level": "STATICALLY_RESOLVED",
@@ -44,7 +44,7 @@
           "backend": "core_smt",
           "details": {
             "checked": "supported_phase_0_claim_shape",
-            "query_hash": "sha256:5e4e83a9478acc9dbdd4f6fd245eaed5f5dfc4eca014565d8987acbbb97c81d0"
+            "query_hash": "sha256:2d688a4ac5ac6ee3e58390821e10722392d02ac866da9744faee1d867254014d"
           },
           "evidence_level": "SMT_CHECKED",
           "status": "valid"
@@ -56,10 +56,10 @@
     }
   ],
   "failed_checks": [],
-  "ir_hash": "sha256:528bb373bc6214046ca0896269bc26c59918f994a66c8e761716f5b5bfba6036",
+  "ir_hash": "sha256:b2553c9c2029d4b1983a1f9011acd40568d68e9b2425ce76d789aaecd5ba9f05",
   "needs_spec_coverage": false,
   "pending_reviews": [],
-  "requirement_id": "REQ-AUTH-001",
+  "requirement_id": "REQ-NUM-001",
   "timeouts": [],
   "unbound_symbols": [],
   "unsupported_claims": []

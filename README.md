@@ -29,9 +29,57 @@ When agent fleets drive the marginal cost of software production toward zero, th
 
 ## Reference implementation
 
-The yellow paper specifies a Tier 1 property-based-testing loop as the first implementable slice. The reference implementation of that loop — a specifier agent that generates properties, a verifier harness that runs them against agent-generated code, and a retry loop driven by shrunk counterexamples — is in development and will be published in this repository under `/src` once a runnable end-to-end example is available.
+This repository now includes the Phase 0 core for a general-purpose NL Requirement Attestation Layer under `src/nlreq`.
 
-The paper can be read and implemented against without the reference code. The code, when published, will serve as an existence proof that the specified architecture is buildable with today's tooling.
+The Phase 0 implementation is adapter-neutral. It provides:
+
+- controlled-language parsing,
+- typed IR and generated JSON Schemas,
+- source-span provenance,
+- a generic static-symbol adapter,
+- evidence/status objects,
+- Z3-backed Phase 0 SMT checks,
+- package generation,
+- and a CLI.
+
+Install and test with `uv`:
+
+```bash
+uv sync --extra dev
+uv run python scripts/check_schema_drift.py
+uv run pytest
+```
+
+Parse a controlled requirement:
+
+```bash
+uv run nlreq parse tests/fixtures/requirements/authorization_precondition.nlreq
+```
+
+Build and validate a package:
+
+```bash
+uv run nlreq package tests/fixtures/requirements/authorization_precondition.nlreq \
+  --out requirements/REQ-AUTH-001 \
+  --requirement-id REQ-AUTH-001 \
+  --title "Unauthorized operation is rejected before state changes" \
+  --claim-kind authorization_precondition
+
+uv run nlreq validate requirements/REQ-AUTH-001
+```
+
+Expected validation output:
+
+```text
+Requirement: REQ-AUTH-001
+IR: valid
+Bindings: valid
+Consistency: checked
+SMT: checked
+Status: ACCEPTED_WITH_EVIDENCE
+```
+
+Example packages live under `requirements/`.
 
 ## License
 

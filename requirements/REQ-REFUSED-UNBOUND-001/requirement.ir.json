@@ -1,0 +1,67 @@
+{
+  "assumptions": [],
+  "bindings": {
+    "operation": {
+      "adapter": "generic",
+      "confidence": "generic_symbol_table",
+      "symbol": "operation",
+      "symbol_type": "action"
+    },
+    "state_change": {
+      "adapter": "generic",
+      "confidence": "generic_symbol_table",
+      "symbol": "state_change",
+      "symbol_type": "state_transition"
+    }
+  },
+  "claim": {
+    "action": "operation",
+    "condition": [
+      {
+        "args": [
+          {
+            "kind": "identifier",
+            "value": "operator"
+          }
+        ],
+        "op": "not_authorized",
+        "source_span": {
+          "document": "controlled_requirement",
+          "end_char": 58,
+          "start_char": 32,
+          "text": "operator is not authorized"
+        }
+      }
+    ],
+    "expected": {
+      "kind": "rejected_before",
+      "source_span": {
+        "document": "controlled_requirement",
+        "end_char": 110,
+        "start_char": 79,
+        "text": "be rejected before state_change"
+      },
+      "target": "state_change"
+    },
+    "forall": [
+      {
+        "name": "operation_request",
+        "type": "OperationRequest"
+      }
+    ],
+    "kind": "authorization_precondition"
+  },
+  "ir_version": "0.1",
+  "required_evidence": [],
+  "requirement_id": "REQ-REFUSED-UNBOUND-001",
+  "source": {
+    "controlled_text": "For every operation request:\nif operator is not authorized\nthen operation must be rejected before state_change.\n",
+    "controlled_text_approval": {
+      "approved_at": "2026-05-26T00:00:00Z",
+      "approved_by": "phase0@example.invalid",
+      "self_audit": false,
+      "status": "approved"
+    }
+  },
+  "title": "Unbound operator example"
+}

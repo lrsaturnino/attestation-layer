@@ -1,0 +1,7 @@
+{
+  "next_actions": [
+    "Add bindings for missing symbols or rewrite using approved vocabulary."
+  ],
+  "reason": "Unbound symbols: operator.",
+  "status": "REFUSED_UNBOUND_SYMBOLS"
+}

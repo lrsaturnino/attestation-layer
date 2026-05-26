@@ -7,7 +7,7 @@ from .bindings import bind_ir
 from .jsonutil import canonical_json, sha256_json, write_json
 from .models import Approval, RequirementIR
 from .parser import RequirementParser
-from .smt import evidence_for_ir
+from .smt import evidence_for_ir, smt2_for_ir
 from .status import decide_status
 
 
@@ -49,7 +49,7 @@ def build_package(
     write_json(output_dir / "status.json", status)
     (output_dir / "implementation-spec.md").write_text(_implementation_spec(bound_ir, status.status.value))
     (output_dir / "smt" / "C1.smt2").parent.mkdir(exist_ok=True)
-    (output_dir / "smt" / "C1.smt2").write_text(_smt_placeholder(bound_ir))
+    (output_dir / "smt" / "C1.smt2").write_text(smt2_for_ir(bound_ir))
 
 
 def validate_package(package_dir: Path) -> tuple[RequirementIR, object, object]:
@@ -102,9 +102,3 @@ def _implementation_spec(ir: RequirementIR, status: str) -> str:
         f"## Status\n\n`{status}`\n"
     )
 
-
-def _smt_placeholder(ir: RequirementIR) -> str:
-    return (
-        f"; Phase 0 SMT task placeholder for {ir.requirement_id}\n"
-        "; The executable Z3 check is recorded in evidence.json.\n"
-    )

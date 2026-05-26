@@ -1,0 +1,19 @@
+{
+  "checklist": {
+    "assumptions_explicit": "pass",
+    "bindings_justified": "pass",
+    "claim_shape_matches_controlled_form": "pass",
+    "controlled_form_matches_intent": "pass",
+    "evidence_level_appropriate": "pass",
+    "source_spans_present": "pass",
+    "unsupported_claims_hidden": "pass"
+  },
+  "decision": "approved",
+  "review_id": "RVW-REQ-NUM-001-001",
+  "reviewed_hashes": {
+    "requirement_ir": "sha256:b2553c9c2029d4b1983a1f9011acd40568d68e9b2425ce76d789aaecd5ba9f05"
+  },
+  "reviewer": "phase0@example.invalid",
+  "self_audit": false,
+  "timestamp": "2026-05-26T00:00:00Z"
+}

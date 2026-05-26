@@ -1,0 +1,77 @@
+{
+  "assumptions": [],
+  "bindings": {
+    "actor": {
+      "adapter": "generic",
+      "confidence": "generic_symbol_table",
+      "symbol": "actor",
+      "symbol_type": "principal"
+    },
+    "operation": {
+      "adapter": "generic",
+      "confidence": "generic_symbol_table",
+      "symbol": "operation",
+      "symbol_type": "action"
+    },
+    "operation_status": {
+      "adapter": "generic",
+      "confidence": "generic_symbol_table",
+      "symbol": "operation_status",
+      "symbol_type": "state"
+    }
+  },
+  "claim": {
+    "action": "operation",
+    "condition": [
+      {
+        "args": [
+          {
+            "kind": "identifier",
+            "value": "actor"
+          }
+        ],
+        "op": "approved",
+        "source_span": {
+          "document": "controlled_requirement",
+          "end_char": 49,
+          "start_char": 32,
+          "text": "actor is approved"
+        }
+      }
+    ],
+    "expected": {
+      "kind": "set",
+      "source_span": {
+        "document": "controlled_requirement",
+        "end_char": 104,
+        "start_char": 70,
+        "text": "set operation_status to \"accepted\""
+      },
+      "target": "operation_status",
+      "value": {
+        "kind": "string",
+        "value": "accepted"
+      }
+    },
+    "forall": [
+      {
+        "name": "operation_request",
+        "type": "OperationRequest"
+      }
+    ],
+    "kind": "state_postcondition"
+  },
+  "ir_version": "0.1",
+  "required_evidence": [],
+  "requirement_id": "REQ-STATE-001",
+  "source": {
+    "controlled_text": "For every operation request:\nif actor is approved\nthen operation must set operation_status to \"accepted\".\n",
+    "controlled_text_approval": {
+      "approved_at": "2026-05-26T00:00:00Z",
+      "approved_by": "phase0@example.invalid",
+      "self_audit": false,
+      "status": "approved"
+    }
+  },
+  "title": "Approved operation sets accepted status"
+}

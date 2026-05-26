@@ -2,19 +2,16 @@
   "ambiguous": false,
   "claims": [
     {
-      "achieved_evidence": "STATICALLY_RESOLVED",
       "backend_results": [
         {
           "backend": "generic_adapter",
           "details": {
-            "resolved_symbols": [
-              "actor",
-              "operation",
-              "state_change"
+            "missing_symbols": [
+              "operator"
             ]
           },
           "evidence_level": "STATICALLY_RESOLVED",
-          "status": "valid"
+          "status": "invalid"
         }
       ],
       "description": "Symbols are statically resolved by the generic adapter.",
@@ -44,7 +41,7 @@
           "backend": "core_smt",
           "details": {
             "checked": "supported_phase_0_claim_shape",
-            "query_hash": "sha256:5e4e83a9478acc9dbdd4f6fd245eaed5f5dfc4eca014565d8987acbbb97c81d0"
+            "query_hash": "sha256:291e5d825392c8e14c9aa24412bd06ebd2b74f5378f7355be795edcc7695c806"
           },
           "evidence_level": "SMT_CHECKED",
           "status": "valid"
@@ -55,12 +52,16 @@
       "required_evidence": "SMT_CHECKED"
     }
   ],
-  "failed_checks": [],
-  "ir_hash": "sha256:528bb373bc6214046ca0896269bc26c59918f994a66c8e761716f5b5bfba6036",
+  "failed_checks": [
+    "C-static"
+  ],
+  "ir_hash": "sha256:8ed6876e6d853417153b930a6b283d1691825b81202095801b35dff413e16daf",
   "needs_spec_coverage": false,
   "pending_reviews": [],
-  "requirement_id": "REQ-AUTH-001",
+  "requirement_id": "REQ-REFUSED-UNBOUND-001",
   "timeouts": [],
-  "unbound_symbols": [],
+  "unbound_symbols": [
+    "operator"
+  ],
   "unsupported_claims": []
 }
