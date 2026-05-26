@@ -80,6 +80,8 @@ def main(argv: list[str] | None = None) -> int:
             print(_line_for_evidence(evidence, "C-consistency", "Consistency"))
             print(_line_for_evidence(evidence, "C-smt", "SMT"))
             print(f"Status: {status.status.value}")
+            if status.source_span:
+                print(f'Fragment: "{status.source_span.text}"')
             if status.next_actions:
                 print("Next:")
                 for action in status.next_actions:

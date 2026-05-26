@@ -1,4 +1,4 @@
-from nlreq.models import EvidenceClaim, EvidenceLevel, EvidenceObject, FinalStatus
+from nlreq.models import EvidenceClaim, EvidenceLevel, EvidenceObject, FinalStatus, SourceSpan
 from nlreq.status import decide_status
 
 
@@ -19,9 +19,16 @@ def test_accepts_when_required_evidence_is_satisfied() -> None:
 
 
 def test_refuses_unbound_symbols_before_missing_evidence() -> None:
+    span = SourceSpan(
+        document="controlled",
+        start_char=32,
+        end_char=58,
+        text="operator is not authorized",
+    )
     evidence = EvidenceObject(
         requirement_id="REQ-1",
         unbound_symbols=["authorized"],
+        unbound_symbol_spans={"authorized": span},
         claims=[
             EvidenceClaim(
                 id="C1",
@@ -35,6 +42,7 @@ def test_refuses_unbound_symbols_before_missing_evidence() -> None:
 
     assert decision.status == FinalStatus.REFUSED_UNBOUND_SYMBOLS
     assert "authorized" in decision.reason
+    assert decision.source_span == span
 
 
 def test_review_status_for_missing_evidence() -> None:

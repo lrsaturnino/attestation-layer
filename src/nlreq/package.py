@@ -5,7 +5,7 @@ from pathlib import Path
 from .adapter import GenericAdapter, default_generic_adapter
 from .bindings import bind_ir
 from .jsonutil import canonical_json, sha256_json, write_json
-from .models import Approval, RequirementIR
+from .models import Approval, RequirementIR, SourceSpan
 from .parser import RequirementParser
 from .smt import evidence_for_ir, smt2_for_ir
 from .status import decide_status
@@ -32,7 +32,12 @@ def build_package(
     )
     bound_ir, missing = bind_ir(ir, adapter)
     ir_hash = sha256_json(bound_ir)
-    evidence = evidence_for_ir(bound_ir, ir_hash=ir_hash, missing_symbols=missing)
+    evidence = evidence_for_ir(
+        bound_ir,
+        ir_hash=ir_hash,
+        missing_symbols=missing,
+        unbound_symbol_spans=_unbound_symbol_spans(bound_ir, missing),
+    )
     status = decide_status(evidence)
 
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -59,6 +64,24 @@ def validate_package(package_dir: Path) -> tuple[RequirementIR, object, object]:
     evidence = EvidenceObject.model_validate_json((package_dir / "evidence.json").read_text())
     status = StatusDecision.model_validate_json((package_dir / "status.json").read_text())
     return ir, evidence, status
+
+
+def _unbound_symbol_spans(ir: RequirementIR, missing: list[str]) -> dict[str, SourceSpan]:
+    missing_set = set(missing)
+    spans: dict[str, SourceSpan] = {}
+    for predicate in ir.claim.condition:
+        for arg in predicate.args:
+            if arg.kind == "identifier" and str(arg.value) in missing_set:
+                spans.setdefault(str(arg.value), predicate.source_span)
+    if ir.claim.expected.target in missing_set:
+        spans.setdefault(ir.claim.expected.target, ir.claim.expected.source_span)
+    if (
+        ir.claim.expected.value
+        and ir.claim.expected.value.kind == "identifier"
+        and str(ir.claim.expected.value.value) in missing_set
+    ):
+        spans.setdefault(str(ir.claim.expected.value.value), ir.claim.expected.source_span)
+    return spans
 
 
 def _requirement_markdown(ir: RequirementIR) -> str:
@@ -101,4 +124,3 @@ def _implementation_spec(ir: RequirementIR, status: str) -> str:
         f"- Self-consistency checked.\n- Supported claim shape SMT-checked.\n\n"
         f"## Status\n\n`{status}`\n"
     )
-

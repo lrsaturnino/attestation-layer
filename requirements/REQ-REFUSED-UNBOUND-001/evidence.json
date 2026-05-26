@@ -60,6 +60,14 @@
   "pending_reviews": [],
   "requirement_id": "REQ-REFUSED-UNBOUND-001",
   "timeouts": [],
+  "unbound_symbol_spans": {
+    "operator": {
+      "document": "controlled_requirement",
+      "end_char": 58,
+      "start_char": 32,
+      "text": "operator is not authorized"
+    }
+  },
   "unbound_symbols": [
     "operator"
   ],

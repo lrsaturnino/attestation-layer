@@ -3,5 +3,11 @@
     "Add bindings for missing symbols or rewrite using approved vocabulary."
   ],
   "reason": "Unbound symbols: operator.",
+  "source_span": {
+    "document": "controlled_requirement",
+    "end_char": 58,
+    "start_char": 32,
+    "text": "operator is not authorized"
+  },
   "status": "REFUSED_UNBOUND_SYMBOLS"
 }

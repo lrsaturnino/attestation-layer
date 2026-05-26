@@ -236,6 +236,7 @@ class EvidenceObject(BaseModel):
     claims: list[EvidenceClaim] = Field(default_factory=list)
     ambiguous: bool = False
     unbound_symbols: list[str] = Field(default_factory=list)
+    unbound_symbol_spans: dict[str, SourceSpan] = Field(default_factory=dict)
     unsupported_claims: list[str] = Field(default_factory=list)
     failed_checks: list[str] = Field(default_factory=list)
     timeouts: list[str] = Field(default_factory=list)

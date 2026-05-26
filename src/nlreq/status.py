@@ -13,10 +13,12 @@ def decide_status(evidence: EvidenceObject) -> StatusDecision:
         )
     if evidence.unbound_symbols:
         missing = ", ".join(evidence.unbound_symbols)
+        first_missing = evidence.unbound_symbols[0]
         return StatusDecision(
             status=FinalStatus.REFUSED_UNBOUND_SYMBOLS,
             reason=f"Unbound symbols: {missing}.",
             next_actions=["Add bindings for missing symbols or rewrite using approved vocabulary."],
+            source_span=evidence.unbound_symbol_spans.get(first_missing),
         )
     if evidence.unsupported_claims:
         claims = ", ".join(evidence.unsupported_claims)

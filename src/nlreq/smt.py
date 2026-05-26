@@ -10,6 +10,7 @@ from .models import (
     EvidenceObject,
     Predicate,
     RequirementIR,
+    SourceSpan,
 )
 
 
@@ -69,7 +70,13 @@ def static_resolution_result(ir: RequirementIR, missing_symbols: list[str]) -> B
     )
 
 
-def evidence_for_ir(ir: RequirementIR, *, ir_hash: str, missing_symbols: list[str]) -> EvidenceObject:
+def evidence_for_ir(
+    ir: RequirementIR,
+    *,
+    ir_hash: str,
+    missing_symbols: list[str],
+    unbound_symbol_spans: dict[str, SourceSpan] | None = None,
+) -> EvidenceObject:
     static = static_resolution_result(ir, missing_symbols)
     consistency = check_self_consistency(ir)
     smt = smt_check_requirement(ir)
@@ -112,6 +119,7 @@ def evidence_for_ir(ir: RequirementIR, *, ir_hash: str, missing_symbols: list[st
         ir_hash=ir_hash,
         claims=claims,
         unbound_symbols=missing_symbols,
+        unbound_symbol_spans=unbound_symbol_spans or {},
         failed_checks=failed,
     )
 
