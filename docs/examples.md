@@ -59,6 +59,15 @@ uv run nlreq hard-gate requirements \
 
 The refused-package hard-gate command is expected to exit non-zero.
 
+Run a continuous attestation report:
+
+```bash
+uv run nlreq continuous-attestation requirements \
+  --trigger schedule \
+  --out /tmp/nlreq-continuous.json \
+  --markdown-out /tmp/nlreq-continuous.md
+```
+
 Build a Python package with generated property evidence:
 
 ```bash

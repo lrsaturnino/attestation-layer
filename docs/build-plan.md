@@ -1159,6 +1159,8 @@ adapter is independently trustworthy.
 Goal: turn package validation from a PR-time activity into continuous evidence
 collection over staging and production behavior.
 
+Design anchor: `docs/adr/0010-phase-8-continuous-attestation.md`.
+
 Deliverables:
 
 - runtime trace ingestion pipeline,

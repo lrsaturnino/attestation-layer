@@ -14,6 +14,11 @@ from .adoption import (
     extract_requirement_ids,
     review_checklist_template,
 )
+from .continuous import (
+    build_attestation_run,
+    continuous_attestation_markdown,
+    load_attestation_run,
+)
 from .gate import (
     build_hard_gate_report,
     hard_gate_report_markdown,
@@ -207,6 +212,25 @@ def main(argv: list[str] | None = None) -> int:
     hard_gate_cmd.add_argument("--out", type=Path)
     hard_gate_cmd.add_argument("--markdown-out", type=Path)
     _add_adapter_validation_options(hard_gate_cmd)
+
+    continuous_cmd = subcommands.add_parser(
+        "continuous-attestation",
+        help="Build a Phase 8 continuous attestation run report.",
+    )
+    continuous_cmd.add_argument("packages_dir", nargs="?", type=Path, default=Path("requirements"))
+    continuous_cmd.add_argument(
+        "--trigger",
+        choices=["manual", "schedule", "webhook", "release"],
+        default="manual",
+    )
+    continuous_cmd.add_argument("--run-id")
+    continuous_cmd.add_argument("--timestamp")
+    continuous_cmd.add_argument("--repo-ref")
+    continuous_cmd.add_argument("--previous-run", type=Path)
+    continuous_cmd.add_argument("--trace-artifact", action="append", type=Path, default=[])
+    continuous_cmd.add_argument("--out", type=Path)
+    continuous_cmd.add_argument("--markdown-out", type=Path)
+    _add_adapter_validation_options(continuous_cmd)
 
     review_template_cmd = subcommands.add_parser(
         "review-template", help="Render the human review checklist template."
@@ -453,6 +477,35 @@ def main(argv: list[str] | None = None) -> int:
             if not wrote_output:
                 print(canonical_json(report), end="")
             return 1 if report["result"] == "blocked" else 0
+        if args.command == "continuous-attestation":
+            report = build_attestation_run(
+                args.packages_dir,
+                trigger=args.trigger,
+                run_id=args.run_id,
+                timestamp=args.timestamp,
+                repo_ref=args.repo_ref,
+                python_adapter=_optional_python_adapter(args),
+                openapi_adapter=_optional_openapi_adapter(args),
+                trace_artifact_paths=args.trace_artifact,
+                previous_run=load_attestation_run(args.previous_run)
+                if args.previous_run
+                else None,
+            )
+            wrote_output = False
+            if args.out:
+                from .jsonutil import write_json
+
+                write_json(args.out, report)
+                print(f"Continuous attestation report: {args.out}")
+                wrote_output = True
+            if args.markdown_out:
+                args.markdown_out.parent.mkdir(parents=True, exist_ok=True)
+                args.markdown_out.write_text(continuous_attestation_markdown(report))
+                print(f"Continuous attestation markdown: {args.markdown_out}")
+                wrote_output = True
+            if not wrote_output:
+                print(canonical_json(report), end="")
+            return 0
         if args.command == "review-template":
             template = review_checklist_template(args.requirement_id)
             if args.out:
