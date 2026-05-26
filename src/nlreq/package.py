@@ -8,9 +8,11 @@ from .jsonutil import canonical_json, sha256_json, write_json
 from .models import (
     AssumptionsArtifact,
     BindingsArtifact,
+    EvidenceObject,
     RequirementIR,
     ReviewArtifact,
     SourceSpan,
+    StatusDecision,
     VerificationTasksArtifact,
 )
 from .parser import RequirementParser
@@ -66,17 +68,60 @@ def build_package(
 
 def validate_package(package_dir: Path) -> tuple[RequirementIR, object, object]:
     ir = RequirementIR.model_validate_json((package_dir / "requirement.ir.json").read_text())
-    BindingsArtifact.model_validate_json((package_dir / "bindings.json").read_text())
-    AssumptionsArtifact.model_validate_json((package_dir / "assumptions.json").read_text())
-    ReviewArtifact.model_validate_json((package_dir / "review.json").read_text())
-    VerificationTasksArtifact.model_validate_json(
-        (package_dir / "verification-tasks.json").read_text()
-    )
-    from .models import EvidenceObject, StatusDecision
-
+    bindings = BindingsArtifact.model_validate_json((package_dir / "bindings.json").read_text())
+    assumptions = AssumptionsArtifact.model_validate_json((package_dir / "assumptions.json").read_text())
+    review = ReviewArtifact.model_validate_json((package_dir / "review.json").read_text())
+    VerificationTasksArtifact.model_validate_json((package_dir / "verification-tasks.json").read_text())
     evidence = EvidenceObject.model_validate_json((package_dir / "evidence.json").read_text())
     status = StatusDecision.model_validate_json((package_dir / "status.json").read_text())
+    _validate_package_integrity(package_dir, ir, bindings, assumptions, review, evidence, status)
     return ir, evidence, status
+
+
+def _validate_package_integrity(
+    package_dir: Path,
+    ir: RequirementIR,
+    bindings: BindingsArtifact,
+    assumptions: AssumptionsArtifact,
+    review: ReviewArtifact,
+    evidence: EvidenceObject,
+    status: StatusDecision,
+) -> None:
+    ir_hash = sha256_json(ir)
+    expected_status = decide_status(evidence)
+
+    _expect(bindings.root == ir.bindings, "bindings.json does not match requirement.ir.json")
+    _expect(assumptions.root == ir.assumptions, "assumptions.json does not match requirement.ir.json")
+    _expect(
+        review.reviewed_hashes.get("requirement_ir") == ir_hash,
+        "review.json requirement_ir hash does not match requirement.ir.json",
+    )
+    _expect(evidence.requirement_id == ir.requirement_id, "evidence.json requirement_id does not match IR")
+    _expect(evidence.ir_hash == ir_hash, "evidence.json ir_hash does not match requirement.ir.json")
+    _expect(status == expected_status, "status.json does not match pure status decision")
+    _expect(
+        (package_dir / "requirement.md").read_text() == _requirement_markdown(ir),
+        "requirement.md does not match requirement.ir.json",
+    )
+    _expect(
+        (package_dir / "source-diff.md").read_text()
+        == "No LLM rewrite was used. Controlled text was submitted directly.\n",
+        "source-diff.md does not match Phase 0 package source policy",
+    )
+    _expect(
+        (package_dir / "implementation-spec.md").read_text()
+        == _implementation_spec(ir, status.status.value),
+        "implementation-spec.md does not match requirement.ir.json and status.json",
+    )
+    _expect(
+        (package_dir / "smt" / "C1.smt2").read_text() == smt2_for_ir(ir),
+        "smt/C1.smt2 does not match requirement.ir.json",
+    )
+
+
+def _expect(condition: bool, message: str) -> None:
+    if not condition:
+        raise ValueError(message)
 
 
 def _unbound_symbol_spans(ir: RequirementIR, missing: list[str]) -> dict[str, SourceSpan]:

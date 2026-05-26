@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import ValidationError
 
-from nlreq.jsonutil import write_json
+from nlreq.jsonutil import read_json, write_json
 from nlreq.models import FinalStatus
 from nlreq.package import build_package, validate_package
 
@@ -160,6 +160,56 @@ def test_validate_package_rejects_invalid_auxiliary_artifact(tmp_path: Path) -> 
     write_json(out / "review.json", {"review_id": "RVW-INVALID"})
 
     with pytest.raises(ValidationError):
+        validate_package(out)
+
+
+def test_validate_package_rejects_stale_review_hash(tmp_path: Path) -> None:
+    out = tmp_path / "REQ-AUTH-001"
+    build_package(
+        controlled_text=(FIXTURES / "authorization_precondition.nlreq").read_text(),
+        output_dir=out,
+        requirement_id="REQ-AUTH-001",
+        title="Unauthorized operation is rejected before state changes",
+        claim_kind="authorization_precondition",
+    )
+    review = read_json(out / "review.json")
+    review["reviewed_hashes"]["requirement_ir"] = "sha256:stale"
+    write_json(out / "review.json", review)
+
+    with pytest.raises(ValueError, match="review.json requirement_ir hash"):
+        validate_package(out)
+
+
+def test_validate_package_rejects_stale_status(tmp_path: Path) -> None:
+    out = tmp_path / "REQ-AUTH-001"
+    build_package(
+        controlled_text=(FIXTURES / "authorization_precondition.nlreq").read_text(),
+        output_dir=out,
+        requirement_id="REQ-AUTH-001",
+        title="Unauthorized operation is rejected before state changes",
+        claim_kind="authorization_precondition",
+    )
+    status = read_json(out / "status.json")
+    status["status"] = "ACCEPTED_FOR_IMPLEMENTATION_WITH_REVIEW"
+    status["reason"] = "stale"
+    write_json(out / "status.json", status)
+
+    with pytest.raises(ValueError, match="status.json does not match"):
+        validate_package(out)
+
+
+def test_validate_package_rejects_stale_smt_file(tmp_path: Path) -> None:
+    out = tmp_path / "REQ-AUTH-001"
+    build_package(
+        controlled_text=(FIXTURES / "authorization_precondition.nlreq").read_text(),
+        output_dir=out,
+        requirement_id="REQ-AUTH-001",
+        title="Unauthorized operation is rejected before state changes",
+        claim_kind="authorization_precondition",
+    )
+    (out / "smt" / "C1.smt2").write_text("; stale\n")
+
+    with pytest.raises(ValueError, match="smt/C1.smt2"):
         validate_package(out)
 
 
