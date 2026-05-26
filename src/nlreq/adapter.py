@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from typing import Any
 
 from .models import (
     EvidenceCapability,
@@ -54,6 +55,28 @@ class GenericAdapter(Adapter):
             if raw is None:
                 resolutions.append(
                     SymbolResolution(ref=ref, status="unresolved", reason="symbol not found")
+                )
+                continue
+            if "matches" in raw:
+                matches = _symbols_from_matches(ref.name, raw["matches"])
+                if ref.expected_type:
+                    matches = [symbol for symbol in matches if symbol.symbol_type == ref.expected_type]
+                if not matches:
+                    resolutions.append(
+                        SymbolResolution(
+                            ref=ref,
+                            status="unresolved",
+                            reason=f"expected {ref.expected_type}, found no matching symbols",
+                        )
+                    )
+                    continue
+                resolutions.append(
+                    SymbolResolution(
+                        ref=ref,
+                        status="ambiguous",
+                        symbols=matches,
+                        reason="multiple symbols matched",
+                    )
                 )
                 continue
             symbol_type = str(raw.get("type", "unknown"))
@@ -127,5 +150,30 @@ def default_generic_adapter() -> GenericAdapter:
             "operation_status": {"type": "state"},
             "counter": {"type": "quantity"},
             "limit": {"type": "quantity"},
+            "ambiguous_operation": {
+                "matches": [
+                    {"name": "ambiguous_operation_v1", "type": "action"},
+                    {"name": "ambiguous_operation_v2", "type": "action"},
+                ]
+            },
         }
     )
+
+
+def _symbols_from_matches(ref_name: str, raw_matches: Any) -> list[Symbol]:
+    if not isinstance(raw_matches, list):
+        return []
+    symbols: list[Symbol] = []
+    for index, raw in enumerate(raw_matches):
+        if not isinstance(raw, dict):
+            continue
+        name = str(raw.get("name", f"{ref_name}_{index}"))
+        symbol_type = str(raw.get("type", "unknown"))
+        symbols.append(
+            Symbol(
+                name=name,
+                symbol_type=symbol_type,
+                metadata={str(key): value for key, value in raw.items() if key not in {"name", "type"}},
+            )
+        )
+    return symbols

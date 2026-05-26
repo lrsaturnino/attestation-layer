@@ -8,10 +8,12 @@ from pathlib import Path
 from pydantic import ValidationError
 
 from .jsonutil import canonical_json, to_jsonable
-from .models import EvidenceObject, RequirementIR
+from .models import EvidenceObject, RequirementIR, SymbolRef
 from .package import build_package, validate_package
 from .parser import RequirementParser
 from .status import decide_status
+from .adapter import default_generic_adapter
+from .conformance import AdapterConformanceFixture, assert_adapter_conforms
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -42,6 +44,8 @@ def main(argv: list[str] | None = None) -> int:
 
     status_cmd = subcommands.add_parser("decide-status", help="Compute status from evidence JSON.")
     status_cmd.add_argument("file", type=Path)
+
+    subcommands.add_parser("conformance", help="Run the generic adapter conformance suite.")
 
     args = parser.parse_args(argv)
 
@@ -91,6 +95,14 @@ def main(argv: list[str] | None = None) -> int:
             evidence = EvidenceObject.model_validate_json(args.file.read_text())
             print(canonical_json(decide_status(evidence)))
             return 0
+        if args.command == "conformance":
+            report = assert_adapter_conforms(default_generic_adapter(), _generic_conformance_fixture())
+            print(f"Adapter: {report.adapter_id}")
+            print(f"Target: {report.target_kind}")
+            print("Conformance: passed")
+            for check in report.checks:
+                print(f"  - {check}")
+            return 0
     except (OSError, ValidationError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
@@ -102,6 +114,25 @@ def _line_for_evidence(evidence: EvidenceObject, claim_id: str, label: str) -> s
         if claim.id == claim_id:
             return f"{label}: {'checked' if claim.achieved_evidence else 'missing'}"
     return f"{label}: missing"
+
+
+def _generic_conformance_fixture() -> AdapterConformanceFixture:
+    ir = RequirementParser().parse_ir(
+        (
+            "For every operation request:\n"
+            "if actor is not authorized\n"
+            "then operation must be rejected before state_change.\n"
+        ),
+        requirement_id="REQ-CONFORMANCE-001",
+        title="Generic adapter conformance fixture",
+        claim_kind="authorization_precondition",
+    )
+    return AdapterConformanceFixture(
+        resolved_ref=SymbolRef(name="operation", expected_type="action"),
+        unresolved_ref=SymbolRef(name="definitely_missing_symbol"),
+        ambiguous_ref=SymbolRef(name="ambiguous_operation", expected_type="action"),
+        sample_ir=ir,
+    )
 
 
 if __name__ == "__main__":

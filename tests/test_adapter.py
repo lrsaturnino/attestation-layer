@@ -1,5 +1,6 @@
-from nlreq.adapter import default_generic_adapter
+from nlreq.adapter import GenericAdapter, default_generic_adapter
 from nlreq.bindings import bind_ir
+from nlreq.conformance import AdapterConformanceFixture, assert_adapter_conforms
 from nlreq.models import EvidenceLevel, SymbolRef
 from nlreq.parser import RequirementParser
 
@@ -25,6 +26,18 @@ def test_generic_adapter_reports_unresolved_symbol() -> None:
     assert result.reason == "symbol not found"
 
 
+def test_generic_adapter_reports_ambiguous_symbol() -> None:
+    adapter = default_generic_adapter()
+
+    result = adapter.resolve_symbols([SymbolRef(name="ambiguous_operation", expected_type="action")])[0]
+
+    assert result.status == "ambiguous"
+    assert [symbol.name for symbol in result.symbols] == [
+        "ambiguous_operation_v1",
+        "ambiguous_operation_v2",
+    ]
+
+
 def test_generic_adapter_only_reports_static_resolution_capability() -> None:
     adapter = default_generic_adapter()
     symbol = adapter.resolve_symbols([SymbolRef(name="operation")])[0].symbols[0]
@@ -46,3 +59,51 @@ def test_bind_ir_adds_bindings() -> None:
 
     assert missing == []
     assert sorted(bound.bindings) == ["actor", "operation", "state_change"]
+
+
+def test_generic_adapter_passes_conformance_suite() -> None:
+    adapter = default_generic_adapter()
+    ir = RequirementParser().parse_ir(
+        "For every operation request:\nif actor is not authorized\nthen operation must be rejected before state_change.\n",
+        requirement_id="REQ-CONFORMANCE-001",
+        title="Conformance",
+        claim_kind="authorization_precondition",
+    )
+
+    report = assert_adapter_conforms(
+        adapter,
+        AdapterConformanceFixture(
+            resolved_ref=SymbolRef(name="operation", expected_type="action"),
+            unresolved_ref=SymbolRef(name="definitely_missing_symbol"),
+            ambiguous_ref=SymbolRef(name="ambiguous_operation", expected_type="action"),
+            sample_ir=ir,
+        ),
+    )
+
+    assert report.adapter_id == "generic"
+    assert "stable_resolution" in report.checks
+
+
+def test_conformance_suite_rejects_adapter_without_ambiguity() -> None:
+    adapter = GenericAdapter({"operation": {"type": "action"}})
+    ir = RequirementParser().parse_ir(
+        "For every operation request:\nif actor is not authorized\nthen operation must be rejected before state_change.\n",
+        requirement_id="REQ-CONFORMANCE-FAIL-001",
+        title="Conformance failure",
+        claim_kind="authorization_precondition",
+    )
+
+    try:
+        assert_adapter_conforms(
+            adapter,
+            AdapterConformanceFixture(
+                resolved_ref=SymbolRef(name="operation", expected_type="action"),
+                unresolved_ref=SymbolRef(name="definitely_missing_symbol"),
+                ambiguous_ref=SymbolRef(name="ambiguous_operation", expected_type="action"),
+                sample_ir=ir,
+            ),
+        )
+    except AssertionError as exc:
+        assert "ambiguous_operation must be reported as ambiguous" in str(exc)
+    else:
+        raise AssertionError("adapter without ambiguity support unexpectedly passed conformance")

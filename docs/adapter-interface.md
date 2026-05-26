@@ -44,4 +44,8 @@ An adapter is valid only if it passes the conformance suite. The suite verifies 
 - produces verification tasks in the core task schema,
 - and returns evidence in the core evidence schema.
 
-Phase 0 provides a generic static-symbol adapter as the reference implementation.
+Phase 0 provides a generic static-symbol adapter as the reference implementation. In code,
+future adapters should run `nlreq.conformance.assert_adapter_conforms` with an
+adapter-specific fixture before their evidence is allowed to satisfy gates.
+
+The CLI command `nlreq conformance` runs the suite against the generic adapter.

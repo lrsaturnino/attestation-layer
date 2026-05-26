@@ -37,6 +37,7 @@ The Phase 0 implementation is adapter-neutral. It provides:
 - typed IR and generated JSON Schemas,
 - source-span provenance,
 - a generic static-symbol adapter,
+- an executable adapter conformance suite,
 - evidence/status objects,
 - Z3-backed Phase 0 SMT checks,
 - package generation,
@@ -66,6 +67,12 @@ uv run nlreq package tests/fixtures/requirements/authorization_precondition.nlre
   --claim-kind authorization_precondition
 
 uv run nlreq validate requirements/REQ-AUTH-001
+```
+
+Run adapter conformance against the Phase 0 generic adapter:
+
+```bash
+uv run nlreq conformance
 ```
 
 Expected validation output:
