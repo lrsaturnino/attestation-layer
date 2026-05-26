@@ -38,3 +38,28 @@ Run the soft gate against the refused negative fixture:
 ```bash
 uv run nlreq soft-gate requirements --requirement-id REQ-REFUSED-UNBOUND-001
 ```
+
+Run the hard gate against an accepted package:
+
+```bash
+uv run nlreq hard-gate requirements \
+  --policy docs/examples/gate-policy.example.json \
+  --requirement-id REQ-AUTH-001 \
+  --changed-path src/auth.py
+```
+
+Run the hard gate against the refused negative fixture:
+
+```bash
+uv run nlreq hard-gate requirements \
+  --policy docs/examples/gate-policy.example.json \
+  --requirement-id REQ-REFUSED-UNBOUND-001 \
+  --changed-path src/auth.py
+```
+
+The refused-package hard-gate command is expected to exit non-zero.
+
+Phase 5 artifact examples:
+
+- `docs/examples/gate-policy.example.json`
+- `docs/examples/waiver.example.json`

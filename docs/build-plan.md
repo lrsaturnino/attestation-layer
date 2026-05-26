@@ -1071,6 +1071,134 @@ deterministic report showing whether each referenced requirement exists,
 validates, is approved, and has an accepted status. By default the command
 reports blockers without failing; `--fail-on-blocking` enables opt-in failure.
 
+### Phase 5: Hard Gate Opt-In (Weeks 31-36)
+
+Goal: allow teams to convert proven soft-gate policies into scoped blocking CI
+checks.
+
+Design anchor: `docs/adr/0007-gate-policy-and-waiver-model.md`.
+
+Deliverables:
+
+- gate policy format for adapter, package path, status, and minimum evidence
+  scope,
+- hard-gate command or hard-gate mode over the existing soft-gate report,
+- deterministic pass/fail exit behavior,
+- override or waiver artifact with reviewer, reason, expiry, and reviewed
+  package hashes,
+- CI-friendly JSON and Markdown output,
+- documentation for rollout and rollback,
+- and tests for allowed, blocked, waiver, stale-waiver, and out-of-scope paths.
+
+Success criterion:
+
+A CI job can fail only the configured scope when referenced requirement packages
+are missing, stale, unapproved, refused, or below the configured evidence level.
+Packages and adapters outside the configured scope remain report-only.
+
+### Phase 6: Stronger Verification Backends (Weeks 37-48)
+
+Goal: add evidence sources that go beyond static resolution, SMT shape checks,
+and scoped pytest execution.
+
+Deliverables:
+
+- property-based test generation for supported claim shapes,
+- generated-test review and provenance artifacts,
+- `NormalizedTrace` schema and trace validation package artifacts,
+- counterexample parser for property, trace, SMT, and model-checking failures,
+- freshness checks for generated tests, traces, source hashes, and task inputs,
+- coverage thresholds recorded in evidence,
+- optional bounded model-checking integration for suitable claim shapes,
+- and CI reports that distinguish weak evidence, stale evidence, and failed
+  evidence.
+
+Success criterion:
+
+At least one real adapter package can satisfy a requirement using stronger
+evidence than static resolution alone, and stale or insufficient evidence is
+reported deterministically without weakening the pure status-decision contract.
+
+### Phase 7: Adapter Expansion (Weeks 49-60)
+
+Goal: prove that the package, evidence, and status model is truly adapter-neutral
+by adding additional real ecosystems.
+
+Candidate adapters:
+
+- TypeScript service adapter,
+- Go service adapter,
+- OpenAPI adapter,
+- smart-contract adapter,
+- spec-only or TLA+ adapter.
+
+Deliverables:
+
+- selection ADR for the second real adapter,
+- adapter-specific symbol discovery and binding validation,
+- adapter-specific evidence tasks and backend results,
+- adapter conformance fixture and CLI command,
+- package generation and validation command for the adapter,
+- cross-adapter package index support,
+- documentation for adapter-specific assumptions and unsupported behavior,
+- and migration notes for moving from one adapter to multiple adapters.
+
+Success criterion:
+
+At least two real adapters pass the shared conformance suite and can produce
+validated packages using the same IR, evidence, status, index, and gate report
+contracts. Cross-system requirements remain out of scope until each involved
+adapter is independently trustworthy.
+
+### Phase 8: Continuous Attestation (Weeks 61-76)
+
+Goal: turn package validation from a PR-time activity into continuous evidence
+collection over staging and production behavior.
+
+Deliverables:
+
+- runtime trace ingestion pipeline,
+- production or staging trace normalization,
+- scheduled freshness refresh for package indexes and reports,
+- mutation testing or seeded-fault measurement for specification quality,
+- evidence trend reports over time,
+- requirement/spec evolution workflow,
+- reusable attestation artifact catalog,
+- alerting for stale, regressed, or contradicted evidence,
+- and documentation for operating continuous attestation safely.
+
+Success criterion:
+
+Requirement packages can be rechecked on a schedule against current source,
+tests, and traces. The system can report when evidence degrades after merge,
+without requiring a new implementation PR to discover the regression.
+
+### Phase 9: Agent Workflow Integration (Weeks 77-96)
+
+Goal: integrate the Attestation Layer into an agent-driven implementation loop
+where humans review specifications and exceptions, not raw code diffs by
+default.
+
+Deliverables:
+
+- specifier-agent prompt and package-generation workflow,
+- verifier-agent workflow over package validation, evidence collection, and
+  gate reports,
+- reviewer handoff artifacts focused on controlled requirements and evidence,
+- PR automation that posts index, CI, soft-gate, and hard-gate summaries,
+- retry payloads for coder agents using failed checks and counterexamples,
+- audit log tying generated code changes to requirement packages and evidence,
+- escalation policy for unsupported claims, ambiguous symbols, and verifier
+  disagreement,
+- and documentation for human review responsibilities in agent-driven changes.
+
+Success criterion:
+
+An implementation change can move from controlled requirement, through generated
+or updated code, through verification, and into review with the requirement
+package as the primary human-reviewed artifact. Human reviewers can still stop
+or revise the workflow at every boundary.
+
 ---
 
 ## 14. Phase 0 Tooling

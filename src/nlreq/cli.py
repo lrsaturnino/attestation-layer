@@ -14,6 +14,12 @@ from .adoption import (
     extract_requirement_ids,
     review_checklist_template,
 )
+from .gate import (
+    build_hard_gate_report,
+    hard_gate_report_markdown,
+    load_gate_policy,
+    load_gate_waivers,
+)
 from .jsonutil import canonical_json
 from .models import EvidenceObject, RequirementIR, StatusDecision, SymbolRef
 from .package import build_package, validate_package
@@ -129,6 +135,37 @@ def main(argv: list[str] | None = None) -> int:
         help="Return non-zero when soft-gate blockers are found.",
     )
     _add_python_adapter_options(soft_gate_cmd)
+
+    hard_gate_cmd = subcommands.add_parser(
+        "hard-gate", help="Run the Phase 5 scoped hard gate against requirement references."
+    )
+    hard_gate_cmd.add_argument("packages_dir", nargs="?", type=Path, default=Path("requirements"))
+    hard_gate_cmd.add_argument("--policy", type=Path, required=True)
+    hard_gate_cmd.add_argument("--waiver", action="append", type=Path, default=[])
+    hard_gate_cmd.add_argument("--requirement-id", action="append", default=[])
+    hard_gate_cmd.add_argument(
+        "--references-file",
+        action="append",
+        type=Path,
+        default=[],
+        help="Read requirement references from a PR body, commit message, or report file.",
+    )
+    hard_gate_cmd.add_argument(
+        "--changed-path",
+        action="append",
+        default=[],
+        help="Changed implementation path used for policy scope matching.",
+    )
+    hard_gate_cmd.add_argument(
+        "--changed-paths-file",
+        action="append",
+        type=Path,
+        default=[],
+        help="Read changed implementation paths from a newline-delimited file.",
+    )
+    hard_gate_cmd.add_argument("--out", type=Path)
+    hard_gate_cmd.add_argument("--markdown-out", type=Path)
+    _add_python_adapter_options(hard_gate_cmd)
 
     review_template_cmd = subcommands.add_parser(
         "review-template", help="Render the human review checklist template."
@@ -299,6 +336,31 @@ def main(argv: list[str] | None = None) -> int:
             if args.fail_on_blocking and report["result"] == "blocked":
                 return 1
             return 0
+        if args.command == "hard-gate":
+            requirement_ids = _requirement_ids_from_args(args)
+            report = build_hard_gate_report(
+                args.packages_dir,
+                requirement_ids=requirement_ids,
+                policy=load_gate_policy(args.policy),
+                waivers=load_gate_waivers(args.waiver),
+                changed_paths=_changed_paths_from_args(args),
+                python_adapter=_optional_python_adapter(args),
+            )
+            wrote_output = False
+            if args.out:
+                from .jsonutil import write_json
+
+                write_json(args.out, report)
+                print(f"Hard gate report: {args.out}")
+                wrote_output = True
+            if args.markdown_out:
+                args.markdown_out.parent.mkdir(parents=True, exist_ok=True)
+                args.markdown_out.write_text(hard_gate_report_markdown(report))
+                print(f"Hard gate report markdown: {args.markdown_out}")
+                wrote_output = True
+            if not wrote_output:
+                print(canonical_json(report), end="")
+            return 1 if report["result"] == "blocked" else 0
         if args.command == "review-template":
             template = review_checklist_template(args.requirement_id)
             if args.out:
@@ -342,6 +404,23 @@ def _requirement_ids_from_args(args: argparse.Namespace) -> list[str]:
         if requirement_id not in seen:
             unique.append(requirement_id)
             seen.add(requirement_id)
+    return unique
+
+
+def _changed_paths_from_args(args: argparse.Namespace) -> list[str]:
+    changed_paths = list(args.changed_path)
+    for changed_paths_file in args.changed_paths_file:
+        changed_paths.extend(
+            line.strip()
+            for line in changed_paths_file.read_text().splitlines()
+            if line.strip()
+        )
+    seen: set[str] = set()
+    unique: list[str] = []
+    for changed_path in changed_paths:
+        if changed_path not in seen:
+            unique.append(changed_path)
+            seen.add(changed_path)
     return unique
 
 

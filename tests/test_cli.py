@@ -2,6 +2,8 @@ import json
 from pathlib import Path
 
 from nlreq.cli import main
+from nlreq.adoption import build_package_index
+from nlreq.jsonutil import write_json
 from nlreq.package import build_package
 
 
@@ -257,3 +259,305 @@ def test_soft_gate_blocks_refused_requirement(capsys) -> None:
     assert exit_code == 0
     assert output["result"] == "blocked"
     assert any(finding["category"] == "status" for finding in output["findings"])
+
+
+def test_hard_gate_passes_for_in_scope_accepted_requirement(tmp_path: Path, capsys) -> None:
+    package_root = tmp_path / "requirements"
+    policy = _write_hard_gate_policy(tmp_path, package_root)
+    report_json = tmp_path / "hard-gate.json"
+    report_md = tmp_path / "hard-gate.md"
+    build_package(
+        controlled_text=(FIXTURES / "authorization_precondition.nlreq").read_text(),
+        output_dir=package_root / "REQ-AUTH-001",
+        requirement_id="REQ-AUTH-001",
+        title="Unauthorized operation is rejected before state changes",
+        claim_kind="authorization_precondition",
+    )
+
+    exit_code = main(
+        [
+            "hard-gate",
+            str(package_root),
+            "--policy",
+            str(policy),
+            "--requirement-id",
+            "REQ-AUTH-001",
+            "--changed-path",
+            "src/auth.py",
+            "--out",
+            str(report_json),
+            "--markdown-out",
+            str(report_md),
+        ]
+    )
+    capsys.readouterr()
+    output = json.loads(report_json.read_text())
+
+    assert exit_code == 0
+    assert output["mode"] == "hard_gate"
+    assert output["result"] == "pass"
+    assert output["summary"]["hard_blocking_findings"] == 0
+    assert "# NLReq Hard Gate Report" in report_md.read_text()
+
+
+def test_hard_gate_blocks_in_scope_refused_requirement(tmp_path: Path, capsys) -> None:
+    package_root = tmp_path / "requirements"
+    policy = _write_hard_gate_policy(tmp_path, package_root)
+    build_package(
+        controlled_text=(FIXTURES / "unbound_symbol.nlreq").read_text(),
+        output_dir=package_root / "REQ-REFUSED-UNBOUND-001",
+        requirement_id="REQ-REFUSED-UNBOUND-001",
+        title="Unbound operator example",
+        claim_kind="authorization_precondition",
+    )
+
+    exit_code = main(
+        [
+            "hard-gate",
+            str(package_root),
+            "--policy",
+            str(policy),
+            "--requirement-id",
+            "REQ-REFUSED-UNBOUND-001",
+            "--changed-path",
+            "src/auth.py",
+        ]
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert output["result"] == "blocked"
+    assert output["summary"]["hard_blocking_findings"] >= 1
+    assert any(finding["category"] == "status" for finding in output["findings"])
+
+
+def test_hard_gate_applies_valid_waiver(tmp_path: Path, capsys) -> None:
+    package_root = tmp_path / "requirements"
+    policy = _write_hard_gate_policy(tmp_path, package_root)
+    build_package(
+        controlled_text=(FIXTURES / "unbound_symbol.nlreq").read_text(),
+        output_dir=package_root / "REQ-REFUSED-UNBOUND-001",
+        requirement_id="REQ-REFUSED-UNBOUND-001",
+        title="Unbound operator example",
+        claim_kind="authorization_precondition",
+    )
+    waiver = _write_waiver(
+        tmp_path,
+        package_root,
+        requirement_id="REQ-REFUSED-UNBOUND-001",
+        stale=False,
+    )
+
+    exit_code = main(
+        [
+            "hard-gate",
+            str(package_root),
+            "--policy",
+            str(policy),
+            "--waiver",
+            str(waiver),
+            "--requirement-id",
+            "REQ-REFUSED-UNBOUND-001",
+            "--changed-path",
+            "src/auth.py",
+        ]
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["result"] == "pass"
+    assert output["summary"]["hard_blocking_findings"] == 0
+    assert output["summary"]["waived_findings"] >= 1
+    assert {decision["decision"] for decision in output["waiver_decisions"]} == {"applied"}
+
+
+def test_hard_gate_ignores_stale_waiver(tmp_path: Path, capsys) -> None:
+    package_root = tmp_path / "requirements"
+    policy = _write_hard_gate_policy(tmp_path, package_root)
+    build_package(
+        controlled_text=(FIXTURES / "unbound_symbol.nlreq").read_text(),
+        output_dir=package_root / "REQ-REFUSED-UNBOUND-001",
+        requirement_id="REQ-REFUSED-UNBOUND-001",
+        title="Unbound operator example",
+        claim_kind="authorization_precondition",
+    )
+    waiver = _write_waiver(
+        tmp_path,
+        package_root,
+        requirement_id="REQ-REFUSED-UNBOUND-001",
+        stale=True,
+    )
+
+    exit_code = main(
+        [
+            "hard-gate",
+            str(package_root),
+            "--policy",
+            str(policy),
+            "--waiver",
+            str(waiver),
+            "--requirement-id",
+            "REQ-REFUSED-UNBOUND-001",
+            "--changed-path",
+            "src/auth.py",
+        ]
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert output["result"] == "blocked"
+    assert output["summary"]["hard_blocking_findings"] >= 1
+    assert "stale" in {decision["decision"] for decision in output["waiver_decisions"]}
+
+
+def test_hard_gate_ignores_expired_waiver(tmp_path: Path, capsys) -> None:
+    package_root = tmp_path / "requirements"
+    policy = _write_hard_gate_policy(tmp_path, package_root)
+    build_package(
+        controlled_text=(FIXTURES / "unbound_symbol.nlreq").read_text(),
+        output_dir=package_root / "REQ-REFUSED-UNBOUND-001",
+        requirement_id="REQ-REFUSED-UNBOUND-001",
+        title="Unbound operator example",
+        claim_kind="authorization_precondition",
+    )
+    waiver = _write_waiver(
+        tmp_path,
+        package_root,
+        requirement_id="REQ-REFUSED-UNBOUND-001",
+        stale=False,
+        expires_at="2000-01-01T00:00:00Z",
+    )
+
+    exit_code = main(
+        [
+            "hard-gate",
+            str(package_root),
+            "--policy",
+            str(policy),
+            "--waiver",
+            str(waiver),
+            "--requirement-id",
+            "REQ-REFUSED-UNBOUND-001",
+            "--changed-path",
+            "src/auth.py",
+        ]
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 1
+    assert output["result"] == "blocked"
+    assert output["summary"]["hard_blocking_findings"] >= 1
+    assert "expired" in {decision["decision"] for decision in output["waiver_decisions"]}
+
+
+def test_hard_gate_reports_refused_requirement_out_of_scope_by_changed_path(
+    tmp_path: Path, capsys
+) -> None:
+    package_root = tmp_path / "requirements"
+    policy = _write_hard_gate_policy(tmp_path, package_root)
+    build_package(
+        controlled_text=(FIXTURES / "unbound_symbol.nlreq").read_text(),
+        output_dir=package_root / "REQ-REFUSED-UNBOUND-001",
+        requirement_id="REQ-REFUSED-UNBOUND-001",
+        title="Unbound operator example",
+        claim_kind="authorization_precondition",
+    )
+
+    exit_code = main(
+        [
+            "hard-gate",
+            str(package_root),
+            "--policy",
+            str(policy),
+            "--requirement-id",
+            "REQ-REFUSED-UNBOUND-001",
+            "--changed-path",
+            "docs/readme.md",
+        ]
+    )
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["result"] == "pass"
+    assert output["summary"]["hard_blocking_findings"] == 0
+    assert output["summary"]["out_of_scope_findings"] >= 1
+
+
+def _write_hard_gate_policy(tmp_path: Path, package_root: Path) -> Path:
+    policy = tmp_path / "gate-policy.json"
+    write_json(
+        policy,
+        {
+            "policy_id": "GATE-POLICY-TEST",
+            "schema_version": "0.1",
+            "mode": "hard_gate",
+            "scope": {
+                "adapters": ["generic"],
+                "changed_path_patterns": ["src/**"],
+                "package_roots": [package_root.as_posix()],
+                "requirement_id_patterns": ["REQ-*"],
+            },
+            "rules": {
+                "allowed_statuses": ["ACCEPTED_WITH_EVIDENCE"],
+                "block_findings": [
+                    "missing_requirement_reference",
+                    "unknown_requirement_reference",
+                    "package_validity",
+                    "stale_evidence",
+                    "status",
+                    "pending_reviews",
+                ],
+                "minimum_evidence": [
+                    "STATICALLY_RESOLVED",
+                    "CONSISTENCY_CHECKED",
+                    "SMT_CHECKED",
+                ],
+                "require_approved_review": True,
+                "report_only_findings": ["unsupported_claims"],
+            },
+            "waivers": {
+                "allow_waivers": True,
+                "max_duration_days": 500000,
+                "require_reviewed_hashes": True,
+            },
+        },
+    )
+    return policy
+
+
+def _write_waiver(
+    tmp_path: Path,
+    package_root: Path,
+    *,
+    requirement_id: str,
+    stale: bool,
+    expires_at: str = "2999-01-01T00:00:00Z",
+) -> Path:
+    package_index = build_package_index(package_root)
+    package = next(
+        package
+        for package in package_index["packages"]
+        if package["requirement_id"] == requirement_id
+    )
+    waiver = tmp_path / "waiver.json"
+    write_json(
+        waiver,
+        {
+            "waiver_id": "WAIVER-REQ-REFUSED-001",
+            "schema_version": "0.1",
+            "requirement_ids": [requirement_id],
+            "package_paths": [package["path"]],
+            "reviewer": "reviewer@example.invalid",
+            "reason": "Temporary exception for a known negative fixture.",
+            "expires_at": expires_at,
+            "reviewed_hashes": {
+                "requirement_ir": "sha256:stale"
+                if stale
+                else package["artifacts"]["requirement.ir.json"],
+                "status": package["artifacts"]["status.json"],
+            },
+            "linked_issue": "https://github.com/example/repo/issues/1",
+            "may_satisfy_hard_gate": True,
+        },
+    )
+    return waiver

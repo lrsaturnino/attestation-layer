@@ -1,0 +1,48 @@
+{
+  "policy_id": "GATE-POLICY-GENERIC-001",
+  "schema_version": "0.1",
+  "mode": "hard_gate",
+  "scope": {
+    "adapters": [
+      "generic"
+    ],
+    "changed_path_patterns": [
+      "src/**",
+      "tests/**"
+    ],
+    "package_roots": [
+      "requirements"
+    ],
+    "requirement_id_patterns": [
+      "REQ-*"
+    ]
+  },
+  "rules": {
+    "allowed_statuses": [
+      "ACCEPTED_WITH_EVIDENCE"
+    ],
+    "block_findings": [
+      "missing_requirement_reference",
+      "unknown_requirement_reference",
+      "package_validity",
+      "stale_evidence",
+      "status",
+      "pending_reviews",
+      "minimum_evidence"
+    ],
+    "minimum_evidence": [
+      "STATICALLY_RESOLVED",
+      "CONSISTENCY_CHECKED",
+      "SMT_CHECKED"
+    ],
+    "require_approved_review": true,
+    "report_only_findings": [
+      "unsupported_claims"
+    ]
+  },
+  "waivers": {
+    "allow_waivers": true,
+    "max_duration_days": 14,
+    "require_reviewed_hashes": true
+  }
+}

@@ -132,6 +132,22 @@ uv run nlreq soft-gate requirements \
   --fail-on-blocking
 ```
 
+Run the Phase 5 hard gate:
+
+```bash
+uv run nlreq hard-gate requirements \
+  --policy docs/examples/gate-policy.example.json \
+  --requirement-id REQ-AUTH-001 \
+  --changed-path src/auth.py
+
+uv run nlreq hard-gate requirements \
+  --policy docs/examples/gate-policy.example.json \
+  --requirement-id REQ-REFUSED-UNBOUND-001 \
+  --changed-path src/auth.py
+```
+
+The refused-package hard-gate command is expected to exit non-zero.
+
 Expected validation output:
 
 ```text
@@ -154,6 +170,10 @@ The Phase 3 adoption workflow slice is described in
 [docs/phase-3-adoption-workflow.md](./docs/phase-3-adoption-workflow.md).
 The Phase 4 soft gate pilot is described in
 [docs/phase-4-soft-gate-pilot.md](./docs/phase-4-soft-gate-pilot.md).
+The formal roadmap in [docs/build-plan.md](./docs/build-plan.md) now extends
+through Phase 9; phases after Phase 5 are planned, not completed.
+The Phase 5 hard gate is described in
+[docs/phase-5-hard-gate.md](./docs/phase-5-hard-gate.md).
 
 Adoption references:
 

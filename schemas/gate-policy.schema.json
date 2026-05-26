@@ -1,0 +1,170 @@
+{
+  "$defs": {
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    },
+    "FinalStatus": {
+      "enum": [
+        "ACCEPTED_WITH_EVIDENCE",
+        "ACCEPTED_FOR_IMPLEMENTATION_WITH_REVIEW",
+        "REFUSED_AMBIGUOUS",
+        "REFUSED_UNBOUND_SYMBOLS",
+        "REFUSED_UNSUPPORTED_CLAIM",
+        "REFUSED_FAILED_CHECK",
+        "REFUSED_TIMEOUT",
+        "NEEDS_SPEC_COVERAGE"
+      ],
+      "title": "FinalStatus",
+      "type": "string"
+    },
+    "GatePolicyRules": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_statuses": {
+          "items": {
+            "$ref": "#/$defs/FinalStatus"
+          },
+          "title": "Allowed Statuses",
+          "type": "array"
+        },
+        "block_findings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Block Findings",
+          "type": "array"
+        },
+        "minimum_evidence": {
+          "items": {
+            "$ref": "#/$defs/EvidenceLevel"
+          },
+          "title": "Minimum Evidence",
+          "type": "array"
+        },
+        "report_only_findings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Report Only Findings",
+          "type": "array"
+        },
+        "require_approved_review": {
+          "default": true,
+          "title": "Require Approved Review",
+          "type": "boolean"
+        }
+      },
+      "title": "GatePolicyRules",
+      "type": "object"
+    },
+    "GatePolicyScope": {
+      "additionalProperties": false,
+      "properties": {
+        "adapters": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Adapters",
+          "type": "array"
+        },
+        "changed_path_patterns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changed Path Patterns",
+          "type": "array"
+        },
+        "package_roots": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Package Roots",
+          "type": "array"
+        },
+        "requirement_id_patterns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Requirement Id Patterns",
+          "type": "array"
+        }
+      },
+      "title": "GatePolicyScope",
+      "type": "object"
+    },
+    "GatePolicyWaiverRules": {
+      "additionalProperties": false,
+      "properties": {
+        "allow_waivers": {
+          "default": false,
+          "title": "Allow Waivers",
+          "type": "boolean"
+        },
+        "max_duration_days": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Duration Days"
+        },
+        "require_reviewed_hashes": {
+          "default": true,
+          "title": "Require Reviewed Hashes",
+          "type": "boolean"
+        }
+      },
+      "title": "GatePolicyWaiverRules",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "mode": {
+      "const": "hard_gate",
+      "default": "hard_gate",
+      "title": "Mode",
+      "type": "string"
+    },
+    "policy_id": {
+      "title": "Policy Id",
+      "type": "string"
+    },
+    "rules": {
+      "$ref": "#/$defs/GatePolicyRules"
+    },
+    "schema_version": {
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "scope": {
+      "$ref": "#/$defs/GatePolicyScope"
+    },
+    "waivers": {
+      "$ref": "#/$defs/GatePolicyWaiverRules"
+    }
+  },
+  "required": [
+    "policy_id"
+  ],
+  "title": "GatePolicy",
+  "type": "object"
+}

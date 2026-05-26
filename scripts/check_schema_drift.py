@@ -5,6 +5,7 @@ from pathlib import Path
 
 from nlreq.models import (
     AssumptionsArtifact,
+    BackendResultsArtifact,
     BindingsArtifact,
     EvidenceObject,
     RequirementIR,
@@ -12,16 +13,20 @@ from nlreq.models import (
     StatusDecision,
     VerificationTasksArtifact,
 )
+from nlreq.gate import GatePolicy, GateWaiver
 
 
 SCHEMAS = {
     "requirement-ir-0.1.schema.json": RequirementIR,
     "assumptions.schema.json": AssumptionsArtifact,
+    "backend-results.schema.json": BackendResultsArtifact,
     "bindings.schema.json": BindingsArtifact,
     "evidence.schema.json": EvidenceObject,
+    "gate-policy.schema.json": GatePolicy,
     "review.schema.json": ReviewArtifact,
     "status-decision.schema.json": StatusDecision,
     "verification-tasks.schema.json": VerificationTasksArtifact,
+    "waiver.schema.json": GateWaiver,
 }
 
 
