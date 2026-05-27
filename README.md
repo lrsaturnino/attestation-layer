@@ -248,6 +248,7 @@ Adoption references:
 - [Adapter authoring guide](./docs/adapter-authoring-guide.md)
 - [Adding a requirement](./docs/adding-a-requirement.md)
 - [Attestation artifact catalog](./docs/attestation-artifact-catalog.md)
+- [Future adapter expansion and routing](./docs/future-adapter-routing.md)
 - [Review checklist template](./docs/review-checklist-template.md)
 - [Examples](./docs/examples.md)
 
