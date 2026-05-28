@@ -8,10 +8,12 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .adoption import build_package_index
+from .command_adapter import CommandAdapter
 from .jsonutil import read_json
 from .models import EvidenceLevel, FinalStatus
 from .openapi_adapter import OpenApiAdapter
 from .python_adapter import PythonPackageAdapter
+from .tla_adapter import TlaAdapter
 
 
 HARD_GATE_REPORT_VERSION = "0.1"
@@ -133,12 +135,16 @@ def build_hard_gate_report(
     changed_paths: list[str] | None = None,
     python_adapter: PythonPackageAdapter | None = None,
     openapi_adapter: OpenApiAdapter | None = None,
+    command_adapter: CommandAdapter | None = None,
+    tla_adapter: TlaAdapter | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     package_index = build_package_index(
         packages_dir,
         python_adapter=python_adapter,
         openapi_adapter=openapi_adapter,
+        command_adapter=command_adapter,
+        tla_adapter=tla_adapter,
     )
     referenced_ids = _stable_unique(requirement_ids)
     packages_by_id = {

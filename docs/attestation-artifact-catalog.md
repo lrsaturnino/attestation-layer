@@ -14,6 +14,11 @@ them.
 | `review.json` | Human review workflow | Used for review decision and review age. |
 | `verification-tasks.json` | Adapter/core task generation | Recomputed for freshness and source-sensitive drift. |
 | `adapter-results.json` | Adapter backend execution | Checked against current task input hashes. |
+| `command-checks.json` | Phase 10 command adapter | Reviewed command linkage for command-backed packages. |
+| `command-results.json` | Phase 10 command adapter | Bounded command execution results and source/test hashes. |
+| `trace-validation-results.json` | Phase 11 trace validator | Runtime trace validation results and counterexamples. |
+| `tla-models.json` | Phase 13 TLA adapter | Reviewed model/config bindings and checker configuration. |
+| `tla-results.json` | Phase 13 TLA adapter | Bounded model-checking results and model/config hashes. |
 | `generated-tests.json` | Generated-test backend | Cataloged as generated test evidence, not proof. |
 | `counterexamples.json` | Backend result normalization | Cataloged as structured failure evidence. |
 | `normalized-traces.json` | Trace ingestion | Parsed as trace artifacts when present. |
@@ -88,10 +93,11 @@ Allowed redaction status values for a clean Phase 8 run are `redacted` and
 | Current adapter bindings | `STATICALLY_RESOLVED` |
 | Core consistency backend | `CONSISTENCY_CHECKED` |
 | Core SMT backend | `SMT_CHECKED` |
-| Scoped pytest or generated property runs | `TEST_VALIDATED` |
-| Normalized traces | None by default in Phase 8 |
+| Scoped pytest, generated property runs, or reviewed command checks | `TEST_VALIDATED` |
+| Validated normalized traces | `TRACE_VALIDATED` |
+| Reviewed TLA+ model checks | `BOUNDED_CHECKED` |
 | Agent audit entries | None |
 
-Trace artifacts are ingested and reported in Phase 8, but they do not satisfy
-`TRACE_VALIDATED` until an adapter-specific trace validator defines and executes
-that backend contract.
+Trace artifacts are ingested and reported in Phase 8. Phase 11 adds explicit
+trace validation; only supported validators over acceptable redaction states may
+produce `TRACE_VALIDATED`. Raw normalized trace presence remains report-only.

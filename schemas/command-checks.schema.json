@@ -1,0 +1,128 @@
+{
+  "$defs": {
+    "CommandCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "check_id": {
+          "title": "Check Id",
+          "type": "string"
+        },
+        "command": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Command",
+          "type": "array"
+        },
+        "cwd": {
+          "default": ".",
+          "title": "Cwd",
+          "type": "string"
+        },
+        "env": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Env",
+          "type": "object"
+        },
+        "expected_exit_code": {
+          "default": 0,
+          "title": "Expected Exit Code",
+          "type": "integer"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "output_limit_bytes": {
+          "default": 4000,
+          "exclusiveMinimum": 0,
+          "maximum": 20000,
+          "title": "Output Limit Bytes",
+          "type": "integer"
+        },
+        "requested_evidence": {
+          "$ref": "#/$defs/EvidenceLevel",
+          "default": "TEST_VALIDATED"
+        },
+        "requirement_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "target_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Target Paths",
+          "type": "array"
+        },
+        "test_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Test Paths",
+          "type": "array"
+        },
+        "timeout_seconds": {
+          "default": 60,
+          "exclusiveMinimum": 0,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "check_id",
+        "name",
+        "requirement_ids",
+        "command"
+      ],
+      "title": "CommandCheck",
+      "type": "object"
+    },
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapter": {
+      "const": "command",
+      "default": "command",
+      "title": "Adapter",
+      "type": "string"
+    },
+    "checks": {
+      "items": {
+        "$ref": "#/$defs/CommandCheck"
+      },
+      "title": "Checks",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "title": "CommandChecksArtifact",
+  "type": "object"
+}

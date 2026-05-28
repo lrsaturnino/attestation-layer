@@ -68,6 +68,44 @@ uv run nlreq continuous-attestation requirements \
   --markdown-out /tmp/nlreq-continuous.md
 ```
 
+Run trace validation over normalized runtime traces:
+
+```bash
+uv run nlreq trace-validate requirements \
+  --requirement-id REQ-AUTH-001 \
+  --trace-artifact /tmp/normalized-traces.json \
+  --out /tmp/nlreq-trace-validation.json \
+  --markdown-out /tmp/nlreq-trace-validation.md
+```
+
+Build an adapter routing report:
+
+```bash
+uv run nlreq route-adapters requirements \
+  --adapter-registry docs/examples/adapter-registry.example.json \
+  --routing-policy docs/examples/routing-policy.example.json \
+  --changed-path src/auth.py \
+  --requirement-id REQ-AUTH-001 \
+  --out /tmp/nlreq-routing.json \
+  --markdown-out /tmp/nlreq-routing.md
+```
+
+Build a TLA/model-checking package:
+
+```bash
+uv run nlreq tla-package tests/fixtures/requirements/authorization_precondition.nlreq \
+  --out /tmp/REQ-AUTH-TLA-001 \
+  --requirement-id REQ-AUTH-TLA-001 \
+  --title "Unauthorized operation is rejected before state changes" \
+  --claim-kind authorization_precondition \
+  --model-config docs/examples/tla-models.example.json \
+  --project-root tests/fixtures/adapters/tla
+
+uv run nlreq tla-validate /tmp/REQ-AUTH-TLA-001 \
+  --model-config docs/examples/tla-models.example.json \
+  --project-root tests/fixtures/adapters/tla
+```
+
 Build an agent implementation task and verifier handoff:
 
 ```bash
@@ -112,10 +150,30 @@ uv run nlreq openapi-validate /tmp/REQ-OPENAPI-001 \
   --openapi-name sample-api
 ```
 
+Build a command/test-runner package with reviewed command evidence:
+
+```bash
+uv run nlreq command-package tests/fixtures/requirements/authorization_precondition.nlreq \
+  --out /tmp/REQ-CMD-001 \
+  --requirement-id REQ-CMD-001 \
+  --title "Unauthorized operation is rejected by an existing command check" \
+  --claim-kind authorization_precondition \
+  --checks docs/examples/command-checks.example.json \
+  --project-root tests/fixtures/adapters/command
+
+uv run nlreq command-validate /tmp/REQ-CMD-001 \
+  --checks docs/examples/command-checks.example.json \
+  --project-root tests/fixtures/adapters/command
+```
+
 Phase 5 artifact examples:
 
 - `docs/examples/gate-policy.example.json`
 - `docs/examples/waiver.example.json`
+- `docs/examples/command-checks.example.json`
+- `docs/examples/adapter-registry.example.json`
+- `docs/examples/routing-policy.example.json`
+- `docs/examples/tla-models.example.json`
 
 Phase 6 artifact schemas:
 

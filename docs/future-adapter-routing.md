@@ -1,9 +1,10 @@
 # Future Adapter Expansion and Routing
 
-This note captures the future adapter strategy for the NL Requirement
-Attestation Layer. It is not an implemented Phase 0-9 feature. The current
-implementation routes adapters explicitly through CLI commands and validation
-configuration.
+This note captures the adapter strategy for the NL Requirement Attestation
+Layer. Phase 12 implements the first deterministic registry and routing slice
+through `validate-adapter-registry`, `validate-routing-policy`, and
+`route-adapters`. Adapter execution remains explicit through package/evidence
+commands.
 
 ## Current State
 
@@ -12,8 +13,12 @@ The current implementation supports:
 - generic static-symbol packages through `nlreq package`
 - Python packages through `nlreq python-package`
 - OpenAPI documents through `nlreq openapi-package`
-- report and gate validation with optional Python and OpenAPI adapter
-  configuration
+- command/test-runner checks through `nlreq command-package`
+- runtime trace validation through `nlreq trace-validate`
+- TLA/model-checking packages through `nlreq tla-package`
+- adapter registry and routing reports through `nlreq route-adapters`
+- report and gate validation with optional Python, OpenAPI, command, and TLA
+  adapter configuration
 
 Adapter selection is operator driven:
 
@@ -24,7 +29,8 @@ operator or CI config
   -> package/evidence/status artifacts
 ```
 
-There is no automatic adapter registry or router today.
+The router is report-only infrastructure. It selects and explains adapters but
+does not execute them or compute status.
 
 ## Goal
 
@@ -80,6 +86,33 @@ High-value adapter families:
 
 Unsupported ecosystems remain explicit. They can be report-only, manually
 reviewed, or refused until an adapter can produce honest evidence.
+
+## Phase 10 First Step
+
+The first concrete step is the command/test-runner adapter described in
+`docs/phase-10-command-test-runner-adapter.md` and
+`docs/adr/0012-phase-10-command-test-runner-adapter.md`.
+
+That adapter gives broad brownfield coverage before a full router exists. It
+lets packages point to explicit project checks, records target and test hashes,
+and produces `TEST_VALIDATED` evidence only when reviewed commands pass.
+
+The second concrete step is runtime trace validation described in
+`docs/phase-11-runtime-trace-validation.md` and
+`docs/adr/0013-phase-11-runtime-trace-validation.md`. That adapter makes
+`TRACE_VALIDATED` possible for observed behavior without requiring one language
+adapter per service.
+
+The third concrete step is Phase 12 adapter registry and routing,
+described in `docs/phase-12-adapter-registry-routing.md` and
+`docs/adr/0014-phase-12-adapter-registry-routing.md`. Phase 12 is the first
+phase that directly implements the routing layer described in this document.
+
+The fourth concrete step is Phase 13 TLA+ model checking, described in
+`docs/phase-13-tla-model-checking-adapter.md` and
+`docs/adr/0015-phase-13-tla-model-checking-adapter.md`. Phase 13 uses routing
+to select formal/model-checking evidence only for requirements and targets that
+justify that cost.
 
 ## Routing Inputs
 

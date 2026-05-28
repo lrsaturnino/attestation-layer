@@ -1,0 +1,117 @@
+{
+  "$defs": {
+    "AdapterConformanceSummary": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "default": "unknown",
+          "enum": [
+            "pass",
+            "fail",
+            "unknown"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "suite_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Suite Version"
+        }
+      },
+      "title": "AdapterConformanceSummary",
+      "type": "object"
+    },
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    },
+    "RegisteredAdapter": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter_id": {
+          "title": "Adapter Id",
+          "type": "string"
+        },
+        "conformance": {
+          "$ref": "#/$defs/AdapterConformanceSummary"
+        },
+        "gateable": {
+          "default": false,
+          "title": "Gateable",
+          "type": "boolean"
+        },
+        "rollout": {
+          "default": "stable",
+          "enum": [
+            "stable",
+            "report_only",
+            "experimental"
+          ],
+          "title": "Rollout",
+          "type": "string"
+        },
+        "supported_claim_kinds": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Supported Claim Kinds",
+          "type": "array"
+        },
+        "supported_evidence": {
+          "items": {
+            "$ref": "#/$defs/EvidenceLevel"
+          },
+          "title": "Supported Evidence",
+          "type": "array"
+        },
+        "target_kind": {
+          "title": "Target Kind",
+          "type": "string"
+        }
+      },
+      "required": [
+        "adapter_id",
+        "target_kind"
+      ],
+      "title": "RegisteredAdapter",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapters": {
+      "items": {
+        "$ref": "#/$defs/RegisteredAdapter"
+      },
+      "title": "Adapters",
+      "type": "array"
+    },
+    "registry_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Registry Version",
+      "type": "string"
+    }
+  },
+  "title": "AdapterRegistryArtifact",
+  "type": "object"
+}

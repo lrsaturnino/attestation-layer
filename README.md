@@ -141,6 +141,28 @@ uv run nlreq openapi-validate /tmp/REQ-OPENAPI-001 \
   --openapi-name sample-api
 ```
 
+Build and validate a command/test-runner-backed evidence package:
+
+```bash
+uv run nlreq command-package tests/fixtures/requirements/authorization_precondition.nlreq \
+  --out /tmp/REQ-CMD-001 \
+  --requirement-id REQ-CMD-001 \
+  --title "Unauthorized operation is rejected by an existing command check" \
+  --claim-kind authorization_precondition \
+  --checks docs/examples/command-checks.example.json \
+  --project-root tests/fixtures/adapters/command
+
+uv run nlreq command-validate /tmp/REQ-CMD-001 \
+  --checks docs/examples/command-checks.example.json \
+  --project-root tests/fixtures/adapters/command
+
+uv run nlreq command-evidence requirements \
+  --checks docs/examples/command-checks.example.json \
+  --requirement-id REQ-AUTH-001 \
+  --project-root tests/fixtures/adapters/command \
+  --out /tmp/nlreq-command-results.json
+```
+
 Build Phase 3 adoption artifacts:
 
 ```bash
@@ -194,6 +216,59 @@ uv run nlreq continuous-attestation requirements \
   --markdown-out /tmp/nlreq-continuous.md
 ```
 
+Validate normalized runtime traces:
+
+```bash
+uv run nlreq trace-validate requirements \
+  --requirement-id REQ-AUTH-001 \
+  --trace-artifact /tmp/normalized-traces.json \
+  --out /tmp/nlreq-trace-validation.json \
+  --markdown-out /tmp/nlreq-trace-validation.md
+
+uv run nlreq continuous-attestation requirements \
+  --trigger schedule \
+  --trace-artifact /tmp/normalized-traces.json \
+  --trace-validation \
+  --out /tmp/nlreq-continuous-with-traces.json
+```
+
+Build an adapter routing report:
+
+```bash
+uv run nlreq validate-adapter-registry docs/examples/adapter-registry.example.json
+uv run nlreq validate-routing-policy docs/examples/routing-policy.example.json
+
+uv run nlreq route-adapters requirements \
+  --adapter-registry docs/examples/adapter-registry.example.json \
+  --routing-policy docs/examples/routing-policy.example.json \
+  --changed-path src/auth.py \
+  --requirement-id REQ-AUTH-001 \
+  --out /tmp/nlreq-routing.json \
+  --markdown-out /tmp/nlreq-routing.md
+```
+
+Build and validate a TLA/model-checking-backed package:
+
+```bash
+uv run nlreq tla-package tests/fixtures/requirements/authorization_precondition.nlreq \
+  --out /tmp/REQ-AUTH-TLA-001 \
+  --requirement-id REQ-AUTH-TLA-001 \
+  --title "Unauthorized operation is rejected before state changes" \
+  --claim-kind authorization_precondition \
+  --model-config docs/examples/tla-models.example.json \
+  --project-root tests/fixtures/adapters/tla
+
+uv run nlreq tla-validate /tmp/REQ-AUTH-TLA-001 \
+  --model-config docs/examples/tla-models.example.json \
+  --project-root tests/fixtures/adapters/tla
+
+uv run nlreq tla-check requirements \
+  --model-config docs/examples/tla-models.example.json \
+  --requirement-id REQ-AUTH-001 \
+  --project-root tests/fixtures/adapters/tla \
+  --out /tmp/nlreq-tla-results.json
+```
+
 Build a Phase 9 agent verifier handoff:
 
 ```bash
@@ -231,7 +306,7 @@ The Phase 3 adoption workflow slice is described in
 The Phase 4 soft gate pilot is described in
 [docs/phase-4-soft-gate-pilot.md](./docs/phase-4-soft-gate-pilot.md).
 The formal roadmap in [docs/build-plan.md](./docs/build-plan.md) now extends
-through Phase 9.
+through Phase 13.
 The Phase 5 hard gate is described in
 [docs/phase-5-hard-gate.md](./docs/phase-5-hard-gate.md).
 The Phase 6 stronger evidence backend slice is described in
@@ -242,6 +317,14 @@ The Phase 8 continuous attestation slice is described in
 [docs/phase-8-continuous-attestation.md](./docs/phase-8-continuous-attestation.md).
 The Phase 9 agent workflow integration slice is described in
 [docs/phase-9-agent-workflow.md](./docs/phase-9-agent-workflow.md).
+The planned Phase 10 command/test-runner adapter slice is described in
+[docs/phase-10-command-test-runner-adapter.md](./docs/phase-10-command-test-runner-adapter.md).
+The planned Phase 11 runtime trace validation slice is described in
+[docs/phase-11-runtime-trace-validation.md](./docs/phase-11-runtime-trace-validation.md).
+The planned Phase 12 adapter registry and routing slice is described in
+[docs/phase-12-adapter-registry-routing.md](./docs/phase-12-adapter-registry-routing.md).
+The planned Phase 13 TLA+ model-checking adapter slice is described in
+[docs/phase-13-tla-model-checking-adapter.md](./docs/phase-13-tla-model-checking-adapter.md).
 
 Adoption references:
 

@@ -1207,6 +1207,123 @@ or updated code, through verification, and into review with the requirement
 package as the primary human-reviewed artifact. Human reviewers can still stop
 or revise the workflow at every boundary.
 
+### Phase 10: Command/Test-Runner Adapter (Weeks 97-108)
+
+Goal: add a broad brownfield adapter that links reviewed requirements to
+explicit project commands and existing test runners.
+
+Design anchor: `docs/adr/0012-phase-10-command-test-runner-adapter.md`.
+
+Deliverables:
+
+- command-check configuration artifact,
+- command-result artifact with source/test hashes and bounded output hashes,
+- command adapter conformance fixture and CLI commands,
+- package generation and validation for command-backed evidence,
+- timeout, failed-check, missing-file, and stale-hash findings,
+- `TEST_VALIDATED` evidence only for reviewed checks that pass,
+- soft-gate, hard-gate, continuous-attestation, and agent-handoff integration,
+- documentation for safely using project commands as evidence,
+- and examples for pytest-style exact test selection.
+
+Success criterion:
+
+A brownfield project without a dedicated language adapter can tie a requirement
+package to explicit existing checks and receive honest `TEST_VALIDATED` evidence
+when those checks pass against recorded source and test hashes. The adapter must
+not claim semantic coverage beyond the reviewed command's exercised scope.
+
+### Phase 11: Runtime Trace Validation (Weeks 109-124)
+
+Goal: make `TRACE_VALIDATED` evidence real for normalized runtime traces without
+claiming proof over unobserved behavior.
+
+Design anchor: `docs/adr/0013-phase-11-runtime-trace-validation.md`.
+
+Deliverables:
+
+- trace-validation task and result artifacts,
+- narrow validators for supported event-ordering and absence claims,
+- normalized trace schema tightening for redaction, environment, capture window,
+  requirement ids, and collector provenance,
+- trace adapter conformance fixture and CLI commands,
+- structured counterexamples for missing, misordered, contradictory, or
+  forbidden events,
+- continuous-attestation integration for trace-validation findings,
+- optional hard-gate policy inputs after report-only burn-in,
+- agent-handoff integration for trace failures and retry/escalation payloads,
+- documentation for safe redaction, sampling, retention, and evidence limits,
+- and examples using OpenTelemetry-shaped or otherwise normalized service
+  traces.
+
+Success criterion:
+
+A reviewed requirement can be validated against a normalized, redacted trace
+artifact and receive honest `TRACE_VALIDATED` evidence for the observed behavior.
+The system must clearly report that sampled traces are not exhaustive and that
+unsupported claim shapes remain report-only or refused.
+
+### Phase 12: Adapter Registry and Routing (Weeks 125-136)
+
+Goal: make adapter selection deterministic and auditable once multiple adapter
+families can produce evidence.
+
+Design anchor: `docs/adr/0014-phase-12-adapter-registry-routing.md`.
+
+This phase is based on the broader strategy in
+`docs/future-adapter-routing.md`.
+
+Deliverables:
+
+- adapter registry schema and validator,
+- routing policy schema and validator,
+- optional reviewed target metadata for requirement packages,
+- deterministic `route-adapters` JSON and Markdown reports,
+- route decisions for selected, report-only, missing, ambiguous, unsupported,
+  and out-of-scope adapters,
+- package-index and CI-report routing summaries,
+- soft-gate and hard-gate routing findings,
+- continuous-attestation routing summaries,
+- agent-task and agent-verify routing context,
+- and documentation for safe manual overrides and migration from explicit CLI
+  routing.
+
+Success criterion:
+
+Given package metadata, an adapter registry, a routing policy, changed paths, and
+required evidence levels, the system can explain exactly which adapters should
+run and why. Routing must remain report-only by default, fail closed when hard
+gate policy opts in, and leave `decide_status` unchanged.
+
+### Phase 13: TLA+ Model-Checking Adapter (Weeks 137-156)
+
+Goal: add bounded model-checking evidence for reviewed TLA+ state-machine specs
+on critical paths.
+
+Design anchor: `docs/adr/0015-phase-13-tla-model-checking-adapter.md`.
+
+Deliverables:
+
+- TLA+ model/config binding artifact,
+- model-checking result artifact with module/config hashes,
+- adapter conformance fixture and CLI commands,
+- TLC or Apalache command execution through argv arrays,
+- checker version, bounds, constants, resource limits, and command recording,
+- normalized counterexamples for invariant/property failures,
+- `BOUNDED_CHECKED` evidence only for completed bounded model checks,
+- explicit reservation of `PROVEN_INDUCTIVE` for future proof backends,
+- optional compatibility with selected Specula TLA workflow artifacts and tools,
+- package-index, gate, continuous-attestation, and agent-handoff integration,
+- and documentation for model scope, abstraction limits, and review
+  responsibilities.
+
+Success criterion:
+
+A reviewed requirement can be linked to a reviewed TLA+ module and config, run
+through a model checker, and receive honest `BOUNDED_CHECKED` evidence when no
+violation is found within the recorded model scope. The system must not present
+bounded model checking as proof of the production implementation.
+
 ---
 
 ## 14. Phase 0 Tooling

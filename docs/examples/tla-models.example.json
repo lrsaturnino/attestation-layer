@@ -1,0 +1,32 @@
+{
+  "adapter": "tla",
+  "models": [
+    {
+      "bounds": {
+        "actors": 3,
+        "resources": 3,
+        "steps": 10
+      },
+      "checker": "custom",
+      "command": [
+        "python",
+        "-c",
+        "print('Model checking completed. No error has been found.')"
+      ],
+      "config": "Authorization.cfg",
+      "expected_exit_code": 0,
+      "model_id": "authorization-state-machine",
+      "module": "Authorization.tla",
+      "properties": [
+        "UnauthorizedRejectedBeforeStateChange"
+      ],
+      "requested_evidence": "BOUNDED_CHECKED",
+      "requirement_ids": [
+        "REQ-AUTH-001",
+        "REQ-AUTH-TLA-001"
+      ],
+      "timeout_seconds": 30
+    }
+  ],
+  "schema_version": "0.1"
+}

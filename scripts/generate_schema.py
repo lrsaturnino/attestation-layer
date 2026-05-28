@@ -16,21 +16,32 @@ from nlreq.models import (
     StatusDecision,
     VerificationTasksArtifact,
 )
+from nlreq.command_adapter import CommandChecksArtifact, CommandResultsArtifact
 from nlreq.gate import GatePolicy, GateWaiver
+from nlreq.routing import AdapterRegistryArtifact, RoutingPolicyArtifact
+from nlreq.trace_validation import TraceValidationResultsArtifact
+from nlreq.tla_adapter import TlaModelConfigArtifact, TlaResultsArtifact
 
 
 SCHEMAS = {
     "requirement-ir-0.1.schema.json": RequirementIR,
     "assumptions.schema.json": AssumptionsArtifact,
+    "adapter-registry.schema.json": AdapterRegistryArtifact,
     "backend-results.schema.json": BackendResultsArtifact,
     "bindings.schema.json": BindingsArtifact,
+    "command-checks.schema.json": CommandChecksArtifact,
+    "command-results.schema.json": CommandResultsArtifact,
     "counterexamples.schema.json": CounterexamplesArtifact,
     "evidence.schema.json": EvidenceObject,
     "gate-policy.schema.json": GatePolicy,
     "generated-tests.schema.json": GeneratedTestsArtifact,
     "normalized-traces.schema.json": NormalizedTraceArtifact,
     "review.schema.json": ReviewArtifact,
+    "routing-policy.schema.json": RoutingPolicyArtifact,
     "status-decision.schema.json": StatusDecision,
+    "trace-validation-results.schema.json": TraceValidationResultsArtifact,
+    "tla-model-config.schema.json": TlaModelConfigArtifact,
+    "tla-results.schema.json": TlaResultsArtifact,
     "verification-tasks.schema.json": VerificationTasksArtifact,
     "waiver.schema.json": GateWaiver,
 }

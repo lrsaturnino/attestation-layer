@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    },
+    "RoutingRule": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Adapter"
+        },
+        "minimum_evidence": {
+          "items": {
+            "$ref": "#/$defs/EvidenceLevel"
+          },
+          "title": "Minimum Evidence",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "path_patterns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Path Patterns",
+          "type": "array"
+        },
+        "report_only": {
+          "default": false,
+          "title": "Report Only",
+          "type": "boolean"
+        },
+        "requirement_id_patterns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Requirement Id Patterns",
+          "type": "array"
+        },
+        "target_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Kind"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "RoutingRule",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "routing_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Routing Version",
+      "type": "string"
+    },
+    "rules": {
+      "items": {
+        "$ref": "#/$defs/RoutingRule"
+      },
+      "title": "Rules",
+      "type": "array"
+    }
+  },
+  "title": "RoutingPolicyArtifact",
+  "type": "object"
+}

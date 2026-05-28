@@ -6,6 +6,8 @@ from typing import Any
 
 from pydantic import ValidationError
 
+from .command_adapter import CommandAdapter
+from .command_package import validate_command_package
 from .openapi_adapter import OpenApiAdapter
 from .openapi_package import validate_openapi_package
 from .jsonutil import read_json, sha256_text
@@ -13,6 +15,8 @@ from .models import EvidenceObject, RequirementIR, ReviewArtifact, StatusDecisio
 from .package import validate_package
 from .python_adapter import PythonPackageAdapter
 from .python_package import validate_python_package
+from .tla_adapter import TlaAdapter
+from .tla_package import validate_tla_package
 
 
 INDEX_VERSION = "0.1"
@@ -34,6 +38,10 @@ ARTIFACT_FILES = [
     "review.json",
     "verification-tasks.json",
     "adapter-results.json",
+    "command-checks.json",
+    "command-results.json",
+    "tla-models.json",
+    "tla-results.json",
     "generated-tests.json",
     "counterexamples.json",
     "normalized-traces.json",
@@ -49,6 +57,8 @@ def build_package_index(
     *,
     python_adapter: PythonPackageAdapter | None = None,
     openapi_adapter: OpenApiAdapter | None = None,
+    command_adapter: CommandAdapter | None = None,
+    tla_adapter: TlaAdapter | None = None,
 ) -> dict[str, Any]:
     package_dirs = find_package_dirs(packages_dir)
     if not package_dirs:
@@ -58,6 +68,8 @@ def build_package_index(
             path,
             python_adapter=python_adapter,
             openapi_adapter=openapi_adapter,
+            command_adapter=command_adapter,
+            tla_adapter=tla_adapter,
         )
         for path in package_dirs
     ]
@@ -74,11 +86,15 @@ def build_ci_report(
     *,
     python_adapter: PythonPackageAdapter | None = None,
     openapi_adapter: OpenApiAdapter | None = None,
+    command_adapter: CommandAdapter | None = None,
+    tla_adapter: TlaAdapter | None = None,
 ) -> dict[str, Any]:
     package_index = build_package_index(
         packages_dir,
         python_adapter=python_adapter,
         openapi_adapter=openapi_adapter,
+        command_adapter=command_adapter,
+        tla_adapter=tla_adapter,
     )
     findings = _ci_findings(package_index["packages"])
     return {
@@ -102,11 +118,15 @@ def build_soft_gate_report(
     requirement_ids: list[str],
     python_adapter: PythonPackageAdapter | None = None,
     openapi_adapter: OpenApiAdapter | None = None,
+    command_adapter: CommandAdapter | None = None,
+    tla_adapter: TlaAdapter | None = None,
 ) -> dict[str, Any]:
     package_index = build_package_index(
         packages_dir,
         python_adapter=python_adapter,
         openapi_adapter=openapi_adapter,
+        command_adapter=command_adapter,
+        tla_adapter=tla_adapter,
     )
     referenced_ids = _stable_unique(requirement_ids)
     packages_by_id = {
@@ -247,6 +267,8 @@ def _summarize_package(
     *,
     python_adapter: PythonPackageAdapter | None,
     openapi_adapter: OpenApiAdapter | None,
+    command_adapter: CommandAdapter | None,
+    tla_adapter: TlaAdapter | None,
 ) -> dict[str, Any]:
     validation_status = "valid"
     validation_errors: list[str] = []
@@ -262,6 +284,16 @@ def _summarize_package(
         validation_errors.append("OpenAPI adapter validation requires --openapi-document")
         evidence = _read_model(package_dir / "evidence.json", EvidenceObject)
         status = _read_model(package_dir / "status.json", StatusDecision)
+    elif validation_kind == "command" and command_adapter is None:
+        validation_status = "skipped"
+        validation_errors.append("command adapter validation requires --command-checks")
+        evidence = _read_model(package_dir / "evidence.json", EvidenceObject)
+        status = _read_model(package_dir / "status.json", StatusDecision)
+    elif validation_kind == "tla" and tla_adapter is None:
+        validation_status = "skipped"
+        validation_errors.append("TLA adapter validation requires --tla-model-config")
+        evidence = _read_model(package_dir / "evidence.json", EvidenceObject)
+        status = _read_model(package_dir / "status.json", StatusDecision)
     elif validation_kind == "adapter_package":
         validation_status = "skipped"
         validation_errors.append("adapter package validation requires a matching adapter")
@@ -273,6 +305,10 @@ def _summarize_package(
                 ir, evidence, status = validate_python_package(package_dir, python_adapter)
             elif validation_kind == "openapi":
                 ir, evidence, status = validate_openapi_package(package_dir, openapi_adapter)
+            elif validation_kind == "command":
+                ir, evidence, status = validate_command_package(package_dir, command_adapter)
+            elif validation_kind == "tla":
+                ir, evidence, status = validate_tla_package(package_dir, tla_adapter)
             else:
                 ir, evidence, status = validate_package(package_dir)
         except (OSError, ValidationError, ValueError) as exc:
@@ -310,6 +346,10 @@ def _read_model(path: Path, model: type[Any]) -> Any | None:
 def _adapter_id(ir: RequirementIR | None, validation_kind: str) -> str:
     if not ir:
         return validation_kind
+    if validation_kind == "command":
+        return "command"
+    if validation_kind == "tla":
+        return "tla"
     adapter_ids = sorted({binding.adapter for binding in ir.bindings.values()})
     if len(adapter_ids) == 1:
         return adapter_ids[0]
@@ -319,6 +359,10 @@ def _adapter_id(ir: RequirementIR | None, validation_kind: str) -> str:
 
 
 def _validation_kind(package_dir: Path, ir: RequirementIR | None) -> str:
+    if (package_dir / "command-results.json").is_file() or (package_dir / "command-checks.json").is_file():
+        return "command"
+    if (package_dir / "tla-results.json").is_file() or (package_dir / "tla-models.json").is_file():
+        return "tla"
     if not (package_dir / "adapter-results.json").is_file():
         return "generic"
     if ir:
@@ -337,6 +381,10 @@ def _validation_kind(package_dir: Path, ir: RequirementIR | None) -> str:
         }
         if "openapi" in backends:
             return "openapi"
+        if "command" in backends:
+            return "command"
+        if "tla" in backends:
+            return "tla"
         if backends.intersection({"python_package", "python_property", "pytest"}):
             return "python_package"
     return "adapter_package"

@@ -5,11 +5,13 @@ from pathlib import Path
 from typing import Any, Iterable
 
 from .adoption import build_package_index, build_soft_gate_report, extract_requirement_ids
+from .command_adapter import CommandAdapter
 from .continuous import load_attestation_run
 from .gate import GatePolicy, GateWaiver, build_hard_gate_report
 from .jsonutil import read_json, sha256_text, write_json
 from .openapi_adapter import OpenApiAdapter
 from .python_adapter import PythonPackageAdapter
+from .tla_adapter import TlaAdapter
 
 
 AGENT_ARTIFACT_VERSION = "0.1"
@@ -27,6 +29,8 @@ def build_agent_implementation_task(
     reviewer_constraints: list[str] | None = None,
     python_adapter: PythonPackageAdapter | None = None,
     openapi_adapter: OpenApiAdapter | None = None,
+    command_adapter: CommandAdapter | None = None,
+    tla_adapter: TlaAdapter | None = None,
 ) -> dict[str, Any]:
     created_at = created_at or _utc_now()
     workflow_id = workflow_id or _workflow_id(created_at)
@@ -36,6 +40,8 @@ def build_agent_implementation_task(
         packages_dir,
         python_adapter=python_adapter,
         openapi_adapter=openapi_adapter,
+        command_adapter=command_adapter,
+        tla_adapter=tla_adapter,
     )
     packages_by_id = _packages_by_id(package_index["packages"])
     packages = [
@@ -79,6 +85,8 @@ def build_agent_verifier_handoff(
     created_at: str | None = None,
     python_adapter: PythonPackageAdapter | None = None,
     openapi_adapter: OpenApiAdapter | None = None,
+    command_adapter: CommandAdapter | None = None,
+    tla_adapter: TlaAdapter | None = None,
     hard_gate_policy: GatePolicy | None = None,
     hard_gate_waivers: list[GateWaiver] | None = None,
     changed_paths: list[str] | None = None,
@@ -93,6 +101,8 @@ def build_agent_verifier_handoff(
         requirement_ids=requirement_ids,
         python_adapter=python_adapter,
         openapi_adapter=openapi_adapter,
+        command_adapter=command_adapter,
+        tla_adapter=tla_adapter,
     )
     hard_gate = None
     if hard_gate_policy is not None:
@@ -104,6 +114,8 @@ def build_agent_verifier_handoff(
             changed_paths=changed_paths or [],
             python_adapter=python_adapter,
             openapi_adapter=openapi_adapter,
+            command_adapter=command_adapter,
+            tla_adapter=tla_adapter,
         )
     package_index = soft_gate["package_index"]
     packages_by_id = _packages_by_id(package_index["packages"])

@@ -8,10 +8,13 @@ from typing import Any, Iterable
 from pydantic import ValidationError
 
 from .adoption import ARTIFACT_FILES, build_package_index
+from .command_adapter import CommandAdapter
 from .jsonutil import read_json
 from .models import NormalizedTraceArtifact
 from .openapi_adapter import OpenApiAdapter
 from .python_adapter import PythonPackageAdapter
+from .trace_validation import build_trace_validation_report
+from .tla_adapter import TlaAdapter
 
 
 ATTESTATION_RUN_VERSION = "0.1"
@@ -27,17 +30,23 @@ def build_attestation_run(
     repo_ref: str | None = None,
     python_adapter: PythonPackageAdapter | None = None,
     openapi_adapter: OpenApiAdapter | None = None,
+    command_adapter: CommandAdapter | None = None,
+    tla_adapter: TlaAdapter | None = None,
     trace_artifact_paths: Iterable[Path] = (),
+    trace_validation: bool = False,
     previous_run: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     if trigger not in TRIGGER_TYPES:
         raise ValueError(f"unsupported continuous attestation trigger: {trigger}")
+    trace_artifact_paths = tuple(trace_artifact_paths)
     timestamp = timestamp or _utc_now()
     run_id = run_id or _run_id_from_timestamp(timestamp)
     package_index = build_package_index(
         packages_dir,
         python_adapter=python_adapter,
         openapi_adapter=openapi_adapter,
+        command_adapter=command_adapter,
+        tla_adapter=tla_adapter,
     )
     packages_by_id = {
         package["requirement_id"]: package
@@ -48,10 +57,19 @@ def build_attestation_run(
         _package_freshness(package, timestamp) for package in package_index["packages"]
     ]
     trace_summary, trace_findings = _trace_report(trace_artifact_paths, packages_by_id)
+    trace_validation_report = (
+        build_trace_validation_report(
+            packages_dir,
+            trace_artifact_paths=trace_artifact_paths,
+        )
+        if trace_validation
+        else None
+    )
     deltas = _deltas_from_previous(previous_run, package_index)
     findings = [
         *_package_findings(package_index["packages"]),
         *trace_findings,
+        *(trace_validation_report["findings"] if trace_validation_report else []),
         *_findings_for_deltas(deltas),
     ]
     return {
@@ -66,6 +84,8 @@ def build_attestation_run(
         "adapter_config": _adapter_config(
             python_adapter=python_adapter,
             openapi_adapter=openapi_adapter,
+            command_adapter=command_adapter,
+            tla_adapter=tla_adapter,
         ),
         "summary": {
             **package_index["summary"],
@@ -76,11 +96,15 @@ def build_attestation_run(
             ),
             "trace_artifacts": trace_summary["artifact_count"],
             "traces": trace_summary["trace_count"],
+            "trace_validation_results": trace_validation_report["summary"]["results"]
+            if trace_validation_report
+            else 0,
             "deltas": len(deltas),
         },
         "findings": findings,
         "package_freshness": package_freshness,
         "trace_artifacts": trace_summary,
+        "trace_validation": trace_validation_report,
         "deltas": deltas,
         "package_index": package_index,
     }
@@ -113,6 +137,7 @@ def continuous_attestation_markdown(report: dict[str, Any]) -> str:
         f"- Validation skipped: {summary['validation_skipped']}",
         f"- Trace artifacts: {summary['trace_artifacts']}",
         f"- Traces: {summary['traces']}",
+        f"- Trace validation results: {summary.get('trace_validation_results', 0)}",
         f"- Deltas: {summary['deltas']}",
         f"- Findings: {summary['findings']}",
         "",
@@ -489,6 +514,8 @@ def _adapter_config(
     *,
     python_adapter: PythonPackageAdapter | None,
     openapi_adapter: OpenApiAdapter | None,
+    command_adapter: CommandAdapter | None,
+    tla_adapter: TlaAdapter | None,
 ) -> dict[str, Any]:
     config: dict[str, Any] = {}
     if python_adapter is not None:
@@ -504,6 +531,16 @@ def _adapter_config(
             "document_path": openapi_adapter.document_path.as_posix(),
             "document_name": openapi_adapter.document_name,
             "document_hash": openapi_adapter.document_hash,
+        }
+    if command_adapter is not None:
+        config["command"] = {
+            "project_root": command_adapter.project_root.as_posix(),
+            "checks": len(command_adapter.checks.checks),
+        }
+    if tla_adapter is not None:
+        config["tla"] = {
+            "project_root": tla_adapter.project_root.as_posix(),
+            "models": len(tla_adapter.config.models),
         }
     return config
 
