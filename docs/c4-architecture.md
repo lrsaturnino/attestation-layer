@@ -4,8 +4,9 @@ These diagrams describe the current NL Requirement Attestation Layer
 implementation in this worktree. They cover phases 0 through 17, including the
 Phase 17 Protobuf/gRPC adapter.
 
-The diagrams use C4-PlantUML notation so each element has a name, technology
-where relevant, and a description, and each relationship has a precise label.
+The diagrams use Mermaid's C4 diagram syntax so each element has a name,
+technology where relevant, and a description, and each relationship has a
+precise label.
 
 ## Implemented Scope
 
@@ -32,11 +33,8 @@ where relevant, and a description, and each relationship has a precise label.
 
 ## Level 1 - System Context
 
-```plantuml
-@startuml
-!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
-
-LAYOUT_WITH_LEGEND()
+```mermaid
+C4Context
 title NL Requirement Attestation Layer - C4 Level 1 System Context
 
 Person(reviewer, "Human reviewer", "Reviews controlled requirements, assumptions, bindings, generated package artifacts, gate findings, and agent handoff summaries before accepting evidence.")
@@ -63,16 +61,13 @@ Rel(attestation, packageStore, "Writes and validates reviewed requirement packag
 Rel(attestation, externalTools, "Invokes deterministic evidence backends and records bounded results, hashes, failures, and counterexamples", "Subprocess or library call")
 Rel(ciSystem, packageStore, "Publishes reports and package snapshots for review and audit", "Artifacts")
 
-@enduml
+UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 ```
 
 ## Level 2 - Containers
 
-```plantuml
-@startuml
-!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Container.puml
-
-LAYOUT_WITH_LEGEND()
+```mermaid
+C4Container
 title NL Requirement Attestation Layer - C4 Level 2 Containers
 
 Person(operator, "Operator, reviewer, CI, or agent", "Runs commands and consumes JSON/Markdown artifacts for specification review, CI reporting, gates, routing, continuous attestation, and agent workflows.")
@@ -102,16 +97,13 @@ Rel(evidenceBackends, tooling, "Executes bounded checks and captures exit codes,
 Rel(reporting, packageArtifacts, "Loads package artifacts and emits report artifacts without mutating reviewed packages", "JSON and Markdown files")
 Rel(agentWorkflow, packageArtifacts, "Reads package summaries and artifact hashes, then writes agent-specific workflow artifacts", "JSON and Markdown files")
 
-@enduml
+UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 ```
 
 ## Level 3 - Core Package Components
 
-```plantuml
-@startuml
-!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
-
-LAYOUT_WITH_LEGEND()
+```mermaid
+C4Component
 title NL Requirement Attestation Layer - C4 Level 3 Core Package Components
 
 Container_Boundary(core, "Requirement core container") {
@@ -145,16 +137,13 @@ Rel(packageValidator, evidenceAggregator, "Recomputes expected evidence from cur
 Rel(packageValidator, statusDecision, "Recomputes status from the validated evidence object", "EvidenceObject")
 Rel(schemaGeneration, packageValidator, "Fails validation tests when committed schemas drift from typed models", "Schema drift check")
 
-@enduml
+UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 ```
 
 ## Level 3 - Adapter and Evidence Components
 
-```plantuml
-@startuml
-!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Component.puml
-
-LAYOUT_WITH_LEGEND()
+```mermaid
+C4Component
 title NL Requirement Attestation Layer - C4 Level 3 Adapter and Evidence Components
 
 Container_Boundary(adapterLayer, "Adapter layer container") {
@@ -201,16 +190,13 @@ Rel(tlaAdapter, testAndModelTools, "Runs model-checking command with reviewed bo
 Rel(traceValidator, packageArtifacts, "Compares observed trace events with supported requirement claims and package metadata", "Package and trace JSON")
 Rel(adapterInterface, packageArtifacts, "Defines task, result, evidence, generated-test, counterexample, and trace artifact contracts stored by concrete adapters", "JSON artifact contract")
 
-@enduml
+UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 ```
 
 ## Dynamic View - Package, Validation, and Gate Flow
 
-```plantuml
-@startuml
-!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Dynamic.puml
-
-LAYOUT_WITH_LEGEND()
+```mermaid
+C4Dynamic
 title NL Requirement Attestation Layer - Dynamic View Package and Gate Flow
 
 Person(author, "Requirement author or CI job", "Provides controlled text, requirement metadata, adapter configuration, gate policy, and output paths.")
@@ -236,11 +222,14 @@ Rel(cli, gates, "Runs package-index, CI, soft-gate, hard-gate, continuous, routi
 Rel(gates, reviewer, "Presents findings, summaries, retry payloads, and audit metadata for review", "JSON and Markdown")
 Rel(reviewer, cli, "Reruns validation or requests follow-up package, gate, trace, command, TLA, or agent artifacts", "CLI")
 
-@enduml
+UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
 ```
 
 ## Rendering
 
-Render the PlantUML blocks with any C4-PlantUML-compatible renderer. The
+Render the Mermaid blocks with any Mermaid-compatible renderer such as GitHub,
+the Mermaid Live Editor, or the Mermaid CLI. Mermaid's C4 support is
+experimental, so its automatic layout can render wide or dense diagrams; each
+diagram sets `UpdateLayoutConfig` to cap the number of shapes per row. The
 diagrams intentionally keep the rendered boxes descriptive, so they are more
 verbose than thumbnail architecture sketches.
