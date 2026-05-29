@@ -4,9 +4,12 @@ These diagrams describe the current NL Requirement Attestation Layer
 implementation in this worktree. They cover phases 0 through 17, including the
 Phase 17 Protobuf/gRPC adapter.
 
-The diagrams use Mermaid's C4 diagram syntax so each element has a name,
-technology where relevant, and a description, and each relationship has a
-precise label.
+The diagrams follow the C4 model (system context, containers, components, and a
+dynamic view) and are drawn as Mermaid flowcharts so they render inline on
+GitHub. Each element box shows a name, its element type and technology where
+relevant, and a description; fill colors distinguish people, systems,
+containers, components, datastores, and external systems; and each relationship
+has a precise label.
 
 ## Implemented Scope
 
@@ -67,169 +70,181 @@ flowchart TB
 ## Level 2 - Containers
 
 ```mermaid
-C4Container
-title NL Requirement Attestation Layer - C4 Level 2 Containers
+flowchart TB
+    operator["Operator, reviewer, CI, or agent<br/>Person<br/>Runs commands and consumes JSON/Markdown artifacts for specification review, CI reporting, gates, routing, continuous attestation, and agent workflows."]:::person
 
-Person(operator, "Operator, reviewer, CI, or agent", "Runs commands and consumes JSON/Markdown artifacts for specification review, CI reporting, gates, routing, continuous attestation, and agent workflows.")
+    subgraph attestationBoundary["NL Requirement Attestation Layer"]
+        cli["nlreq CLI<br/>Container: Python argparse command-line application<br/>Single command surface for parsing, packaging, validating, conformance, adapters, gates, routing, continuous attestation, trace validation, command evidence, TLA checks, and agent artifacts."]:::container
+        core["Requirement core<br/>Container: Python library<br/>Adapter-neutral parser, IR model, source-span provenance, binding diagnostics, package integrity validation, evidence aggregation, pure status decisions, and JSON schema generation."]:::container
+        adapterLayer["Adapter layer<br/>Container: Python adapter implementations<br/>Deterministic adapter interface and concrete adapters for generic symbols, Python packages, OpenAPI, GraphQL, JSON Schema, AsyncAPI, command checks, runtime traces, TLA models, and local Protobuf/gRPC."]:::container
+        evidenceBackends["Evidence backends<br/>Container: Python, Z3, subprocess tools<br/>Core SMT checks, self-consistency checks, pytest execution, generated property checks, command execution, runtime trace validation, and TLA/model-checking command execution."]:::container
+        reporting["Reporting and gates<br/>Container: Python report builders<br/>Builds package indexes, CI shadow reports, soft gates, hard gates, routing reports, continuous attestation reports, trace validation reports, command result reports, and TLA result reports."]:::container
+        agentWorkflow["Agent workflow artifacts<br/>Container: Python JSON/Markdown emitters<br/>Creates implementation task payloads, verifier handoffs, PR-comment Markdown, and append-only audit entries for specifier, coder, verifier, and reviewer roles."]:::container
+        packageArtifacts["Requirement packages and reports<br/>Container (datastore): JSON and Markdown files<br/>Durable artifact set containing reviewed requirement IR, bindings, assumptions, review metadata, verification tasks, adapter results, generated tests, counterexamples, normalized traces, evidence, status, implementation specs, and reports."]:::containerDb
+    end
 
-System_Boundary(attestation, "NL Requirement Attestation Layer") {
-  Container(cli, "nlreq CLI", "Python argparse command-line application", "Single command surface for parsing, packaging, validating, conformance, adapters, gates, routing, continuous attestation, trace validation, command evidence, TLA checks, and agent artifacts.")
-  Container(core, "Requirement core", "Python library", "Adapter-neutral parser, IR model, source-span provenance, binding diagnostics, package integrity validation, evidence aggregation, pure status decisions, and JSON schema generation.")
-  Container(adapterLayer, "Adapter layer", "Python adapter implementations", "Deterministic adapter interface and concrete adapters for generic symbols, Python packages, OpenAPI, GraphQL, JSON Schema, AsyncAPI, command checks, runtime traces, TLA models, and local Protobuf/gRPC.")
-  Container(evidenceBackends, "Evidence backends", "Python, Z3, subprocess tools", "Core SMT checks, self-consistency checks, pytest execution, generated property checks, command execution, runtime trace validation, and TLA/model-checking command execution.")
-  Container(reporting, "Reporting and gates", "Python report builders", "Builds package indexes, CI shadow reports, soft gates, hard gates, routing reports, continuous attestation reports, trace validation reports, command result reports, and TLA result reports.")
-  Container(agentWorkflow, "Agent workflow artifacts", "Python JSON/Markdown emitters", "Creates implementation task payloads, verifier handoffs, PR-comment Markdown, and append-only audit entries for specifier, coder, verifier, and reviewer roles.")
-  ContainerDb(packageArtifacts, "Requirement packages and reports", "JSON and Markdown files", "Durable artifact set containing reviewed requirement IR, bindings, assumptions, review metadata, verification tasks, adapter results, generated tests, counterexamples, normalized traces, evidence, status, implementation specs, and reports.")
-}
+    targetRepo["Target project files<br/>External system<br/>Source, tests, API contracts, schema documents, command-check config, TLA models, and trace artifacts inspected by configured adapters."]:::external
+    tooling["External deterministic tools<br/>External system<br/>Pytest, Python interpreters, command-line checks, TLA checker commands, and Z3 used to produce bounded evidence results."]:::external
 
-System_Ext(targetRepo, "Target project files", "Source, tests, API contracts, schema documents, command-check config, TLA models, and trace artifacts inspected by configured adapters.")
-System_Ext(tooling, "External deterministic tools", "Pytest, Python interpreters, command-line checks, TLA checker commands, and Z3 used to produce bounded evidence results.")
+    operator -->|"Runs phase-specific commands and supplies paths, requirement ids, policies, adapters, and output locations (CLI arguments)"| cli
+    cli -->|"Parses controlled text, validates IR/package schemas, computes evidence objects, and decides pure status (In-process Python calls)"| core
+    cli -->|"Constructs configured adapters and asks them to resolve symbols, validate bindings, generate tasks, and collect evidence (Adapter interface)"| adapterLayer
+    cli -->|"Requests package indexes, CI reports, soft gates, hard gates, routing reports, continuous runs, trace reports, command results, and TLA result reports (In-process Python calls)"| reporting
+    cli -->|"Requests implementation tasks, verifier handoffs, PR comments, and audit entries (In-process Python calls)"| agentWorkflow
+    core -->|"Reads and writes package artifacts with stable JSON serialization and reviewed hashes (File system)"| packageArtifacts
+    adapterLayer -->|"Reads target artifacts needed for deterministic symbol discovery and evidence freshness checks (File system)"| targetRepo
+    adapterLayer -->|"Creates backend tasks and normalizes backend results into evidence claims (Verification tasks)"| evidenceBackends
+    evidenceBackends -->|"Executes bounded checks and captures exit codes, stdout, counterexamples, hashes, and timeouts (Subprocess or library call)"| tooling
+    reporting -->|"Loads package artifacts and emits report artifacts without mutating reviewed packages (JSON and Markdown files)"| packageArtifacts
+    agentWorkflow -->|"Reads package summaries and artifact hashes, then writes agent-specific workflow artifacts (JSON and Markdown files)"| packageArtifacts
 
-Rel(operator, cli, "Runs phase-specific commands and supplies paths, requirement ids, policies, adapters, and output locations", "CLI arguments")
-Rel(cli, core, "Parses controlled text, validates IR/package schemas, computes evidence objects, and decides pure status", "In-process Python calls")
-Rel(cli, adapterLayer, "Constructs configured adapters and asks them to resolve symbols, validate bindings, generate tasks, and collect evidence", "Adapter interface")
-Rel(cli, reporting, "Requests package indexes, CI reports, soft gates, hard gates, routing reports, continuous runs, trace reports, command results, and TLA result reports", "In-process Python calls")
-Rel(cli, agentWorkflow, "Requests implementation tasks, verifier handoffs, PR comments, and audit entries", "In-process Python calls")
-Rel(core, packageArtifacts, "Reads and writes package artifacts with stable JSON serialization and reviewed hashes", "File system")
-Rel(adapterLayer, targetRepo, "Reads target artifacts needed for deterministic symbol discovery and evidence freshness checks", "File system")
-Rel(adapterLayer, evidenceBackends, "Creates backend tasks and normalizes backend results into evidence claims", "Verification tasks")
-Rel(evidenceBackends, tooling, "Executes bounded checks and captures exit codes, stdout, counterexamples, hashes, and timeouts", "Subprocess or library call")
-Rel(reporting, packageArtifacts, "Loads package artifacts and emits report artifacts without mutating reviewed packages", "JSON and Markdown files")
-Rel(agentWorkflow, packageArtifacts, "Reads package summaries and artifact hashes, then writes agent-specific workflow artifacts", "JSON and Markdown files")
-
-UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
+    classDef person fill:#08427b,stroke:#052e56,color:#ffffff
+    classDef system fill:#1168bd,stroke:#0b4884,color:#ffffff
+    classDef container fill:#438dd5,stroke:#2a6496,color:#ffffff
+    classDef containerDb fill:#2e6da4,stroke:#1d4a70,color:#ffffff
+    classDef component fill:#4b9bea,stroke:#2f74b5,color:#ffffff
+    classDef external fill:#8b8b8b,stroke:#5f5f5f,color:#ffffff
 ```
 
 ## Level 3 - Core Package Components
 
 ```mermaid
-C4Component
-title NL Requirement Attestation Layer - C4 Level 3 Core Package Components
+flowchart TB
+    subgraph coreBoundary["Requirement core container"]
+        parser["Controlled-language parser<br/>Component: Lark grammar and parser module<br/>Parses restricted natural-language requirements into deterministic AST and IR structures with normalized source spans."]:::component
+        models["Typed IR and artifact models<br/>Component: Pydantic models<br/>Defines RequirementIR, claims, predicates, symbol bindings, verification tasks, backend results, evidence claims, reviews, traces, and status decisions."]:::component
+        bindings["Binding diagnostics<br/>Component: Python binding module<br/>Builds symbol references from IR, calls the selected adapter, records resolved bindings, and separates unbound symbols from ambiguous symbols."]:::component
+        packageBuilder["Package builder<br/>Component: Python package module<br/>Writes generic requirement packages with requirement markdown, source diff, IR, bindings, assumptions, review metadata, verification tasks, evidence, status, implementation spec, and SMT files."]:::component
+        packageValidator["Package validator<br/>Component: Python validation module<br/>Reloads package artifacts, recomputes deterministic outputs, checks reviewed hashes, detects stale artifacts, and returns current IR, evidence, and status."]:::component
+        evidenceAggregator["Evidence aggregator<br/>Component: Python evidence logic<br/>Combines static binding evidence, consistency checks, SMT checks, adapter task results, generated tests, traces, counterexamples, and unsupported claim metadata into EvidenceObject."]:::component
+        statusDecision["Pure status decision<br/>Component: Python status module<br/>Maps evidence objects to deterministic final statuses without reading files, running tools, or depending on CI context."]:::component
+        schemaGeneration["Schema generation and drift guard<br/>Component: Pydantic JSON Schema plus script<br/>Generates committed JSON schemas for package and auxiliary artifacts and checks schema drift in tests and CI."]:::component
+        smtBackend["Core consistency and SMT backend<br/>Component: Python plus Z3<br/>Checks supported claim consistency and emits/checks SMT artifacts for adapter-neutral requirement shapes."]:::component
+    end
 
-Container_Boundary(core, "Requirement core container") {
-  Component(parser, "Controlled-language parser", "Lark grammar and parser module", "Parses restricted natural-language requirements into deterministic AST and IR structures with normalized source spans.")
-  Component(models, "Typed IR and artifact models", "Pydantic models", "Defines RequirementIR, claims, predicates, symbol bindings, verification tasks, backend results, evidence claims, reviews, traces, and status decisions.")
-  Component(bindings, "Binding diagnostics", "Python binding module", "Builds symbol references from IR, calls the selected adapter, records resolved bindings, and separates unbound symbols from ambiguous symbols.")
-  Component(packageBuilder, "Package builder", "Python package module", "Writes generic requirement packages with requirement markdown, source diff, IR, bindings, assumptions, review metadata, verification tasks, evidence, status, implementation spec, and SMT files.")
-  Component(packageValidator, "Package validator", "Python validation module", "Reloads package artifacts, recomputes deterministic outputs, checks reviewed hashes, detects stale artifacts, and returns current IR, evidence, and status.")
-  Component(evidenceAggregator, "Evidence aggregator", "Python evidence logic", "Combines static binding evidence, consistency checks, SMT checks, adapter task results, generated tests, traces, counterexamples, and unsupported claim metadata into EvidenceObject.")
-  Component(statusDecision, "Pure status decision", "Python status module", "Maps evidence objects to deterministic final statuses without reading files, running tools, or depending on CI context.")
-  Component(schemaGeneration, "Schema generation and drift guard", "Pydantic JSON Schema plus script", "Generates committed JSON schemas for package and auxiliary artifacts and checks schema drift in tests and CI.")
-  Component(smtBackend, "Core consistency and SMT backend", "Python plus Z3", "Checks supported claim consistency and emits/checks SMT artifacts for adapter-neutral requirement shapes.")
-}
+    packageArtifacts["Requirement package artifacts<br/>Container (datastore): JSON, Markdown, and SMT files<br/>Reviewed artifact set used as the durable boundary between specification review, evidence validation, gate enforcement, and agent workflows."]:::containerDb
+    adapterLayer["Selected adapter<br/>Container: Adapter interface implementation<br/>Configured adapter that resolves symbols and produces adapter-specific verification tasks for the target artifact."]:::container
 
-ContainerDb(packageArtifacts, "Requirement package artifacts", "JSON, Markdown, and SMT files", "Reviewed artifact set used as the durable boundary between specification review, evidence validation, gate enforcement, and agent workflows.")
-Container(adapterLayer, "Selected adapter", "Adapter interface implementation", "Configured adapter that resolves symbols and produces adapter-specific verification tasks for the target artifact.")
+    parser -->|"Creates typed IR objects with source-span provenance (Pydantic validation)"| models
+    packageBuilder -->|"Parses controlled text supplied by CLI or tests (Controlled text)"| parser
+    packageBuilder -->|"Requests symbol binding against the selected adapter before writing package artifacts (SymbolRef list)"| bindings
+    bindings -->|"Resolves action, actor, target, value, event, state, or quantity references (Adapter.resolve_symbols)"| adapterLayer
+    packageBuilder -->|"Assembles evidence claims from static binding diagnostics and backend results (Evidence inputs)"| evidenceAggregator
+    evidenceAggregator -->|"Runs consistency and SMT checks for supported claim shapes (RequirementIR)"| smtBackend
+    evidenceAggregator -->|"Provides complete EvidenceObject for pure status calculation (EvidenceObject)"| statusDecision
+    statusDecision -->|"Returns accepted, refused, review, timeout, or needs-coverage status with reason and next actions (StatusDecision)"| packageBuilder
+    packageBuilder -->|"Writes artifacts that must match committed schemas and stable serialization rules (JSON artifacts)"| schemaGeneration
+    packageBuilder -->|"Creates immutable package artifact set for review and future validation (File writes)"| packageArtifacts
+    packageValidator -->|"Reads reviewed package artifacts and validates freshness and integrity (File reads)"| packageArtifacts
+    packageValidator -->|"Recomputes current adapter bindings to detect stale or invalid binding artifacts (RequirementIR without bindings)"| bindings
+    packageValidator -->|"Recomputes expected evidence from current task results and package content (BackendResultsArtifact)"| evidenceAggregator
+    packageValidator -->|"Recomputes status from the validated evidence object (EvidenceObject)"| statusDecision
+    schemaGeneration -->|"Fails validation tests when committed schemas drift from typed models (Schema drift check)"| packageValidator
 
-Rel(parser, models, "Creates typed IR objects with source-span provenance", "Pydantic validation")
-Rel(packageBuilder, parser, "Parses controlled text supplied by CLI or tests", "Controlled text")
-Rel(packageBuilder, bindings, "Requests symbol binding against the selected adapter before writing package artifacts", "SymbolRef list")
-Rel(bindings, adapterLayer, "Resolves action, actor, target, value, event, state, or quantity references", "Adapter.resolve_symbols")
-Rel(packageBuilder, evidenceAggregator, "Assembles evidence claims from static binding diagnostics and backend results", "Evidence inputs")
-Rel(evidenceAggregator, smtBackend, "Runs consistency and SMT checks for supported claim shapes", "RequirementIR")
-Rel(evidenceAggregator, statusDecision, "Provides complete EvidenceObject for pure status calculation", "EvidenceObject")
-Rel(statusDecision, packageBuilder, "Returns accepted, refused, review, timeout, or needs-coverage status with reason and next actions", "StatusDecision")
-Rel(packageBuilder, schemaGeneration, "Writes artifacts that must match committed schemas and stable serialization rules", "JSON artifacts")
-Rel(packageBuilder, packageArtifacts, "Creates immutable package artifact set for review and future validation", "File writes")
-Rel(packageValidator, packageArtifacts, "Reads reviewed package artifacts and validates freshness and integrity", "File reads")
-Rel(packageValidator, bindings, "Recomputes current adapter bindings to detect stale or invalid binding artifacts", "RequirementIR without bindings")
-Rel(packageValidator, evidenceAggregator, "Recomputes expected evidence from current task results and package content", "BackendResultsArtifact")
-Rel(packageValidator, statusDecision, "Recomputes status from the validated evidence object", "EvidenceObject")
-Rel(schemaGeneration, packageValidator, "Fails validation tests when committed schemas drift from typed models", "Schema drift check")
-
-UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
+    classDef person fill:#08427b,stroke:#052e56,color:#ffffff
+    classDef system fill:#1168bd,stroke:#0b4884,color:#ffffff
+    classDef container fill:#438dd5,stroke:#2a6496,color:#ffffff
+    classDef containerDb fill:#2e6da4,stroke:#1d4a70,color:#ffffff
+    classDef component fill:#4b9bea,stroke:#2f74b5,color:#ffffff
+    classDef external fill:#8b8b8b,stroke:#5f5f5f,color:#ffffff
 ```
 
 ## Level 3 - Adapter and Evidence Components
 
 ```mermaid
-C4Component
-title NL Requirement Attestation Layer - C4 Level 3 Adapter and Evidence Components
+flowchart TB
+    subgraph adapterBoundary["Adapter layer container"]
+        adapterInterface["Adapter contract and conformance suite<br/>Component: Python protocol and tests<br/>Defines required adapter methods for symbol resolution, binding validation, evidence capabilities, task generation, task execution, and result collection."]:::component
+        genericAdapter["Generic static-symbol adapter<br/>Component: Python dictionary-backed adapter<br/>Reference adapter for Phase 0 that resolves known symbols, exposes ambiguity fixtures, and produces static symbol evidence."]:::component
+        pythonAdapter["Python package adapter<br/>Component: Python AST/import inspection plus pytest/property tasks<br/>Indexes Python modules, functions, classes, and methods; validates symbols; creates symbol, pytest, and generated property tasks with source hashes."]:::component
+        openapiAdapter["OpenAPI adapter<br/>Component: JSON/YAML declaration parser<br/>Indexes paths, operations, parameters, schemas, security schemes, auth metadata, state transitions, and response declarations for declaration-level API evidence."]:::component
+        graphqlAdapter["GraphQL schema adapter<br/>Component: SDL subset parser<br/>Indexes GraphQL operations, fields, principals, auth metadata, state transitions, and response declarations for declaration-level schema evidence."]:::component
+        jsonSchemaAdapter["JSON Schema adapter<br/>Component: JSON document parser<br/>Indexes schemas, reviewed actions, principals, properties, states, quantities, and numeric/state declaration metadata for payload and data contract evidence."]:::component
+        asyncApiAdapter["AsyncAPI adapter<br/>Component: JSON AsyncAPI parser<br/>Indexes operations, channels, messages, events, principals, and reviewed event-emission metadata for event-contract evidence."]:::component
+        commandAdapter["Command/test-runner adapter<br/>Component: Reviewed command runner<br/>Links requirements to explicit command checks, hashes target and test paths, runs bounded commands, and records TEST_VALIDATED evidence or counterexamples."]:::component
+        traceValidator["Runtime trace validator<br/>Component: Normalized trace validator<br/>Validates supported runtime observations over normalized traces and records TRACE_VALIDATED results only for acceptable redaction and documented claim shapes."]:::component
+        tlaAdapter["TLA/model-checking adapter<br/>Component: Model config plus checker command runner<br/>Links requirements to reviewed TLA models, records model/config hashes, runs bounded checker commands, and emits BOUNDED_CHECKED evidence or counterexamples."]:::component
+        protobufAdapter["Protobuf/gRPC adapter<br/>Component: Deterministic .proto subset parser<br/>Indexes schemas, messages, fields, RPCs, principals, state transitions, and reviewed RPC-level options for declaration-level gRPC evidence."]:::component
+    end
 
-Container_Boundary(adapterLayer, "Adapter layer container") {
-  Component(adapterInterface, "Adapter contract and conformance suite", "Python protocol and tests", "Defines required adapter methods for symbol resolution, binding validation, evidence capabilities, task generation, task execution, and result collection.")
-  Component(genericAdapter, "Generic static-symbol adapter", "Python dictionary-backed adapter", "Reference adapter for Phase 0 that resolves known symbols, exposes ambiguity fixtures, and produces static symbol evidence.")
-  Component(pythonAdapter, "Python package adapter", "Python AST/import inspection plus pytest/property tasks", "Indexes Python modules, functions, classes, and methods; validates symbols; creates symbol, pytest, and generated property tasks with source hashes.")
-  Component(openapiAdapter, "OpenAPI adapter", "JSON/YAML declaration parser", "Indexes paths, operations, parameters, schemas, security schemes, auth metadata, state transitions, and response declarations for declaration-level API evidence.")
-  Component(graphqlAdapter, "GraphQL schema adapter", "SDL subset parser", "Indexes GraphQL operations, fields, principals, auth metadata, state transitions, and response declarations for declaration-level schema evidence.")
-  Component(jsonSchemaAdapter, "JSON Schema adapter", "JSON document parser", "Indexes schemas, reviewed actions, principals, properties, states, quantities, and numeric/state declaration metadata for payload and data contract evidence.")
-  Component(asyncApiAdapter, "AsyncAPI adapter", "JSON AsyncAPI parser", "Indexes operations, channels, messages, events, principals, and reviewed event-emission metadata for event-contract evidence.")
-  Component(commandAdapter, "Command/test-runner adapter", "Reviewed command runner", "Links requirements to explicit command checks, hashes target and test paths, runs bounded commands, and records TEST_VALIDATED evidence or counterexamples.")
-  Component(traceValidator, "Runtime trace validator", "Normalized trace validator", "Validates supported runtime observations over normalized traces and records TRACE_VALIDATED results only for acceptable redaction and documented claim shapes.")
-  Component(tlaAdapter, "TLA/model-checking adapter", "Model config plus checker command runner", "Links requirements to reviewed TLA models, records model/config hashes, runs bounded checker commands, and emits BOUNDED_CHECKED evidence or counterexamples.")
-  Component(protobufAdapter, "Protobuf/gRPC adapter", "Deterministic .proto subset parser", "Indexes schemas, messages, fields, RPCs, principals, state transitions, and reviewed RPC-level options for declaration-level gRPC evidence.")
-}
+    targetArtifacts["Target artifacts<br/>External system<br/>Python code, tests, OpenAPI, GraphQL, JSON Schema, AsyncAPI, Protobuf, command checks, traces, and TLA models supplied by the repository."]:::external
+    testAndModelTools["Backend tools<br/>External system<br/>Pytest, Python interpreter, command-line tools, trace data, TLA checker commands, and Z3."]:::external
+    packageArtifacts["Requirement package artifacts<br/>Container (datastore): JSON and Markdown files<br/>Package artifacts that store bindings, tasks, backend results, counterexamples, traces, evidence, status, and review hashes."]:::containerDb
 
-System_Ext(targetArtifacts, "Target artifacts", "Python code, tests, OpenAPI, GraphQL, JSON Schema, AsyncAPI, Protobuf, command checks, traces, and TLA models supplied by the repository.")
-System_Ext(testAndModelTools, "Backend tools", "Pytest, Python interpreter, command-line tools, trace data, TLA checker commands, and Z3.")
-ContainerDb(packageArtifacts, "Requirement package artifacts", "JSON and Markdown files", "Package artifacts that store bindings, tasks, backend results, counterexamples, traces, evidence, status, and review hashes.")
+    adapterInterface -->|"Defines behavior validated by conformance tests (Adapter API)"| genericAdapter
+    adapterInterface -->|"Defines behavior validated by Python conformance tests (Adapter API)"| pythonAdapter
+    adapterInterface -->|"Defines behavior validated by OpenAPI conformance tests (Adapter API)"| openapiAdapter
+    adapterInterface -->|"Defines behavior validated by GraphQL conformance tests (Adapter API)"| graphqlAdapter
+    adapterInterface -->|"Defines behavior validated by JSON Schema conformance tests (Adapter API)"| jsonSchemaAdapter
+    adapterInterface -->|"Defines behavior validated by AsyncAPI conformance tests (Adapter API)"| asyncApiAdapter
+    adapterInterface -->|"Defines behavior validated by command adapter conformance tests (Adapter API)"| commandAdapter
+    adapterInterface -->|"Defines behavior validated by TLA package and checker tests (Adapter API)"| tlaAdapter
+    adapterInterface -->|"Defines behavior validated by local Protobuf conformance tests (Adapter API)"| protobufAdapter
 
-Rel(adapterInterface, genericAdapter, "Defines behavior validated by conformance tests", "Adapter API")
-Rel(adapterInterface, pythonAdapter, "Defines behavior validated by Python conformance tests", "Adapter API")
-Rel(adapterInterface, openapiAdapter, "Defines behavior validated by OpenAPI conformance tests", "Adapter API")
-Rel(adapterInterface, graphqlAdapter, "Defines behavior validated by GraphQL conformance tests", "Adapter API")
-Rel(adapterInterface, jsonSchemaAdapter, "Defines behavior validated by JSON Schema conformance tests", "Adapter API")
-Rel(adapterInterface, asyncApiAdapter, "Defines behavior validated by AsyncAPI conformance tests", "Adapter API")
-Rel(adapterInterface, commandAdapter, "Defines behavior validated by command adapter conformance tests", "Adapter API")
-Rel(adapterInterface, tlaAdapter, "Defines behavior validated by TLA package and checker tests", "Adapter API")
-Rel(adapterInterface, protobufAdapter, "Defines behavior validated by local Protobuf conformance tests", "Adapter API")
+    pythonAdapter -->|"Reads Python package source and test paths to index symbols and compute source/test hashes (File system)"| targetArtifacts
+    openapiAdapter -->|"Reads OpenAPI documents and resolves declaration-level operation/security/response symbols (JSON or YAML)"| targetArtifacts
+    graphqlAdapter -->|"Reads GraphQL SDL and resolves declaration-level operation/field symbols (GraphQL SDL)"| targetArtifacts
+    jsonSchemaAdapter -->|"Reads JSON Schema documents and resolves property/action/quantity symbols (JSON Schema)"| targetArtifacts
+    asyncApiAdapter -->|"Reads AsyncAPI documents and resolves operation/message/channel/event symbols (JSON AsyncAPI)"| targetArtifacts
+    commandAdapter -->|"Reads reviewed command-check configuration and target/test path hashes (JSON config and files)"| targetArtifacts
+    traceValidator -->|"Reads normalized trace artifacts and requirement package metadata (JSON traces)"| targetArtifacts
+    tlaAdapter -->|"Reads reviewed TLA model configuration, modules, and checker config files (TLA files and JSON config)"| targetArtifacts
+    protobufAdapter -->|"Reads .proto schemas and resolves declaration-level RPC/message/option symbols (Protobuf schema)"| targetArtifacts
 
-Rel(pythonAdapter, targetArtifacts, "Reads Python package source and test paths to index symbols and compute source/test hashes", "File system")
-Rel(openapiAdapter, targetArtifacts, "Reads OpenAPI documents and resolves declaration-level operation/security/response symbols", "JSON or YAML")
-Rel(graphqlAdapter, targetArtifacts, "Reads GraphQL SDL and resolves declaration-level operation/field symbols", "GraphQL SDL")
-Rel(jsonSchemaAdapter, targetArtifacts, "Reads JSON Schema documents and resolves property/action/quantity symbols", "JSON Schema")
-Rel(asyncApiAdapter, targetArtifacts, "Reads AsyncAPI documents and resolves operation/message/channel/event symbols", "JSON AsyncAPI")
-Rel(commandAdapter, targetArtifacts, "Reads reviewed command-check configuration and target/test path hashes", "JSON config and files")
-Rel(traceValidator, targetArtifacts, "Reads normalized trace artifacts and requirement package metadata", "JSON traces")
-Rel(tlaAdapter, targetArtifacts, "Reads reviewed TLA model configuration, modules, and checker config files", "TLA files and JSON config")
-Rel(protobufAdapter, targetArtifacts, "Reads .proto schemas and resolves declaration-level RPC/message/option symbols", "Protobuf schema")
+    pythonAdapter -->|"Runs scoped pytest and generated property tasks under deterministic task payload hashes (Subprocess)"| testAndModelTools
+    commandAdapter -->|"Runs reviewed command checks with timeout and expected exit code (Subprocess)"| testAndModelTools
+    tlaAdapter -->|"Runs model-checking command with reviewed bounds and expected exit code (Subprocess)"| testAndModelTools
+    traceValidator -->|"Compares observed trace events with supported requirement claims and package metadata (Package and trace JSON)"| packageArtifacts
+    adapterInterface -->|"Defines task, result, evidence, generated-test, counterexample, and trace artifact contracts stored by concrete adapters (JSON artifact contract)"| packageArtifacts
 
-Rel(pythonAdapter, testAndModelTools, "Runs scoped pytest and generated property tasks under deterministic task payload hashes", "Subprocess")
-Rel(commandAdapter, testAndModelTools, "Runs reviewed command checks with timeout and expected exit code", "Subprocess")
-Rel(tlaAdapter, testAndModelTools, "Runs model-checking command with reviewed bounds and expected exit code", "Subprocess")
-Rel(traceValidator, packageArtifacts, "Compares observed trace events with supported requirement claims and package metadata", "Package and trace JSON")
-Rel(adapterInterface, packageArtifacts, "Defines task, result, evidence, generated-test, counterexample, and trace artifact contracts stored by concrete adapters", "JSON artifact contract")
-
-UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
+    classDef person fill:#08427b,stroke:#052e56,color:#ffffff
+    classDef system fill:#1168bd,stroke:#0b4884,color:#ffffff
+    classDef container fill:#438dd5,stroke:#2a6496,color:#ffffff
+    classDef containerDb fill:#2e6da4,stroke:#1d4a70,color:#ffffff
+    classDef component fill:#4b9bea,stroke:#2f74b5,color:#ffffff
+    classDef external fill:#8b8b8b,stroke:#5f5f5f,color:#ffffff
 ```
 
 ## Dynamic View - Package, Validation, and Gate Flow
 
 ```mermaid
-C4Dynamic
-title NL Requirement Attestation Layer - Dynamic View Package and Gate Flow
+flowchart TB
+    author["Requirement author or CI job<br/>Person<br/>Provides controlled text, requirement metadata, adapter configuration, gate policy, and output paths."]:::person
+    cli["nlreq CLI<br/>Container: Python CLI<br/>Coordinates parsing, adapter selection, package generation, validation, reporting, gates, routing, and agent artifacts."]:::container
+    parser["Controlled-language parser<br/>Component: Lark parser<br/>Turns reviewed controlled text into deterministic AST and RequirementIR with source spans."]:::component
+    adapter["Configured adapter<br/>Component: Adapter interface implementation<br/>Resolves symbols, validates bindings, generates verification tasks, and normalizes backend results for the target artifact."]:::component
+    backends["Evidence backends<br/>Component: Core SMT, pytest, command runner, trace validator, TLA checker<br/>Execute deterministic checks and return backend results with hashes, evidence levels, failures, timeouts, and counterexamples."]:::component
+    status["Pure status decision<br/>Component: Python status module<br/>Calculates the final package status from the EvidenceObject only."]:::component
+    pkg["Requirement package artifacts<br/>Container (datastore): JSON, Markdown, SMT files<br/>Durable reviewed package artifacts used by validation, gates, reports, continuous attestation, routing, and agent workflows."]:::containerDb
+    gates["Reports, gates, routing, and agents<br/>Component: Python report builders<br/>Revalidate packages, classify findings, enforce soft or hard gates, route adapters, emit continuous reports, and produce agent tasks or handoffs."]:::component
+    reviewer["Reviewer or verifier<br/>Person<br/>Reviews package status, evidence, gate findings, retry payloads, and audit entries."]:::person
 
-Person(author, "Requirement author or CI job", "Provides controlled text, requirement metadata, adapter configuration, gate policy, and output paths.")
-Container(cli, "nlreq CLI", "Python CLI", "Coordinates parsing, adapter selection, package generation, validation, reporting, gates, routing, and agent artifacts.")
-Component(parser, "Controlled-language parser", "Lark parser", "Turns reviewed controlled text into deterministic AST and RequirementIR with source spans.")
-Component(adapter, "Configured adapter", "Adapter interface implementation", "Resolves symbols, validates bindings, generates verification tasks, and normalizes backend results for the target artifact.")
-Component(backends, "Evidence backends", "Core SMT, pytest, command runner, trace validator, TLA checker", "Execute deterministic checks and return backend results with hashes, evidence levels, failures, timeouts, and counterexamples.")
-Component(status, "Pure status decision", "Python status module", "Calculates the final package status from the EvidenceObject only.")
-ContainerDb(pkg, "Requirement package artifacts", "JSON, Markdown, SMT files", "Durable reviewed package artifacts used by validation, gates, reports, continuous attestation, routing, and agent workflows.")
-Component(gates, "Reports, gates, routing, and agents", "Python report builders", "Revalidate packages, classify findings, enforce soft or hard gates, route adapters, emit continuous reports, and produce agent tasks or handoffs.")
-Person(reviewer, "Reviewer or verifier", "Reviews package status, evidence, gate findings, retry payloads, and audit entries.")
+    author -->|"1. Runs package or adapter-specific package command with controlled text and reviewed metadata (CLI)"| cli
+    cli -->|"2. Parses controlled requirement and validates claim kind (Controlled text)"| parser
+    cli -->|"3. Requests deterministic symbol resolution and task generation for configured target (Adapter API)"| adapter
+    adapter -->|"4. Runs adapter-specific or core verification tasks with stable input hashes (VerificationTask payloads)"| backends
+    backends -->|"5. Returns normalized backend results, counterexamples, timeouts, and achieved evidence levels (BackendResult list)"| cli
+    cli -->|"6. Builds EvidenceObject and asks for pure status decision (EvidenceObject)"| status
+    status -->|"7. Returns accepted, refused, review-needed, timeout, or needs-coverage status (StatusDecision)"| cli
+    cli -->|"8. Writes package artifacts with reviewed hashes and stable serialization (File system)"| pkg
+    gates -->|"9. Reloads packages and recomputes validation against current adapters and policies (File system)"| pkg
+    cli -->|"10. Runs package-index, CI, soft-gate, hard-gate, continuous, routing, trace, command, TLA, and agent workflows (CLI command dispatch)"| gates
+    gates -->|"11. Presents findings, summaries, retry payloads, and audit metadata for review (JSON and Markdown)"| reviewer
+    reviewer -->|"12. Reruns validation or requests follow-up package, gate, trace, command, TLA, or agent artifacts (CLI)"| cli
 
-Rel(author, cli, "Runs package or adapter-specific package command with controlled text and reviewed metadata", "CLI")
-Rel(cli, parser, "Parses controlled requirement and validates claim kind", "Controlled text")
-Rel(cli, adapter, "Requests deterministic symbol resolution and task generation for configured target", "Adapter API")
-Rel(adapter, backends, "Runs adapter-specific or core verification tasks with stable input hashes", "VerificationTask payloads")
-Rel(backends, cli, "Returns normalized backend results, counterexamples, timeouts, and achieved evidence levels", "BackendResult list")
-Rel(cli, status, "Builds EvidenceObject and asks for pure status decision", "EvidenceObject")
-Rel(status, cli, "Returns accepted, refused, review-needed, timeout, or needs-coverage status", "StatusDecision")
-Rel(cli, pkg, "Writes package artifacts with reviewed hashes and stable serialization", "File system")
-Rel(gates, pkg, "Reloads packages and recomputes validation against current adapters and policies", "File system")
-Rel(cli, gates, "Runs package-index, CI, soft-gate, hard-gate, continuous, routing, trace, command, TLA, and agent workflows", "CLI command dispatch")
-Rel(gates, reviewer, "Presents findings, summaries, retry payloads, and audit metadata for review", "JSON and Markdown")
-Rel(reviewer, cli, "Reruns validation or requests follow-up package, gate, trace, command, TLA, or agent artifacts", "CLI")
-
-UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
+    classDef person fill:#08427b,stroke:#052e56,color:#ffffff
+    classDef system fill:#1168bd,stroke:#0b4884,color:#ffffff
+    classDef container fill:#438dd5,stroke:#2a6496,color:#ffffff
+    classDef containerDb fill:#2e6da4,stroke:#1d4a70,color:#ffffff
+    classDef component fill:#4b9bea,stroke:#2f74b5,color:#ffffff
+    classDef external fill:#8b8b8b,stroke:#5f5f5f,color:#ffffff
 ```
 
 ## Rendering
 
 Render the Mermaid blocks with any Mermaid-compatible renderer such as GitHub,
-the Mermaid Live Editor, or the Mermaid CLI. Mermaid's C4 support is
-experimental, so its automatic layout can render wide or dense diagrams; each
-diagram sets `UpdateLayoutConfig` to cap the number of shapes per row. The
-diagrams intentionally keep the rendered boxes descriptive, so they are more
-verbose than thumbnail architecture sketches.
+the Mermaid Live Editor, or the Mermaid CLI. The diagrams use the stable
+flowchart syntax with `subgraph` boundaries and `classDef` colors for C4
+element types, which renders inline on GitHub (unlike Mermaid's experimental
+native C4 diagram types). The diagrams intentionally keep the rendered boxes
+descriptive, so they are more verbose than thumbnail architecture sketches.
