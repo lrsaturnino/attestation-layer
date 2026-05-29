@@ -8,6 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .adoption import build_package_index
+from .asyncapi_adapter import AsyncApiAdapter
 from .command_adapter import CommandAdapter
 from .graphql_adapter import GraphQlAdapter
 from .jsonschema_adapter import JsonSchemaAdapter
@@ -141,6 +142,7 @@ def build_hard_gate_report(
     tla_adapter: TlaAdapter | None = None,
     graphql_adapter: GraphQlAdapter | None = None,
     json_schema_adapter: JsonSchemaAdapter | None = None,
+    asyncapi_adapter: AsyncApiAdapter | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     package_index = build_package_index(
@@ -151,6 +153,7 @@ def build_hard_gate_report(
         tla_adapter=tla_adapter,
         graphql_adapter=graphql_adapter,
         json_schema_adapter=json_schema_adapter,
+        asyncapi_adapter=asyncapi_adapter,
     )
     referenced_ids = _stable_unique(requirement_ids)
     packages_by_id = {

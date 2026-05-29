@@ -49,7 +49,9 @@ uv run nlreq continuous-attestation requirements \
   --openapi-document tests/fixtures/adapters/openapi/sample-openapi.json \
   --openapi-name sample-api \
   --json-schema-document tests/fixtures/adapters/jsonschema/sample-schema.json \
-  --json-schema-name sample-json-schema
+  --json-schema-name sample-json-schema \
+  --asyncapi-document tests/fixtures/adapters/asyncapi/sample-asyncapi.json \
+  --asyncapi-name sample-event-api
 ```
 
 ## Compare Against A Previous Run

@@ -71,6 +71,22 @@
       "target_kind": "json_schema_document"
     },
     {
+      "adapter_id": "asyncapi",
+      "conformance": {
+        "status": "pass",
+        "suite_version": "0.1"
+      },
+      "gateable": true,
+      "supported_claim_kinds": [
+        "event_state_correspondence"
+      ],
+      "supported_evidence": [
+        "STATICALLY_RESOLVED",
+        "TYPE_CHECKED"
+      ],
+      "target_kind": "asyncapi_document"
+    },
+    {
       "adapter_id": "trace",
       "conformance": {
         "status": "pass",

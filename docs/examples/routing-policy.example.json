@@ -42,6 +42,18 @@
       "target_kind": "json_schema_document"
     },
     {
+      "adapter": "asyncapi",
+      "minimum_evidence": [
+        "TYPE_CHECKED"
+      ],
+      "name": "asyncapi-event-contracts",
+      "path_patterns": [
+        "asyncapi/**/*.json",
+        "events/**/*.asyncapi.json"
+      ],
+      "target_kind": "asyncapi_document"
+    },
+    {
       "adapter": "trace",
       "minimum_evidence": [
         "TRACE_VALIDATED"

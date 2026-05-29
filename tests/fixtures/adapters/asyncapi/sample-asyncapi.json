@@ -1,0 +1,74 @@
+{
+  "asyncapi": "3.0.0",
+  "channels": {
+    "operation-events": {
+      "address": "operation/events",
+      "messages": {
+        "operation_accepted": {
+          "$ref": "#/components/messages/operation_accepted"
+        }
+      }
+    }
+  },
+  "components": {
+    "messages": {
+      "operation_accepted": {
+        "name": "operation_accepted",
+        "payload": {
+          "$ref": "#/components/schemas/OperationAccepted"
+        },
+        "title": "Operation accepted event"
+      }
+    },
+    "schemas": {
+      "OperationAccepted": {
+        "properties": {
+          "operation_id": {
+            "type": "string"
+          },
+          "operation_status": {
+            "const": "accepted",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "actorAuth": {
+        "type": "httpApiKey"
+      }
+    }
+  },
+  "info": {
+    "title": "Sample Event API",
+    "version": "1.0.0"
+  },
+  "operations": {
+    "operation": {
+      "action": "send",
+      "channel": {
+        "$ref": "#/channels/operation-events"
+      },
+      "messages": [
+        {
+          "$ref": "#/components/messages/operation_accepted"
+        }
+      ]
+    }
+  },
+  "x-nlreq-actions": {
+    "duplicate_operation": [
+      {
+        "emits": [
+          "operation_accepted"
+        ]
+      },
+      {
+        "emits": [
+          "operation_accepted"
+        ]
+      }
+    ]
+  }
+}

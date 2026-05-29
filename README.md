@@ -109,6 +109,13 @@ uv run nlreq json-schema-conformance tests/fixtures/adapters/jsonschema/sample-s
   --json-schema-name sample-json-schema
 ```
 
+Run adapter conformance against the Phase 16 AsyncAPI adapter:
+
+```bash
+uv run nlreq asyncapi-conformance tests/fixtures/adapters/asyncapi/sample-asyncapi.json \
+  --asyncapi-name sample-event-api
+```
+
 Build and validate a Python-adapter evidence package:
 
 ```bash
@@ -185,6 +192,22 @@ uv run nlreq json-schema-package tests/fixtures/requirements/state_postcondition
 uv run nlreq json-schema-validate /tmp/REQ-JSON-SCHEMA-001 \
   --schema tests/fixtures/adapters/jsonschema/sample-schema.json \
   --json-schema-name sample-json-schema
+```
+
+Build and validate an AsyncAPI-adapter evidence package:
+
+```bash
+uv run nlreq asyncapi-package tests/fixtures/requirements/event_emit.nlreq \
+  --out /tmp/REQ-ASYNCAPI-001 \
+  --requirement-id REQ-ASYNCAPI-001 \
+  --title "Approved operation emits accepted event" \
+  --claim-kind event_state_correspondence \
+  --document tests/fixtures/adapters/asyncapi/sample-asyncapi.json \
+  --asyncapi-name sample-event-api
+
+uv run nlreq asyncapi-validate /tmp/REQ-ASYNCAPI-001 \
+  --document tests/fixtures/adapters/asyncapi/sample-asyncapi.json \
+  --asyncapi-name sample-event-api
 ```
 
 Build and validate a command/test-runner-backed evidence package:
@@ -352,7 +375,7 @@ The Phase 3 adoption workflow slice is described in
 The Phase 4 soft gate pilot is described in
 [docs/phase-4-soft-gate-pilot.md](./docs/phase-4-soft-gate-pilot.md).
 The formal roadmap in [docs/build-plan.md](./docs/build-plan.md) now extends
-through Phase 15.
+through Phase 16.
 The Phase 5 hard gate is described in
 [docs/phase-5-hard-gate.md](./docs/phase-5-hard-gate.md).
 The Phase 6 stronger evidence backend slice is described in
@@ -375,6 +398,8 @@ The Phase 14 GraphQL schema adapter slice is described in
 [docs/phase-14-graphql-schema-adapter.md](./docs/phase-14-graphql-schema-adapter.md).
 The Phase 15 JSON Schema adapter slice is described in
 [docs/phase-15-json-schema-adapter.md](./docs/phase-15-json-schema-adapter.md).
+The Phase 16 AsyncAPI adapter slice is described in
+[docs/phase-16-asyncapi-adapter.md](./docs/phase-16-asyncapi-adapter.md).
 
 Adoption references:
 

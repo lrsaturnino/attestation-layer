@@ -8,6 +8,7 @@ from typing import Any, Iterable
 from pydantic import ValidationError
 
 from .adoption import ARTIFACT_FILES, build_package_index
+from .asyncapi_adapter import AsyncApiAdapter
 from .command_adapter import CommandAdapter
 from .graphql_adapter import GraphQlAdapter
 from .jsonschema_adapter import JsonSchemaAdapter
@@ -36,6 +37,7 @@ def build_attestation_run(
     tla_adapter: TlaAdapter | None = None,
     graphql_adapter: GraphQlAdapter | None = None,
     json_schema_adapter: JsonSchemaAdapter | None = None,
+    asyncapi_adapter: AsyncApiAdapter | None = None,
     trace_artifact_paths: Iterable[Path] = (),
     trace_validation: bool = False,
     previous_run: dict[str, Any] | None = None,
@@ -53,6 +55,7 @@ def build_attestation_run(
         tla_adapter=tla_adapter,
         graphql_adapter=graphql_adapter,
         json_schema_adapter=json_schema_adapter,
+        asyncapi_adapter=asyncapi_adapter,
     )
     packages_by_id = {
         package["requirement_id"]: package
@@ -94,6 +97,7 @@ def build_attestation_run(
             tla_adapter=tla_adapter,
             graphql_adapter=graphql_adapter,
             json_schema_adapter=json_schema_adapter,
+            asyncapi_adapter=asyncapi_adapter,
         ),
         "summary": {
             **package_index["summary"],
@@ -526,6 +530,7 @@ def _adapter_config(
     tla_adapter: TlaAdapter | None,
     graphql_adapter: GraphQlAdapter | None,
     json_schema_adapter: JsonSchemaAdapter | None,
+    asyncapi_adapter: AsyncApiAdapter | None,
 ) -> dict[str, Any]:
     config: dict[str, Any] = {}
     if python_adapter is not None:
@@ -558,6 +563,12 @@ def _adapter_config(
             "schema_path": json_schema_adapter.schema_path.as_posix(),
             "schema_name": json_schema_adapter.schema_name,
             "schema_hash": json_schema_adapter.schema_hash,
+        }
+    if asyncapi_adapter is not None:
+        config["asyncapi"] = {
+            "document_path": asyncapi_adapter.document_path.as_posix(),
+            "document_name": asyncapi_adapter.document_name,
+            "document_hash": asyncapi_adapter.document_hash,
         }
     if tla_adapter is not None:
         config["tla"] = {

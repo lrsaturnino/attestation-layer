@@ -182,6 +182,22 @@ uv run nlreq json-schema-validate /tmp/REQ-JSON-SCHEMA-001 \
   --json-schema-name sample-json-schema
 ```
 
+Build an AsyncAPI package with declaration-level evidence:
+
+```bash
+uv run nlreq asyncapi-package tests/fixtures/requirements/event_emit.nlreq \
+  --out /tmp/REQ-ASYNCAPI-001 \
+  --requirement-id REQ-ASYNCAPI-001 \
+  --title "Approved operation emits accepted event" \
+  --claim-kind event_state_correspondence \
+  --document tests/fixtures/adapters/asyncapi/sample-asyncapi.json \
+  --asyncapi-name sample-event-api
+
+uv run nlreq asyncapi-validate /tmp/REQ-ASYNCAPI-001 \
+  --document tests/fixtures/adapters/asyncapi/sample-asyncapi.json \
+  --asyncapi-name sample-event-api
+```
+
 Build a command/test-runner package with reviewed command evidence:
 
 ```bash
@@ -221,3 +237,7 @@ Phase 14 and 15 adapter fixtures:
 
 - `tests/fixtures/adapters/graphql/sample-schema.graphql`
 - `tests/fixtures/adapters/jsonschema/sample-schema.json`
+
+Phase 16 adapter fixture:
+
+- `tests/fixtures/adapters/asyncapi/sample-asyncapi.json`

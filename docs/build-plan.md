@@ -1384,6 +1384,35 @@ metadata are present. The adapter must not claim producer behavior, consumer
 behavior, runtime validation enforcement, `TEST_VALIDATED`, `TRACE_VALIDATED`,
 `BOUNDED_CHECKED`, or `PROVEN_INDUCTIVE`.
 
+### Phase 16: AsyncAPI Adapter (Weeks 181-192)
+
+Goal: add declaration-level AsyncAPI evidence for event-driven API contracts.
+
+Design anchor: `docs/adr/0018-phase-16-asyncapi-adapter.md`.
+
+Deliverables:
+
+- deterministic AsyncAPI document parser for JSON inputs,
+- AsyncAPI symbol discovery for operations, channels, messages, events, and
+  principals,
+- reviewed `x-nlreq-actions` metadata support for explicit event-emission
+  declarations,
+- AsyncAPI adapter conformance fixture and CLI command,
+- package generation and validation commands,
+- document hash freshness checks,
+- `STATICALLY_RESOLVED` and `TYPE_CHECKED` evidence only,
+- package-index, gate, continuous-attestation, and agent-handoff integration,
+- examples and documentation for AsyncAPI assumptions and unsupported behavior,
+- and compatibility with the adapter registry and routing reports.
+
+Success criterion:
+
+A reviewed requirement can be linked to an AsyncAPI document and receive honest
+declaration-level evidence when supported operation/message metadata declares an
+event emission. The adapter must not claim runtime event delivery, broker
+behavior, subscriber behavior, ordering guarantees, `TEST_VALIDATED`,
+`TRACE_VALIDATED`, `BOUNDED_CHECKED`, or `PROVEN_INDUCTIVE`.
+
 ---
 
 ## 14. Phase 0 Tooling
