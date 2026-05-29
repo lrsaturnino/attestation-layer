@@ -1,0 +1,284 @@
+{
+  "index_version": "0.1",
+  "packages": [
+    {
+      "adapter": "generic",
+      "artifacts": {
+        "assumptions.json": "sha256:37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bindings.json": "sha256:23cb2fd70768da6593e7688f683245fdb505818bdb8119c1969c4dd633bdf904",
+        "evidence.json": "sha256:586b7dad7a9d075e54512882eab6c2dacce9f61b3d882a6fbfdb633511015748",
+        "implementation-spec.md": "sha256:c5c6d989103d2253981db2202944a8655f6ea9fc19de5992247095660b4f492f",
+        "requirement.ir.json": "sha256:528bb373bc6214046ca0896269bc26c59918f994a66c8e761716f5b5bfba6036",
+        "review.json": "sha256:90cf466cada2ddb14608efd65e111658c212ef65a15883eface2e632a9dcd886",
+        "smt/C1.smt2": "sha256:5e4e83a9478acc9dbdd4f6fd245eaed5f5dfc4eca014565d8987acbbb97c81d0",
+        "status.json": "sha256:33746cec9bb3775488dfd6bd9d4934b48834b0fcfb10dd5607342eb5db7aad09",
+        "verification-tasks.json": "sha256:66a9be7877f904cd175be37fcbdf87acb641fcf465f9f13fa8f404eb209e18ab"
+      },
+      "claim_kind": "authorization_precondition",
+      "evidence": {
+        "ambiguous_symbols": [],
+        "claims": [
+          {
+            "achieved_evidence": "STATICALLY_RESOLVED",
+            "id": "C-static",
+            "required_evidence": "STATICALLY_RESOLVED"
+          },
+          {
+            "achieved_evidence": "CONSISTENCY_CHECKED",
+            "id": "C-consistency",
+            "required_evidence": "CONSISTENCY_CHECKED"
+          },
+          {
+            "achieved_evidence": "SMT_CHECKED",
+            "id": "C-smt",
+            "required_evidence": "SMT_CHECKED"
+          }
+        ],
+        "failed_checks": [],
+        "ir_hash": "sha256:528bb373bc6214046ca0896269bc26c59918f994a66c8e761716f5b5bfba6036",
+        "needs_spec_coverage": false,
+        "pending_reviews": [],
+        "timeouts": [],
+        "unbound_symbols": [],
+        "unsupported_claims": []
+      },
+      "path": "requirements/REQ-AUTH-001",
+      "requirement_id": "REQ-AUTH-001",
+      "review": {
+        "checklist": {
+          "assumptions_explicit": "pass",
+          "bindings_justified": "pass",
+          "claim_shape_matches_controlled_form": "pass",
+          "controlled_form_matches_intent": "pass",
+          "evidence_level_appropriate": "pass",
+          "source_spans_present": "pass",
+          "unsupported_claims_hidden": "pass"
+        },
+        "decision": "approved",
+        "reviewer": "phase0@example.invalid",
+        "self_audit": false,
+        "timestamp": "2026-05-26T00:00:00Z"
+      },
+      "status": "ACCEPTED_WITH_EVIDENCE",
+      "status_reason": "All required evidence levels are satisfied.",
+      "title": "Unauthorized operation is rejected before state changes",
+      "validation_errors": [],
+      "validation_kind": "generic",
+      "validation_status": "valid"
+    },
+    {
+      "adapter": "generic",
+      "artifacts": {
+        "assumptions.json": "sha256:37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bindings.json": "sha256:0f9135b906dacdd7ced39ee7435f07909ee5fa2999399f3e073a78a4389285af",
+        "evidence.json": "sha256:ab8d211edb37a0f1b51bb95c483f4135c1a481484a17e4d7eaafebe2b4871a76",
+        "implementation-spec.md": "sha256:28b41c1f94f554e12180028c4191ef00ccc5eddad456a0b2222ee4489fed0d21",
+        "requirement.ir.json": "sha256:b2553c9c2029d4b1983a1f9011acd40568d68e9b2425ce76d789aaecd5ba9f05",
+        "review.json": "sha256:2e24bfc5aeb2276ac7a86197f20d2abb635bc71af16662e55c9ad1df0f8efad7",
+        "smt/C1.smt2": "sha256:2d688a4ac5ac6ee3e58390821e10722392d02ac866da9744faee1d867254014d",
+        "status.json": "sha256:33746cec9bb3775488dfd6bd9d4934b48834b0fcfb10dd5607342eb5db7aad09",
+        "verification-tasks.json": "sha256:41e3d3ec02dd7dfca1fa3ac91a67c33e557a1c61e87468da98301b4ef2882262"
+      },
+      "claim_kind": "numeric_invariant",
+      "evidence": {
+        "ambiguous_symbols": [],
+        "claims": [
+          {
+            "achieved_evidence": "STATICALLY_RESOLVED",
+            "id": "C-static",
+            "required_evidence": "STATICALLY_RESOLVED"
+          },
+          {
+            "achieved_evidence": "CONSISTENCY_CHECKED",
+            "id": "C-consistency",
+            "required_evidence": "CONSISTENCY_CHECKED"
+          },
+          {
+            "achieved_evidence": "SMT_CHECKED",
+            "id": "C-smt",
+            "required_evidence": "SMT_CHECKED"
+          }
+        ],
+        "failed_checks": [],
+        "ir_hash": "sha256:b2553c9c2029d4b1983a1f9011acd40568d68e9b2425ce76d789aaecd5ba9f05",
+        "needs_spec_coverage": false,
+        "pending_reviews": [],
+        "timeouts": [],
+        "unbound_symbols": [],
+        "unsupported_claims": []
+      },
+      "path": "requirements/REQ-NUM-001",
+      "requirement_id": "REQ-NUM-001",
+      "review": {
+        "checklist": {
+          "assumptions_explicit": "pass",
+          "bindings_justified": "pass",
+          "claim_shape_matches_controlled_form": "pass",
+          "controlled_form_matches_intent": "pass",
+          "evidence_level_appropriate": "pass",
+          "source_spans_present": "pass",
+          "unsupported_claims_hidden": "pass"
+        },
+        "decision": "approved",
+        "reviewer": "phase0@example.invalid",
+        "self_audit": false,
+        "timestamp": "2026-05-26T00:00:00Z"
+      },
+      "status": "ACCEPTED_WITH_EVIDENCE",
+      "status_reason": "All required evidence levels are satisfied.",
+      "title": "Counter increments within limit",
+      "validation_errors": [],
+      "validation_kind": "generic",
+      "validation_status": "valid"
+    },
+    {
+      "adapter": "generic",
+      "artifacts": {
+        "assumptions.json": "sha256:37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bindings.json": "sha256:f66e684fcc353373c5f64f4ae65b22210145112cfffc145302f26ba4952a11a1",
+        "evidence.json": "sha256:10a363c1bf6ced4309389944b3221dbc84f17547fecba5f26307d1ff366c453d",
+        "implementation-spec.md": "sha256:d481db946850dfed58e3234e3dee08986d914be8813760b945c905c4cf1024ca",
+        "requirement.ir.json": "sha256:8ed6876e6d853417153b930a6b283d1691825b81202095801b35dff413e16daf",
+        "review.json": "sha256:5cf7a7085530f4878499738b95e16deb5008cf1a92d54637568c8f56ffbc966d",
+        "smt/C1.smt2": "sha256:291e5d825392c8e14c9aa24412bd06ebd2b74f5378f7355be795edcc7695c806",
+        "status.json": "sha256:8f9f4123706099b393fc41fcff93dc78b7e48a776e03fd9a3c536a7e0cdb09d6",
+        "verification-tasks.json": "sha256:66e314ba1c0c3593a31a33f0f4a4659226e7b6ef9ceaca39c0793df5f4da01d7"
+      },
+      "claim_kind": "authorization_precondition",
+      "evidence": {
+        "ambiguous_symbols": [],
+        "claims": [
+          {
+            "achieved_evidence": null,
+            "id": "C-static",
+            "required_evidence": "STATICALLY_RESOLVED"
+          },
+          {
+            "achieved_evidence": "CONSISTENCY_CHECKED",
+            "id": "C-consistency",
+            "required_evidence": "CONSISTENCY_CHECKED"
+          },
+          {
+            "achieved_evidence": "SMT_CHECKED",
+            "id": "C-smt",
+            "required_evidence": "SMT_CHECKED"
+          }
+        ],
+        "failed_checks": [
+          "C-static"
+        ],
+        "ir_hash": "sha256:8ed6876e6d853417153b930a6b283d1691825b81202095801b35dff413e16daf",
+        "needs_spec_coverage": false,
+        "pending_reviews": [],
+        "timeouts": [],
+        "unbound_symbols": [
+          "operator"
+        ],
+        "unsupported_claims": []
+      },
+      "path": "requirements/REQ-REFUSED-UNBOUND-001",
+      "requirement_id": "REQ-REFUSED-UNBOUND-001",
+      "review": {
+        "checklist": {
+          "assumptions_explicit": "pass",
+          "bindings_justified": "pass",
+          "claim_shape_matches_controlled_form": "pass",
+          "controlled_form_matches_intent": "pass",
+          "evidence_level_appropriate": "pass",
+          "source_spans_present": "pass",
+          "unsupported_claims_hidden": "pass"
+        },
+        "decision": "approved",
+        "reviewer": "phase0@example.invalid",
+        "self_audit": false,
+        "timestamp": "2026-05-26T00:00:00Z"
+      },
+      "status": "REFUSED_UNBOUND_SYMBOLS",
+      "status_reason": "Unbound symbols: operator.",
+      "title": "Unbound operator example",
+      "validation_errors": [],
+      "validation_kind": "generic",
+      "validation_status": "valid"
+    },
+    {
+      "adapter": "generic",
+      "artifacts": {
+        "assumptions.json": "sha256:37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+        "bindings.json": "sha256:bcb765a718bbc635ec0af860c09fb3bb770c337f433d64f6b204986429fe01a6",
+        "evidence.json": "sha256:0f9fe440f17035cf48d26ead167a4ebe8be75865845e7c20256147cdcc6b82f9",
+        "implementation-spec.md": "sha256:4b08ccfd048fa37f92ae2cb6640114d8cd924c99f56a0dad6e0c481426ea6382",
+        "requirement.ir.json": "sha256:37df42f81a7eeadbe474414cc24aa66fc4738bb36c96184a0bf568bccbc446a1",
+        "review.json": "sha256:e6cd08b8b498771c736b445c13c3bcb5ec7d0624f751d7dbd19f561eda58319d",
+        "smt/C1.smt2": "sha256:4388c88d2a0174db8393738b495485e86e428887c50504d4321287acff68c87c",
+        "status.json": "sha256:33746cec9bb3775488dfd6bd9d4934b48834b0fcfb10dd5607342eb5db7aad09",
+        "verification-tasks.json": "sha256:1b1cf3379796d955638e4f035ea0fc959e11db039c31c5c58c541c0e26ca502e"
+      },
+      "claim_kind": "state_postcondition",
+      "evidence": {
+        "ambiguous_symbols": [],
+        "claims": [
+          {
+            "achieved_evidence": "STATICALLY_RESOLVED",
+            "id": "C-static",
+            "required_evidence": "STATICALLY_RESOLVED"
+          },
+          {
+            "achieved_evidence": "CONSISTENCY_CHECKED",
+            "id": "C-consistency",
+            "required_evidence": "CONSISTENCY_CHECKED"
+          },
+          {
+            "achieved_evidence": "SMT_CHECKED",
+            "id": "C-smt",
+            "required_evidence": "SMT_CHECKED"
+          }
+        ],
+        "failed_checks": [],
+        "ir_hash": "sha256:37df42f81a7eeadbe474414cc24aa66fc4738bb36c96184a0bf568bccbc446a1",
+        "needs_spec_coverage": false,
+        "pending_reviews": [],
+        "timeouts": [],
+        "unbound_symbols": [],
+        "unsupported_claims": []
+      },
+      "path": "requirements/REQ-STATE-001",
+      "requirement_id": "REQ-STATE-001",
+      "review": {
+        "checklist": {
+          "assumptions_explicit": "pass",
+          "bindings_justified": "pass",
+          "claim_shape_matches_controlled_form": "pass",
+          "controlled_form_matches_intent": "pass",
+          "evidence_level_appropriate": "pass",
+          "source_spans_present": "pass",
+          "unsupported_claims_hidden": "pass"
+        },
+        "decision": "approved",
+        "reviewer": "phase0@example.invalid",
+        "self_audit": false,
+        "timestamp": "2026-05-26T00:00:00Z"
+      },
+      "status": "ACCEPTED_WITH_EVIDENCE",
+      "status_reason": "All required evidence levels are satisfied.",
+      "title": "Approved operation sets accepted status",
+      "validation_errors": [],
+      "validation_kind": "generic",
+      "validation_status": "valid"
+    }
+  ],
+  "packages_root": "requirements",
+  "summary": {
+    "accepted": 3,
+    "ambiguous_bindings": 0,
+    "failed_checks": 1,
+    "invalid": 0,
+    "needs_spec_coverage": 0,
+    "pending_reviews": 0,
+    "refused": 1,
+    "total": 4,
+    "unresolved_bindings": 1,
+    "unsupported_claims": 0,
+    "valid": 4,
+    "validation_skipped": 0
+  }
+}

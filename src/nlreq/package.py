@@ -4,7 +4,7 @@ from pathlib import Path
 
 from .adapter import GenericAdapter, default_generic_adapter
 from .bindings import bind_ir_with_diagnostics
-from .jsonutil import canonical_json, sha256_json, write_json
+from .jsonutil import sha256_json, write_json
 from .models import (
     AssumptionsArtifact,
     BindingsArtifact,
@@ -175,10 +175,10 @@ def _requirement_markdown(ir: RequirementIR) -> str:
     return f"# {ir.requirement_id}\n\n{ir.source.controlled_text}\n"
 
 
-def _review(ir: RequirementIR) -> dict[str, object]:
+def _review(ir: RequirementIR, *, reviewer: str = "phase0@example.invalid") -> dict[str, object]:
     return {
         "review_id": f"RVW-{ir.requirement_id}-001",
-        "reviewer": "phase0@example.invalid",
+        "reviewer": reviewer,
         "decision": "approved",
         "self_audit": False,
         "reviewed_hashes": {"requirement_ir": sha256_json(ir)},
@@ -195,19 +195,32 @@ def _review(ir: RequirementIR) -> dict[str, object]:
     }
 
 
-def _implementation_spec(ir: RequirementIR, status: str) -> str:
+def _implementation_spec(
+    ir: RequirementIR,
+    status: str,
+    *,
+    adapter_id: str = "generic",
+    evidence_lines: list[str] | None = None,
+) -> str:
     bindings = "\n".join(
         f"- `{name}` -> `{binding.adapter}:{binding.symbol}` ({binding.symbol_type})"
         for name, binding in sorted(ir.bindings.items())
     )
+    if evidence_lines is None:
+        evidence_lines = [
+            "IR type-checked.",
+            "Symbols resolved through generic adapter.",
+            "Self-consistency checked.",
+            "Supported claim shape SMT-checked.",
+        ]
+    evidence = "\n".join(f"- {line}" for line in evidence_lines)
     return (
         f"# {ir.requirement_id}\n\n"
         f"## Requirement\n\n{ir.title}\n\n"
         f"## Controlled Form\n\n```text\n{ir.source.controlled_text}```\n\n"
-        f"## Scope\n\n- Adapter: generic\n{bindings}\n\n"
+        f"## Scope\n\n- Adapter: {adapter_id}\n{bindings}\n\n"
         f"## Required Behavior\n\n"
         f"Action `{ir.claim.action}` must satisfy `{ir.claim.expected.kind}` under the declared conditions.\n\n"
-        f"## Evidence\n\n- IR type-checked.\n- Symbols resolved through generic adapter.\n"
-        f"- Self-consistency checked.\n- Supported claim shape SMT-checked.\n\n"
+        f"## Evidence\n\n{evidence}\n\n"
         f"## Status\n\n`{status}`\n"
     )

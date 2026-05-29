@@ -1,0 +1,16 @@
+directive @auth(role: String) on FIELD_DEFINITION
+directive @stateChange(name: String) on FIELD_DEFINITION
+
+type Query {
+  health: Boolean!
+  duplicate_operation: Boolean!
+}
+
+type Mutation {
+  operation(actorId: ID!): OperationResult! @auth(role: "user") @stateChange(name: "state_change")
+  duplicate_operation(actorId: ID!): OperationResult! @auth(role: "user")
+}
+
+type OperationResult {
+  ok: Boolean!
+}

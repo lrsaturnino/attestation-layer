@@ -1,0 +1,45 @@
+{
+  "routing_version": "0.1",
+  "rules": [
+    {
+      "adapter": "command",
+      "minimum_evidence": [
+        "TEST_VALIDATED"
+      ],
+      "name": "command-backed-auth-checks",
+      "path_patterns": [
+        "src/**/*.py",
+        "tests/**/*.py"
+      ],
+      "requirement_id_patterns": [
+        "REQ-AUTH-*",
+        "REQ-CMD-*"
+      ],
+      "target_kind": "command_test_runner"
+    },
+    {
+      "adapter": "graphql",
+      "minimum_evidence": [
+        "STATICALLY_RESOLVED"
+      ],
+      "name": "graphql-contracts",
+      "path_patterns": [
+        "schema/**/*.graphql",
+        "graphql/**/*.graphql"
+      ],
+      "target_kind": "graphql_schema"
+    },
+    {
+      "adapter": "trace",
+      "minimum_evidence": [
+        "TRACE_VALIDATED"
+      ],
+      "name": "runtime-trace-reporting",
+      "report_only": true,
+      "requirement_id_patterns": [
+        "REQ-AUTH-*"
+      ],
+      "target_kind": "runtime_trace"
+    }
+  ]
+}

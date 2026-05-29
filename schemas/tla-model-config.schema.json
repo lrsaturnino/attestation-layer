@@ -1,0 +1,157 @@
+{
+  "$defs": {
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    },
+    "TlaModelCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "bounds": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              }
+            ]
+          },
+          "title": "Bounds",
+          "type": "object"
+        },
+        "checker": {
+          "default": "tlc",
+          "enum": [
+            "tlc",
+            "apalache",
+            "custom"
+          ],
+          "title": "Checker",
+          "type": "string"
+        },
+        "command": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Command",
+          "type": "array"
+        },
+        "config": {
+          "title": "Config",
+          "type": "string"
+        },
+        "constants": {
+          "additionalProperties": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "string"
+              },
+              {
+                "type": "boolean"
+              }
+            ]
+          },
+          "title": "Constants",
+          "type": "object"
+        },
+        "expected_exit_code": {
+          "default": 0,
+          "title": "Expected Exit Code",
+          "type": "integer"
+        },
+        "model_id": {
+          "title": "Model Id",
+          "type": "string"
+        },
+        "module": {
+          "title": "Module",
+          "type": "string"
+        },
+        "output_limit_bytes": {
+          "default": 4000,
+          "exclusiveMinimum": 0,
+          "maximum": 20000,
+          "title": "Output Limit Bytes",
+          "type": "integer"
+        },
+        "properties": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Properties",
+          "type": "array"
+        },
+        "requested_evidence": {
+          "$ref": "#/$defs/EvidenceLevel",
+          "default": "BOUNDED_CHECKED"
+        },
+        "requirement_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "timeout_seconds": {
+          "default": 120,
+          "exclusiveMinimum": 0,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model_id",
+        "requirement_ids",
+        "module",
+        "config",
+        "command",
+        "properties"
+      ],
+      "title": "TlaModelCheck",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapter": {
+      "const": "tla",
+      "default": "tla",
+      "title": "Adapter",
+      "type": "string"
+    },
+    "models": {
+      "items": {
+        "$ref": "#/$defs/TlaModelCheck"
+      },
+      "title": "Models",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "title": "TlaModelConfigArtifact",
+  "type": "object"
+}

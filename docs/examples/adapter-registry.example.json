@@ -1,0 +1,89 @@
+{
+  "adapters": [
+    {
+      "adapter_id": "generic",
+      "conformance": {
+        "status": "pass",
+        "suite_version": "0.1"
+      },
+      "gateable": true,
+      "supported_claim_kinds": [
+        "authorization_precondition",
+        "state_precondition",
+        "state_postcondition",
+        "numeric_invariant"
+      ],
+      "supported_evidence": [
+        "STATICALLY_RESOLVED",
+        "CONSISTENCY_CHECKED",
+        "SMT_CHECKED"
+      ],
+      "target_kind": "static_symbol_table"
+    },
+    {
+      "adapter_id": "command",
+      "conformance": {
+        "status": "pass",
+        "suite_version": "0.1"
+      },
+      "gateable": true,
+      "supported_claim_kinds": [
+        "authorization_precondition",
+        "state_precondition"
+      ],
+      "supported_evidence": [
+        "TEST_VALIDATED"
+      ],
+      "target_kind": "command_test_runner"
+    },
+    {
+      "adapter_id": "graphql",
+      "conformance": {
+        "status": "pass",
+        "suite_version": "0.1"
+      },
+      "gateable": true,
+      "supported_claim_kinds": [
+        "authorization_precondition",
+        "state_precondition"
+      ],
+      "supported_evidence": [
+        "STATICALLY_RESOLVED",
+        "TYPE_CHECKED"
+      ],
+      "target_kind": "graphql_schema"
+    },
+    {
+      "adapter_id": "trace",
+      "conformance": {
+        "status": "pass",
+        "suite_version": "0.1"
+      },
+      "gateable": false,
+      "supported_claim_kinds": [
+        "authorization_precondition"
+      ],
+      "supported_evidence": [
+        "TRACE_VALIDATED"
+      ],
+      "target_kind": "runtime_trace"
+    },
+    {
+      "adapter_id": "tla",
+      "conformance": {
+        "status": "pass",
+        "suite_version": "0.1"
+      },
+      "gateable": true,
+      "supported_claim_kinds": [
+        "authorization_precondition",
+        "bounded_temporal"
+      ],
+      "supported_evidence": [
+        "BOUNDED_CHECKED"
+      ],
+      "target_kind": "tla_model"
+    }
+  ],
+  "registry_version": "0.1"
+}

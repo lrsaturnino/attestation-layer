@@ -1048,6 +1048,311 @@ Deliverables:
 - adapter authoring guide,
 - and documentation for adding a requirement.
 
+### Phase 4: Soft Gate Pilot (Weeks 27-30)
+
+Goal: let implementation workflows require visible requirement-package
+references while keeping enforcement opt-in.
+
+Deliverables:
+
+- soft-gate report,
+- requirement reference extraction from PR body or commit-message text,
+- JSON and Markdown gate output,
+- explicit non-zero exit mode for CI jobs that opt in,
+- blocked/pass result over referenced packages,
+- documentation for soft-gate rollout,
+- and tests for pass, missing-reference, unknown-reference, and refused-package
+  paths.
+
+Success criterion:
+
+An implementation PR or local CI job can reference `REQ-...` ids and receive a
+deterministic report showing whether each referenced requirement exists,
+validates, is approved, and has an accepted status. By default the command
+reports blockers without failing; `--fail-on-blocking` enables opt-in failure.
+
+### Phase 5: Hard Gate Opt-In (Weeks 31-36)
+
+Goal: allow teams to convert proven soft-gate policies into scoped blocking CI
+checks.
+
+Design anchor: `docs/adr/0007-gate-policy-and-waiver-model.md`.
+
+Deliverables:
+
+- gate policy format for adapter, package path, status, and minimum evidence
+  scope,
+- hard-gate command or hard-gate mode over the existing soft-gate report,
+- deterministic pass/fail exit behavior,
+- override or waiver artifact with reviewer, reason, expiry, and reviewed
+  package hashes,
+- CI-friendly JSON and Markdown output,
+- documentation for rollout and rollback,
+- and tests for allowed, blocked, waiver, stale-waiver, and out-of-scope paths.
+
+Success criterion:
+
+A CI job can fail only the configured scope when referenced requirement packages
+are missing, stale, unapproved, refused, or below the configured evidence level.
+Packages and adapters outside the configured scope remain report-only.
+
+### Phase 6: Stronger Verification Backends (Weeks 37-48)
+
+Goal: add evidence sources that go beyond static resolution, SMT shape checks,
+and scoped pytest execution.
+
+Design anchor: `docs/adr/0008-phase-6-stronger-evidence-backends.md`.
+
+Deliverables:
+
+- property-based test generation for supported claim shapes,
+- generated-test review and provenance artifacts,
+- `NormalizedTrace` schema and trace validation package artifacts,
+- counterexample parser for property, trace, SMT, and model-checking failures,
+- freshness checks for generated tests, traces, source hashes, and task inputs,
+- coverage thresholds recorded in evidence,
+- optional bounded model-checking integration for suitable claim shapes,
+- and CI reports that distinguish weak evidence, stale evidence, and failed
+  evidence.
+
+Success criterion:
+
+At least one real adapter package can satisfy a requirement using stronger
+evidence than static resolution alone, and stale or insufficient evidence is
+reported deterministically without weakening the pure status-decision contract.
+
+### Phase 7: Adapter Expansion (Weeks 49-60)
+
+Goal: prove that the package, evidence, and status model is truly adapter-neutral
+by adding additional real ecosystems.
+
+Design anchor: `docs/adr/0009-phase-7-adapter-expansion.md`.
+
+Candidate adapters:
+
+- TypeScript service adapter,
+- Go service adapter,
+- OpenAPI adapter,
+- smart-contract adapter,
+- spec-only or TLA+ adapter.
+
+Deliverables:
+
+- selection ADR for the second real adapter,
+- adapter-specific symbol discovery and binding validation,
+- adapter-specific evidence tasks and backend results,
+- adapter conformance fixture and CLI command,
+- package generation and validation command for the adapter,
+- cross-adapter package index support,
+- documentation for adapter-specific assumptions and unsupported behavior,
+- and migration notes for moving from one adapter to multiple adapters.
+
+Success criterion:
+
+At least two real adapters pass the shared conformance suite and can produce
+validated packages using the same IR, evidence, status, index, and gate report
+contracts. Cross-system requirements remain out of scope until each involved
+adapter is independently trustworthy.
+
+### Phase 8: Continuous Attestation (Weeks 61-76)
+
+Goal: turn package validation from a PR-time activity into continuous evidence
+collection over staging and production behavior.
+
+Design anchor: `docs/adr/0010-phase-8-continuous-attestation.md`.
+
+Deliverables:
+
+- runtime trace ingestion pipeline,
+- production or staging trace normalization,
+- scheduled freshness refresh for package indexes and reports,
+- mutation testing or seeded-fault measurement for specification quality,
+- evidence trend reports over time,
+- requirement/spec evolution workflow,
+- reusable attestation artifact catalog,
+- alerting for stale, regressed, or contradicted evidence,
+- and documentation for operating continuous attestation safely.
+
+Success criterion:
+
+Requirement packages can be rechecked on a schedule against current source,
+tests, and traces. The system can report when evidence degrades after merge,
+without requiring a new implementation PR to discover the regression.
+
+### Phase 9: Agent Workflow Integration (Weeks 77-96)
+
+Goal: integrate the Attestation Layer into an agent-driven implementation loop
+where humans review specifications and exceptions, not raw code diffs by
+default.
+
+Design anchor: `docs/adr/0011-phase-9-agent-workflow-integration.md`.
+
+Deliverables:
+
+- specifier-agent prompt and package-generation workflow,
+- verifier-agent workflow over package validation, evidence collection, and
+  gate reports,
+- reviewer handoff artifacts focused on controlled requirements and evidence,
+- PR automation that posts index, CI, soft-gate, and hard-gate summaries,
+- retry payloads for coder agents using failed checks and counterexamples,
+- audit log tying generated code changes to requirement packages and evidence,
+- escalation policy for unsupported claims, ambiguous symbols, and verifier
+  disagreement,
+- and documentation for human review responsibilities in agent-driven changes.
+
+Success criterion:
+
+An implementation change can move from controlled requirement, through generated
+or updated code, through verification, and into review with the requirement
+package as the primary human-reviewed artifact. Human reviewers can still stop
+or revise the workflow at every boundary.
+
+### Phase 10: Command/Test-Runner Adapter (Weeks 97-108)
+
+Goal: add a broad brownfield adapter that links reviewed requirements to
+explicit project commands and existing test runners.
+
+Design anchor: `docs/adr/0012-phase-10-command-test-runner-adapter.md`.
+
+Deliverables:
+
+- command-check configuration artifact,
+- command-result artifact with source/test hashes and bounded output hashes,
+- command adapter conformance fixture and CLI commands,
+- package generation and validation for command-backed evidence,
+- timeout, failed-check, missing-file, and stale-hash findings,
+- `TEST_VALIDATED` evidence only for reviewed checks that pass,
+- soft-gate, hard-gate, continuous-attestation, and agent-handoff integration,
+- documentation for safely using project commands as evidence,
+- and examples for pytest-style exact test selection.
+
+Success criterion:
+
+A brownfield project without a dedicated language adapter can tie a requirement
+package to explicit existing checks and receive honest `TEST_VALIDATED` evidence
+when those checks pass against recorded source and test hashes. The adapter must
+not claim semantic coverage beyond the reviewed command's exercised scope.
+
+### Phase 11: Runtime Trace Validation (Weeks 109-124)
+
+Goal: make `TRACE_VALIDATED` evidence real for normalized runtime traces without
+claiming proof over unobserved behavior.
+
+Design anchor: `docs/adr/0013-phase-11-runtime-trace-validation.md`.
+
+Deliverables:
+
+- trace-validation task and result artifacts,
+- narrow validators for supported event-ordering and absence claims,
+- normalized trace schema tightening for redaction, environment, capture window,
+  requirement ids, and collector provenance,
+- trace adapter conformance fixture and CLI commands,
+- structured counterexamples for missing, misordered, contradictory, or
+  forbidden events,
+- continuous-attestation integration for trace-validation findings,
+- optional hard-gate policy inputs after report-only burn-in,
+- agent-handoff integration for trace failures and retry/escalation payloads,
+- documentation for safe redaction, sampling, retention, and evidence limits,
+- and examples using OpenTelemetry-shaped or otherwise normalized service
+  traces.
+
+Success criterion:
+
+A reviewed requirement can be validated against a normalized, redacted trace
+artifact and receive honest `TRACE_VALIDATED` evidence for the observed behavior.
+The system must clearly report that sampled traces are not exhaustive and that
+unsupported claim shapes remain report-only or refused.
+
+### Phase 12: Adapter Registry and Routing (Weeks 125-136)
+
+Goal: make adapter selection deterministic and auditable once multiple adapter
+families can produce evidence.
+
+Design anchor: `docs/adr/0014-phase-12-adapter-registry-routing.md`.
+
+This phase is based on the broader strategy in
+`docs/future-adapter-routing.md`.
+
+Deliverables:
+
+- adapter registry schema and validator,
+- routing policy schema and validator,
+- optional reviewed target metadata for requirement packages,
+- deterministic `route-adapters` JSON and Markdown reports,
+- route decisions for selected, report-only, missing, ambiguous, unsupported,
+  and out-of-scope adapters,
+- package-index and CI-report routing summaries,
+- soft-gate and hard-gate routing findings,
+- continuous-attestation routing summaries,
+- agent-task and agent-verify routing context,
+- and documentation for safe manual overrides and migration from explicit CLI
+  routing.
+
+Success criterion:
+
+Given package metadata, an adapter registry, a routing policy, changed paths, and
+required evidence levels, the system can explain exactly which adapters should
+run and why. Routing must remain report-only by default, fail closed when hard
+gate policy opts in, and leave `decide_status` unchanged.
+
+### Phase 13: TLA+ Model-Checking Adapter (Weeks 137-156)
+
+Goal: add bounded model-checking evidence for reviewed TLA+ state-machine specs
+on critical paths.
+
+Design anchor: `docs/adr/0015-phase-13-tla-model-checking-adapter.md`.
+
+Deliverables:
+
+- TLA+ model/config binding artifact,
+- model-checking result artifact with module/config hashes,
+- adapter conformance fixture and CLI commands,
+- TLC or Apalache command execution through argv arrays,
+- checker version, bounds, constants, resource limits, and command recording,
+- normalized counterexamples for invariant/property failures,
+- `BOUNDED_CHECKED` evidence only for completed bounded model checks,
+- explicit reservation of `PROVEN_INDUCTIVE` for future proof backends,
+- optional compatibility with selected Specula TLA workflow artifacts and tools,
+- package-index, gate, continuous-attestation, and agent-handoff integration,
+- and documentation for model scope, abstraction limits, and review
+  responsibilities.
+
+Success criterion:
+
+A reviewed requirement can be linked to a reviewed TLA+ module and config, run
+through a model checker, and receive honest `BOUNDED_CHECKED` evidence when no
+violation is found within the recorded model scope. The system must not present
+bounded model checking as proof of the production implementation.
+
+### Phase 14: GraphQL Schema Adapter (Weeks 157-168)
+
+Goal: add declaration-level GraphQL schema evidence as the next protocol/spec
+adapter after OpenAPI.
+
+Design anchor: `docs/adr/0016-phase-14-graphql-schema-adapter.md`.
+
+Deliverables:
+
+- deterministic GraphQL SDL subset parser,
+- GraphQL symbol discovery for operations, auth principals, fields, return
+  types, and state-change directives,
+- GraphQL adapter conformance fixture and CLI command,
+- package generation and validation commands,
+- schema hash freshness checks,
+- static auth directive and operation return-shape tasks,
+- `STATICALLY_RESOLVED` and `TYPE_CHECKED` evidence only,
+- package-index, gate, continuous-attestation, and agent-handoff integration,
+- examples and documentation for GraphQL assumptions and unsupported behavior,
+- and compatibility with the adapter registry and routing reports.
+
+Success criterion:
+
+A reviewed requirement can be linked to a GraphQL schema and receive honest
+declaration-level evidence when supported operation, auth, and state-change
+metadata are present. The adapter must not claim resolver correctness, runtime
+authorization behavior, `TEST_VALIDATED`, `TRACE_VALIDATED`, `BOUNDED_CHECKED`,
+or `PROVEN_INDUCTIVE`.
+
 ---
 
 ## 14. Phase 0 Tooling

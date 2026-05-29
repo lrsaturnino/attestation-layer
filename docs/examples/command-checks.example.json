@@ -1,0 +1,30 @@
+{
+  "adapter": "command",
+  "checks": [
+    {
+      "check_id": "CHK-AUTH-UNAUTHORIZED",
+      "command": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_auth.py::test_rejects_unauthorized"
+      ],
+      "cwd": ".",
+      "expected_exit_code": 0,
+      "name": "Unauthorized request is rejected",
+      "requested_evidence": "TEST_VALIDATED",
+      "requirement_ids": [
+        "REQ-AUTH-001",
+        "REQ-CMD-001"
+      ],
+      "target_paths": [
+        "src/auth.py"
+      ],
+      "test_paths": [
+        "tests/test_auth.py"
+      ],
+      "timeout_seconds": 60
+    }
+  ],
+  "schema_version": "0.1"
+}

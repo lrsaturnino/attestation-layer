@@ -1,0 +1,19 @@
+{
+  "waiver_id": "WAIVER-REQ-EXAMPLE-001",
+  "schema_version": "0.1",
+  "requirement_ids": [
+    "REQ-EXAMPLE-001"
+  ],
+  "package_paths": [
+    "requirements/REQ-EXAMPLE-001"
+  ],
+  "reviewer": "reviewer@example.invalid",
+  "reason": "Temporary exception while replacing legacy behavior with a requirement-backed implementation.",
+  "expires_at": "2026-06-09T00:00:00Z",
+  "reviewed_hashes": {
+    "requirement_ir": "sha256:example",
+    "status": "sha256:example"
+  },
+  "linked_issue": "https://github.com/example/repo/issues/1",
+  "may_satisfy_hard_gate": true
+}
