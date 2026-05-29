@@ -34,34 +34,34 @@ precise label.
 ## Level 1 - System Context
 
 ```mermaid
-C4Context
-title NL Requirement Attestation Layer - C4 Level 1 System Context
+flowchart TB
+    reviewer["Human reviewer<br/>Person<br/>Reviews controlled requirements, assumptions, bindings, generated package artifacts, gate findings, and agent handoff summaries before accepting evidence."]:::person
+    specifier["Specifier or requirement author<br/>Person<br/>Writes controlled natural-language requirements and supplies requirement ids, claim kinds, titles, assumptions, and reviewed adapter metadata."]:::person
+    coderAgent["Coder agent<br/>Person<br/>Consumes implementation tasks and package constraints, changes implementation files, and must not mutate reviewed package artifacts."]:::person
+    verifierAgent["Verifier agent<br/>Person<br/>Consumes verifier handoffs, gate reports, retry payloads, and package hashes to decide whether implementation work is ready for review."]:::person
 
-Person(reviewer, "Human reviewer", "Reviews controlled requirements, assumptions, bindings, generated package artifacts, gate findings, and agent handoff summaries before accepting evidence.")
-Person(specifier, "Specifier or requirement author", "Writes controlled natural-language requirements and supplies requirement ids, claim kinds, titles, assumptions, and reviewed adapter metadata.")
-Person(coderAgent, "Coder agent", "Consumes implementation tasks and package constraints, changes implementation files, and must not mutate reviewed package artifacts.")
-Person(verifierAgent, "Verifier agent", "Consumes verifier handoffs, gate reports, retry payloads, and package hashes to decide whether implementation work is ready for review.")
+    subgraph attestationBoundary["NL Requirement Attestation Layer"]
+        attestation["Attestation Layer CLI and library<br/>System<br/>Deterministic Python implementation that parses controlled requirements, binds symbols through adapters, runs evidence backends, emits reviewed package artifacts, and produces adoption, gate, routing, continuous-attestation, and agent workflow reports."]:::system
+    end
 
-System_Boundary(attestationBoundary, "NL Requirement Attestation Layer") {
-  System(attestation, "Attestation Layer CLI and library", "Deterministic Python implementation that parses controlled requirements, binds symbols through adapters, runs evidence backends, emits reviewed package artifacts, and produces adoption, gate, routing, continuous-attestation, and agent workflow reports.")
-}
+    targetRepo["Target project repository<br/>External system<br/>Implementation source, tests, OpenAPI/GraphQL/JSON Schema/AsyncAPI/Protobuf contracts, TLA models, command-check configuration, and normalized runtime traces that adapters inspect."]:::external
+    ciSystem["CI or scheduled automation<br/>External system<br/>Runs attestation commands in shadow, soft-gate, hard-gate, continuous, routing, command-evidence, and trace-validation workflows."]:::external
+    packageStore["Requirement package directory<br/>External system<br/>File-system directory containing reviewed immutable package artifacts such as IR, bindings, assumptions, review, tasks, adapter results, evidence, status, traces, counterexamples, and implementation specs."]:::external
+    externalTools["External verification tools<br/>External system<br/>Pytest, generated Python property checks, bounded command runners, custom TLA checker commands, and Z3-backed SMT checks used as deterministic evidence backends."]:::external
 
-System_Ext(targetRepo, "Target project repository", "Implementation source, tests, OpenAPI/GraphQL/JSON Schema/AsyncAPI/Protobuf contracts, TLA models, command-check configuration, and normalized runtime traces that adapters inspect.")
-System_Ext(ciSystem, "CI or scheduled automation", "Runs attestation commands in shadow, soft-gate, hard-gate, continuous, routing, command-evidence, and trace-validation workflows.")
-System_Ext(packageStore, "Requirement package directory", "File-system directory containing reviewed immutable package artifacts such as IR, bindings, assumptions, review, tasks, adapter results, evidence, status, traces, counterexamples, and implementation specs.")
-System_Ext(externalTools, "External verification tools", "Pytest, generated Python property checks, bounded command runners, custom TLA checker commands, and Z3-backed SMT checks used as deterministic evidence backends.")
+    specifier -->|"Submits controlled requirements and adapter configuration to create or refresh packages (CLI)"| attestation
+    reviewer -->|"Runs validation, reviews reports, and accepts or rejects evidence decisions (CLI and Markdown/JSON)"| attestation
+    coderAgent -->|"Requests implementation tasks with requirement constraints and immutable package hashes (JSON artifact)"| attestation
+    verifierAgent -->|"Requests verifier handoffs with gate findings, retry payloads, and continuous-attestation context (JSON and Markdown artifacts)"| attestation
+    ciSystem -->|"Executes report, gate, routing, trace, command, TLA, and continuous workflows on repository changes or schedules (CLI)"| attestation
+    attestation -->|"Reads source files, tests, API contracts, models, command configs, and trace artifacts without trusting them as reviewed specs (File system)"| targetRepo
+    attestation -->|"Writes and validates reviewed requirement package artifacts with stable hashes and status decisions (JSON and Markdown files)"| packageStore
+    attestation -->|"Invokes deterministic evidence backends and records bounded results, hashes, failures, and counterexamples (Subprocess or library call)"| externalTools
+    ciSystem -->|"Publishes reports and package snapshots for review and audit (Artifacts)"| packageStore
 
-Rel(specifier, attestation, "Submits controlled requirements and adapter configuration to create or refresh packages", "CLI")
-Rel(reviewer, attestation, "Runs validation, reviews reports, and accepts or rejects evidence decisions", "CLI and Markdown/JSON")
-Rel(coderAgent, attestation, "Requests implementation tasks with requirement constraints and immutable package hashes", "JSON artifact")
-Rel(verifierAgent, attestation, "Requests verifier handoffs with gate findings, retry payloads, and continuous-attestation context", "JSON and Markdown artifacts")
-Rel(ciSystem, attestation, "Executes report, gate, routing, trace, command, TLA, and continuous workflows on repository changes or schedules", "CLI")
-Rel(attestation, targetRepo, "Reads source files, tests, API contracts, models, command configs, and trace artifacts without trusting them as reviewed specs", "File system")
-Rel(attestation, packageStore, "Writes and validates reviewed requirement package artifacts with stable hashes and status decisions", "JSON and Markdown files")
-Rel(attestation, externalTools, "Invokes deterministic evidence backends and records bounded results, hashes, failures, and counterexamples", "Subprocess or library call")
-Rel(ciSystem, packageStore, "Publishes reports and package snapshots for review and audit", "Artifacts")
-
-UpdateLayoutConfig($c4ShapeInRow="3", $c4BoundaryInRow="1")
+    classDef person fill:#08427b,stroke:#052e56,color:#ffffff
+    classDef system fill:#1168bd,stroke:#0b4884,color:#ffffff
+    classDef external fill:#8b8b8b,stroke:#5f5f5f,color:#ffffff
 ```
 
 ## Level 2 - Containers
