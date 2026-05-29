@@ -9,6 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .adoption import build_package_index
 from .command_adapter import CommandAdapter
+from .graphql_adapter import GraphQlAdapter
 from .jsonutil import read_json
 from .models import EvidenceLevel, FinalStatus
 from .openapi_adapter import OpenApiAdapter
@@ -137,6 +138,7 @@ def build_hard_gate_report(
     openapi_adapter: OpenApiAdapter | None = None,
     command_adapter: CommandAdapter | None = None,
     tla_adapter: TlaAdapter | None = None,
+    graphql_adapter: GraphQlAdapter | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     package_index = build_package_index(
@@ -145,6 +147,7 @@ def build_hard_gate_report(
         openapi_adapter=openapi_adapter,
         command_adapter=command_adapter,
         tla_adapter=tla_adapter,
+        graphql_adapter=graphql_adapter,
     )
     referenced_ids = _stable_unique(requirement_ids)
     packages_by_id = {

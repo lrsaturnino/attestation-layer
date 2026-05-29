@@ -18,6 +18,18 @@
       "target_kind": "command_test_runner"
     },
     {
+      "adapter": "graphql",
+      "minimum_evidence": [
+        "STATICALLY_RESOLVED"
+      ],
+      "name": "graphql-contracts",
+      "path_patterns": [
+        "schema/**/*.graphql",
+        "graphql/**/*.graphql"
+      ],
+      "target_kind": "graphql_schema"
+    },
+    {
       "adapter": "trace",
       "minimum_evidence": [
         "TRACE_VALIDATED"

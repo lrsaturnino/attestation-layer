@@ -1324,6 +1324,35 @@ through a model checker, and receive honest `BOUNDED_CHECKED` evidence when no
 violation is found within the recorded model scope. The system must not present
 bounded model checking as proof of the production implementation.
 
+### Phase 14: GraphQL Schema Adapter (Weeks 157-168)
+
+Goal: add declaration-level GraphQL schema evidence as the next protocol/spec
+adapter after OpenAPI.
+
+Design anchor: `docs/adr/0016-phase-14-graphql-schema-adapter.md`.
+
+Deliverables:
+
+- deterministic GraphQL SDL subset parser,
+- GraphQL symbol discovery for operations, auth principals, fields, return
+  types, and state-change directives,
+- GraphQL adapter conformance fixture and CLI command,
+- package generation and validation commands,
+- schema hash freshness checks,
+- static auth directive and operation return-shape tasks,
+- `STATICALLY_RESOLVED` and `TYPE_CHECKED` evidence only,
+- package-index, gate, continuous-attestation, and agent-handoff integration,
+- examples and documentation for GraphQL assumptions and unsupported behavior,
+- and compatibility with the adapter registry and routing reports.
+
+Success criterion:
+
+A reviewed requirement can be linked to a GraphQL schema and receive honest
+declaration-level evidence when supported operation, auth, and state-change
+metadata are present. The adapter must not claim resolver correctness, runtime
+authorization behavior, `TEST_VALIDATED`, `TRACE_VALIDATED`, `BOUNDED_CHECKED`,
+or `PROVEN_INDUCTIVE`.
+
 ---
 
 ## 14. Phase 0 Tooling

@@ -8,6 +8,8 @@ from pydantic import ValidationError
 
 from .command_adapter import CommandAdapter
 from .command_package import validate_command_package
+from .graphql_adapter import GraphQlAdapter
+from .graphql_package import validate_graphql_package
 from .openapi_adapter import OpenApiAdapter
 from .openapi_package import validate_openapi_package
 from .jsonutil import read_json, sha256_text
@@ -59,6 +61,7 @@ def build_package_index(
     openapi_adapter: OpenApiAdapter | None = None,
     command_adapter: CommandAdapter | None = None,
     tla_adapter: TlaAdapter | None = None,
+    graphql_adapter: GraphQlAdapter | None = None,
 ) -> dict[str, Any]:
     package_dirs = find_package_dirs(packages_dir)
     if not package_dirs:
@@ -70,6 +73,7 @@ def build_package_index(
             openapi_adapter=openapi_adapter,
             command_adapter=command_adapter,
             tla_adapter=tla_adapter,
+            graphql_adapter=graphql_adapter,
         )
         for path in package_dirs
     ]
@@ -88,6 +92,7 @@ def build_ci_report(
     openapi_adapter: OpenApiAdapter | None = None,
     command_adapter: CommandAdapter | None = None,
     tla_adapter: TlaAdapter | None = None,
+    graphql_adapter: GraphQlAdapter | None = None,
 ) -> dict[str, Any]:
     package_index = build_package_index(
         packages_dir,
@@ -95,6 +100,7 @@ def build_ci_report(
         openapi_adapter=openapi_adapter,
         command_adapter=command_adapter,
         tla_adapter=tla_adapter,
+        graphql_adapter=graphql_adapter,
     )
     findings = _ci_findings(package_index["packages"])
     return {
@@ -120,6 +126,7 @@ def build_soft_gate_report(
     openapi_adapter: OpenApiAdapter | None = None,
     command_adapter: CommandAdapter | None = None,
     tla_adapter: TlaAdapter | None = None,
+    graphql_adapter: GraphQlAdapter | None = None,
 ) -> dict[str, Any]:
     package_index = build_package_index(
         packages_dir,
@@ -127,6 +134,7 @@ def build_soft_gate_report(
         openapi_adapter=openapi_adapter,
         command_adapter=command_adapter,
         tla_adapter=tla_adapter,
+        graphql_adapter=graphql_adapter,
     )
     referenced_ids = _stable_unique(requirement_ids)
     packages_by_id = {
@@ -269,6 +277,7 @@ def _summarize_package(
     openapi_adapter: OpenApiAdapter | None,
     command_adapter: CommandAdapter | None,
     tla_adapter: TlaAdapter | None,
+    graphql_adapter: GraphQlAdapter | None,
 ) -> dict[str, Any]:
     validation_status = "valid"
     validation_errors: list[str] = []
@@ -289,6 +298,11 @@ def _summarize_package(
         validation_errors.append("command adapter validation requires --command-checks")
         evidence = _read_model(package_dir / "evidence.json", EvidenceObject)
         status = _read_model(package_dir / "status.json", StatusDecision)
+    elif validation_kind == "graphql" and graphql_adapter is None:
+        validation_status = "skipped"
+        validation_errors.append("GraphQL adapter validation requires --graphql-schema")
+        evidence = _read_model(package_dir / "evidence.json", EvidenceObject)
+        status = _read_model(package_dir / "status.json", StatusDecision)
     elif validation_kind == "tla" and tla_adapter is None:
         validation_status = "skipped"
         validation_errors.append("TLA adapter validation requires --tla-model-config")
@@ -307,6 +321,8 @@ def _summarize_package(
                 ir, evidence, status = validate_openapi_package(package_dir, openapi_adapter)
             elif validation_kind == "command":
                 ir, evidence, status = validate_command_package(package_dir, command_adapter)
+            elif validation_kind == "graphql":
+                ir, evidence, status = validate_graphql_package(package_dir, graphql_adapter)
             elif validation_kind == "tla":
                 ir, evidence, status = validate_tla_package(package_dir, tla_adapter)
             else:
@@ -348,6 +364,8 @@ def _adapter_id(ir: RequirementIR | None, validation_kind: str) -> str:
         return validation_kind
     if validation_kind == "command":
         return "command"
+    if validation_kind == "graphql":
+        return "graphql"
     if validation_kind == "tla":
         return "tla"
     adapter_ids = sorted({binding.adapter for binding in ir.bindings.values()})
@@ -383,6 +401,8 @@ def _validation_kind(package_dir: Path, ir: RequirementIR | None) -> str:
             return "openapi"
         if "command" in backends:
             return "command"
+        if "graphql" in backends:
+            return "graphql"
         if "tla" in backends:
             return "tla"
         if backends.intersection({"python_package", "python_property", "pytest"}):

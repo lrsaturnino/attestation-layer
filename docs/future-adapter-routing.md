@@ -13,6 +13,7 @@ The current implementation supports:
 - generic static-symbol packages through `nlreq package`
 - Python packages through `nlreq python-package`
 - OpenAPI documents through `nlreq openapi-package`
+- GraphQL schemas through `nlreq graphql-package`
 - command/test-runner checks through `nlreq command-package`
 - runtime trace validation through `nlreq trace-validate`
 - TLA/model-checking packages through `nlreq tla-package`
@@ -113,6 +114,11 @@ The fourth concrete step is Phase 13 TLA+ model checking, described in
 `docs/adr/0015-phase-13-tla-model-checking-adapter.md`. Phase 13 uses routing
 to select formal/model-checking evidence only for requirements and targets that
 justify that cost.
+
+The fifth concrete step is Phase 14 GraphQL schema support, described in
+`docs/phase-14-graphql-schema-adapter.md` and
+`docs/adr/0016-phase-14-graphql-schema-adapter.md`. Phase 14 extends
+protocol/spec evidence beyond OpenAPI while remaining declaration-level.
 
 ## Routing Inputs
 

@@ -141,6 +141,22 @@ uv run nlreq openapi-validate /tmp/REQ-OPENAPI-001 \
   --openapi-name sample-api
 ```
 
+Build and validate a GraphQL-adapter evidence package:
+
+```bash
+uv run nlreq graphql-package tests/fixtures/requirements/authorization_precondition.nlreq \
+  --out /tmp/REQ-GRAPHQL-001 \
+  --requirement-id REQ-GRAPHQL-001 \
+  --title "Unauthorized GraphQL operation is rejected before state changes" \
+  --claim-kind authorization_precondition \
+  --schema tests/fixtures/adapters/graphql/sample-schema.graphql \
+  --graphql-name sample-graphql
+
+uv run nlreq graphql-validate /tmp/REQ-GRAPHQL-001 \
+  --schema tests/fixtures/adapters/graphql/sample-schema.graphql \
+  --graphql-name sample-graphql
+```
+
 Build and validate a command/test-runner-backed evidence package:
 
 ```bash
