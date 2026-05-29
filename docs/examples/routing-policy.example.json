@@ -30,6 +30,18 @@
       "target_kind": "graphql_schema"
     },
     {
+      "adapter": "json_schema",
+      "minimum_evidence": [
+        "TYPE_CHECKED"
+      ],
+      "name": "json-schema-contracts",
+      "path_patterns": [
+        "schemas/**/*.json",
+        "events/**/*.schema.json"
+      ],
+      "target_kind": "json_schema_document"
+    },
+    {
       "adapter": "trace",
       "minimum_evidence": [
         "TRACE_VALIDATED"

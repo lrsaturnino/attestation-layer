@@ -91,7 +91,8 @@ Allowed redaction status values for a clean Phase 8 run are `redacted` and
 |---|---|
 | Valid IR and package schemas | `TYPE_CHECKED` |
 | Current adapter bindings | `STATICALLY_RESOLVED` |
-| OpenAPI or GraphQL declaration checks | `STATICALLY_RESOLVED` |
+| OpenAPI, GraphQL, or JSON Schema declaration checks | `STATICALLY_RESOLVED` |
+| JSON Schema property/action declaration checks | `TYPE_CHECKED` |
 | Core consistency backend | `CONSISTENCY_CHECKED` |
 | Core SMT backend | `SMT_CHECKED` |
 | Scoped pytest, generated property runs, or reviewed command checks | `TEST_VALIDATED` |

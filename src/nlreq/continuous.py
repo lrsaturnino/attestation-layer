@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from .adoption import ARTIFACT_FILES, build_package_index
 from .command_adapter import CommandAdapter
 from .graphql_adapter import GraphQlAdapter
+from .jsonschema_adapter import JsonSchemaAdapter
 from .jsonutil import read_json
 from .models import NormalizedTraceArtifact
 from .openapi_adapter import OpenApiAdapter
@@ -34,6 +35,7 @@ def build_attestation_run(
     command_adapter: CommandAdapter | None = None,
     tla_adapter: TlaAdapter | None = None,
     graphql_adapter: GraphQlAdapter | None = None,
+    json_schema_adapter: JsonSchemaAdapter | None = None,
     trace_artifact_paths: Iterable[Path] = (),
     trace_validation: bool = False,
     previous_run: dict[str, Any] | None = None,
@@ -50,6 +52,7 @@ def build_attestation_run(
         command_adapter=command_adapter,
         tla_adapter=tla_adapter,
         graphql_adapter=graphql_adapter,
+        json_schema_adapter=json_schema_adapter,
     )
     packages_by_id = {
         package["requirement_id"]: package
@@ -90,6 +93,7 @@ def build_attestation_run(
             command_adapter=command_adapter,
             tla_adapter=tla_adapter,
             graphql_adapter=graphql_adapter,
+            json_schema_adapter=json_schema_adapter,
         ),
         "summary": {
             **package_index["summary"],
@@ -521,6 +525,7 @@ def _adapter_config(
     command_adapter: CommandAdapter | None,
     tla_adapter: TlaAdapter | None,
     graphql_adapter: GraphQlAdapter | None,
+    json_schema_adapter: JsonSchemaAdapter | None,
 ) -> dict[str, Any]:
     config: dict[str, Any] = {}
     if python_adapter is not None:
@@ -547,6 +552,12 @@ def _adapter_config(
             "schema_path": graphql_adapter.schema_path.as_posix(),
             "schema_name": graphql_adapter.schema_name,
             "schema_hash": graphql_adapter.schema_hash,
+        }
+    if json_schema_adapter is not None:
+        config["json_schema"] = {
+            "schema_path": json_schema_adapter.schema_path.as_posix(),
+            "schema_name": json_schema_adapter.schema_name,
+            "schema_hash": json_schema_adapter.schema_hash,
         }
     if tla_adapter is not None:
         config["tla"] = {

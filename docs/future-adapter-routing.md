@@ -14,12 +14,13 @@ The current implementation supports:
 - Python packages through `nlreq python-package`
 - OpenAPI documents through `nlreq openapi-package`
 - GraphQL schemas through `nlreq graphql-package`
+- JSON Schema documents through `nlreq json-schema-package`
 - command/test-runner checks through `nlreq command-package`
 - runtime trace validation through `nlreq trace-validate`
 - TLA/model-checking packages through `nlreq tla-package`
 - adapter registry and routing reports through `nlreq route-adapters`
-- report and gate validation with optional Python, OpenAPI, command, and TLA
-  adapter configuration
+- report and gate validation with optional Python, OpenAPI, GraphQL, JSON
+  Schema, command, and TLA adapter configuration
 
 Adapter selection is operator driven:
 
@@ -119,6 +120,12 @@ The fifth concrete step is Phase 14 GraphQL schema support, described in
 `docs/phase-14-graphql-schema-adapter.md` and
 `docs/adr/0016-phase-14-graphql-schema-adapter.md`. Phase 14 extends
 protocol/spec evidence beyond OpenAPI while remaining declaration-level.
+
+The sixth concrete step is Phase 15 JSON Schema support, described in
+`docs/phase-15-json-schema-adapter.md` and
+`docs/adr/0017-phase-15-json-schema-adapter.md`. Phase 15 extends
+declaration-level evidence to payload, event, configuration, and data contract
+schemas.
 
 ## Routing Inputs
 
@@ -390,7 +397,8 @@ verifier agents know which target artifacts and adapters are authoritative.
 
 The routing layer is ready for enforcement when:
 
-- existing generic, Python, and OpenAPI workflows still validate unchanged;
+- existing generic, Python, OpenAPI, GraphQL, JSON Schema, command, trace, and
+  TLA workflows still validate unchanged;
 - at least three adapters can register with capabilities and conformance status;
 - routing reports are byte-stable for the same package/policy/path inputs;
 - missing, ambiguous, unsupported, report-only, and selected routes have tests;

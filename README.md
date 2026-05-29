@@ -95,6 +95,20 @@ uv run nlreq openapi-conformance tests/fixtures/adapters/openapi/sample-openapi.
   --openapi-name sample-api
 ```
 
+Run adapter conformance against the Phase 14 GraphQL adapter:
+
+```bash
+uv run nlreq graphql-conformance tests/fixtures/adapters/graphql/sample-schema.graphql \
+  --graphql-name sample-graphql
+```
+
+Run adapter conformance against the Phase 15 JSON Schema adapter:
+
+```bash
+uv run nlreq json-schema-conformance tests/fixtures/adapters/jsonschema/sample-schema.json \
+  --json-schema-name sample-json-schema
+```
+
 Build and validate a Python-adapter evidence package:
 
 ```bash
@@ -155,6 +169,22 @@ uv run nlreq graphql-package tests/fixtures/requirements/authorization_precondit
 uv run nlreq graphql-validate /tmp/REQ-GRAPHQL-001 \
   --schema tests/fixtures/adapters/graphql/sample-schema.graphql \
   --graphql-name sample-graphql
+```
+
+Build and validate a JSON Schema-adapter evidence package:
+
+```bash
+uv run nlreq json-schema-package tests/fixtures/requirements/state_postcondition.nlreq \
+  --out /tmp/REQ-JSON-SCHEMA-001 \
+  --requirement-id REQ-JSON-SCHEMA-001 \
+  --title "Approved operation sets accepted status" \
+  --claim-kind state_postcondition \
+  --schema tests/fixtures/adapters/jsonschema/sample-schema.json \
+  --json-schema-name sample-json-schema
+
+uv run nlreq json-schema-validate /tmp/REQ-JSON-SCHEMA-001 \
+  --schema tests/fixtures/adapters/jsonschema/sample-schema.json \
+  --json-schema-name sample-json-schema
 ```
 
 Build and validate a command/test-runner-backed evidence package:
@@ -322,7 +352,7 @@ The Phase 3 adoption workflow slice is described in
 The Phase 4 soft gate pilot is described in
 [docs/phase-4-soft-gate-pilot.md](./docs/phase-4-soft-gate-pilot.md).
 The formal roadmap in [docs/build-plan.md](./docs/build-plan.md) now extends
-through Phase 13.
+through Phase 15.
 The Phase 5 hard gate is described in
 [docs/phase-5-hard-gate.md](./docs/phase-5-hard-gate.md).
 The Phase 6 stronger evidence backend slice is described in
@@ -333,14 +363,18 @@ The Phase 8 continuous attestation slice is described in
 [docs/phase-8-continuous-attestation.md](./docs/phase-8-continuous-attestation.md).
 The Phase 9 agent workflow integration slice is described in
 [docs/phase-9-agent-workflow.md](./docs/phase-9-agent-workflow.md).
-The planned Phase 10 command/test-runner adapter slice is described in
+The Phase 10 command/test-runner adapter slice is described in
 [docs/phase-10-command-test-runner-adapter.md](./docs/phase-10-command-test-runner-adapter.md).
-The planned Phase 11 runtime trace validation slice is described in
+The Phase 11 runtime trace validation slice is described in
 [docs/phase-11-runtime-trace-validation.md](./docs/phase-11-runtime-trace-validation.md).
-The planned Phase 12 adapter registry and routing slice is described in
+The Phase 12 adapter registry and routing slice is described in
 [docs/phase-12-adapter-registry-routing.md](./docs/phase-12-adapter-registry-routing.md).
-The planned Phase 13 TLA+ model-checking adapter slice is described in
+The Phase 13 TLA+ model-checking adapter slice is described in
 [docs/phase-13-tla-model-checking-adapter.md](./docs/phase-13-tla-model-checking-adapter.md).
+The Phase 14 GraphQL schema adapter slice is described in
+[docs/phase-14-graphql-schema-adapter.md](./docs/phase-14-graphql-schema-adapter.md).
+The Phase 15 JSON Schema adapter slice is described in
+[docs/phase-15-json-schema-adapter.md](./docs/phase-15-json-schema-adapter.md).
 
 Adoption references:
 

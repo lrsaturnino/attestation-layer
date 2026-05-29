@@ -43,6 +43,8 @@ from .gate import (
 )
 from .graphql_adapter import GraphQlAdapter
 from .graphql_package import build_graphql_package, validate_graphql_package
+from .jsonschema_adapter import JsonSchemaAdapter
+from .jsonschema_package import build_json_schema_package, validate_json_schema_package
 from .jsonutil import canonical_json, read_json
 from .models import EvidenceObject, RequirementIR, StatusDecision, SymbolRef
 from .openapi_adapter import OpenApiAdapter
@@ -208,6 +210,35 @@ def main(argv: list[str] | None = None) -> int:
     graphql_validate_cmd.add_argument("package_dir", type=Path)
     graphql_validate_cmd.add_argument("--schema", type=Path, required=True)
     graphql_validate_cmd.add_argument("--graphql-name")
+
+    json_schema_conformance_cmd = subcommands.add_parser(
+        "json-schema-conformance", help="Run conformance against a JSON Schema adapter."
+    )
+    json_schema_conformance_cmd.add_argument("schema", type=Path)
+    json_schema_conformance_cmd.add_argument("--json-schema-name")
+    json_schema_conformance_cmd.add_argument("--resolved-ref", default="operation")
+    json_schema_conformance_cmd.add_argument("--resolved-type", default="action")
+    json_schema_conformance_cmd.add_argument("--unresolved-ref", default="definitely_missing_symbol")
+    json_schema_conformance_cmd.add_argument("--ambiguous-ref", default="duplicate_operation")
+    json_schema_conformance_cmd.add_argument("--ambiguous-type", default="action")
+
+    json_schema_package_cmd = subcommands.add_parser(
+        "json-schema-package", help="Build a JSON Schema-adapter requirement package."
+    )
+    json_schema_package_cmd.add_argument("file", type=Path)
+    json_schema_package_cmd.add_argument("--out", type=Path, required=True)
+    json_schema_package_cmd.add_argument("--requirement-id", required=True)
+    json_schema_package_cmd.add_argument("--title", required=True)
+    json_schema_package_cmd.add_argument("--claim-kind", required=True)
+    json_schema_package_cmd.add_argument("--schema", type=Path, required=True)
+    json_schema_package_cmd.add_argument("--json-schema-name")
+
+    json_schema_validate_cmd = subcommands.add_parser(
+        "json-schema-validate", help="Validate a JSON Schema-adapter requirement package."
+    )
+    json_schema_validate_cmd.add_argument("package_dir", type=Path)
+    json_schema_validate_cmd.add_argument("--schema", type=Path, required=True)
+    json_schema_validate_cmd.add_argument("--json-schema-name")
 
     command_package_cmd = subcommands.add_parser(
         "command-package", help="Build a command/test-runner-backed requirement package."
@@ -654,6 +685,51 @@ def main(argv: list[str] | None = None) -> int:
             ir, evidence, status = validate_graphql_package(args.package_dir, adapter)
             _print_package_validation(ir, evidence, status)
             return 0
+        if args.command == "json-schema-conformance":
+            adapter = JsonSchemaAdapter(
+                args.schema,
+                schema_name=args.json_schema_name or args.schema.stem,
+            )
+            report = assert_adapter_conforms(
+                adapter,
+                _json_schema_conformance_fixture(
+                    resolved_ref=args.resolved_ref,
+                    resolved_type=args.resolved_type,
+                    unresolved_ref=args.unresolved_ref,
+                    ambiguous_ref=args.ambiguous_ref,
+                    ambiguous_type=args.ambiguous_type,
+                ),
+            )
+            print(f"Adapter: {report.adapter_id}")
+            print(f"Target: {report.target_kind}")
+            print(f"Schema: {adapter.schema_name}")
+            print("Conformance: passed")
+            for check in report.checks:
+                print(f"  - {check}")
+            return 0
+        if args.command == "json-schema-package":
+            adapter = JsonSchemaAdapter(
+                args.schema,
+                schema_name=args.json_schema_name or args.schema.stem,
+            )
+            build_json_schema_package(
+                controlled_text=args.file.read_text(),
+                output_dir=args.out,
+                requirement_id=args.requirement_id,
+                title=args.title,
+                claim_kind=args.claim_kind,
+                adapter=adapter,
+            )
+            print(f"Package: {args.out}")
+            return 0
+        if args.command == "json-schema-validate":
+            adapter = JsonSchemaAdapter(
+                args.schema,
+                schema_name=args.json_schema_name or args.schema.stem,
+            )
+            ir, evidence, status = validate_json_schema_package(args.package_dir, adapter)
+            _print_package_validation(ir, evidence, status)
+            return 0
         if args.command == "command-package":
             adapter = CommandAdapter(
                 load_command_checks(args.checks),
@@ -767,6 +843,7 @@ def main(argv: list[str] | None = None) -> int:
                 command_adapter=_optional_command_adapter(args),
                 tla_adapter=_optional_tla_adapter(args),
                 graphql_adapter=_optional_graphql_adapter(args),
+                json_schema_adapter=_optional_json_schema_adapter(args),
             )
             if args.out:
                 from .jsonutil import write_json
@@ -784,6 +861,7 @@ def main(argv: list[str] | None = None) -> int:
                 command_adapter=_optional_command_adapter(args),
                 tla_adapter=_optional_tla_adapter(args),
                 graphql_adapter=_optional_graphql_adapter(args),
+                json_schema_adapter=_optional_json_schema_adapter(args),
             )
             wrote_output = False
             if args.out:
@@ -810,6 +888,7 @@ def main(argv: list[str] | None = None) -> int:
                 command_adapter=_optional_command_adapter(args),
                 tla_adapter=_optional_tla_adapter(args),
                 graphql_adapter=_optional_graphql_adapter(args),
+                json_schema_adapter=_optional_json_schema_adapter(args),
             )
             wrote_output = False
             if args.out:
@@ -841,6 +920,7 @@ def main(argv: list[str] | None = None) -> int:
                 command_adapter=_optional_command_adapter(args),
                 tla_adapter=_optional_tla_adapter(args),
                 graphql_adapter=_optional_graphql_adapter(args),
+                json_schema_adapter=_optional_json_schema_adapter(args),
             )
             wrote_output = False
             if args.out:
@@ -869,6 +949,7 @@ def main(argv: list[str] | None = None) -> int:
                 command_adapter=_optional_command_adapter(args),
                 tla_adapter=_optional_tla_adapter(args),
                 graphql_adapter=_optional_graphql_adapter(args),
+                json_schema_adapter=_optional_json_schema_adapter(args),
                 trace_artifact_paths=args.trace_artifact,
                 trace_validation=args.trace_validation,
                 previous_run=load_attestation_run(args.previous_run)
@@ -958,6 +1039,7 @@ def main(argv: list[str] | None = None) -> int:
                 command_adapter=_optional_command_adapter(args),
                 tla_adapter=_optional_tla_adapter(args),
                 graphql_adapter=_optional_graphql_adapter(args),
+                json_schema_adapter=_optional_json_schema_adapter(args),
             )
             if args.out:
                 from .jsonutil import write_json
@@ -979,6 +1061,7 @@ def main(argv: list[str] | None = None) -> int:
                 command_adapter=_optional_command_adapter(args),
                 tla_adapter=_optional_tla_adapter(args),
                 graphql_adapter=_optional_graphql_adapter(args),
+                json_schema_adapter=_optional_json_schema_adapter(args),
                 hard_gate_policy=load_gate_policy(args.policy) if args.policy else None,
                 hard_gate_waivers=load_gate_waivers(args.waiver) if args.policy else [],
                 changed_paths=_changed_paths_from_args(args),
@@ -1063,6 +1146,8 @@ def _add_adapter_validation_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--openapi-name")
     parser.add_argument("--graphql-schema", type=Path)
     parser.add_argument("--graphql-name")
+    parser.add_argument("--json-schema-document", type=Path)
+    parser.add_argument("--json-schema-name")
     parser.add_argument("--command-checks", type=Path)
     parser.add_argument("--tla-model-config", type=Path)
 
@@ -1094,6 +1179,15 @@ def _optional_graphql_adapter(args: argparse.Namespace) -> GraphQlAdapter | None
     return GraphQlAdapter(
         args.graphql_schema,
         schema_name=args.graphql_name or args.graphql_schema.stem,
+    )
+
+
+def _optional_json_schema_adapter(args: argparse.Namespace) -> JsonSchemaAdapter | None:
+    if args.json_schema_document is None:
+        return None
+    return JsonSchemaAdapter(
+        args.json_schema_document,
+        schema_name=args.json_schema_name or args.json_schema_document.stem,
     )
 
 
@@ -1264,6 +1358,32 @@ def _graphql_conformance_fixture(
         requirement_id="REQ-GRAPHQL-CONFORMANCE-001",
         title="GraphQL adapter conformance fixture",
         claim_kind="authorization_precondition",
+    )
+    return AdapterConformanceFixture(
+        resolved_ref=SymbolRef(name=resolved_ref, expected_type=resolved_type),
+        unresolved_ref=SymbolRef(name=unresolved_ref),
+        ambiguous_ref=SymbolRef(name=ambiguous_ref, expected_type=ambiguous_type),
+        sample_ir=ir,
+    )
+
+
+def _json_schema_conformance_fixture(
+    *,
+    resolved_ref: str = "operation",
+    resolved_type: str = "action",
+    unresolved_ref: str = "definitely_missing_symbol",
+    ambiguous_ref: str = "duplicate_operation",
+    ambiguous_type: str = "action",
+) -> AdapterConformanceFixture:
+    ir = RequirementParser().parse_ir(
+        (
+            "For every operation request:\n"
+            "if actor is approved\n"
+            'then operation must set operation_status to "accepted".\n'
+        ),
+        requirement_id="REQ-JSON-SCHEMA-CONFORMANCE-001",
+        title="JSON Schema adapter conformance fixture",
+        claim_kind="state_postcondition",
     )
     return AdapterConformanceFixture(
         resolved_ref=SymbolRef(name=resolved_ref, expected_type=resolved_type),

@@ -1,0 +1,52 @@
+{
+  "$id": "https://example.invalid/schemas/sample-operation-result",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "properties": {
+    "actor": {
+      "type": "string",
+      "x-nlreq-symbol-type": "principal"
+    },
+    "counter": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "limit": {
+      "minimum": 0,
+      "type": "integer"
+    },
+    "operation_status": {
+      "const": "accepted",
+      "type": "string"
+    }
+  },
+  "required": [
+    "actor",
+    "operation_status",
+    "counter",
+    "limit"
+  ],
+  "title": "SampleOperationResult",
+  "type": "object",
+  "x-nlreq-actions": {
+    "duplicate_operation": [
+      {
+        "sets": {
+          "operation_status": "accepted"
+        }
+      },
+      {
+        "sets": {
+          "operation_status": "accepted"
+        }
+      }
+    ],
+    "operation": {
+      "increases": {
+        "counter": 1
+      },
+      "sets": {
+        "operation_status": "accepted"
+      }
+    }
+  }
+}

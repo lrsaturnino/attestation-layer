@@ -12,7 +12,7 @@ and optional normalized traces.
 - Markdown report output
 - scheduled/manual/webhook/release trigger metadata
 - package-index refresh inside the run artifact
-- adapter configuration fingerprints for Python and OpenAPI validation
+- adapter configuration fingerprints for configured adapter validation
 - package freshness summaries, including artifact presence and review age
 - previous-run delta detection for:
   - missing packages
@@ -47,7 +47,9 @@ uv run nlreq continuous-attestation requirements \
   --package-name samplepkg \
   --project-root . \
   --openapi-document tests/fixtures/adapters/openapi/sample-openapi.json \
-  --openapi-name sample-api
+  --openapi-name sample-api \
+  --json-schema-document tests/fixtures/adapters/jsonschema/sample-schema.json \
+  --json-schema-name sample-json-schema
 ```
 
 ## Compare Against A Previous Run

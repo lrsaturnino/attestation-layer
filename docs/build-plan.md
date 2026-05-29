@@ -1353,6 +1353,37 @@ metadata are present. The adapter must not claim resolver correctness, runtime
 authorization behavior, `TEST_VALIDATED`, `TRACE_VALIDATED`, `BOUNDED_CHECKED`,
 or `PROVEN_INDUCTIVE`.
 
+### Phase 15: JSON Schema Adapter (Weeks 169-180)
+
+Goal: add declaration-level JSON Schema evidence for payload, event, and data
+contract documents.
+
+Design anchor: `docs/adr/0017-phase-15-json-schema-adapter.md`.
+
+Deliverables:
+
+- deterministic JSON Schema document parser for JSON inputs,
+- JSON Schema symbol discovery for schemas, reviewed actions, principals,
+  fields, state fields, and numeric fields,
+- reviewed `x-nlreq-actions` metadata support for state value and numeric delta
+  declarations,
+- JSON Schema adapter conformance fixture and CLI command,
+- package generation and validation commands,
+- schema hash freshness checks,
+- `STATICALLY_RESOLVED` and `TYPE_CHECKED` evidence only,
+- package-index, gate, continuous-attestation, and agent-handoff integration,
+- examples and documentation for JSON Schema assumptions and unsupported
+  behavior,
+- and compatibility with the adapter registry and routing reports.
+
+Success criterion:
+
+A reviewed requirement can be linked to a JSON Schema document and receive
+honest declaration-level evidence when supported property and reviewed action
+metadata are present. The adapter must not claim producer behavior, consumer
+behavior, runtime validation enforcement, `TEST_VALIDATED`, `TRACE_VALIDATED`,
+`BOUNDED_CHECKED`, or `PROVEN_INDUCTIVE`.
+
 ---
 
 ## 14. Phase 0 Tooling

@@ -54,6 +54,23 @@
       "target_kind": "graphql_schema"
     },
     {
+      "adapter_id": "json_schema",
+      "conformance": {
+        "status": "pass",
+        "suite_version": "0.1"
+      },
+      "gateable": true,
+      "supported_claim_kinds": [
+        "state_postcondition",
+        "numeric_invariant"
+      ],
+      "supported_evidence": [
+        "STATICALLY_RESOLVED",
+        "TYPE_CHECKED"
+      ],
+      "target_kind": "json_schema_document"
+    },
+    {
       "adapter_id": "trace",
       "conformance": {
         "status": "pass",

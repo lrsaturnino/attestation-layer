@@ -166,6 +166,22 @@ uv run nlreq graphql-validate /tmp/REQ-GRAPHQL-001 \
   --graphql-name sample-graphql
 ```
 
+Build a JSON Schema package with declaration-level evidence:
+
+```bash
+uv run nlreq json-schema-package tests/fixtures/requirements/state_postcondition.nlreq \
+  --out /tmp/REQ-JSON-SCHEMA-001 \
+  --requirement-id REQ-JSON-SCHEMA-001 \
+  --title "Approved operation sets accepted status" \
+  --claim-kind state_postcondition \
+  --schema tests/fixtures/adapters/jsonschema/sample-schema.json \
+  --json-schema-name sample-json-schema
+
+uv run nlreq json-schema-validate /tmp/REQ-JSON-SCHEMA-001 \
+  --schema tests/fixtures/adapters/jsonschema/sample-schema.json \
+  --json-schema-name sample-json-schema
+```
+
 Build a command/test-runner package with reviewed command evidence:
 
 ```bash
@@ -200,3 +216,8 @@ Phase 6 artifact schemas:
 Phase 7 adapter fixture:
 
 - `tests/fixtures/adapters/openapi/sample-openapi.json`
+
+Phase 14 and 15 adapter fixtures:
+
+- `tests/fixtures/adapters/graphql/sample-schema.graphql`
+- `tests/fixtures/adapters/jsonschema/sample-schema.json`
