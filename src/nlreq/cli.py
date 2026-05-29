@@ -53,6 +53,8 @@ from .openapi_adapter import OpenApiAdapter
 from .openapi_package import build_openapi_package, validate_openapi_package
 from .package import build_package, validate_package
 from .parser import RequirementParser
+from .protobuf_adapter import ProtobufAdapter
+from .protobuf_package import build_protobuf_package, validate_protobuf_package
 from .python_package import build_python_package, validate_python_package
 from .status import decide_status
 from .adapter import default_generic_adapter
@@ -270,6 +272,35 @@ def main(argv: list[str] | None = None) -> int:
     asyncapi_validate_cmd.add_argument("package_dir", type=Path)
     asyncapi_validate_cmd.add_argument("--document", type=Path, required=True)
     asyncapi_validate_cmd.add_argument("--asyncapi-name")
+
+    protobuf_conformance_cmd = subcommands.add_parser(
+        "protobuf-conformance", help="Run conformance against a Protobuf/gRPC adapter."
+    )
+    protobuf_conformance_cmd.add_argument("schema", type=Path)
+    protobuf_conformance_cmd.add_argument("--protobuf-name")
+    protobuf_conformance_cmd.add_argument("--resolved-ref", default="operation")
+    protobuf_conformance_cmd.add_argument("--resolved-type", default="action")
+    protobuf_conformance_cmd.add_argument("--unresolved-ref", default="definitely_missing_symbol")
+    protobuf_conformance_cmd.add_argument("--ambiguous-ref", default="duplicate_operation")
+    protobuf_conformance_cmd.add_argument("--ambiguous-type", default="action")
+
+    protobuf_package_cmd = subcommands.add_parser(
+        "protobuf-package", help="Build a Protobuf/gRPC-adapter requirement package."
+    )
+    protobuf_package_cmd.add_argument("file", type=Path)
+    protobuf_package_cmd.add_argument("--out", type=Path, required=True)
+    protobuf_package_cmd.add_argument("--requirement-id", required=True)
+    protobuf_package_cmd.add_argument("--title", required=True)
+    protobuf_package_cmd.add_argument("--claim-kind", required=True)
+    protobuf_package_cmd.add_argument("--schema", type=Path, required=True)
+    protobuf_package_cmd.add_argument("--protobuf-name")
+
+    protobuf_validate_cmd = subcommands.add_parser(
+        "protobuf-validate", help="Validate a Protobuf/gRPC-adapter requirement package."
+    )
+    protobuf_validate_cmd.add_argument("package_dir", type=Path)
+    protobuf_validate_cmd.add_argument("--schema", type=Path, required=True)
+    protobuf_validate_cmd.add_argument("--protobuf-name")
 
     command_package_cmd = subcommands.add_parser(
         "command-package", help="Build a command/test-runner-backed requirement package."
@@ -806,6 +837,51 @@ def main(argv: list[str] | None = None) -> int:
             ir, evidence, status = validate_asyncapi_package(args.package_dir, adapter)
             _print_package_validation(ir, evidence, status)
             return 0
+        if args.command == "protobuf-conformance":
+            adapter = ProtobufAdapter(
+                args.schema,
+                schema_name=args.protobuf_name or args.schema.stem,
+            )
+            report = assert_adapter_conforms(
+                adapter,
+                _protobuf_conformance_fixture(
+                    resolved_ref=args.resolved_ref,
+                    resolved_type=args.resolved_type,
+                    unresolved_ref=args.unresolved_ref,
+                    ambiguous_ref=args.ambiguous_ref,
+                    ambiguous_type=args.ambiguous_type,
+                ),
+            )
+            print(f"Adapter: {report.adapter_id}")
+            print(f"Target: {report.target_kind}")
+            print(f"Schema: {adapter.schema_name}")
+            print("Conformance: passed")
+            for check in report.checks:
+                print(f"  - {check}")
+            return 0
+        if args.command == "protobuf-package":
+            adapter = ProtobufAdapter(
+                args.schema,
+                schema_name=args.protobuf_name or args.schema.stem,
+            )
+            build_protobuf_package(
+                controlled_text=args.file.read_text(),
+                output_dir=args.out,
+                requirement_id=args.requirement_id,
+                title=args.title,
+                claim_kind=args.claim_kind,
+                adapter=adapter,
+            )
+            print(f"Package: {args.out}")
+            return 0
+        if args.command == "protobuf-validate":
+            adapter = ProtobufAdapter(
+                args.schema,
+                schema_name=args.protobuf_name or args.schema.stem,
+            )
+            ir, evidence, status = validate_protobuf_package(args.package_dir, adapter)
+            _print_package_validation(ir, evidence, status)
+            return 0
         if args.command == "command-package":
             adapter = CommandAdapter(
                 load_command_checks(args.checks),
@@ -921,6 +997,7 @@ def main(argv: list[str] | None = None) -> int:
                 graphql_adapter=_optional_graphql_adapter(args),
                 json_schema_adapter=_optional_json_schema_adapter(args),
                 asyncapi_adapter=_optional_asyncapi_adapter(args),
+                protobuf_adapter=_optional_protobuf_adapter(args),
             )
             if args.out:
                 from .jsonutil import write_json
@@ -940,6 +1017,7 @@ def main(argv: list[str] | None = None) -> int:
                 graphql_adapter=_optional_graphql_adapter(args),
                 json_schema_adapter=_optional_json_schema_adapter(args),
                 asyncapi_adapter=_optional_asyncapi_adapter(args),
+                protobuf_adapter=_optional_protobuf_adapter(args),
             )
             wrote_output = False
             if args.out:
@@ -968,6 +1046,7 @@ def main(argv: list[str] | None = None) -> int:
                 graphql_adapter=_optional_graphql_adapter(args),
                 json_schema_adapter=_optional_json_schema_adapter(args),
                 asyncapi_adapter=_optional_asyncapi_adapter(args),
+                protobuf_adapter=_optional_protobuf_adapter(args),
             )
             wrote_output = False
             if args.out:
@@ -1001,6 +1080,7 @@ def main(argv: list[str] | None = None) -> int:
                 graphql_adapter=_optional_graphql_adapter(args),
                 json_schema_adapter=_optional_json_schema_adapter(args),
                 asyncapi_adapter=_optional_asyncapi_adapter(args),
+                protobuf_adapter=_optional_protobuf_adapter(args),
             )
             wrote_output = False
             if args.out:
@@ -1031,6 +1111,7 @@ def main(argv: list[str] | None = None) -> int:
                 graphql_adapter=_optional_graphql_adapter(args),
                 json_schema_adapter=_optional_json_schema_adapter(args),
                 asyncapi_adapter=_optional_asyncapi_adapter(args),
+                protobuf_adapter=_optional_protobuf_adapter(args),
                 trace_artifact_paths=args.trace_artifact,
                 trace_validation=args.trace_validation,
                 previous_run=load_attestation_run(args.previous_run)
@@ -1122,6 +1203,7 @@ def main(argv: list[str] | None = None) -> int:
                 graphql_adapter=_optional_graphql_adapter(args),
                 json_schema_adapter=_optional_json_schema_adapter(args),
                 asyncapi_adapter=_optional_asyncapi_adapter(args),
+                protobuf_adapter=_optional_protobuf_adapter(args),
             )
             if args.out:
                 from .jsonutil import write_json
@@ -1145,6 +1227,7 @@ def main(argv: list[str] | None = None) -> int:
                 graphql_adapter=_optional_graphql_adapter(args),
                 json_schema_adapter=_optional_json_schema_adapter(args),
                 asyncapi_adapter=_optional_asyncapi_adapter(args),
+                protobuf_adapter=_optional_protobuf_adapter(args),
                 hard_gate_policy=load_gate_policy(args.policy) if args.policy else None,
                 hard_gate_waivers=load_gate_waivers(args.waiver) if args.policy else [],
                 changed_paths=_changed_paths_from_args(args),
@@ -1233,6 +1316,8 @@ def _add_adapter_validation_options(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--json-schema-name")
     parser.add_argument("--asyncapi-document", type=Path)
     parser.add_argument("--asyncapi-name")
+    parser.add_argument("--protobuf-schema", type=Path)
+    parser.add_argument("--protobuf-name")
     parser.add_argument("--command-checks", type=Path)
     parser.add_argument("--tla-model-config", type=Path)
 
@@ -1282,6 +1367,15 @@ def _optional_asyncapi_adapter(args: argparse.Namespace) -> AsyncApiAdapter | No
     return AsyncApiAdapter(
         args.asyncapi_document,
         document_name=args.asyncapi_name or args.asyncapi_document.stem,
+    )
+
+
+def _optional_protobuf_adapter(args: argparse.Namespace) -> ProtobufAdapter | None:
+    if args.protobuf_schema is None:
+        return None
+    return ProtobufAdapter(
+        args.protobuf_schema,
+        schema_name=args.protobuf_name or args.protobuf_schema.stem,
     )
 
 
@@ -1504,6 +1598,32 @@ def _asyncapi_conformance_fixture(
         requirement_id="REQ-ASYNCAPI-CONFORMANCE-001",
         title="AsyncAPI adapter conformance fixture",
         claim_kind="event_state_correspondence",
+    )
+    return AdapterConformanceFixture(
+        resolved_ref=SymbolRef(name=resolved_ref, expected_type=resolved_type),
+        unresolved_ref=SymbolRef(name=unresolved_ref),
+        ambiguous_ref=SymbolRef(name=ambiguous_ref, expected_type=ambiguous_type),
+        sample_ir=ir,
+    )
+
+
+def _protobuf_conformance_fixture(
+    *,
+    resolved_ref: str = "operation",
+    resolved_type: str = "action",
+    unresolved_ref: str = "definitely_missing_symbol",
+    ambiguous_ref: str = "duplicate_operation",
+    ambiguous_type: str = "action",
+) -> AdapterConformanceFixture:
+    ir = RequirementParser().parse_ir(
+        (
+            "For every operation request:\n"
+            "if actor is not authorized\n"
+            "then operation must be rejected before state_change.\n"
+        ),
+        requirement_id="REQ-PROTOBUF-CONFORMANCE-001",
+        title="Protobuf/gRPC adapter conformance fixture",
+        claim_kind="authorization_precondition",
     )
     return AdapterConformanceFixture(
         resolved_ref=SymbolRef(name=resolved_ref, expected_type=resolved_type),

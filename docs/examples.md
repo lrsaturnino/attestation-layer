@@ -198,6 +198,22 @@ uv run nlreq asyncapi-validate /tmp/REQ-ASYNCAPI-001 \
   --asyncapi-name sample-event-api
 ```
 
+Build a Protobuf/gRPC package with declaration-level evidence:
+
+```bash
+uv run nlreq protobuf-package tests/fixtures/requirements/authorization_precondition.nlreq \
+  --out /tmp/REQ-PROTOBUF-001 \
+  --requirement-id REQ-PROTOBUF-001 \
+  --title "Unauthorized gRPC operation is rejected before state changes" \
+  --claim-kind authorization_precondition \
+  --schema tests/fixtures/adapters/protobuf/sample.proto \
+  --protobuf-name sample-protobuf
+
+uv run nlreq protobuf-validate /tmp/REQ-PROTOBUF-001 \
+  --schema tests/fixtures/adapters/protobuf/sample.proto \
+  --protobuf-name sample-protobuf
+```
+
 Build a command/test-runner package with reviewed command evidence:
 
 ```bash
@@ -241,3 +257,7 @@ Phase 14 and 15 adapter fixtures:
 Phase 16 adapter fixture:
 
 - `tests/fixtures/adapters/asyncapi/sample-asyncapi.json`
+
+Phase 17 adapter fixture:
+
+- `tests/fixtures/adapters/protobuf/sample.proto`

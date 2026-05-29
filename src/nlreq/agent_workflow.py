@@ -13,6 +13,7 @@ from .graphql_adapter import GraphQlAdapter
 from .jsonschema_adapter import JsonSchemaAdapter
 from .jsonutil import read_json, sha256_text, write_json
 from .openapi_adapter import OpenApiAdapter
+from .protobuf_adapter import ProtobufAdapter
 from .python_adapter import PythonPackageAdapter
 from .tla_adapter import TlaAdapter
 
@@ -37,6 +38,7 @@ def build_agent_implementation_task(
     graphql_adapter: GraphQlAdapter | None = None,
     json_schema_adapter: JsonSchemaAdapter | None = None,
     asyncapi_adapter: AsyncApiAdapter | None = None,
+    protobuf_adapter: ProtobufAdapter | None = None,
 ) -> dict[str, Any]:
     created_at = created_at or _utc_now()
     workflow_id = workflow_id or _workflow_id(created_at)
@@ -51,6 +53,7 @@ def build_agent_implementation_task(
         graphql_adapter=graphql_adapter,
         json_schema_adapter=json_schema_adapter,
         asyncapi_adapter=asyncapi_adapter,
+        protobuf_adapter=protobuf_adapter,
     )
     packages_by_id = _packages_by_id(package_index["packages"])
     packages = [
@@ -99,6 +102,7 @@ def build_agent_verifier_handoff(
     graphql_adapter: GraphQlAdapter | None = None,
     json_schema_adapter: JsonSchemaAdapter | None = None,
     asyncapi_adapter: AsyncApiAdapter | None = None,
+    protobuf_adapter: ProtobufAdapter | None = None,
     hard_gate_policy: GatePolicy | None = None,
     hard_gate_waivers: list[GateWaiver] | None = None,
     changed_paths: list[str] | None = None,
@@ -118,6 +122,7 @@ def build_agent_verifier_handoff(
         graphql_adapter=graphql_adapter,
         json_schema_adapter=json_schema_adapter,
         asyncapi_adapter=asyncapi_adapter,
+        protobuf_adapter=protobuf_adapter,
     )
     hard_gate = None
     if hard_gate_policy is not None:
@@ -134,6 +139,7 @@ def build_agent_verifier_handoff(
             graphql_adapter=graphql_adapter,
             json_schema_adapter=json_schema_adapter,
             asyncapi_adapter=asyncapi_adapter,
+            protobuf_adapter=protobuf_adapter,
         )
     package_index = soft_gate["package_index"]
     packages_by_id = _packages_by_id(package_index["packages"])

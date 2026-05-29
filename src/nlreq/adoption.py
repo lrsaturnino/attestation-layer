@@ -19,6 +19,8 @@ from .openapi_package import validate_openapi_package
 from .jsonutil import read_json, sha256_text
 from .models import EvidenceObject, RequirementIR, ReviewArtifact, StatusDecision
 from .package import validate_package
+from .protobuf_adapter import ProtobufAdapter
+from .protobuf_package import validate_protobuf_package
 from .python_adapter import PythonPackageAdapter
 from .python_package import validate_python_package
 from .tla_adapter import TlaAdapter
@@ -68,6 +70,7 @@ def build_package_index(
     graphql_adapter: GraphQlAdapter | None = None,
     json_schema_adapter: JsonSchemaAdapter | None = None,
     asyncapi_adapter: AsyncApiAdapter | None = None,
+    protobuf_adapter: ProtobufAdapter | None = None,
 ) -> dict[str, Any]:
     package_dirs = find_package_dirs(packages_dir)
     if not package_dirs:
@@ -82,6 +85,7 @@ def build_package_index(
             graphql_adapter=graphql_adapter,
             json_schema_adapter=json_schema_adapter,
             asyncapi_adapter=asyncapi_adapter,
+            protobuf_adapter=protobuf_adapter,
         )
         for path in package_dirs
     ]
@@ -103,6 +107,7 @@ def build_ci_report(
     graphql_adapter: GraphQlAdapter | None = None,
     json_schema_adapter: JsonSchemaAdapter | None = None,
     asyncapi_adapter: AsyncApiAdapter | None = None,
+    protobuf_adapter: ProtobufAdapter | None = None,
 ) -> dict[str, Any]:
     package_index = build_package_index(
         packages_dir,
@@ -113,6 +118,7 @@ def build_ci_report(
         graphql_adapter=graphql_adapter,
         json_schema_adapter=json_schema_adapter,
         asyncapi_adapter=asyncapi_adapter,
+        protobuf_adapter=protobuf_adapter,
     )
     findings = _ci_findings(package_index["packages"])
     return {
@@ -141,6 +147,7 @@ def build_soft_gate_report(
     graphql_adapter: GraphQlAdapter | None = None,
     json_schema_adapter: JsonSchemaAdapter | None = None,
     asyncapi_adapter: AsyncApiAdapter | None = None,
+    protobuf_adapter: ProtobufAdapter | None = None,
 ) -> dict[str, Any]:
     package_index = build_package_index(
         packages_dir,
@@ -151,6 +158,7 @@ def build_soft_gate_report(
         graphql_adapter=graphql_adapter,
         json_schema_adapter=json_schema_adapter,
         asyncapi_adapter=asyncapi_adapter,
+        protobuf_adapter=protobuf_adapter,
     )
     referenced_ids = _stable_unique(requirement_ids)
     packages_by_id = {
@@ -296,6 +304,7 @@ def _summarize_package(
     graphql_adapter: GraphQlAdapter | None,
     json_schema_adapter: JsonSchemaAdapter | None,
     asyncapi_adapter: AsyncApiAdapter | None,
+    protobuf_adapter: ProtobufAdapter | None,
 ) -> dict[str, Any]:
     validation_status = "valid"
     validation_errors: list[str] = []
@@ -331,6 +340,11 @@ def _summarize_package(
         validation_errors.append("AsyncAPI adapter validation requires --asyncapi-document")
         evidence = _read_model(package_dir / "evidence.json", EvidenceObject)
         status = _read_model(package_dir / "status.json", StatusDecision)
+    elif validation_kind == "protobuf" and protobuf_adapter is None:
+        validation_status = "skipped"
+        validation_errors.append("Protobuf adapter validation requires --protobuf-schema")
+        evidence = _read_model(package_dir / "evidence.json", EvidenceObject)
+        status = _read_model(package_dir / "status.json", StatusDecision)
     elif validation_kind == "tla" and tla_adapter is None:
         validation_status = "skipped"
         validation_errors.append("TLA adapter validation requires --tla-model-config")
@@ -355,6 +369,8 @@ def _summarize_package(
                 ir, evidence, status = validate_json_schema_package(package_dir, json_schema_adapter)
             elif validation_kind == "asyncapi":
                 ir, evidence, status = validate_asyncapi_package(package_dir, asyncapi_adapter)
+            elif validation_kind == "protobuf":
+                ir, evidence, status = validate_protobuf_package(package_dir, protobuf_adapter)
             elif validation_kind == "tla":
                 ir, evidence, status = validate_tla_package(package_dir, tla_adapter)
             else:
@@ -402,6 +418,8 @@ def _adapter_id(ir: RequirementIR | None, validation_kind: str) -> str:
         return "json_schema"
     if validation_kind == "asyncapi":
         return "asyncapi"
+    if validation_kind == "protobuf":
+        return "protobuf"
     if validation_kind == "tla":
         return "tla"
     adapter_ids = sorted({binding.adapter for binding in ir.bindings.values()})
@@ -426,6 +444,7 @@ def _validation_kind(package_dir: Path, ir: RequirementIR | None) -> str:
             "openapi",
             "json_schema",
             "asyncapi",
+            "protobuf",
         }:
             return adapter_ids[0]
     try:
@@ -448,6 +467,8 @@ def _validation_kind(package_dir: Path, ir: RequirementIR | None) -> str:
             return "json_schema"
         if "asyncapi" in backends:
             return "asyncapi"
+        if "protobuf" in backends:
+            return "protobuf"
         if "tla" in backends:
             return "tla"
         if backends.intersection({"python_package", "python_property", "pytest"}):

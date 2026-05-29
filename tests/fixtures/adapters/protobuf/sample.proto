@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package sample.v1;
+
+option (nlreq.actor) = "actor";
+
+message OperationRequest {
+  string actor_id = 1;
+  string operation_id = 2;
+}
+
+message OperationResponse {
+  string operation_status = 1;
+}
+
+service OperationService {
+  rpc operation (OperationRequest) returns (OperationResponse) {
+    option (nlreq.auth_required) = true;
+    option (nlreq.rejects_unauthorized_before) = "state_change";
+  }
+
+  rpc duplicate_operation (OperationRequest) returns (OperationResponse);
+}
+
+service DuplicateOperationService {
+  rpc duplicate_operation (OperationRequest) returns (OperationResponse);
+}

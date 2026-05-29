@@ -1413,6 +1413,37 @@ event emission. The adapter must not claim runtime event delivery, broker
 behavior, subscriber behavior, ordering guarantees, `TEST_VALIDATED`,
 `TRACE_VALIDATED`, `BOUNDED_CHECKED`, or `PROVEN_INDUCTIVE`.
 
+### Phase 17: Protobuf/gRPC Adapter (Weeks 193-204)
+
+Goal: add declaration-level Protobuf/gRPC evidence for RPC service contracts.
+
+Design anchor: `docs/adr/0019-phase-17-protobuf-grpc-adapter.md`.
+
+Deliverables:
+
+- deterministic `.proto` subset parser,
+- Protobuf/gRPC symbol discovery for schemas, messages, fields, RPCs,
+  principals, and state transitions,
+- reviewed `nlreq.*` option support for authorization and state-transition
+  declarations,
+- Protobuf/gRPC adapter conformance fixture and CLI command,
+- package generation and validation commands,
+- schema hash freshness checks,
+- `STATICALLY_RESOLVED` and `TYPE_CHECKED` evidence only,
+- package-index, gate, continuous-attestation, and agent-handoff integration,
+- examples and documentation for Protobuf/gRPC assumptions and unsupported
+  behavior,
+- and compatibility with the adapter registry and routing reports.
+
+Success criterion:
+
+A reviewed requirement can be linked to a `.proto` schema and receive honest
+declaration-level evidence when supported RPC/message metadata and reviewed
+options are present. The adapter must not claim server implementation behavior,
+interceptor execution, transport security, streaming semantics,
+`TEST_VALIDATED`, `TRACE_VALIDATED`, `BOUNDED_CHECKED`, or
+`PROVEN_INDUCTIVE`.
+
 ---
 
 ## 14. Phase 0 Tooling

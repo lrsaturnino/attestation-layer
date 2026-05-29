@@ -51,7 +51,9 @@ uv run nlreq continuous-attestation requirements \
   --json-schema-document tests/fixtures/adapters/jsonschema/sample-schema.json \
   --json-schema-name sample-json-schema \
   --asyncapi-document tests/fixtures/adapters/asyncapi/sample-asyncapi.json \
-  --asyncapi-name sample-event-api
+  --asyncapi-name sample-event-api \
+  --protobuf-schema tests/fixtures/adapters/protobuf/sample.proto \
+  --protobuf-name sample-protobuf
 ```
 
 ## Compare Against A Previous Run

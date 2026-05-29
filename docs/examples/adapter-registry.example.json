@@ -87,6 +87,23 @@
       "target_kind": "asyncapi_document"
     },
     {
+      "adapter_id": "protobuf",
+      "conformance": {
+        "status": "pass",
+        "suite_version": "0.1"
+      },
+      "gateable": true,
+      "supported_claim_kinds": [
+        "authorization_precondition",
+        "state_precondition"
+      ],
+      "supported_evidence": [
+        "STATICALLY_RESOLVED",
+        "TYPE_CHECKED"
+      ],
+      "target_kind": "protobuf_schema"
+    },
+    {
       "adapter_id": "trace",
       "conformance": {
         "status": "pass",

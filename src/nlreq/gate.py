@@ -15,6 +15,7 @@ from .jsonschema_adapter import JsonSchemaAdapter
 from .jsonutil import read_json
 from .models import EvidenceLevel, FinalStatus
 from .openapi_adapter import OpenApiAdapter
+from .protobuf_adapter import ProtobufAdapter
 from .python_adapter import PythonPackageAdapter
 from .tla_adapter import TlaAdapter
 
@@ -143,6 +144,7 @@ def build_hard_gate_report(
     graphql_adapter: GraphQlAdapter | None = None,
     json_schema_adapter: JsonSchemaAdapter | None = None,
     asyncapi_adapter: AsyncApiAdapter | None = None,
+    protobuf_adapter: ProtobufAdapter | None = None,
     now: datetime | None = None,
 ) -> dict[str, Any]:
     package_index = build_package_index(
@@ -154,6 +156,7 @@ def build_hard_gate_report(
         graphql_adapter=graphql_adapter,
         json_schema_adapter=json_schema_adapter,
         asyncapi_adapter=asyncapi_adapter,
+        protobuf_adapter=protobuf_adapter,
     )
     referenced_ids = _stable_unique(requirement_ids)
     packages_by_id = {

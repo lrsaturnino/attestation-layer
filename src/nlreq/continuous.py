@@ -15,6 +15,7 @@ from .jsonschema_adapter import JsonSchemaAdapter
 from .jsonutil import read_json
 from .models import NormalizedTraceArtifact
 from .openapi_adapter import OpenApiAdapter
+from .protobuf_adapter import ProtobufAdapter
 from .python_adapter import PythonPackageAdapter
 from .trace_validation import build_trace_validation_report
 from .tla_adapter import TlaAdapter
@@ -38,6 +39,7 @@ def build_attestation_run(
     graphql_adapter: GraphQlAdapter | None = None,
     json_schema_adapter: JsonSchemaAdapter | None = None,
     asyncapi_adapter: AsyncApiAdapter | None = None,
+    protobuf_adapter: ProtobufAdapter | None = None,
     trace_artifact_paths: Iterable[Path] = (),
     trace_validation: bool = False,
     previous_run: dict[str, Any] | None = None,
@@ -56,6 +58,7 @@ def build_attestation_run(
         graphql_adapter=graphql_adapter,
         json_schema_adapter=json_schema_adapter,
         asyncapi_adapter=asyncapi_adapter,
+        protobuf_adapter=protobuf_adapter,
     )
     packages_by_id = {
         package["requirement_id"]: package
@@ -98,6 +101,7 @@ def build_attestation_run(
             graphql_adapter=graphql_adapter,
             json_schema_adapter=json_schema_adapter,
             asyncapi_adapter=asyncapi_adapter,
+            protobuf_adapter=protobuf_adapter,
         ),
         "summary": {
             **package_index["summary"],
@@ -531,6 +535,7 @@ def _adapter_config(
     graphql_adapter: GraphQlAdapter | None,
     json_schema_adapter: JsonSchemaAdapter | None,
     asyncapi_adapter: AsyncApiAdapter | None,
+    protobuf_adapter: ProtobufAdapter | None,
 ) -> dict[str, Any]:
     config: dict[str, Any] = {}
     if python_adapter is not None:
@@ -569,6 +574,12 @@ def _adapter_config(
             "document_path": asyncapi_adapter.document_path.as_posix(),
             "document_name": asyncapi_adapter.document_name,
             "document_hash": asyncapi_adapter.document_hash,
+        }
+    if protobuf_adapter is not None:
+        config["protobuf"] = {
+            "proto_path": protobuf_adapter.proto_path.as_posix(),
+            "schema_name": protobuf_adapter.schema_name,
+            "proto_hash": protobuf_adapter.proto_hash,
         }
     if tla_adapter is not None:
         config["tla"] = {

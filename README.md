@@ -116,6 +116,13 @@ uv run nlreq asyncapi-conformance tests/fixtures/adapters/asyncapi/sample-asynca
   --asyncapi-name sample-event-api
 ```
 
+Run adapter conformance against the Phase 17 Protobuf/gRPC adapter:
+
+```bash
+uv run nlreq protobuf-conformance tests/fixtures/adapters/protobuf/sample.proto \
+  --protobuf-name sample-protobuf
+```
+
 Build and validate a Python-adapter evidence package:
 
 ```bash
@@ -208,6 +215,22 @@ uv run nlreq asyncapi-package tests/fixtures/requirements/event_emit.nlreq \
 uv run nlreq asyncapi-validate /tmp/REQ-ASYNCAPI-001 \
   --document tests/fixtures/adapters/asyncapi/sample-asyncapi.json \
   --asyncapi-name sample-event-api
+```
+
+Build and validate a Protobuf/gRPC-adapter evidence package:
+
+```bash
+uv run nlreq protobuf-package tests/fixtures/requirements/authorization_precondition.nlreq \
+  --out /tmp/REQ-PROTOBUF-001 \
+  --requirement-id REQ-PROTOBUF-001 \
+  --title "Unauthorized gRPC operation is rejected before state changes" \
+  --claim-kind authorization_precondition \
+  --schema tests/fixtures/adapters/protobuf/sample.proto \
+  --protobuf-name sample-protobuf
+
+uv run nlreq protobuf-validate /tmp/REQ-PROTOBUF-001 \
+  --schema tests/fixtures/adapters/protobuf/sample.proto \
+  --protobuf-name sample-protobuf
 ```
 
 Build and validate a command/test-runner-backed evidence package:
@@ -375,7 +398,7 @@ The Phase 3 adoption workflow slice is described in
 The Phase 4 soft gate pilot is described in
 [docs/phase-4-soft-gate-pilot.md](./docs/phase-4-soft-gate-pilot.md).
 The formal roadmap in [docs/build-plan.md](./docs/build-plan.md) now extends
-through Phase 16.
+through Phase 17.
 The Phase 5 hard gate is described in
 [docs/phase-5-hard-gate.md](./docs/phase-5-hard-gate.md).
 The Phase 6 stronger evidence backend slice is described in
@@ -400,9 +423,12 @@ The Phase 15 JSON Schema adapter slice is described in
 [docs/phase-15-json-schema-adapter.md](./docs/phase-15-json-schema-adapter.md).
 The Phase 16 AsyncAPI adapter slice is described in
 [docs/phase-16-asyncapi-adapter.md](./docs/phase-16-asyncapi-adapter.md).
+The Phase 17 Protobuf/gRPC adapter slice is described in
+[docs/phase-17-protobuf-grpc-adapter.md](./docs/phase-17-protobuf-grpc-adapter.md).
 
 Adoption references:
 
+- [C4 architecture diagrams](./docs/c4-architecture.md)
 - [Adapter authoring guide](./docs/adapter-authoring-guide.md)
 - [Adding a requirement](./docs/adding-a-requirement.md)
 - [Attestation artifact catalog](./docs/attestation-artifact-catalog.md)

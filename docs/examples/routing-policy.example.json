@@ -54,6 +54,18 @@
       "target_kind": "asyncapi_document"
     },
     {
+      "adapter": "protobuf",
+      "minimum_evidence": [
+        "STATICALLY_RESOLVED"
+      ],
+      "name": "protobuf-grpc-contracts",
+      "path_patterns": [
+        "proto/**/*.proto",
+        "protos/**/*.proto"
+      ],
+      "target_kind": "protobuf_schema"
+    },
+    {
       "adapter": "trace",
       "minimum_evidence": [
         "TRACE_VALIDATED"
