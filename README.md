@@ -428,6 +428,7 @@ The Phase 17 Protobuf/gRPC adapter slice is described in
 
 Adoption references:
 
+- [Scope and non-goals](./docs/scope.md)
 - [C4 architecture diagrams](./docs/c4-architecture.md)
 - [Adapter authoring guide](./docs/adapter-authoring-guide.md)
 - [Adding a requirement](./docs/adding-a-requirement.md)
