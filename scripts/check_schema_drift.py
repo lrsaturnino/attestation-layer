@@ -21,6 +21,7 @@ from nlreq.models import (
 from nlreq.command_adapter import CommandChecksArtifact, CommandResultsArtifact
 from nlreq.formal_backend import FormalBackendRequest, FormalBackendResponse
 from nlreq.gate import GatePolicy, GateWaiver
+from nlreq.impact import ImpactAnalysisArtifact
 from nlreq.routing import AdapterRegistryArtifact, RoutingPolicyArtifact
 from nlreq.source_adapter import (
     CodePresentation,
@@ -49,6 +50,7 @@ SCHEMAS = {
     "formal-backend-request.schema.json": FormalBackendRequest,
     "formal-backend-response.schema.json": FormalBackendResponse,
     "gate-policy.schema.json": GatePolicy,
+    "impact-analysis.schema.json": ImpactAnalysisArtifact,
     "generated-tests.schema.json": GeneratedTestsArtifact,
     "normalized-traces.schema.json": NormalizedTraceArtifact,
     "review.schema.json": ReviewArtifact,

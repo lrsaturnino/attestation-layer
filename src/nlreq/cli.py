@@ -53,6 +53,7 @@ from .gate import (
 )
 from .graphql_adapter import GraphQlAdapter
 from .graphql_package import build_graphql_package, validate_graphql_package
+from .impact import analyze_source_impact
 from .jsonschema_adapter import JsonSchemaAdapter
 from .jsonschema_package import build_json_schema_package, validate_json_schema_package
 from .jsonutil import canonical_json, read_json
@@ -64,6 +65,7 @@ from .parser import RequirementParser
 from .protobuf_adapter import ProtobufAdapter
 from .protobuf_package import build_protobuf_package, validate_protobuf_package
 from .python_package import build_python_package, validate_python_package
+from .python_source_adapter import PythonSourceLanguageAdapter
 from .status import decide_status
 from .adapter import default_generic_adapter
 from .conformance import AdapterConformanceFixture, assert_adapter_conforms
@@ -167,6 +169,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     lower_ir_v2_cmd.add_argument("file", type=Path)
     lower_ir_v2_cmd.add_argument("--out", type=Path)
+
+    python_source_impact_cmd = subcommands.add_parser(
+        "python-source-impact", help="Run deterministic Python source impact analysis."
+    )
+    python_source_impact_cmd.add_argument("--manifest", type=Path, required=True)
+    python_source_impact_cmd.add_argument("--symbol", action="append", required=True)
+    python_source_impact_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    python_source_impact_cmd.add_argument("--out", type=Path)
 
     validate_cmd = subcommands.add_parser("validate", help="Validate a package directory.")
     validate_cmd.add_argument("package_dir", type=Path)
@@ -722,6 +732,18 @@ def main(argv: list[str] | None = None) -> int:
             if args.out:
                 write_json(args.out, artifact)
                 print(f"Lowered formal artifact: {args.out}")
+            else:
+                print(canonical_json(artifact), end="")
+            return 0
+        if args.command == "python-source-impact":
+            from .jsonutil import write_json
+
+            adapter = PythonSourceLanguageAdapter(project_root=args.project_root)
+            manifest = adapter.parse_manifest(args.manifest)
+            artifact = analyze_source_impact(adapter, manifest, symbols=args.symbol)
+            if args.out:
+                write_json(args.out, artifact)
+                print(f"Python source impact: {args.out}")
             else:
                 print(canonical_json(artifact), end="")
             return 0
