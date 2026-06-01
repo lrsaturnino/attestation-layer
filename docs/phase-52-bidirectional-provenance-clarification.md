@@ -39,3 +39,46 @@ uv run nlreq apply-clarification --controlled requirement.nlreq3 \
 
 Translator disagreement and unsupported lowering can produce UI-ready
 clarification data.
+
+## Implementation Spec
+
+Input artifacts:
+
+- `RequirementIRV2` with source spans.
+- Optional `LoweredFormalArtifact` with diagnostics.
+- Structural or logical translation agreement reports that contain
+  clarification questions.
+
+Output artifacts:
+
+- `ProvenanceGraph` with text-span, IR-node, formal-fragment, and refusal
+  nodes.
+- `ClarificationRequest` artifacts grounded in target nodes or spans.
+- `ClarificationResponse` artifacts from reviewers.
+- `ClarifiedControlledText` preserving previous and new text hashes.
+
+Graph semantics:
+
+- Text spans connect to IR nodes with `parsed_to`.
+- IR nodes connect to lowered formal artifacts with `lowered_to`.
+- Unsupported formal diagnostics connect IR nodes to refusal reasons with
+  `refuses`.
+
+Clarification semantics:
+
+- Clarification requests are generated from translator disagreement and can be
+  displayed directly by product surfaces.
+- Responses apply exact character-span replacements.
+- Applying a response does not mutate prior artifacts; it creates a new
+  controlled text version.
+
+Failure modes:
+
+- Invalid replacement spans raise before a clarified artifact is produced.
+- Unsupported formal fragments without known IR nodes remain stage-level
+  diagnostics until a later phase can attach them.
+
+Tests:
+
+- `tests/test_milestone_group1.py` verifies graph construction and targeted
+  clarification response hashing.

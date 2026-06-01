@@ -47,3 +47,44 @@ uv run nlreq ir-v3 requirement.nlreq3 --requirement-id REQ-1 --title "Requiremen
 ## Exit Criteria
 
 Fixtures cover every supported requirement class and validate as IR 0.2.
+
+## Implementation Spec
+
+Input language:
+
+- DSL v3 documents are line-oriented controlled text with a required
+  `requirement <class>:` header, one `scope`, one `when` block, and one `then`
+  block.
+- Predicates and obligations may be joined with `and`.
+- Whitespace is insignificant before canonicalization.
+
+Canonicalization:
+
+- Empty lines are removed.
+- Repeated internal whitespace is collapsed to a single space.
+- The canonical form always ends with one trailing newline.
+- Source spans are computed over canonical text, not raw input text, so golden
+  fixtures remain byte-stable.
+
+IR lowering:
+
+- DSL v3 lowers to `RequirementIRV2` with `ir_version` `0.2`.
+- The requirement class and DSL version are stored in root metadata.
+- Every semantic node is deterministic, carries source-span provenance, and
+  identifies `nlreq.dsl_v3` as the derivation tool.
+
+Unsupported behavior:
+
+- Ambiguous or unsupported syntax raises `DslV3ParseError`.
+- Parse errors carry line and column when the Lark parser can supply them.
+- Unsupported constructs are not lowered to placeholder IR nodes.
+
+Tests:
+
+- `tests/test_milestone_group1.py` covers every supported requirement class and
+  verifies source-span stability against canonical text.
+
+Out of scope:
+
+- DSL v3 does not replace DSL v2 or migrate stored requirement packages. It is
+  the controlled input grammar for conclusion-roadmap intake.

@@ -1,0 +1,67 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "controlled_form_matches_intent": {
+      "default": "pass",
+      "enum": [
+        "pass",
+        "fail",
+        "n/a"
+      ],
+      "title": "Controlled Form Matches Intent",
+      "type": "string"
+    },
+    "evidence_labels_appropriate": {
+      "default": "pass",
+      "enum": [
+        "pass",
+        "fail",
+        "n/a"
+      ],
+      "title": "Evidence Labels Appropriate",
+      "type": "string"
+    },
+    "refusal_actions_actionable": {
+      "default": "pass",
+      "enum": [
+        "pass",
+        "fail",
+        "n/a"
+      ],
+      "title": "Refusal Actions Actionable",
+      "type": "string"
+    },
+    "semantic_diff_reviewed": {
+      "default": "pass",
+      "enum": [
+        "pass",
+        "fail",
+        "n/a"
+      ],
+      "title": "Semantic Diff Reviewed",
+      "type": "string"
+    },
+    "source_spans_present": {
+      "default": "pass",
+      "enum": [
+        "pass",
+        "fail",
+        "n/a"
+      ],
+      "title": "Source Spans Present",
+      "type": "string"
+    },
+    "translator_disagreement_resolved": {
+      "default": "n/a",
+      "enum": [
+        "pass",
+        "fail",
+        "n/a"
+      ],
+      "title": "Translator Disagreement Resolved",
+      "type": "string"
+    }
+  },
+  "title": "ReviewChecklistV2",
+  "type": "object"
+}

@@ -44,7 +44,7 @@ from nlreq.provenance import (
     ProvenanceGraph,
 )
 from nlreq.refusal import ProductRefusalReport
-from nlreq.review_workflow import ApprovalWorkflowArtifact, ReviewStatusReport
+from nlreq.review_workflow import ApprovalWorkflowArtifact, ReviewChecklistV2, ReviewStatusReport
 from nlreq.translation_benchmark import (
     RequirementTranslationBenchmarkReport,
     RequirementTranslationCorpus,
@@ -128,6 +128,7 @@ SCHEMAS = {
     "clarified-controlled-text.schema.json": ClarifiedControlledText,
     "product-refusal-report.schema.json": ProductRefusalReport,
     "approval-workflow.schema.json": ApprovalWorkflowArtifact,
+    "review-checklist-v2.schema.json": ReviewChecklistV2,
     "review-status-report.schema.json": ReviewStatusReport,
     "requirement-translation-corpus.schema.json": RequirementTranslationCorpus,
     "requirement-translation-results.schema.json": RequirementTranslationResults,

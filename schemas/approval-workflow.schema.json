@@ -73,6 +73,7 @@
         "self_audit_delay_hours": {
           "anyOf": [
             {
+              "minimum": 0,
               "type": "integer"
             },
             {

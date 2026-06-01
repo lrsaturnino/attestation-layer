@@ -34,3 +34,50 @@ uv run nlreq requirement-self-consistency --requirement-ir requirement.ir.json
 
 The self-consistency report classifies deterministic contradictions and keeps
 backend outcomes explicit.
+
+## Implementation Spec
+
+Input artifacts:
+
+- One `RequirementIRV2` requirement checked before composition with system spec
+  `S`.
+- Optional formal backend budget and execution metadata.
+
+Output artifacts:
+
+- `RequirementSelfConsistencyResult` with status, backend result,
+  contradictions, unsupported constructs, and optional backend response.
+- `RequirementSelfContradiction` records stable type, code, node IDs, message,
+  and source spans when available.
+
+Deterministic taxonomy:
+
+- Direct opposite predicates.
+- Impossible numeric comparisons.
+- Mutually exclusive state fragments.
+- Overlapping opposite obligations.
+- Temporal impossibility.
+- Numeric bound conflict.
+- Duplicate obligation conflict.
+
+Backend behavior:
+
+- Deterministic contradictions short-circuit backend execution.
+- If deterministic checks do not decide the case, the formal backend boundary
+  runs with explicit unsupported, timeout, and tool-error outcomes.
+- Backend counterexamples become contradiction records rather than proof
+  closure.
+
+Failure modes:
+
+- Unsupported backend fragments return `unsupported`.
+- Timeout returns `timeout`.
+- Tool failures return `tool_error`.
+- None of those outcomes approve a requirement.
+
+Tests:
+
+- `tests/test_milestone_group1.py` verifies numeric bound conflict
+  classification.
+- Existing self-consistency tests cover backend status mapping and
+  deterministic contradiction paths.

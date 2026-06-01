@@ -7,7 +7,7 @@ This audit maps conclusion roadmap milestone group 1 to implemented artifacts.
 | 46 | Conclusion definition and gap checklist | Implemented | `docs/conclusion-definition.md`, `docs/conclusion-gap-checklist.json`, `src/nlreq/conclusion.py` |
 | 47 | Free-form intake and controlled rewrite | Implemented | `src/nlreq/intake.py`, `schemas/free-form-intake.schema.json`, `schemas/controlled-rewrite-proposal.schema.json` |
 | 48 | Controlled DSL v3 | Implemented | `src/nlreq/dsl_v3.py`, `src/nlreq/dsl_v3.lark`, `nlreq ir-v3` |
-| 49 | Hash-bound review workflow | Implemented | `src/nlreq/review_workflow.py`, `schemas/approval-workflow.schema.json` |
+| 49 | Hash-bound review workflow | Implemented | `src/nlreq/review_workflow.py`, `schemas/approval-workflow.schema.json`, `schemas/review-checklist-v2.schema.json` |
 | 50 | Product refusal surface v2 | Implemented | `src/nlreq/refusal.py`, `schemas/product-refusal-report.schema.json` |
 | 51 | Multi-pass translator workbench | Implemented | `src/nlreq/translator_workbench.py`, `schemas/translator-run.schema.json` |
 | 52 | Bidirectional provenance and clarification | Implemented | `src/nlreq/provenance.py`, `schemas/provenance-graph.schema.json` |
@@ -17,9 +17,11 @@ This audit maps conclusion roadmap milestone group 1 to implemented artifacts.
 
 ## Remaining Groups
 
-Milestone groups 2-4 remain planned by the conclusion roadmap. Group 1 does not
-claim production Apalache/TLC integration, production source extraction,
-additional language adapters, signed evidence, or conclusion certification.
+Milestone groups 2-4 remain planned by the conclusion roadmap. Group 2 is
+digested in `docs/milestone-group-2-formal-closure-digest.md` as the formal
+closure handoff. Group 1 does not claim production Apalache/TLC integration,
+production source extraction, additional language adapters, signed evidence, or
+conclusion certification.
 
 ## CI Check
 

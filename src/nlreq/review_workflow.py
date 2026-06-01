@@ -48,7 +48,7 @@ class ReviewApprovalRecord(BaseModel):
     checklist: ReviewChecklistV2
     approved_at: str
     self_audit: bool = False
-    self_audit_delay_hours: int | None = None
+    self_audit_delay_hours: int | None = Field(default=None, ge=0)
 
 
 class ApprovalWorkflowArtifact(BaseModel):
@@ -99,12 +99,18 @@ def approve_review(
 ) -> ApprovalWorkflowArtifact:
     refs = current_artifact_refs or workflow.artifact_refs
     hashes = {ref.name: ref.content_hash for ref in refs}
+    checklist = checklist or ReviewChecklistV2()
+    if decision == "approved":
+        failed_items = _failing_checklist_items(checklist)
+        if failed_items:
+            joined = ", ".join(failed_items)
+            raise ValueError(f"approved review cannot include failed checklist items: {joined}")
     approval = ReviewApprovalRecord(
         role=role,
         reviewer=reviewer,
         decision=decision,
         artifact_hashes=hashes,
-        checklist=checklist or ReviewChecklistV2(),
+        checklist=checklist,
         approved_at=approved_at,
         self_audit=self_audit,
         self_audit_delay_hours=self_audit_delay_hours,
@@ -150,3 +156,11 @@ def review_status(
 def artifact_ref_from_path(name: str, path: Path) -> ArtifactReviewRef:
     content = path.read_text()
     return ArtifactReviewRef(name=name, path=path.as_posix(), content_hash=sha256_text(content))
+
+
+def _failing_checklist_items(checklist: ReviewChecklistV2) -> list[str]:
+    return [
+        name
+        for name, value in checklist.model_dump(mode="json").items()
+        if value == "fail"
+    ]

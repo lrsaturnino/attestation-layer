@@ -18,6 +18,28 @@ expected clarification questions, and expected refusal codes.
 Add a benchmark report with syntactic validity, semantic match, clarification
 quality, refusal correctness, and runtime.
 
+Operational rules:
+
+- Corpus case IDs must be unique.
+- Expected IR fixture paths must be corpus-root-relative.
+- Accepted cases require semantic match.
+- Clarification cases measure expected questions separately from accepted IR.
+- Refusal cases measure expected stable refusal codes.
+
+Rejected alternatives:
+
+- Measuring translation only through full gate outcome was rejected because
+  backend failures can hide translation regressions.
+- A prose-only benchmark table was rejected because CI and public reporting need
+  machine-readable cases and observations.
+
+Validation:
+
+- `nlreq benchmark-translation` emits a report with aggregate metrics and
+  per-case observation statuses.
+- Missing, outcome mismatch, semantic mismatch, clarification mismatch, and
+  refusal mismatch are distinct.
+
 ## Consequences
 
 Translator changes can be evaluated quickly and independently. The seed corpus

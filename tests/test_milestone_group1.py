@@ -23,6 +23,7 @@ from nlreq.provenance import (
 from nlreq.refusal import build_refusal_report_from_gate, refusal_report_markdown
 from nlreq.requirement_self_consistency import check_requirement_self_consistency
 from nlreq.review_workflow import (
+    ReviewChecklistV2,
     approve_review,
     artifact_ref_from_path,
     open_review,
@@ -138,6 +139,10 @@ def test_intake_requires_hash_bound_approval_before_parsing(tmp_path: Path) -> N
     assert controlled_text_for_parsing(proposal, approval) == DSL_V3_CASES[0][1]
     assert approval.approved_diff_hash == proposal.diff_hash
 
+    tampered_approval = approval.model_copy(update={"reviewed_original_text_hash": "sha256:not-the-original"})
+    with pytest.raises(ValueError, match="original intake text"):
+        controlled_text_for_parsing(proposal, tampered_approval)
+
     original = tmp_path / "original.txt"
     suggested = tmp_path / "suggested.nlreq3"
     proposal_path = tmp_path / "proposal.json"
@@ -211,6 +216,65 @@ def test_review_workflow_detects_stale_approval(tmp_path: Path) -> None:
 
     assert report.status == "stale"
     assert report.stale_artifacts == ["controlled"]
+
+
+def test_review_workflow_rejects_failed_checklist_approval(tmp_path: Path, capsys) -> None:
+    artifact = tmp_path / "requirement.nlreq3"
+    artifact.write_text(DSL_V3_CASES[1][1])
+    workflow = open_review(
+        review_id="REVIEW-CHECKLIST-1",
+        requirement_id="REQ-REVIEW-CHECKLIST-1",
+        artifact_refs=[artifact_ref_from_path("controlled", artifact)],
+    )
+
+    with pytest.raises(ValueError, match="failed checklist"):
+        approve_review(
+            workflow,
+            role="requirement_reviewer",
+            reviewer="reviewer@example.invalid",
+            decision="approved",
+            approved_at="2026-06-01T00:00:00Z",
+            checklist=ReviewChecklistV2(controlled_form_matches_intent="fail"),
+        )
+
+    workflow_path = tmp_path / "review.json"
+    checklist_path = tmp_path / "checklist.json"
+    out_path = tmp_path / "approved.json"
+    workflow_path.write_text(workflow.model_dump_json())
+    checklist_path.write_text(ReviewChecklistV2().model_dump_json())
+
+    assert main(
+        [
+            "review-approve",
+            str(workflow_path),
+            "--role",
+            "requirement_reviewer",
+            "--reviewer",
+            "reviewer@example.invalid",
+            "--checklist",
+            str(checklist_path),
+            "--out",
+            str(out_path),
+        ]
+    ) == 0
+    assert json.loads(out_path.read_text())["status"] == "approved"
+    capsys.readouterr()
+
+    status_exit = main(
+        [
+            "review-status",
+            str(out_path),
+            "--required-role",
+            "requirement_reviewer",
+            "--required-role",
+            "formal_reviewer",
+        ]
+    )
+    status = json.loads(capsys.readouterr().out)
+
+    assert status_exit == 0
+    assert status["status"] == "needs_review"
+    assert status["missing_roles"] == ["formal_reviewer"]
 
 
 def test_product_refusal_report_maps_gate_blockers_to_codes() -> None:

@@ -121,6 +121,7 @@ from .refusal import (
 )
 from .review_workflow import (
     ApprovalWorkflowArtifact,
+    ReviewChecklistV2,
     approve_review,
     artifact_ref_from_path,
     open_review,
@@ -420,6 +421,7 @@ def main(argv: list[str] | None = None) -> int:
     review_approve_cmd.add_argument("--decision", choices=["approved", "needs_review", "rejected"], default="approved")
     review_approve_cmd.add_argument("--approved-at", default="2026-06-01T00:00:00Z")
     review_approve_cmd.add_argument("--artifact", action="append", default=[])
+    review_approve_cmd.add_argument("--checklist", type=Path)
     review_approve_cmd.add_argument("--self-audit", action="store_true")
     review_approve_cmd.add_argument("--self-audit-delay-hours", type=int)
     review_approve_cmd.add_argument("--out", type=Path, required=True)
@@ -429,6 +431,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     review_status_cmd.add_argument("workflow", type=Path)
     review_status_cmd.add_argument("--artifact", action="append", default=[])
+    review_status_cmd.add_argument("--required-role", action="append", default=[])
     review_status_cmd.add_argument("--out", type=Path)
 
     refusal_render_cmd = subcommands.add_parser(
@@ -1524,6 +1527,9 @@ def main(argv: list[str] | None = None) -> int:
                 current_artifact_refs=_artifact_refs_from_args(args.artifact)
                 if args.artifact
                 else None,
+                checklist=ReviewChecklistV2.model_validate_json(args.checklist.read_text())
+                if args.checklist
+                else None,
                 self_audit=args.self_audit,
                 self_audit_delay_hours=args.self_audit_delay_hours,
             )
@@ -1539,6 +1545,7 @@ def main(argv: list[str] | None = None) -> int:
                 current_artifact_refs=_artifact_refs_from_args(args.artifact)
                 if args.artifact
                 else None,
+                required_roles=args.required_role or None,
             )
             if args.out:
                 write_json(args.out, report)

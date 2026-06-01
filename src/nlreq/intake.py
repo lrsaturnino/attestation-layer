@@ -149,6 +149,8 @@ def controlled_text_for_parsing(
         raise ValueError("controlled rewrite must be explicitly approved before parsing")
     if approval.proposal_id != proposal.proposal_id:
         raise ValueError("approval does not reference this proposal")
+    if approval.reviewed_original_text_hash != proposal.original_text_hash:
+        raise ValueError("approval hash does not match original intake text")
     if approval.approved_controlled_text_hash != proposal.proposed_controlled_text_hash:
         raise ValueError("approval hash does not match proposed controlled text")
     if approval.approved_diff_hash != proposal.diff_hash:

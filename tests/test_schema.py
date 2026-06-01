@@ -50,6 +50,7 @@ def test_auxiliary_artifact_schemas_are_committed() -> None:
     assert (schema_dir / "requirement-ir-migration.schema.json").exists()
     assert (schema_dir / "requirement-set-consistency.schema.json").exists()
     assert (schema_dir / "requirement-self-consistency.schema.json").exists()
+    assert (schema_dir / "review-checklist-v2.schema.json").exists()
     assert (schema_dir / "review.schema.json").exists()
     assert (schema_dir / "routing-policy.schema.json").exists()
     assert (schema_dir / "source-call-graph.schema.json").exists()

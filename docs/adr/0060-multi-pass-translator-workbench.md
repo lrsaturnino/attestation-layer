@@ -17,6 +17,29 @@ records strategy, method, source hash, replay metadata, and optional approval.
 Candidate comparison feeds the existing translation agreement report. LLM
 candidates cannot be selected without explicit approval.
 
+Operational rules:
+
+- Candidate generation is stored separately from candidate selection.
+- The selected candidate hash is recorded in a selection artifact.
+- A deterministic parser candidate can be replayed from source text and tool
+  metadata.
+- LLM candidates are allowed as candidate artifacts only; they do not become
+  trusted formal artifacts by generation.
+
+Rejected alternatives:
+
+- A single best-effort translator output was rejected because disagreements and
+  ambiguity would be hidden.
+- Trusting an LLM candidate by default was rejected because formal checks must
+  consume reviewed deterministic artifacts.
+
+Validation:
+
+- Candidate comparison uses the same structural agreement contract as earlier
+  translation phases.
+- Single-candidate runs remain `needs_review` until another agreement path or
+  explicit selection resolves them.
+
 ## Consequences
 
 The system can experiment with LLM translation while keeping the formal trust

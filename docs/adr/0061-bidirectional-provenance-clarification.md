@@ -17,6 +17,27 @@ refusal-reason nodes. Clarification requests target paths or nodes.
 Clarification responses apply span replacements and produce a new controlled
 text artifact with old and new hashes.
 
+Operational rules:
+
+- Text-to-IR edges use `parsed_to`.
+- IR-to-formal edges use `lowered_to`.
+- IR-to-refusal edges use `refuses`.
+- Clarification responses are patch-like artifacts over explicit character
+  spans.
+- Previous controlled text versions remain hash-addressed after clarification.
+
+Rejected alternatives:
+
+- Whole-document clarification rewrites were rejected because they obscure the
+  exact ambiguity being resolved.
+- One-way provenance was rejected because product surfaces need both "why did
+  this formal node exist?" and "where did this text go?" queries.
+
+Validation:
+
+- Provenance graph construction walks every semantic IR node.
+- Clarification application validates target ranges before producing new text.
+
 ## Consequences
 
 Ambiguity resolution becomes auditable. Previous controlled versions remain
