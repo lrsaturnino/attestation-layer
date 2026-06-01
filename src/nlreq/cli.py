@@ -44,6 +44,7 @@ from .compositional_ir import (
     validate_requirement_ir_json,
 )
 from .formal_backend import build_formal_backend_request, check_formal_backend
+from .dsl_v2 import DslV2Parser
 from .gate import (
     build_hard_gate_report,
     hard_gate_report_markdown,
@@ -97,6 +98,11 @@ def main(argv: list[str] | None = None) -> int:
     ir_cmd.add_argument("--requirement-id", required=True)
     ir_cmd.add_argument("--title", required=True)
     ir_cmd.add_argument("--claim-kind", required=True)
+
+    ir_v2_cmd = subcommands.add_parser("ir-v2", help="Parse DSL v2 to compositional IR JSON.")
+    ir_v2_cmd.add_argument("file", type=Path)
+    ir_v2_cmd.add_argument("--requirement-id", required=True)
+    ir_v2_cmd.add_argument("--title", required=True)
 
     package_cmd = subcommands.add_parser("package", help="Build a Phase 0 requirement package.")
     package_cmd.add_argument("file", type=Path)
@@ -583,6 +589,14 @@ def main(argv: list[str] | None = None) -> int:
                 requirement_id=args.requirement_id,
                 title=args.title,
                 claim_kind=args.claim_kind,
+            )
+            print(canonical_json(ir))
+            return 0
+        if args.command == "ir-v2":
+            ir = DslV2Parser().parse_ir(
+                args.file.read_text(),
+                requirement_id=args.requirement_id,
+                title=args.title,
             )
             print(canonical_json(ir))
             return 0
