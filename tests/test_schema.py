@@ -27,6 +27,8 @@ def test_auxiliary_artifact_schemas_are_committed() -> None:
     assert (schema_dir / "gate-policy.schema.json").exists()
     assert (schema_dir / "generated-tests.schema.json").exists()
     assert (schema_dir / "normalized-traces.schema.json").exists()
+    assert (schema_dir / "requirement-ir-0.2.schema.json").exists()
+    assert (schema_dir / "requirement-ir-migration.schema.json").exists()
     assert (schema_dir / "review.schema.json").exists()
     assert (schema_dir / "routing-policy.schema.json").exists()
     assert (schema_dir / "trace-validation-results.schema.json").exists()

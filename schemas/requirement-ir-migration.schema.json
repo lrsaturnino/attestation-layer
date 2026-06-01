@@ -1,0 +1,98 @@
+{
+  "$defs": {
+    "MigrationDiffEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "change": {
+          "enum": [
+            "added",
+            "removed",
+            "replaced",
+            "moved",
+            "refused"
+          ],
+          "title": "Change",
+          "type": "string"
+        },
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "path",
+        "change",
+        "detail"
+      ],
+      "title": "MigrationDiffEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "diff": {
+      "items": {
+        "$ref": "#/$defs/MigrationDiffEntry"
+      },
+      "title": "Diff",
+      "type": "array"
+    },
+    "migration_id": {
+      "title": "Migration Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_ir_hash": {
+      "title": "Source Ir Hash",
+      "type": "string"
+    },
+    "source_ir_version": {
+      "const": "0.1",
+      "title": "Source Ir Version",
+      "type": "string"
+    },
+    "target_ir_hash": {
+      "title": "Target Ir Hash",
+      "type": "string"
+    },
+    "target_ir_version": {
+      "const": "0.2",
+      "title": "Target Ir Version",
+      "type": "string"
+    },
+    "timestamp": {
+      "title": "Timestamp",
+      "type": "string"
+    },
+    "tool": {
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "migration_id",
+    "source_ir_version",
+    "target_ir_version",
+    "source_ir_hash",
+    "target_ir_hash",
+    "tool",
+    "tool_version",
+    "timestamp",
+    "diff"
+  ],
+  "title": "RequirementIRMigrationRecord",
+  "type": "object"
+}

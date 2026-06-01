@@ -12,6 +12,8 @@ from nlreq.models import (
     GeneratedTestsArtifact,
     NormalizedTraceArtifact,
     RequirementIR,
+    RequirementIRMigrationRecord,
+    RequirementIRV2,
     ReviewArtifact,
     StatusDecision,
     VerificationTasksArtifact,
@@ -25,6 +27,8 @@ from nlreq.tla_adapter import TlaModelConfigArtifact, TlaResultsArtifact
 
 SCHEMAS = {
     "requirement-ir-0.1.schema.json": RequirementIR,
+    "requirement-ir-0.2.schema.json": RequirementIRV2,
+    "requirement-ir-migration.schema.json": RequirementIRMigrationRecord,
     "assumptions.schema.json": AssumptionsArtifact,
     "adapter-registry.schema.json": AdapterRegistryArtifact,
     "backend-results.schema.json": BackendResultsArtifact,

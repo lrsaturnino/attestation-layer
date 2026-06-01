@@ -1,0 +1,307 @@
+# Phase 19 Compositional IR Spine
+
+Phase 19 introduces the compositional intermediate representation that later
+translation, formal-backend, source-adapter, and proof-closure phases build on.
+
+This phase is about the semantic spine. It must preserve the current reviewed,
+versioned, hashed package discipline while making the IR capable of representing
+real multi-premise requirements.
+
+## Purpose
+
+The phase lets the Attestation Layer say:
+
+```text
+This reviewed requirement is represented as a typed compositional IR with
+semantic scopes, relations, atomic propositions, actions, state references,
+quantifiers, temporal clauses, numeric/logical constraints, external-context
+references, provenance, and confidence markers.
+```
+
+It does not say:
+
+```text
+The DSL can parse all of this structure.
+An LLM can draft or decompose requirements.
+The IR lowers to TLA+, SMT, LTL, Alloy, or Lean.
+The requirement has been checked against system spec S.
+Source code has been analyzed or trace-aligned.
+```
+
+Representation is not proof. Phase 19 adds expressive structure and migration
+rules; later phases decide how each structure is checked.
+
+## Why This Comes After Phase 18
+
+Phase 18 established that the remaining work is a vertical verification spine,
+not another declaration-level adapter. The IR is the first dependency in that
+spine. Expanding the DSL, building translators, or selecting formal backends
+before the IR exists would force those later systems to encode semantics in
+ad-hoc backend-specific fields.
+
+## Current Flat IR Boundary
+
+The current `RequirementIR` is valuable and should be preserved where it is
+correct:
+
+- it is versioned as `ir_version: "0.1"`;
+- it carries source text and review provenance;
+- it stores source spans for parsed fragments;
+- it is hashable and package-friendly;
+- it keeps bindings, assumptions, and required evidence outside parser logic.
+
+Its semantic claim is flat:
+
+```text
+claim.kind
+claim.forall
+claim.condition[]
+claim.action
+claim.expected
+```
+
+That shape is adequate for Phase-0-style atomic requirements. It is not
+adequate for nested relations, multiple obligations, temporal structure,
+cross-cutting premises, external system-spec references, or backend-agnostic
+formal lowering.
+
+## Target IR Shape
+
+Phase 19 should add `ir_version: "0.2"` with a compositional semantic tree. The
+existing top-level envelope remains recognizable:
+
+```text
+RequirementIRV2:
+  ir_version
+  requirement_id
+  title
+  source
+  semantic_ir
+  bindings
+  assumptions
+  required_evidence
+```
+
+`semantic_ir` is the authoritative semantic representation. It is a typed tree
+of nodes. Every semantic node must carry:
+
+- `node_id` stable within the IR document;
+- `kind`;
+- zero or more `source_spans`;
+- `provenance`;
+- `confidence`;
+- optional namespaced `annotations`.
+
+Backends may consume annotations, but annotations are not the spine. A
+requirement must remain understandable as a requirement when annotations are
+removed.
+
+## Core Node Families
+
+The first compositional IR should support these families.
+
+| Family | Purpose | Example node kinds |
+|---|---|---|
+| Rule | Top-level requirement shape | `rule`, `premise`, `obligation` |
+| Scope | Semantic scope and binding | `forall`, `exists`, `entity_scope`, `module_scope` |
+| Relation | Logical composition | `and`, `or`, `not`, `implies`, `iff` |
+| Atom | Domain propositions | `predicate`, `comparison`, `membership`, `state_ref` |
+| Action | Operations and transitions | `action`, `call`, `event`, `transition` |
+| State | Pre/post/current state | `pre_state`, `post_state`, `invariant`, `state_delta` |
+| Temporal | Time/order constraints | `always`, `eventually`, `until`, `before`, `within` |
+| Numeric | Numeric constraints | `eq`, `neq`, `lt`, `lte`, `gt`, `gte`, `increase`, `decrease` |
+| External context | References outside the requirement | `system_spec_ref`, `code_symbol_ref`, `trace_ref`, `policy_ref` |
+
+The first schema may implement these as a discriminated union rather than a
+large class hierarchy, but unsupported node kinds must be refused explicitly.
+
+## Rule Notation
+
+The semantic center is a rule:
+
+```text
+scope |- premise => obligation
+```
+
+In abbreviated JSON terms:
+
+```json
+{
+  "node_id": "rule.root",
+  "kind": "rule",
+  "scope": [],
+  "premise": { "kind": "and", "children": [] },
+  "obligation": { "kind": "action_obligation", "action": {}, "must": {} }
+}
+```
+
+This notation is intentionally not TLA+, SMT-LIB, LTL, Alloy, Lean, or Python.
+Phase 20 decides formal-backend lowering. Phase 19 only defines what must be
+preserved before lowering begins.
+
+## Provenance And Confidence
+
+Each semantic node needs enough provenance to explain where it came from and how
+much trust it deserves.
+
+Required provenance fields:
+
+- source document id;
+- source span or explicit `derived_from` reference;
+- derivation method, such as `deterministic_parse`, `manual_review`,
+  `migration`, or `llm_draft`;
+- tool version or model metadata when applicable;
+- timestamp when generated by a tool.
+
+Required confidence states:
+
+- `reviewed`;
+- `deterministic_parse`;
+- `adapter_resolved`;
+- `migration_inferred`;
+- `llm_suggested`;
+- `unknown`.
+
+`llm_suggested` and `unknown` are never approving states. They may help draft or
+explain, but they must not satisfy a review or evidence gate without explicit
+human approval and deterministic validation.
+
+## Backend Annotations
+
+Backend-specific information belongs under namespaced annotations:
+
+```json
+{
+  "annotations": {
+    "tla": {
+      "operator_hint": "Withdraw",
+      "module_hint": "Redemption"
+    }
+  }
+}
+```
+
+Rules:
+
+- unknown annotations must not change the semantic meaning of the IR;
+- annotations must be included in package hashing because they are reviewed
+  package content;
+- backend tasks must record which annotations they consumed;
+- a backend must refuse when required semantics exist only in its annotation
+  namespace.
+
+## Flat IR Migration
+
+Phase 19 must support existing `ir_version: "0.1"` packages without silently
+rewriting them.
+
+Migration rules:
+
+- old packages remain valid as `0.1` artifacts;
+- new validators dispatch by `ir_version`;
+- migration from `0.1` to `0.2` writes a new artifact and preserves the old IR
+  hash, migration tool version, and migration diff;
+- the current flat `forall` field maps to scope nodes;
+- the current `condition[]` list maps to a premise relation;
+- the current `action` and `expected` fields map to an action obligation;
+- current predicate and expected-result source spans are preserved;
+- if a flat claim cannot be represented losslessly, migration refuses instead
+  of inventing semantics.
+
+Adapters that still operate on the flat shape may use an in-memory legacy
+projection only when the compositional tree is exactly representable as a
+`0.1` claim. The projection is not authoritative and must be rejected if it
+would hide unsupported structure.
+
+## Reference Fixture
+
+Phase 19 needs at least one JSON fixture that cannot be faithfully represented
+by the flat `0.1` claim shape. A representative fixture should express a
+multi-premise temporal requirement:
+
+```text
+For every redemption, if the wallet is authorized, the deposit is confirmed,
+and the requested amount is at most the spendable balance, then finalize
+redemption must eventually emit redemption_finalized within 6 hours and must not
+decrease collateral below the reserve floor.
+```
+
+The fixture is not proof. Its job is to prove the IR can represent:
+
+- multiple independent premises;
+- a quantified domain object;
+- an action obligation;
+- an event obligation;
+- a bounded temporal clause;
+- a numeric invariant over post-state;
+- and source spans for each meaningful fragment.
+
+## Implementation Scope
+
+Phase 19 implementation should include:
+
+- Pydantic models for the `0.2` compositional IR;
+- generated JSON schema, expected as `schemas/requirement-ir-0.2.schema.json`;
+- version-dispatch validation for `0.1` and `0.2` IR documents;
+- deterministic flat-to-compositional migration;
+- migration-record artifacts preserving source hash and diff;
+- a multi-premise fixture that validates against the `0.2` schema;
+- tests that old `0.1` packages still validate unchanged;
+- tests that unsupported compositional nodes refuse rather than downcast;
+- documentation of which node kinds are representable but not yet checkable.
+
+The current package builder may continue producing `0.1` packages until DSL v2
+and translator work require `0.2` output.
+
+## CLI Shape
+
+Validate either a flat `0.1` IR or a compositional `0.2` IR:
+
+```bash
+uv run nlreq validate-ir tests/fixtures/requirements/compositional_ir_v02_multi_premise.json
+```
+
+Migrate a reviewed flat IR into a new compositional artifact plus an auditable
+migration record:
+
+```bash
+uv run nlreq migrate-ir requirements/REQ-AUTH-001/requirement.ir.json \
+  --out /tmp/REQ-AUTH-001.requirement.ir.v02.json \
+  --migration-record /tmp/REQ-AUTH-001.requirement.ir.migration.json
+```
+
+## Evidence Semantics
+
+Phase 19 may only add type/schema evidence for the compositional IR itself.
+
+It must not inflate evidence levels:
+
+- `TYPE_CHECKED` may mean the `0.2` IR validates against its schema;
+- `CONSISTENCY_CHECKED` still requires an actual consistency checker;
+- `SMT_CHECKED`, `BOUNDED_CHECKED`, and `PROVEN_INDUCTIVE` require real backend
+  producers;
+- a temporal node is not bounded evidence;
+- a backend annotation is not proof.
+
+## Success Criterion
+
+Phase 19 succeeds when:
+
+- `ir_version: "0.2"` can represent semantic scopes, relations, atomic
+  propositions, quantifiers, actions with pre/post state, temporal clauses,
+  numeric/logical constraints, external-context references, provenance, and
+  confidence markers;
+- existing `0.1` packages remain reproducible and are not silently upgraded;
+- flat `0.1` claims migrate or refuse deterministically;
+- at least one multi-premise fixture validates as `0.2`;
+- legacy projections cannot hide unsupported compositional structure;
+- backend-specific details live in namespaced annotations, not the core spine;
+- and no acceptance gate treats representation as verification.
+
+## Boundary
+
+This phase is not DSL v2, LLM drafting, formal lowering, source-language
+adapter work, system-spec registry, `S ∧ R` checking, trace alignment, proof
+object aggregation, or closure gating.
+
+Those capabilities belong to later phases in `docs/vision-gap-roadmap.md`.

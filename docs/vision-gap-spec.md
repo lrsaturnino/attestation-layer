@@ -1,9 +1,9 @@
 # NL Attestation Layer — Vision/Implementation Gap Specification
 
 **Status:** Draft v1 · **Date (UTC):** 2026-05-30
-**Purpose:** Specify, exhaustively, the delta between the *full vision* of the NL
-Requirement Attestation Layer and the *current implementation*, so the gaps can
-be decomposed into new build phases and ADRs.
+**Purpose:** Specify, as a comprehensive working inventory, the delta between the
+*full vision* of the NL Requirement Attestation Layer and the *current
+implementation*, so the gaps can be decomposed into new build phases and ADRs.
 
 ## 0. How To Use This Document
 
@@ -26,21 +26,21 @@ Each gap is assigned a stable ID (`GAP-A1`, `GAP-B2`, …) and uses one template
 
 | Artifact | Path | Role |
 |---|---|---|
-| Vision (the real requirements) | internal design conversation (kept local, not committed) | The full system, as designed in conversation. |
+| Vision (the real requirements) | local internal design conversation (not committed; record source hash/date when deriving ADRs) | The full system, as designed in conversation. |
 | Descoped build plan | `docs/build-plan.md`, `docs/nl-attestation-layer-build-plan.md` | The Phase-0 skeleton that was actually implemented. |
 | Implementation | `src/nlreq/`, `requirements/` | What the code does today. |
 | Scope/non-goals | `docs/scope.md` | Current deliberate boundaries (subset of these gaps). |
 
 ### Why the gap exists (context)
 
-The vision (captured in an internal design conversation, kept local) specifies a prospective requirements
-gatekeeper. During the plan-vetting passes in that same conversation, the design
-was progressively descoped — cross-language dropped, self-consistency demoted,
-the `S ∧ R` check / trace validation / Specula / Req2LTL-OnionL / LTL all
-deferred — to a Phase-0 core "small enough to ship." The repository then
-implemented that skeleton and expanded *horizontally* with shallow
-declaration-level adapters. The architectural **shape** of the vision exists; the
-verification **muscle** does not. This document specifies the muscle.
+The vision (captured in a local internal design conversation) specifies a
+prospective requirements gatekeeper. During the plan-vetting passes in that same
+conversation, the design was progressively descoped — cross-language dropped,
+self-consistency demoted, the `S ∧ R` check / trace validation / Specula /
+Req2LTL-OnionL / LTL all deferred — to a Phase-0 core "small enough to ship."
+The repository then implemented that skeleton and expanded *horizontally* with
+shallow declaration-level adapters. The architectural **shape** of the vision
+exists; the verification **muscle** does not. This document specifies the muscle.
 
 ## 1. The Vision, In One Paragraph (anchor)
 
@@ -75,7 +75,7 @@ NL → DSL gate → translator (NL → intermediate tree → formal R)
 adapter interface (`adapter.py`), the full 9-level evidence taxonomy and 6 claim
 kinds (`models.py`), pure status decision (`status.py`), self-consistency +
 propositional SMT (`smt.py`), immutable hashed package format
-(`package.py`), report-only gates (`gate.py`), routing
+(`package.py`), policy-scoped package gates (`gate.py`), routing
 (`routing.py`), continuous-attestation (`continuous.py`), agent-handoff
 artifacts (`agent_workflow.py`), a generic static-symbol adapter, and a set of
 declaration-level adapters (Python/OpenAPI/GraphQL/JSON-Schema/AsyncAPI/Protobuf)
@@ -90,13 +90,16 @@ tissue below.
 | Translation | NL → compositional intermediate tree → formal (LTL/TLA+/SMT) | Deterministic AST → flat typed IR; no decomposition tree, no formal lowering, no temporal |
 | Self-check | ALICE-style contradiction taxonomy; conjunction of all claims | Intra-claim contradiction + propositional satisfiability of one claim |
 | System-check | `S ∧ R` against the legacy's verified spec (Apalache) | None — no representation of `S`, no model checking of requirement-vs-system |
-| Codebase fit | Impact analysis, spec coverage, code↔spec trace validation | None — declaration parsers only; no call graph, no Specula, no code-execution traces |
-| Proof | Multi-backend dispatcher → aggregated proof object → action gate | Single `core_smt` task per claim; report-only gate |
+| Codebase fit | Impact analysis, spec coverage, code↔spec trace validation | Trace artifact/requirement validators only; declaration parsers; no call graph, no Specula, no source-adapter trace extraction or code↔spec trace alignment |
+| Proof | Multi-backend dispatcher → aggregated proof object → action gate | Single `core_smt` task per generic claim plus package/status/evidence gates; no proof-closure gate |
 | Agnosticism | Programming-language + formal-language + natural-language axes | Shallow: declaration adapters; one formalism (propositional Z3); controlled English only |
 
 ## 3. Gap Map (at-a-glance)
 
-| ID | Capability | Severity | Unblocks |
+Importance here means product/thesis importance, not implementation order. The
+build dependency ordering is in §5.
+
+| ID | Capability | Importance | Unblocks |
 |---|---|---|---|
 | **GAP-A1** | Input DSL gate beyond the toy grammar | High | Expressing real requirements |
 | **GAP-A2** | LLM-assisted prose → controlled drafting (provenance/approval) | High | Prose specs entering the pipeline |
@@ -114,9 +117,9 @@ tissue below.
 | **GAP-C3** | NormalizedTrace schema for code-execution traces | High | Cross-language trace reasoning |
 | **GAP-C4** | Formal-backend adapters (IR → TLA+/Alloy/Lean/SMT) | High | Formalism-agnostic checking |
 | **GAP-X1** | Multi-backend dispatcher + aggregated proof object | High | Multi-premise / multi-formalism closure |
-| **GAP-X2** | Closure-as-action-gate | Medium | The structural-backpressure thesis |
+| **GAP-X2** | Closure-as-action-gate | High | The structural-backpressure thesis |
 | **GAP-X3** | Continuous CI freshness (spec staleness, re-validation, proposals) | Medium | Anti-drift |
-| **GAP-X4** | Evidence-producer completeness (inductive, system-bounded) | Medium | Honest high-assurance levels |
+| **GAP-X4** | Evidence-producer completeness (inductive, system-bounded) | High | Honest high-assurance levels |
 | **GAP-X5** | Three-axis agnosticism (prog-lang / formal-lang / NL) | Medium | "Infrastructure, not a tool" positioning |
 
 ---
@@ -183,7 +186,7 @@ tissue below.
 - **The gap.** Without `S`, the central "consistent with the existing verified system" check cannot exist.
 - **Why it matters.** This is the user's stated core requirement and a named novel contribution.
 - **Research/tool basis.** TLA+ specs (category-4 formal models); Specula (to obtain `S` for brownfield); the convo's `S ∧ R` framing.
-- **Depends on.** GAP-C4 (formal representation), GAP-B5 (how `S` is obtained/kept fresh).
+- **Depends on.** GAP-C4 (formal representation / backend boundary). Spec extraction and freshness build on this registry later; they are not prerequisites for the first manual `S` representation.
 - **Acceptance-criteria sketch.** A registry binding system modules to their formal specs `S`, with versioning and freshness, that the system-consistency check consumes.
 - **ADR seeds.** What counts as `S` (TLA+ only vs. multi-formalism); per-module spec registry format; freshness/versioning of `S`.
 
@@ -193,7 +196,7 @@ tissue below.
 - **The gap.** The core system-consistency check does not exist; the existing "SMT" is a different, far narrower thing.
 - **Why it matters.** This is the mechanism that decides whether a new requirement contradicts the verified system.
 - **Research/tool basis.** Apalache symbolic model checking (SMT/Z3-backed), counterexample extraction; bounded model checking; verification-budget discipline.
-- **Depends on.** GAP-B1 (`S`), GAP-A4 (formal `R`), GAP-C4, GAP-X4 (evidence semantics).
+- **Depends on.** GAP-B1 (`S`), GAP-A4 (formal `R`), GAP-C4.
 - **Acceptance-criteria sketch.** Given `S` and a formal `R`, return satisfiable / counterexample-with-named-invariant / timeout-as-unverified, with recorded bounds and reproducibility metadata.
 - **ADR seeds.** Checker choice (Apalache primary, TLC/TLAPS reserve); verification-budget policy; counterexample artifact schema; handling of timeouts as a first-class non-approving status.
 
@@ -245,7 +248,7 @@ tissue below.
 - **The gap.** No source-code adapter abstraction (call graph, impact, code-execution traces, manifests).
 - **Why it matters.** Everything in Pillar B that touches "the codebase" needs this interface.
 - **Research/tool basis.** The convo's LanguageAdapter interface; LSP as the cross-language substrate.
-- **Depends on.** GAP-A3 (IR the adapters bind into), GAP-C3 (trace schema).
+- **Depends on.** GAP-A3 (IR the adapters bind into). GAP-C3 should be co-designed with this interface, but C1 must be able to land first as the stable source-adapter boundary.
 - **Acceptance-criteria sketch.** A documented interface + a stub/null adapter that exercises it end-to-end; a conformance suite future adapters must pass.
 - **ADR seeds.** Source-LanguageAdapter interface (vs. the existing declaration-Adapter); conformance suite; relationship/coexistence of the two adapter families.
 
@@ -255,14 +258,14 @@ tissue below.
 - **The gap.** No working source-language vertical; the keep-core (Go) class of spec cannot be analyzed at all.
 - **Why it matters.** Without one real adapter, the agnostic interface is unproven and no brownfield requirement can be checked against code.
 - **Research/tool basis.** Per-language tool inventory in the convo (Solidity: Slither/Foundry; Go: gopls/go-callgraph/runtime-trace).
-- **Depends on.** GAP-C1, GAP-C3, GAP-B4.
-- **Acceptance-criteria sketch.** For a real requirement against a real codebase, the adapter resolves symbols, returns a call graph and affected modules, and emits normalized traces.
+- **Depends on.** GAP-C1, GAP-C3.
+- **Acceptance-criteria sketch.** For a real requirement against a real codebase, the adapter resolves symbols, returns a call graph, reads a code-to-spec manifest, and emits normalized traces. GAP-B4 consumes these primitives to compute the affected-module set.
 - **ADR seeds.** First-adapter selection + rationale; tool dependencies; manifest format.
 
 #### GAP-C3 — NormalizedTrace schema for code-execution traces
 - **Vision intent.** A cross-language `NormalizedTrace`/`TraceEvent` schema (timestamp, actor, action, pre/post-state, causal predecessor, language, metadata) that EVM, native, async, and dynamic-language traces all project into.
 - **Current state.** A runtime-trace schema exists for the requirement-trace adapter, but it is not the cross-language code-execution-trace schema the verification step needs, and it is not populated by source-language adapters.
-- **The gap.** No shared trace schema spanning languages for verification; trace normalization (the "actually hard piece") is unaddressed.
+- **The gap.** No verification-grade shared trace schema spanning languages, no source-adapter producers for it, and no documented lossy-normalization rules; trace normalization (the "actually hard piece") is unaddressed.
 - **Why it matters.** Trace validation (GAP-B6) and cross-language proofs (GAP-X5) depend on it.
 - **Research/tool basis.** OpenTelemetry span model as the closest cross-language baseline.
 - **Depends on.** GAP-C1.
@@ -292,7 +295,7 @@ tissue below.
 
 #### GAP-X2 — Closure-as-action-gate
 - **Vision intent.** The proof object is the only path to downstream action — an approved requirement flows to backlog/PR only when the proof closes; refusal is structured and fragment-level.
-- **Current state.** Gates are report-only / scoped by author policy; output is an "implementation-ready spec package," not a closure that gates action.
+- **Current state.** Existing gates enforce package/status/evidence policy over referenced requirement packages; output is an "implementation-ready spec package," not a closed multi-premise proof object that gates downstream action.
 - **The gap.** No closure-as-action-gate (deliberately softened during vetting).
 - **Why it matters.** This is the structural-backpressure thesis at the requirements layer — the stated novel contribution.
 - **Depends on.** GAP-X1.
@@ -351,13 +354,14 @@ flowchart TB
     B2["GAP-B2<br/>S and R check"]:::crit
 
     X1["GAP-X1<br/>Multi-backend proof object"]:::high
-    X2["GAP-X2<br/>Closure-as-action-gate"]:::med
+    X2["GAP-X2<br/>Closure-as-action-gate"]:::high
     X3["GAP-X3<br/>Continuous freshness"]:::med
-    X4["GAP-X4<br/>Evidence producers"]:::med
+    X4["GAP-X4<br/>Evidence producers"]:::high
     X5["GAP-X5<br/>Three-axis agnosticism"]:::med
 
     A3 --> A1
     A3 --> A2
+    A1 --> A2
     A3 --> A4
     A3 --> C1
     A3 --> C4
@@ -365,19 +369,24 @@ flowchart TB
     C3 --> C2
     C1 --> C2
     C4 --> A4
+    A3 --> A5
     A4 --> A5
+    C4 --> A5
+    A3 --> B3
     A4 --> B3
+    C1 --> B4
     C2 --> B4
     C4 --> B1
-    B5 --> B1
+    B1 --> B5
     B4 --> B5
     C2 --> B5
     B1 --> B2
     A4 --> B2
+    C4 --> B2
     C2 --> B6
     B1 --> B6
     C3 --> B6
-    A4 --> X1
+    A3 --> X1
     C4 --> X1
     B2 --> X1
     X1 --> X2
@@ -386,7 +395,11 @@ flowchart TB
     B6 --> X3
     B2 --> X4
     A5 --> X4
+    C4 --> X4
+    C1 --> X5
     C2 --> X5
+    C3 --> X5
+    C4 --> X5
     X1 --> X5
 
     classDef crit fill:#08427b,stroke:#052e56,color:#ffffff
@@ -410,37 +423,45 @@ These are correct and match the vision's architecture — extend, do not replace
 - The shadow → soft → hard gate adoption path (extend toward GAP-X2).
 - Determinism, hashing, and golden-test discipline.
 
-## 7. Suggested Phase Clustering (for later decomposition)
+## 7. Phase Decomposition
 
-This is a clustering hint, not a schedule:
+The concrete phase decomposition is maintained in
+`docs/vision-gap-roadmap.md`. The stable sequence is:
 
-- **Phase α — Spine:** GAP-A3, GAP-C1 (+ migration from the current flat IR and declaration-adapter family).
-- **Phase β — Translator:** GAP-A1, GAP-A2, GAP-A4, GAP-C4, GAP-A5.
-- **Phase γ — One real vertical:** GAP-C2, GAP-C3, GAP-B4.
-- **Phase δ — System-consistency:** GAP-B1, GAP-B2, GAP-B3, GAP-B5, GAP-B6.
-- **Phase ε — Closure & operations:** GAP-X1, GAP-X2, GAP-X3, GAP-X4.
-- **Phase ζ — Agnostic wedge:** GAP-X5 (second language; cross-language unified proof).
+- **Phase 18 — Gap Closure Roadmap:** all gaps, roadmap, ADR queue.
+- **Phase 19 — Compositional IR Spine:** GAP-A3.
+- **Phase 20 — Formal Backend Boundary:** GAP-C4.
+- **Phase 21 — Source LanguageAdapter Boundary:** GAP-C1, GAP-C3.
+- **Phase 22 — DSL v2:** GAP-A1.
+- **Phase 23 — Translator And Drafting MVP:** GAP-A2, GAP-A4, GAP-A5.
+- **Phase 24 — First Real Source Vertical:** GAP-C2, GAP-B4.
+- **Phase 25 — System Spec Registry:** GAP-B1.
+- **Phase 26 — `S ∧ R` Checker:** GAP-B2, GAP-B3.
+- **Phase 27 — Spec Coverage And Trace Alignment:** GAP-B5, GAP-B6, GAP-X3.
+- **Phase 28 — Proof Closure Gate:** GAP-X1, GAP-X2, GAP-X4.
+- **Phase 29 — Agnostic Wedge:** GAP-X5.
 
 ## 8. ADR Seed Index
 
-Decisions to extract into `docs/adr/` (numbering continues from the existing
-0001–0006):
+Decisions to extract into `docs/adr/` are sequenced in
+`docs/vision-gap-roadmap.md`. ADR 0020 records the roadmap itself; the remaining
+seed decisions currently queue as ADR 0021-0038:
 
 1. Compositional IR notation, schema, and migration from the flat IR (GAP-A3).
-2. Source-LanguageAdapter interface and its coexistence with the declaration-Adapter family (GAP-C1).
-3. NormalizedTrace schema and lossy-normalization rules (GAP-C3).
-4. Formal-backend set and IR-lowering interface (GAP-C4).
+2. Formal-backend set and IR-lowering interface (GAP-C4).
+3. Source-LanguageAdapter interface and its coexistence with the declaration-Adapter family (GAP-C1).
+4. NormalizedTrace schema and lossy-normalization rules (GAP-C3).
 5. Input DSL grammar scope and versioning (GAP-A1).
 6. LLM-rewrite drafting and approval protocol; translator trust model (GAP-A2, GAP-A4).
 7. Temporal formalism choice and bound policy (GAP-A5).
-8. Representation, sourcing, and freshness of the system spec `S` (GAP-B1).
-9. `S ∧ R` checker choice, verification budget, counterexample artifact (GAP-B2).
-10. Contradiction taxonomy and requirement-set scope (GAP-B3).
-11. Impact-analysis tooling and code-to-spec manifest format (GAP-B4).
+8. Impact-analysis tooling and code-to-spec manifest format (GAP-B4).
+9. Representation, sourcing, and freshness of the system spec `S` (GAP-B1).
+10. `S ∧ R` checker choice, verification budget, counterexample artifact (GAP-B2).
+11. Contradiction taxonomy and requirement-set scope (GAP-B3).
 12. Spec-coverage metric, thresholds, and Specula integration boundary (GAP-B5).
 13. Code-spec trace-validation semantics (GAP-B6).
-14. Multi-backend dispatch policy and proof-object schema (GAP-X1).
-15. Closure-gate semantics and PR/backlog integration (GAP-X2).
-16. Spec-freshness invariant and CI thresholds (GAP-X3).
+14. Spec-freshness invariant and CI thresholds (GAP-X3).
+15. Multi-backend dispatch policy and proof-object schema (GAP-X1).
+16. Closure-gate semantics and PR/backlog integration (GAP-X2).
 17. Evidence-producer-to-level mapping and reproducibility metadata (GAP-X4).
 18. Agnosticism scope per version; cross-language proof model (GAP-X5).

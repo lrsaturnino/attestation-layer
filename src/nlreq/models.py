@@ -6,7 +6,10 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, RootModel, model_validator
 
 
-SUPPORTED_IR_VERSION = "0.1"
+IR_V1_VERSION = "0.1"
+IR_V2_VERSION = "0.2"
+SUPPORTED_IR_VERSION = IR_V1_VERSION
+SUPPORTED_IR_VERSIONS = {IR_V1_VERSION, IR_V2_VERSION}
 
 
 class EvidenceLevel(str, Enum):
@@ -167,6 +170,206 @@ class RequirementIR(BaseModel):
         if self.ir_version != SUPPORTED_IR_VERSION:
             raise ValueError(f"unsupported ir_version: {self.ir_version}")
         return self
+
+
+SemanticConfidence = Literal[
+    "reviewed",
+    "deterministic_parse",
+    "adapter_resolved",
+    "migration_inferred",
+    "llm_suggested",
+    "unknown",
+]
+
+
+SemanticDerivationMethod = Literal[
+    "deterministic_parse",
+    "manual_review",
+    "migration",
+    "llm_draft",
+    "adapter",
+    "unknown",
+]
+
+
+SemanticNodeKind = Literal[
+    "rule",
+    "premise",
+    "obligation",
+    "action_obligation",
+    "forall",
+    "exists",
+    "entity_scope",
+    "module_scope",
+    "and",
+    "or",
+    "not",
+    "implies",
+    "iff",
+    "predicate",
+    "comparison",
+    "membership",
+    "state_ref",
+    "action",
+    "call",
+    "event",
+    "transition",
+    "pre_state",
+    "post_state",
+    "invariant",
+    "state_delta",
+    "always",
+    "eventually",
+    "until",
+    "before",
+    "within",
+    "eq",
+    "neq",
+    "lt",
+    "lte",
+    "gt",
+    "gte",
+    "increase",
+    "decrease",
+    "system_spec_ref",
+    "code_symbol_ref",
+    "trace_ref",
+    "policy_ref",
+]
+
+
+class SemanticProvenance(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    source_document: str | None = None
+    derived_from: list[str] = Field(default_factory=list)
+    method: SemanticDerivationMethod
+    tool: str | None = None
+    tool_version: str | None = None
+    model: str | None = None
+    timestamp: str | None = None
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class TemporalBound(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    value: int | float
+    unit: Literal["second", "minute", "hour", "day", "block"]
+
+
+class SemanticNode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str
+    kind: SemanticNodeKind
+    source_spans: list[SourceSpan] = Field(default_factory=list)
+    provenance: SemanticProvenance
+    confidence: SemanticConfidence
+    annotations: dict[str, dict[str, Any]] = Field(default_factory=dict)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    children: list[SemanticNode] = Field(default_factory=list)
+    scope: list[SemanticNode] = Field(default_factory=list)
+    premise: SemanticNode | None = None
+    obligation: SemanticNode | None = None
+    action: SemanticNode | None = None
+    must: SemanticNode | None = None
+    left: SemanticNode | ValueRef | None = None
+    right: SemanticNode | ValueRef | None = None
+    args: list[ValueRef] = Field(default_factory=list)
+    name: str | None = None
+    target: str | None = None
+    value: ValueRef | None = None
+    temporal_bound: TemporalBound | None = None
+
+    @model_validator(mode="after")
+    def validate_node_shape(self) -> SemanticNode:
+        if self.kind == "rule" and (self.premise is None or self.obligation is None):
+            raise ValueError("rule nodes require premise and obligation")
+        if self.kind == "action_obligation" and (self.action is None or self.must is None):
+            raise ValueError("action_obligation nodes require action and must")
+        if self.kind == "not" and len(self.children) != 1:
+            raise ValueError("not nodes require exactly one child")
+        if self.kind in {"implies", "iff"} and len(self.children) != 2:
+            raise ValueError(f"{self.kind} nodes require exactly two children")
+        if self.kind in {"forall", "exists", "entity_scope", "module_scope"} and not self.name:
+            raise ValueError(f"{self.kind} nodes require name")
+        if self.kind == "predicate" and not self.name:
+            raise ValueError("predicate nodes require name")
+        if self.kind in {
+            "state_ref",
+            "action",
+            "call",
+            "event",
+            "transition",
+            "pre_state",
+            "post_state",
+            "invariant",
+            "state_delta",
+            "system_spec_ref",
+            "code_symbol_ref",
+            "trace_ref",
+            "policy_ref",
+        } and not (self.name or self.target):
+            raise ValueError(f"{self.kind} nodes require name or target")
+        if self.kind in {
+            "comparison",
+            "membership",
+            "eq",
+            "neq",
+            "lt",
+            "lte",
+            "gt",
+            "gte",
+            "increase",
+            "decrease",
+        } and not (len(self.args) >= 2 or (self.left is not None and self.right is not None)):
+            raise ValueError(f"{self.kind} nodes require two operands")
+        if self.kind == "within" and self.temporal_bound is None:
+            raise ValueError("within nodes require temporal_bound")
+        return self
+
+
+class RequirementIRV2(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    ir_version: Literal["0.2"] = IR_V2_VERSION
+    requirement_id: str
+    title: str
+    source: RequirementSource
+    semantic_ir: SemanticNode
+    bindings: dict[str, SymbolBinding] = Field(default_factory=dict)
+    assumptions: list[dict[str, str]] = Field(default_factory=list)
+    required_evidence: list[RequiredEvidence] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_semantic_root(self) -> RequirementIRV2:
+        if self.semantic_ir.kind != "rule":
+            raise ValueError("semantic_ir root must be a rule node")
+        return self
+
+
+class MigrationDiffEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    path: str
+    change: Literal["added", "removed", "replaced", "moved", "refused"]
+    detail: str
+
+
+class RequirementIRMigrationRecord(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1"] = "0.1"
+    migration_id: str
+    source_ir_version: Literal["0.1"]
+    target_ir_version: Literal["0.2"]
+    source_ir_hash: str
+    target_ir_hash: str
+    tool: str
+    tool_version: str
+    timestamp: str
+    diff: list[MigrationDiffEntry]
 
 
 class SymbolRef(BaseModel):

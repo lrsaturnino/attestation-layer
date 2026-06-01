@@ -1,0 +1,275 @@
+{
+  "assumptions": [],
+  "bindings": {},
+  "ir_version": "0.2",
+  "required_evidence": [],
+  "requirement_id": "REQ-COMP-IR-001",
+  "semantic_ir": {
+    "children": [],
+    "confidence": "reviewed",
+    "kind": "rule",
+    "metadata": {},
+    "node_id": "rule.root",
+    "obligation": {
+      "action": {
+        "children": [],
+        "confidence": "reviewed",
+        "kind": "action",
+        "name": "finalize_redemption",
+        "node_id": "obligation.action",
+        "provenance": {
+          "derived_from": [
+            "finalize redemption"
+          ],
+          "method": "manual_review",
+          "source_document": "controlled_requirement"
+        },
+        "source_spans": [
+          {
+            "document": "controlled_requirement",
+            "end_char": 151,
+            "start_char": 132,
+            "text": "finalize redemption"
+          }
+        ]
+      },
+      "children": [],
+      "confidence": "reviewed",
+      "kind": "action_obligation",
+      "must": {
+        "children": [
+          {
+            "children": [
+              {
+                "children": [],
+                "confidence": "reviewed",
+                "kind": "event",
+                "name": "redemption_finalized",
+                "node_id": "obligation.must.event",
+                "provenance": {
+                  "derived_from": [
+                    "emit redemption_finalized"
+                  ],
+                  "method": "manual_review",
+                  "source_document": "controlled_requirement"
+                },
+                "source_spans": [
+                  {
+                    "document": "controlled_requirement",
+                    "end_char": 199,
+                    "start_char": 175,
+                    "text": "emit redemption_finalized"
+                  }
+                ]
+              }
+            ],
+            "confidence": "reviewed",
+            "kind": "within",
+            "node_id": "obligation.must.within",
+            "provenance": {
+              "derived_from": [
+                "within 6 hours"
+              ],
+              "method": "manual_review",
+              "source_document": "controlled_requirement"
+            },
+            "source_spans": [
+              {
+                "document": "controlled_requirement",
+                "end_char": 214,
+                "start_char": 201,
+                "text": "within 6 hours"
+              }
+            ],
+            "temporal_bound": {
+              "unit": "hour",
+              "value": 6
+            }
+          },
+          {
+            "children": [],
+            "confidence": "reviewed",
+            "kind": "invariant",
+            "name": "reserve_floor_preserved",
+            "node_id": "obligation.must.reserve_floor",
+            "provenance": {
+              "derived_from": [
+                "must not decrease collateral below the reserve floor"
+              ],
+              "method": "manual_review",
+              "source_document": "controlled_requirement"
+            },
+            "source_spans": [
+              {
+                "document": "controlled_requirement",
+                "end_char": 269,
+                "start_char": 219,
+                "text": "must not decrease collateral below the reserve floor"
+              }
+            ],
+            "target": "collateral"
+          }
+        ],
+        "confidence": "reviewed",
+        "kind": "and",
+        "node_id": "obligation.must",
+        "provenance": {
+          "derived_from": [
+            "event and reserve-floor obligations"
+          ],
+          "method": "manual_review",
+          "source_document": "controlled_requirement"
+        },
+        "source_spans": []
+      },
+      "node_id": "obligation.root",
+      "provenance": {
+        "derived_from": [
+          "then finalize redemption ..."
+        ],
+        "method": "manual_review",
+        "source_document": "controlled_requirement"
+      },
+      "source_spans": []
+    },
+    "premise": {
+      "children": [
+        {
+          "args": [
+            {
+              "kind": "identifier",
+              "value": "wallet"
+            }
+          ],
+          "children": [],
+          "confidence": "reviewed",
+          "kind": "predicate",
+          "name": "authorized",
+          "node_id": "premise.wallet_authorized",
+          "provenance": {
+            "derived_from": [
+              "wallet is authorized"
+            ],
+            "method": "manual_review",
+            "source_document": "controlled_requirement"
+          },
+          "source_spans": [
+            {
+              "document": "controlled_requirement",
+              "end_char": 51,
+              "start_char": 31,
+              "text": "wallet is authorized"
+            }
+          ]
+        },
+        {
+          "args": [
+            {
+              "kind": "identifier",
+              "value": "deposit"
+            }
+          ],
+          "children": [],
+          "confidence": "reviewed",
+          "kind": "predicate",
+          "name": "confirmed",
+          "node_id": "premise.deposit_confirmed",
+          "provenance": {
+            "derived_from": [
+              "deposit is confirmed"
+            ],
+            "method": "manual_review",
+            "source_document": "controlled_requirement"
+          },
+          "source_spans": [
+            {
+              "document": "controlled_requirement",
+              "end_char": 76,
+              "start_char": 56,
+              "text": "deposit is confirmed"
+            }
+          ]
+        },
+        {
+          "args": [
+            {
+              "kind": "identifier",
+              "value": "requested_amount"
+            },
+            {
+              "kind": "identifier",
+              "value": "spendable_balance"
+            }
+          ],
+          "children": [],
+          "confidence": "reviewed",
+          "kind": "lte",
+          "node_id": "premise.amount_within_balance",
+          "provenance": {
+            "derived_from": [
+              "requested amount is at most the spendable balance"
+            ],
+            "method": "manual_review",
+            "source_document": "controlled_requirement"
+          },
+          "source_spans": [
+            {
+              "document": "controlled_requirement",
+              "end_char": 129,
+              "start_char": 82,
+              "text": "requested amount is at most the spendable balance"
+            }
+          ]
+        }
+      ],
+      "confidence": "reviewed",
+      "kind": "and",
+      "node_id": "premise.root",
+      "provenance": {
+        "derived_from": [
+          "three redemption premises"
+        ],
+        "method": "manual_review",
+        "source_document": "controlled_requirement"
+      },
+      "source_spans": []
+    },
+    "provenance": {
+      "derived_from": [
+        "compositional fixture"
+      ],
+      "method": "manual_review",
+      "source_document": "controlled_requirement"
+    },
+    "scope": [
+      {
+        "children": [],
+        "confidence": "reviewed",
+        "kind": "forall",
+        "name": "redemption",
+        "node_id": "scope.redemption",
+        "provenance": {
+          "derived_from": [
+            "For every redemption"
+          ],
+          "method": "manual_review",
+          "source_document": "controlled_requirement"
+        },
+        "source_spans": [
+          {
+            "document": "controlled_requirement",
+            "end_char": 20,
+            "start_char": 0,
+            "text": "For every redemption"
+          }
+        ],
+        "target": "Redemption"
+      }
+    ],
+    "source_spans": []
+  },
+  "source": {
+    "controlled_text": "For every redemption, if the wallet is authorized, the deposit is confirmed, and the requested amount is at most the spendable balance, then finalize redemption must eventually emit redemption_finalized within 6 hours and must not decrease collateral below the reserve floor.\n"
+  },
+  "title": "Redemption finalization is timely and preserves reserve floor"
+}

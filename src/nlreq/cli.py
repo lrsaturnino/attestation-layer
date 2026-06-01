@@ -37,6 +37,12 @@ from .continuous import (
     continuous_attestation_markdown,
     load_attestation_run,
 )
+from .compositional_ir import (
+    DEFAULT_MIGRATION_TIMESTAMP,
+    DEFAULT_MIGRATION_TOOL_VERSION,
+    migrate_requirement_ir_v1_to_v2,
+    validate_requirement_ir_json,
+)
 from .gate import (
     build_hard_gate_report,
     hard_gate_report_markdown,
@@ -100,6 +106,15 @@ def main(argv: list[str] | None = None) -> int:
 
     validate_ir_cmd = subcommands.add_parser("validate-ir", help="Validate IR JSON.")
     validate_ir_cmd.add_argument("file", type=Path)
+
+    migrate_ir_cmd = subcommands.add_parser(
+        "migrate-ir", help="Migrate flat IR 0.1 JSON to compositional IR 0.2 JSON."
+    )
+    migrate_ir_cmd.add_argument("file", type=Path)
+    migrate_ir_cmd.add_argument("--out", type=Path, required=True)
+    migrate_ir_cmd.add_argument("--migration-record", type=Path, required=True)
+    migrate_ir_cmd.add_argument("--tool-version", default=DEFAULT_MIGRATION_TOOL_VERSION)
+    migrate_ir_cmd.add_argument("--timestamp", default=DEFAULT_MIGRATION_TIMESTAMP)
 
     validate_cmd = subcommands.add_parser("validate", help="Validate a package directory.")
     validate_cmd.add_argument("package_dir", type=Path)
@@ -575,8 +590,22 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Package: {args.out}")
             return 0
         if args.command == "validate-ir":
-            RequirementIR.model_validate_json(args.file.read_text())
+            validate_requirement_ir_json(args.file.read_text())
             print("IR: valid")
+            return 0
+        if args.command == "migrate-ir":
+            from .jsonutil import write_json
+
+            source_ir = RequirementIR.model_validate_json(args.file.read_text())
+            migrated, record = migrate_requirement_ir_v1_to_v2(
+                source_ir,
+                tool_version=args.tool_version,
+                timestamp=args.timestamp,
+            )
+            write_json(args.out, migrated)
+            write_json(args.migration_record, record)
+            print(f"Migrated IR: {args.out}")
+            print(f"Migration record: {args.migration_record}")
             return 0
         if args.command == "validate":
             ir, evidence, status = validate_package(args.package_dir)
