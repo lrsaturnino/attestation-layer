@@ -1,0 +1,152 @@
+{
+  "$defs": {
+    "ImpactDisagreement": {
+      "additionalProperties": false,
+      "properties": {
+        "deterministic": {
+          "title": "Deterministic",
+          "type": "boolean"
+        },
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "semantic_suggestion": {
+          "title": "Semantic Suggestion",
+          "type": "boolean"
+        },
+        "trace_touched": {
+          "title": "Trace Touched",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "module_id",
+        "deterministic",
+        "semantic_suggestion",
+        "trace_touched",
+        "reason"
+      ],
+      "title": "ImpactDisagreement",
+      "type": "object"
+    },
+    "SemanticImpactSuggestion": {
+      "additionalProperties": false,
+      "properties": {
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "source": {
+          "default": "heuristic",
+          "enum": [
+            "llm",
+            "manual",
+            "heuristic"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "module_id",
+        "reason"
+      ],
+      "title": "SemanticImpactSuggestion",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapter_id": {
+      "title": "Adapter Id",
+      "type": "string"
+    },
+    "affected_modules": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Affected Modules",
+      "type": "array"
+    },
+    "call_graph_edges": {
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Call Graph Edges",
+      "type": "array"
+    },
+    "deterministic_modules": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Deterministic Modules",
+      "type": "array"
+    },
+    "disagreements": {
+      "items": {
+        "$ref": "#/$defs/ImpactDisagreement"
+      },
+      "title": "Disagreements",
+      "type": "array"
+    },
+    "input_symbols": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Input Symbols",
+      "type": "array"
+    },
+    "language": {
+      "title": "Language",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Metadata",
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "semantic_suggestions": {
+      "items": {
+        "$ref": "#/$defs/SemanticImpactSuggestion"
+      },
+      "title": "Semantic Suggestions",
+      "type": "array"
+    },
+    "trace_touched_modules": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Trace Touched Modules",
+      "type": "array"
+    }
+  },
+  "required": [
+    "adapter_id",
+    "language",
+    "input_symbols",
+    "affected_modules",
+    "deterministic_modules"
+  ],
+  "title": "ImpactAnalysisV2Artifact",
+  "type": "object"
+}

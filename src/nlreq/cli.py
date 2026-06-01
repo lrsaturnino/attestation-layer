@@ -61,6 +61,7 @@ from .gate import (
 from .graphql_adapter import GraphQlAdapter
 from .graphql_package import build_graphql_package, validate_graphql_package
 from .impact import analyze_source_impact
+from .impact_v2 import SemanticImpactSuggestion, analyze_source_impact_v2
 from .jsonschema_adapter import JsonSchemaAdapter
 from .jsonschema_package import build_json_schema_package, validate_json_schema_package
 from .jsonutil import canonical_json, read_json
@@ -250,6 +251,16 @@ def main(argv: list[str] | None = None) -> int:
     python_source_impact_cmd.add_argument("--symbol", action="append", required=True)
     python_source_impact_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     python_source_impact_cmd.add_argument("--out", type=Path)
+
+    python_source_impact_v2_cmd = subcommands.add_parser(
+        "python-source-impact-v2", help="Run richer Python source impact analysis."
+    )
+    python_source_impact_v2_cmd.add_argument("--manifest", type=Path, required=True)
+    python_source_impact_v2_cmd.add_argument("--symbol", action="append", required=True)
+    python_source_impact_v2_cmd.add_argument("--trace-artifact", type=Path)
+    python_source_impact_v2_cmd.add_argument("--semantic-suggestion", action="append", default=[])
+    python_source_impact_v2_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    python_source_impact_v2_cmd.add_argument("--out", type=Path)
 
     system_spec_cmd = subcommands.add_parser(
         "system-spec-registry", help="Validate and report system spec registry freshness."
@@ -1014,6 +1025,32 @@ def main(argv: list[str] | None = None) -> int:
             if args.out:
                 write_json(args.out, artifact)
                 print(f"Python source impact: {args.out}")
+            else:
+                print(canonical_json(artifact), end="")
+            return 0
+        if args.command == "python-source-impact-v2":
+            from .jsonutil import write_json
+            from .models import NormalizedTraceArtifact
+
+            adapter = PythonSourceLanguageAdapter(project_root=args.project_root)
+            manifest = adapter.parse_manifest(args.manifest)
+            traces = (
+                NormalizedTraceArtifact.model_validate_json(args.trace_artifact.read_text())
+                if args.trace_artifact
+                else None
+            )
+            artifact = analyze_source_impact_v2(
+                adapter,
+                manifest,
+                symbols=args.symbol,
+                traces=traces,
+                semantic_suggestions=_semantic_suggestions_from_args(
+                    args.semantic_suggestion
+                ),
+            )
+            if args.out:
+                write_json(args.out, artifact)
+                print(f"Python source impact v2: {args.out}")
             else:
                 print(canonical_json(artifact), end="")
             return 0
@@ -2219,6 +2256,32 @@ def _formal_backend_execution_from_args(
         tool_version_command=args.tool_version_command,
         output_limit_bytes=args.output_limit_bytes,
     )
+
+
+def _semantic_suggestions_from_args(entries: list[str]) -> list[SemanticImpactSuggestion]:
+    suggestions: list[SemanticImpactSuggestion] = []
+    for entry in entries:
+        parts = entry.split(":", 2)
+        if len(parts) == 1:
+            suggestions.append(
+                SemanticImpactSuggestion(module_id=parts[0], reason="CLI suggestion")
+            )
+        elif len(parts) == 2:
+            suggestions.append(
+                SemanticImpactSuggestion(module_id=parts[0], reason=parts[1])
+            )
+        else:
+            source = parts[2]
+            if source not in {"llm", "manual", "heuristic"}:
+                raise ValueError(f"unsupported semantic suggestion source: {source}")
+            suggestions.append(
+                SemanticImpactSuggestion(
+                    module_id=parts[0],
+                    reason=parts[1],
+                    source=source,  # type: ignore[arg-type]
+                )
+            )
+    return suggestions
 
 
 def _requirement_ids_from_args(args: argparse.Namespace) -> list[str]:

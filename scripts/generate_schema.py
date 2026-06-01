@@ -24,6 +24,7 @@ from nlreq.formal_backend import FormalBackendRequest, FormalBackendResponse
 from nlreq.coverage_alignment import SpecCoverageReport, TraceAlignmentReport
 from nlreq.gate import GatePolicy, GateWaiver
 from nlreq.impact import ImpactAnalysisArtifact
+from nlreq.impact_v2 import ImpactAnalysisV2Artifact
 from nlreq.model_checker_runner import ModelCheckerRunArtifact, ModelCheckerRunResult
 from nlreq.proof_closure import (
     ClosureGateReport,
@@ -72,6 +73,7 @@ SCHEMAS = {
     "formal-backend-response.schema.json": FormalBackendResponse,
     "gate-policy.schema.json": GatePolicy,
     "impact-analysis.schema.json": ImpactAnalysisArtifact,
+    "impact-analysis-v2.schema.json": ImpactAnalysisV2Artifact,
     "evidence-producer-mapping.schema.json": EvidenceProducerMapping,
     "proof-dispatch-plan.schema.json": ProofDispatchPlan,
     "proof-object.schema.json": ProofObject,
