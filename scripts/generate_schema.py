@@ -20,6 +20,7 @@ from nlreq.models import (
 )
 from nlreq.command_adapter import CommandChecksArtifact, CommandResultsArtifact
 from nlreq.agnostic_wedge import AgnosticWedgeReport
+from nlreq.delta_extractor import DeltaReport
 from nlreq.formal_backend import FormalBackendRequest, FormalBackendResponse
 from nlreq.coverage_alignment import SpecCoverageReport, TraceAlignmentReport
 from nlreq.gate import GatePolicy, GateWaiver
@@ -66,6 +67,7 @@ SCHEMAS = {
     "spec-coverage-report.schema.json": SpecCoverageReport,
     "trace-alignment-report.schema.json": TraceAlignmentReport,
     "controlled-draft.schema.json": ControlledDraft,
+    "delta-report.schema.json": DeltaReport,
     "translation-agreement-input.schema.json": TranslationAgreementInput,
     "translation-agreement-report.schema.json": TranslationAgreementReport,
     "evidence.schema.json": EvidenceObject,

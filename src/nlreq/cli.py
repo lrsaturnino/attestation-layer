@@ -51,6 +51,7 @@ from .formal_backend import (
     build_formal_backend_request,
     check_formal_backend,
 )
+from .delta_extractor import build_delta_report, delta_report_markdown
 from .dsl_v2 import DslV2Parser
 from .gate import (
     build_hard_gate_report,
@@ -376,6 +377,17 @@ def main(argv: list[str] | None = None) -> int:
     spec_drift_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     spec_drift_cmd.add_argument("--out", type=Path)
     spec_drift_cmd.add_argument("--updated-registry-out", type=Path)
+
+    delta_extract_cmd = subcommands.add_parser(
+        "delta-extract", help="Extract actionable deltas from failed verification reports."
+    )
+    delta_extract_cmd.add_argument("--self-consistency", type=Path)
+    delta_extract_cmd.add_argument("--system-consistency", type=Path)
+    delta_extract_cmd.add_argument("--spec-coverage", type=Path)
+    delta_extract_cmd.add_argument("--trace-replay", type=Path)
+    delta_extract_cmd.add_argument("--spec-drift", type=Path)
+    delta_extract_cmd.add_argument("--out", type=Path)
+    delta_extract_cmd.add_argument("--markdown-out", type=Path)
 
     proof_object_cmd = subcommands.add_parser(
         "proof-object", help="Aggregate backend evidence into a proof closure object."
@@ -1259,6 +1271,48 @@ def main(argv: list[str] | None = None) -> int:
                 updated = mark_stale_specs(load_system_spec_registry(args.registry), report)
                 write_json(args.updated_registry_out, updated)
                 print(f"Updated system spec registry: {args.updated_registry_out}")
+            return 0
+        if args.command == "delta-extract":
+            from .coverage_alignment import SpecCoverageReport
+            from .jsonutil import write_json
+            from .requirement_self_consistency import RequirementSelfConsistencyResult
+            from .spec_drift import SpecDriftReport
+            from .system_checker import SystemConsistencyResult
+            from .trace_replay import TraceReplayReport
+
+            report = build_delta_report(
+                self_consistency=RequirementSelfConsistencyResult.model_validate_json(
+                    args.self_consistency.read_text()
+                )
+                if args.self_consistency
+                else None,
+                system_consistency=SystemConsistencyResult.model_validate_json(
+                    args.system_consistency.read_text()
+                )
+                if args.system_consistency
+                else None,
+                spec_coverage=SpecCoverageReport.model_validate_json(
+                    args.spec_coverage.read_text()
+                )
+                if args.spec_coverage
+                else None,
+                trace_replay=TraceReplayReport.model_validate_json(
+                    args.trace_replay.read_text()
+                )
+                if args.trace_replay
+                else None,
+                spec_drift=SpecDriftReport.model_validate_json(args.spec_drift.read_text())
+                if args.spec_drift
+                else None,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Delta report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            if args.markdown_out:
+                args.markdown_out.write_text(delta_report_markdown(report))
+                print(f"Delta markdown: {args.markdown_out}")
             return 0
         if args.command == "proof-object":
             from .coverage_alignment import SpecCoverageReport, TraceAlignmentReport

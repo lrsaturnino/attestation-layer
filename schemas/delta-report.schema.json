@@ -1,0 +1,90 @@
+{
+  "$defs": {
+    "DeltaItem": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "requirement",
+            "spec",
+            "code",
+            "test",
+            "trace"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "delta_id": {
+          "title": "Delta Id",
+          "type": "string"
+        },
+        "refs": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Refs",
+          "type": "object"
+        },
+        "required_action": {
+          "title": "Required Action",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "blocking",
+            "review"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "required": [
+        "delta_id",
+        "category",
+        "severity",
+        "source",
+        "summary",
+        "required_action"
+      ],
+      "title": "DeltaItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "deltas": {
+      "items": {
+        "$ref": "#/$defs/DeltaItem"
+      },
+      "title": "Deltas",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "no_changes",
+        "changes_required"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "result"
+  ],
+  "title": "DeltaReport",
+  "type": "object"
+}
