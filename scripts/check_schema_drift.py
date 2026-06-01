@@ -22,6 +22,12 @@ from nlreq.command_adapter import CommandChecksArtifact, CommandResultsArtifact
 from nlreq.formal_backend import FormalBackendRequest, FormalBackendResponse
 from nlreq.gate import GatePolicy, GateWaiver
 from nlreq.routing import AdapterRegistryArtifact, RoutingPolicyArtifact
+from nlreq.source_adapter import (
+    CodePresentation,
+    SourceCallGraph,
+    SourceManifest,
+    SourceSymbolResolution,
+)
 from nlreq.trace_validation import TraceValidationResultsArtifact
 from nlreq.tla_adapter import TlaModelConfigArtifact, TlaResultsArtifact
 
@@ -45,6 +51,10 @@ SCHEMAS = {
     "normalized-traces.schema.json": NormalizedTraceArtifact,
     "review.schema.json": ReviewArtifact,
     "routing-policy.schema.json": RoutingPolicyArtifact,
+    "source-call-graph.schema.json": SourceCallGraph,
+    "source-code-presentation.schema.json": CodePresentation,
+    "source-manifest.schema.json": SourceManifest,
+    "source-symbol-resolution.schema.json": SourceSymbolResolution,
     "status-decision.schema.json": StatusDecision,
     "trace-validation-results.schema.json": TraceValidationResultsArtifact,
     "tla-model-config.schema.json": TlaModelConfigArtifact,

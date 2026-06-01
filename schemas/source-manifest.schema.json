@@ -1,0 +1,86 @@
+{
+  "$defs": {
+    "SourceModule": {
+      "additionalProperties": false,
+      "properties": {
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "spec_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Spec Refs",
+          "type": "array"
+        },
+        "symbols": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Symbols",
+          "type": "array"
+        },
+        "trace_sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Trace Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "module_id",
+        "path"
+      ],
+      "title": "SourceModule",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapter": {
+      "title": "Adapter",
+      "type": "string"
+    },
+    "language": {
+      "title": "Language",
+      "type": "string"
+    },
+    "modules": {
+      "items": {
+        "$ref": "#/$defs/SourceModule"
+      },
+      "title": "Modules",
+      "type": "array"
+    },
+    "runtime": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Runtime"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "adapter",
+    "language"
+  ],
+  "title": "SourceManifest",
+  "type": "object"
+}

@@ -504,6 +504,9 @@ class TraceEvent(BaseModel):
     action: str
     pre_state: dict[str, Any] | None = None
     post_state: dict[str, Any] | None = None
+    causal_predecessor: str | None = None
+    language: str | None = None
+    runtime: str | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
@@ -513,6 +516,8 @@ class NormalizedTrace(BaseModel):
     trace_id: str
     adapter_id: str
     source_hash: str
+    language: str | None = None
+    runtime: str | None = None
     events: list[TraceEvent]
     metadata: dict[str, Any] = Field(default_factory=dict)
 

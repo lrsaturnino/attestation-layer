@@ -1,0 +1,68 @@
+{
+  "$defs": {
+    "SourceCallEdge": {
+      "additionalProperties": false,
+      "properties": {
+        "callee": {
+          "title": "Callee",
+          "type": "string"
+        },
+        "caller": {
+          "title": "Caller",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        }
+      },
+      "required": [
+        "caller",
+        "callee"
+      ],
+      "title": "SourceCallEdge",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapter_id": {
+      "title": "Adapter Id",
+      "type": "string"
+    },
+    "edges": {
+      "items": {
+        "$ref": "#/$defs/SourceCallEdge"
+      },
+      "title": "Edges",
+      "type": "array"
+    },
+    "language": {
+      "title": "Language",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Metadata",
+      "type": "object"
+    },
+    "modules": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Modules",
+      "type": "array"
+    }
+  },
+  "required": [
+    "adapter_id",
+    "language"
+  ],
+  "title": "SourceCallGraph",
+  "type": "object"
+}

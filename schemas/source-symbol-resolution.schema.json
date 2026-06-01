@@ -1,0 +1,148 @@
+{
+  "$defs": {
+    "SourceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "title": "Document",
+          "type": "string"
+        },
+        "end_char": {
+          "minimum": 0,
+          "title": "End Char",
+          "type": "integer"
+        },
+        "start_char": {
+          "minimum": 0,
+          "title": "Start Char",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "start_char",
+        "end_char",
+        "text"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    },
+    "SourceSymbol": {
+      "additionalProperties": false,
+      "properties": {
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "source_span": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceSpan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "symbol_type": {
+          "default": "unknown",
+          "title": "Symbol Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "module_id",
+        "path"
+      ],
+      "title": "SourceSymbol",
+      "type": "object"
+    },
+    "SymbolRef": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Type"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "SymbolRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "ref": {
+      "$ref": "#/$defs/SymbolRef"
+    },
+    "status": {
+      "enum": [
+        "resolved",
+        "unresolved",
+        "ambiguous"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "symbols": {
+      "items": {
+        "$ref": "#/$defs/SourceSymbol"
+      },
+      "title": "Symbols",
+      "type": "array"
+    }
+  },
+  "required": [
+    "ref",
+    "status"
+  ],
+  "title": "SourceSymbolResolution",
+  "type": "object"
+}

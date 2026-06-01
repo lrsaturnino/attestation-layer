@@ -14,10 +14,34 @@
           "title": "Events",
           "type": "array"
         },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
+        },
         "metadata": {
           "additionalProperties": true,
           "title": "Metadata",
           "type": "object"
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime"
         },
         "source_hash": {
           "title": "Source Hash",
@@ -56,9 +80,33 @@
           "default": null,
           "title": "Actor"
         },
+        "causal_predecessor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Causal Predecessor"
+        },
         "event_id": {
           "title": "Event Id",
           "type": "string"
+        },
+        "language": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Language"
         },
         "metadata": {
           "additionalProperties": true,
@@ -90,6 +138,18 @@
           ],
           "default": null,
           "title": "Pre State"
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime"
         },
         "timestamp": {
           "anyOf": [

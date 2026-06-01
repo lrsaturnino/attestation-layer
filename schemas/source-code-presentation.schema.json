@@ -1,0 +1,46 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "adapter_id": {
+      "title": "Adapter Id",
+      "type": "string"
+    },
+    "language": {
+      "title": "Language",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Metadata",
+      "type": "object"
+    },
+    "redactions": {
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Redactions",
+      "type": "array"
+    },
+    "snippets": {
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Snippets",
+      "type": "array"
+    }
+  },
+  "required": [
+    "adapter_id",
+    "language"
+  ],
+  "title": "CodePresentation",
+  "type": "object"
+}
