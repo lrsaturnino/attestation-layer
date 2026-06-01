@@ -1,0 +1,130 @@
+{
+  "$defs": {
+    "EndToEndGateArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "content_hash": {
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "content_hash"
+      ],
+      "title": "EndToEndGateArtifactRef",
+      "type": "object"
+    },
+    "EndToEndGateBlocker": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "status",
+        "message"
+      ],
+      "title": "EndToEndGateBlocker",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "artifacts": {
+      "items": {
+        "$ref": "#/$defs/EndToEndGateArtifactRef"
+      },
+      "title": "Artifacts",
+      "type": "array"
+    },
+    "blockers": {
+      "items": {
+        "$ref": "#/$defs/EndToEndGateBlocker"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "closure_result": {
+      "enum": [
+        "passed",
+        "blocked"
+      ],
+      "title": "Closure Result",
+      "type": "string"
+    },
+    "decision": {
+      "enum": [
+        "accepted",
+        "refused",
+        "unknown"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "downstream_action": {
+      "title": "Downstream Action",
+      "type": "string"
+    },
+    "downstream_action_allowed": {
+      "title": "Downstream Action Allowed",
+      "type": "boolean"
+    },
+    "proof_status": {
+      "enum": [
+        "closed",
+        "open",
+        "blocked"
+      ],
+      "title": "Proof Status",
+      "type": "string"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "statuses": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Statuses",
+      "type": "object"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "decision",
+    "downstream_action",
+    "downstream_action_allowed",
+    "proof_status",
+    "closure_result"
+  ],
+  "title": "EndToEndRequirementGateReport",
+  "type": "object"
+}

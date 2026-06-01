@@ -55,6 +55,7 @@ from .formal_backend import (
 from .delta_extractor import build_delta_report, delta_report_markdown
 from .dsl_v2 import DslV2Parser
 from .evidence_producers import validate_real_evidence_producers
+from .end_to_end_gate import run_end_to_end_requirement_gate
 from .gate import (
     build_hard_gate_report,
     hard_gate_report_markdown,
@@ -479,6 +480,39 @@ def main(argv: list[str] | None = None) -> int:
     agnostic_wedge_cmd.add_argument("--requirement-ir", type=Path)
     agnostic_wedge_cmd.add_argument("--out", type=Path)
     agnostic_wedge_cmd.add_argument("--fail-on-blocking", action="store_true")
+
+    requirement_gate_cmd = subcommands.add_parser(
+        "requirement-gate",
+        help="Run the end-to-end requirement intake, verification, and closure gate.",
+    )
+    requirement_gate_cmd.add_argument("file", type=Path)
+    requirement_gate_cmd.add_argument("--requirement-id", required=True)
+    requirement_gate_cmd.add_argument("--title", required=True)
+    requirement_gate_cmd.add_argument("--source-manifest", type=Path, required=True)
+    requirement_gate_cmd.add_argument(
+        "--source-language", choices=["python", "javascript"], required=True
+    )
+    requirement_gate_cmd.add_argument("--symbol", action="append", required=True)
+    requirement_gate_cmd.add_argument("--registry", type=Path, required=True)
+    requirement_gate_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    requirement_gate_cmd.add_argument("--artifact-dir", type=Path, required=True)
+    requirement_gate_cmd.add_argument("--out", type=Path)
+    requirement_gate_cmd.add_argument("--downstream-action", default="merge")
+    requirement_gate_cmd.add_argument("--self-check-backend", default="tla-runner")
+    requirement_gate_cmd.add_argument("--checker-id")
+    requirement_gate_cmd.add_argument("--checker-command", nargs=argparse.REMAINDER)
+    requirement_gate_cmd.add_argument("--timeout-seconds", type=int)
+    requirement_gate_cmd.add_argument("--max-depth", type=int)
+    requirement_gate_cmd.add_argument("--max-states", type=int)
+    requirement_gate_cmd.add_argument("--memory-budget-mb", type=int)
+    requirement_gate_cmd.add_argument("--solver-option", action="append", default=[])
+    requirement_gate_cmd.add_argument("--expected-exit-code", type=int, default=0)
+    requirement_gate_cmd.add_argument("--tool-version")
+    requirement_gate_cmd.add_argument("--tool-version-command", nargs="+")
+    requirement_gate_cmd.add_argument(
+        "--output-limit-bytes", type=int, default=DEFAULT_RUNNER_OUTPUT_LIMIT_BYTES
+    )
+    requirement_gate_cmd.add_argument("--fail-on-refusal", action="store_true")
 
     validate_cmd = subcommands.add_parser("validate", help="Validate a package directory.")
     validate_cmd.add_argument("package_dir", type=Path)
@@ -1583,6 +1617,44 @@ def main(argv: list[str] | None = None) -> int:
             if args.fail_on_blocking and report.result == "blocked":
                 return 1
             return 0
+        if args.command == "requirement-gate":
+            from .jsonutil import write_json
+
+            if args.source_language == "python":
+                source_adapter = PythonSourceLanguageAdapter(project_root=args.project_root)
+            elif args.source_language == "javascript":
+                source_adapter = JavaScriptSourceLanguageAdapter(project_root=args.project_root)
+            else:  # pragma: no cover - argparse constrains choices
+                raise ValueError(f"unsupported source language: {args.source_language}")
+            checker_command = (
+                _normalize_remainder_command(args.checker_command)
+                if args.checker_command
+                else None
+            )
+            execution = _requirement_gate_execution_from_args(args, checker_command)
+            report = run_end_to_end_requirement_gate(
+                controlled_text=args.file.read_text(),
+                requirement_id=args.requirement_id,
+                title=args.title,
+                source_adapter=source_adapter,
+                source_manifest=source_adapter.parse_manifest(args.source_manifest),
+                symbols=args.symbol,
+                registry=load_system_spec_registry(args.registry),
+                project_root=args.project_root,
+                artifact_dir=args.artifact_dir,
+                downstream_action=args.downstream_action,
+                self_check_backend=args.self_check_backend,
+                budget=_formal_backend_budget_from_args(args),
+                execution=execution,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Requirement gate report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            if args.fail_on_refusal and report.decision != "accepted":
+                return 1
+            return 0
         if args.command == "validate":
             ir, evidence, status = validate_package(args.package_dir)
             _print_package_validation(ir, evidence, status)
@@ -2476,6 +2548,31 @@ def _formal_backend_execution_from_args(
         checker_id=args.checker_id or "tlc",
         command=checker_command,
         artifact_dir=args.artifact_dir.as_posix() if args.artifact_dir else None,
+        expected_exit_code=args.expected_exit_code,
+        tool_version=args.tool_version,
+        tool_version_command=args.tool_version_command,
+        output_limit_bytes=args.output_limit_bytes,
+    )
+
+
+def _requirement_gate_execution_from_args(
+    args: argparse.Namespace, checker_command: list[str] | None
+) -> FormalBackendExecution | None:
+    if not any(
+        [
+            args.checker_id,
+            checker_command,
+            args.tool_version,
+            args.tool_version_command,
+            args.expected_exit_code,
+            args.output_limit_bytes != DEFAULT_RUNNER_OUTPUT_LIMIT_BYTES,
+        ]
+    ):
+        return None
+    return FormalBackendExecution(
+        checker_id=args.checker_id or "tlc",
+        command=checker_command,
+        artifact_dir=(args.artifact_dir / "formal-self-check").as_posix(),
         expected_exit_code=args.expected_exit_code,
         tool_version=args.tool_version,
         tool_version_command=args.tool_version_command,

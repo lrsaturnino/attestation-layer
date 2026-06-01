@@ -22,6 +22,7 @@ from nlreq.command_adapter import CommandChecksArtifact, CommandResultsArtifact
 from nlreq.agnostic_wedge import AgnosticWedgeReport
 from nlreq.backend_agreement import BackendAgreementReport
 from nlreq.delta_extractor import DeltaReport
+from nlreq.end_to_end_gate import EndToEndRequirementGateReport
 from nlreq.evidence_producers import EvidenceProducerValidationReport
 from nlreq.formal_backend import FormalBackendRequest, FormalBackendResponse
 from nlreq.coverage_alignment import SpecCoverageReport, TraceAlignmentReport
@@ -76,6 +77,7 @@ SCHEMAS = {
     "trace-alignment-report.schema.json": TraceAlignmentReport,
     "controlled-draft.schema.json": ControlledDraft,
     "delta-report.schema.json": DeltaReport,
+    "end-to-end-requirement-gate.schema.json": EndToEndRequirementGateReport,
     "translation-agreement-input.schema.json": TranslationAgreementInput,
     "translation-agreement-report.schema.json": TranslationAgreementReport,
     "evidence.schema.json": EvidenceObject,

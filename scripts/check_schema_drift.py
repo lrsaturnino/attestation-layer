@@ -21,6 +21,7 @@ from nlreq.models import (
 from nlreq.command_adapter import CommandChecksArtifact, CommandResultsArtifact
 from nlreq.agnostic_wedge import AgnosticWedgeReport
 from nlreq.backend_agreement import BackendAgreementReport
+from nlreq.end_to_end_gate import EndToEndRequirementGateReport
 from nlreq.formal_backend import FormalBackendRequest, FormalBackendResponse
 from nlreq.coverage_alignment import SpecCoverageReport, TraceAlignmentReport
 from nlreq.gate import GatePolicy, GateWaiver
@@ -58,6 +59,7 @@ SCHEMAS = {
     "command-checks.schema.json": CommandChecksArtifact,
     "command-results.schema.json": CommandResultsArtifact,
     "counterexamples.schema.json": CounterexamplesArtifact,
+    "end-to-end-requirement-gate.schema.json": EndToEndRequirementGateReport,
     "spec-coverage-report.schema.json": SpecCoverageReport,
     "trace-alignment-report.schema.json": TraceAlignmentReport,
     "controlled-draft.schema.json": ControlledDraft,
