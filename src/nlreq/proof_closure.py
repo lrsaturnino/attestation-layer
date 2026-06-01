@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .backend_agreement import BackendAgreementReport
 from .coverage_alignment import SpecCoverageReport, TraceAlignmentReport
 from .formal_backend import FormalBackendResponse
 from .jsonutil import sha256_json
@@ -100,6 +101,7 @@ class ProofClosureBlocker(BaseModel):
         "trace_alignment",
         "producer_mapping",
         "backend_result",
+        "backend_agreement",
         "premise",
     ]
     message: str
@@ -127,6 +129,7 @@ class ProofObject(BaseModel):
     dispatch: ProofDispatchPlan
     premises: list[ProofPremise] = Field(default_factory=list)
     backend_results: list[BackendResult] = Field(default_factory=list)
+    backend_agreement: BackendAgreementReport | None = None
     producer_mapping: EvidenceProducerMapping
     coverage_result: Literal["passed", "blocked", "missing"]
     trace_alignment_result: Literal["passed", "blocked", "missing"]
@@ -251,6 +254,7 @@ def build_proof_object(
     backend_results: list[BackendResult],
     coverage: SpecCoverageReport | None = None,
     trace_alignment: TraceAlignmentReport | None = None,
+    backend_agreement: BackendAgreementReport | None = None,
     producer_mapping: EvidenceProducerMapping | None = None,
     dispatch: ProofDispatchPlan | None = None,
 ) -> ProofObject:
@@ -260,6 +264,7 @@ def build_proof_object(
 
     coverage_result = _coverage_result(coverage, blockers)
     trace_result = _trace_alignment_result(trace_alignment, blockers)
+    _backend_agreement_result(backend_agreement, blockers)
     blockers.extend(_producer_blockers(backend_results, mapping))
 
     premises = [
@@ -295,6 +300,8 @@ def build_proof_object(
         input_hashes["spec_coverage"] = sha256_json(coverage)
     if trace_alignment is not None:
         input_hashes["trace_alignment"] = sha256_json(trace_alignment)
+    if backend_agreement is not None:
+        input_hashes["backend_agreement"] = sha256_json(backend_agreement)
 
     requirement_hash = sha256_json(requirement)
     return ProofObject(
@@ -305,6 +312,7 @@ def build_proof_object(
         dispatch=plan,
         premises=premises,
         backend_results=backend_results,
+        backend_agreement=backend_agreement,
         producer_mapping=mapping,
         coverage_result=coverage_result,
         trace_alignment_result=trace_result,
@@ -366,6 +374,24 @@ def _coverage_result(
             )
         )
     return coverage.result
+
+
+def _backend_agreement_result(
+    backend_agreement: BackendAgreementReport | None,
+    blockers: list[ProofClosureBlocker],
+) -> None:
+    if backend_agreement is None:
+        return
+    if backend_agreement.closure_effect != "block":
+        return
+    messages = backend_agreement.blockers or ["backend agreement report blocked closure"]
+    for message in messages:
+        blockers.append(
+            ProofClosureBlocker(
+                category="backend_agreement",
+                message=message,
+            )
+        )
 
 
 def _trace_alignment_result(

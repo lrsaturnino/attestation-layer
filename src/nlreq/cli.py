@@ -26,6 +26,7 @@ from .adoption import (
 )
 from .asyncapi_adapter import AsyncApiAdapter
 from .asyncapi_package import build_asyncapi_package, validate_asyncapi_package
+from .backend_agreement import build_backend_agreement_report
 from .command_adapter import CommandAdapter, CommandChecksArtifact, load_command_checks
 from .command_package import (
     build_command_package,
@@ -415,6 +416,20 @@ def main(argv: list[str] | None = None) -> int:
     evidence_producers_cmd.add_argument("--producer-mapping", type=Path)
     evidence_producers_cmd.add_argument("--out", type=Path)
 
+    backend_agreement_cmd = subcommands.add_parser(
+        "backend-agreement",
+        help="Compare overlapping backend results and report hidden disagreements.",
+    )
+    backend_agreement_cmd.add_argument("--backend-result", action="append", type=Path, default=[])
+    backend_agreement_cmd.add_argument(
+        "--formal-backend-response", action="append", type=Path, default=[]
+    )
+    backend_agreement_cmd.add_argument("--overlap-key")
+    backend_agreement_cmd.add_argument(
+        "--policy", choices=["blocking", "report_only"], default="blocking"
+    )
+    backend_agreement_cmd.add_argument("--out", type=Path)
+
     proof_object_cmd = subcommands.add_parser(
         "proof-object", help="Aggregate backend evidence into a proof closure object."
     )
@@ -424,6 +439,7 @@ def main(argv: list[str] | None = None) -> int:
     proof_object_cmd.add_argument("--backend-result", action="append", type=Path, default=[])
     proof_object_cmd.add_argument("--spec-coverage", type=Path)
     proof_object_cmd.add_argument("--trace-alignment", type=Path)
+    proof_object_cmd.add_argument("--backend-agreement", type=Path)
     proof_object_cmd.add_argument("--producer-mapping", type=Path)
     proof_object_cmd.add_argument("--out", type=Path)
 
@@ -1381,8 +1397,34 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(report), end="")
             return 0
+        if args.command == "backend-agreement":
+            from .formal_backend import FormalBackendResponse
+            from .jsonutil import write_json
+            from .models import BackendResult
+
+            backend_results = [
+                BackendResult.model_validate_json(path.read_text())
+                for path in args.backend_result
+            ]
+            for path in args.formal_backend_response:
+                response = FormalBackendResponse.model_validate_json(path.read_text())
+                details = dict(response.result.details)
+                details.setdefault("formal_target", response.target)
+                backend_results.append(response.result.model_copy(update={"details": details}))
+            report = build_backend_agreement_report(
+                backend_results,
+                policy=args.policy,
+                overlap_key=args.overlap_key,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Backend agreement report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0
         if args.command == "proof-object":
             from .coverage_alignment import SpecCoverageReport, TraceAlignmentReport
+            from .backend_agreement import BackendAgreementReport
             from .formal_backend import FormalBackendResponse
             from .jsonutil import write_json
             from .models import BackendResult, RequirementIRV2
@@ -1418,6 +1460,11 @@ def main(argv: list[str] | None = None) -> int:
                 trace_alignment=(
                     TraceAlignmentReport.model_validate_json(args.trace_alignment.read_text())
                     if args.trace_alignment
+                    else None
+                ),
+                backend_agreement=(
+                    BackendAgreementReport.model_validate_json(args.backend_agreement.read_text())
+                    if args.backend_agreement
                     else None
                 ),
                 producer_mapping=(

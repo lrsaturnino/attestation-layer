@@ -1,0 +1,218 @@
+{
+  "$defs": {
+    "BackendAgreementComparison": {
+      "additionalProperties": false,
+      "properties": {
+        "compared_fields": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Compared Fields",
+          "type": "array"
+        },
+        "left_backend": {
+          "title": "Left Backend",
+          "type": "string"
+        },
+        "overlap_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Overlap Key"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "right_backend": {
+          "title": "Right Backend",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "agreed",
+            "disagreed",
+            "non_overlap"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "left_backend",
+        "right_backend",
+        "status"
+      ],
+      "title": "BackendAgreementComparison",
+      "type": "object"
+    },
+    "BackendAgreementObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "title": "Backend",
+          "type": "string"
+        },
+        "bounds": {
+          "additionalProperties": true,
+          "title": "Bounds",
+          "type": "object"
+        },
+        "counterexamples": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Counterexamples",
+          "type": "array"
+        },
+        "evidence_level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "overlap_key": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Overlap Key"
+        },
+        "result_hash": {
+          "title": "Result Hash",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "unsupported_constructs": {
+          "items": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Unsupported Constructs",
+          "type": "array"
+        }
+      },
+      "required": [
+        "backend",
+        "result_hash",
+        "status"
+      ],
+      "title": "BackendAgreementObservation",
+      "type": "object"
+    },
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "blockers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "closure_effect": {
+      "enum": [
+        "allow",
+        "block",
+        "report_only"
+      ],
+      "title": "Closure Effect",
+      "type": "string"
+    },
+    "comparisons": {
+      "items": {
+        "$ref": "#/$defs/BackendAgreementComparison"
+      },
+      "title": "Comparisons",
+      "type": "array"
+    },
+    "observations": {
+      "items": {
+        "$ref": "#/$defs/BackendAgreementObservation"
+      },
+      "title": "Observations",
+      "type": "array"
+    },
+    "policy": {
+      "default": "blocking",
+      "enum": [
+        "blocking",
+        "report_only"
+      ],
+      "title": "Policy",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "agreed",
+        "disagreed",
+        "non_overlap",
+        "needs_review"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "closure_effect"
+  ],
+  "title": "BackendAgreementReport",
+  "type": "object"
+}

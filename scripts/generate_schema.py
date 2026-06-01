@@ -20,6 +20,7 @@ from nlreq.models import (
 )
 from nlreq.command_adapter import CommandChecksArtifact, CommandResultsArtifact
 from nlreq.agnostic_wedge import AgnosticWedgeReport
+from nlreq.backend_agreement import BackendAgreementReport
 from nlreq.delta_extractor import DeltaReport
 from nlreq.evidence_producers import EvidenceProducerValidationReport
 from nlreq.formal_backend import FormalBackendRequest, FormalBackendResponse
@@ -65,6 +66,7 @@ SCHEMAS = {
     "assumptions.schema.json": AssumptionsArtifact,
     "adapter-registry.schema.json": AdapterRegistryArtifact,
     "agnostic-wedge-report.schema.json": AgnosticWedgeReport,
+    "backend-agreement-report.schema.json": BackendAgreementReport,
     "backend-results.schema.json": BackendResultsArtifact,
     "bindings.schema.json": BindingsArtifact,
     "command-checks.schema.json": CommandChecksArtifact,

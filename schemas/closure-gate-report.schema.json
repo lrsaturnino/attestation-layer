@@ -37,6 +37,7 @@
             "trace_alignment",
             "producer_mapping",
             "backend_result",
+            "backend_agreement",
             "premise"
           ],
           "title": "Category",

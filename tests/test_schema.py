@@ -20,6 +20,7 @@ def test_auxiliary_artifact_schemas_are_committed() -> None:
     assert (schema_dir / "adapter-registry.schema.json").exists()
     assert (schema_dir / "agnostic-wedge-report.schema.json").exists()
     assert (schema_dir / "assumptions.schema.json").exists()
+    assert (schema_dir / "backend-agreement-report.schema.json").exists()
     assert (schema_dir / "backend-results.schema.json").exists()
     assert (schema_dir / "bindings.schema.json").exists()
     assert (schema_dir / "budgeted-verification-outcome.schema.json").exists()
