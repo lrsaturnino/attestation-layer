@@ -1,0 +1,215 @@
+{
+  "$defs": {
+    "ArtifactReviewRef": {
+      "additionalProperties": false,
+      "properties": {
+        "content_hash": {
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "path",
+        "content_hash"
+      ],
+      "title": "ArtifactReviewRef",
+      "type": "object"
+    },
+    "ReviewApprovalRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "approved_at": {
+          "title": "Approved At",
+          "type": "string"
+        },
+        "artifact_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Artifact Hashes",
+          "type": "object"
+        },
+        "checklist": {
+          "$ref": "#/$defs/ReviewChecklistV2"
+        },
+        "decision": {
+          "enum": [
+            "approved",
+            "needs_review",
+            "rejected"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "reviewer": {
+          "title": "Reviewer",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "author",
+            "requirement_reviewer",
+            "formal_reviewer",
+            "adapter_evidence_reviewer",
+            "self_audit_reviewer"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "self_audit": {
+          "default": false,
+          "title": "Self Audit",
+          "type": "boolean"
+        },
+        "self_audit_delay_hours": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Self Audit Delay Hours"
+        }
+      },
+      "required": [
+        "role",
+        "reviewer",
+        "decision",
+        "artifact_hashes",
+        "checklist",
+        "approved_at"
+      ],
+      "title": "ReviewApprovalRecord",
+      "type": "object"
+    },
+    "ReviewChecklistV2": {
+      "additionalProperties": false,
+      "properties": {
+        "controlled_form_matches_intent": {
+          "default": "pass",
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Controlled Form Matches Intent",
+          "type": "string"
+        },
+        "evidence_labels_appropriate": {
+          "default": "pass",
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Evidence Labels Appropriate",
+          "type": "string"
+        },
+        "refusal_actions_actionable": {
+          "default": "pass",
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Refusal Actions Actionable",
+          "type": "string"
+        },
+        "semantic_diff_reviewed": {
+          "default": "pass",
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Semantic Diff Reviewed",
+          "type": "string"
+        },
+        "source_spans_present": {
+          "default": "pass",
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Source Spans Present",
+          "type": "string"
+        },
+        "translator_disagreement_resolved": {
+          "default": "n/a",
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Translator Disagreement Resolved",
+          "type": "string"
+        }
+      },
+      "title": "ReviewChecklistV2",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "approvals": {
+      "items": {
+        "$ref": "#/$defs/ReviewApprovalRecord"
+      },
+      "title": "Approvals",
+      "type": "array"
+    },
+    "artifact_refs": {
+      "items": {
+        "$ref": "#/$defs/ArtifactReviewRef"
+      },
+      "title": "Artifact Refs",
+      "type": "array"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "review_id": {
+      "title": "Review Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "default": "open",
+      "enum": [
+        "open",
+        "approved",
+        "needs_review",
+        "rejected",
+        "stale"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "review_id",
+    "requirement_id",
+    "artifact_refs"
+  ],
+  "title": "ApprovalWorkflowArtifact",
+  "type": "object"
+}

@@ -26,6 +26,31 @@ from nlreq.benchmark_corpus import (
     BenchmarkResultsArtifact,
     BenchmarkRunReport,
 )
+from nlreq.conclusion import (
+    ConclusionDefinition,
+    ConclusionGapCheckReport,
+    ConclusionGapChecklist,
+)
+from nlreq.intake import (
+    ControlledRewriteApproval,
+    ControlledRewriteProposal,
+    FreeFormIntakeArtifact,
+)
+from nlreq.logical_agreement import LogicalTranslationAgreementReport
+from nlreq.provenance import (
+    ClarificationRequest,
+    ClarificationResponse,
+    ClarifiedControlledText,
+    ProvenanceGraph,
+)
+from nlreq.refusal import ProductRefusalReport
+from nlreq.review_workflow import ApprovalWorkflowArtifact, ReviewStatusReport
+from nlreq.translation_benchmark import (
+    RequirementTranslationBenchmarkReport,
+    RequirementTranslationCorpus,
+    RequirementTranslationResults,
+)
+from nlreq.translator_workbench import TranslatorRunArtifact, TranslatorSelectionArtifact
 from nlreq.delta_extractor import DeltaReport
 from nlreq.end_to_end_gate import EndToEndRequirementGateReport
 from nlreq.evidence_producers import EvidenceProducerValidationReport
@@ -77,6 +102,9 @@ SCHEMAS = {
     "benchmark-corpus.schema.json": BenchmarkCorpus,
     "benchmark-results.schema.json": BenchmarkResultsArtifact,
     "benchmark-run-report.schema.json": BenchmarkRunReport,
+    "conclusion-definition.schema.json": ConclusionDefinition,
+    "conclusion-gap-checklist.schema.json": ConclusionGapChecklist,
+    "conclusion-gap-check-report.schema.json": ConclusionGapCheckReport,
     "bindings.schema.json": BindingsArtifact,
     "command-checks.schema.json": CommandChecksArtifact,
     "command-results.schema.json": CommandResultsArtifact,
@@ -84,10 +112,26 @@ SCHEMAS = {
     "spec-coverage-report.schema.json": SpecCoverageReport,
     "trace-alignment-report.schema.json": TraceAlignmentReport,
     "controlled-draft.schema.json": ControlledDraft,
+    "free-form-intake.schema.json": FreeFormIntakeArtifact,
+    "controlled-rewrite-proposal.schema.json": ControlledRewriteProposal,
+    "controlled-rewrite-approval.schema.json": ControlledRewriteApproval,
     "delta-report.schema.json": DeltaReport,
     "end-to-end-requirement-gate.schema.json": EndToEndRequirementGateReport,
     "translation-agreement-input.schema.json": TranslationAgreementInput,
     "translation-agreement-report.schema.json": TranslationAgreementReport,
+    "logical-translation-agreement-report.schema.json": LogicalTranslationAgreementReport,
+    "translator-run.schema.json": TranslatorRunArtifact,
+    "translator-selection.schema.json": TranslatorSelectionArtifact,
+    "provenance-graph.schema.json": ProvenanceGraph,
+    "clarification-request.schema.json": ClarificationRequest,
+    "clarification-response.schema.json": ClarificationResponse,
+    "clarified-controlled-text.schema.json": ClarifiedControlledText,
+    "product-refusal-report.schema.json": ProductRefusalReport,
+    "approval-workflow.schema.json": ApprovalWorkflowArtifact,
+    "review-status-report.schema.json": ReviewStatusReport,
+    "requirement-translation-corpus.schema.json": RequirementTranslationCorpus,
+    "requirement-translation-results.schema.json": RequirementTranslationResults,
+    "requirement-translation-benchmark-report.schema.json": RequirementTranslationBenchmarkReport,
     "evidence.schema.json": EvidenceObject,
     "evidence-producer-validation.schema.json": EvidenceProducerValidationReport,
     "formal-backend-request.schema.json": FormalBackendRequest,

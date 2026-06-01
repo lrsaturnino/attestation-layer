@@ -1,0 +1,45 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "answered_at": {
+      "title": "Answered At",
+      "type": "string"
+    },
+    "answered_by": {
+      "title": "Answered By",
+      "type": "string"
+    },
+    "clarification_id": {
+      "title": "Clarification Id",
+      "type": "string"
+    },
+    "replacement_text": {
+      "title": "Replacement Text",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "target_end_char": {
+      "title": "Target End Char",
+      "type": "integer"
+    },
+    "target_start_char": {
+      "title": "Target Start Char",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "clarification_id",
+    "answered_by",
+    "answered_at",
+    "replacement_text",
+    "target_start_char",
+    "target_end_char"
+  ],
+  "title": "ClarificationResponse",
+  "type": "object"
+}

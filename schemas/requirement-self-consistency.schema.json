@@ -154,10 +154,28 @@
     "RequirementSelfContradiction": {
       "additionalProperties": false,
       "properties": {
+        "code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Code"
+        },
         "contradiction_type": {
           "enum": [
             "opposite_fragment",
+            "direct_opposite_predicates",
             "impossible_comparison",
+            "mutually_exclusive_states",
+            "overlapping_opposite_obligations",
+            "temporal_impossibility",
+            "numeric_bound_conflict",
+            "duplicate_obligation_conflict",
             "backend_counterexample"
           ],
           "title": "Contradiction Type",

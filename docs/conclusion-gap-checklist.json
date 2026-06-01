@@ -1,0 +1,121 @@
+{
+  "items": [
+    {
+      "capability": "Conclusion definition and release bar discipline",
+      "capability_id": "G46",
+      "deliverables": [
+        "docs/conclusion-definition.md",
+        "docs/conclusion-gap-audit.md"
+      ],
+      "gap_type": "architecture",
+      "owner_phase": 46,
+      "required_adr": "ADR 0055",
+      "status": "implemented"
+    },
+    {
+      "capability": "Approved free-form intake and controlled rewrite",
+      "capability_id": "G47",
+      "deliverables": [
+        "schemas/free-form-intake.schema.json",
+        "schemas/controlled-rewrite-proposal.schema.json"
+      ],
+      "gap_type": "product",
+      "owner_phase": 47,
+      "required_adr": "ADR 0056",
+      "status": "implemented"
+    },
+    {
+      "capability": "Controlled requirement DSL v3",
+      "capability_id": "G48",
+      "deliverables": [
+        "src/nlreq/dsl_v3.py",
+        "src/nlreq/dsl_v3.lark"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 48,
+      "required_adr": "ADR 0057",
+      "status": "implemented"
+    },
+    {
+      "capability": "Hash-bound requirement review workflow",
+      "capability_id": "G49",
+      "deliverables": [
+        "schemas/approval-workflow.schema.json"
+      ],
+      "gap_type": "product",
+      "owner_phase": 49,
+      "required_adr": "ADR 0058",
+      "status": "implemented"
+    },
+    {
+      "capability": "Product refusal surface v2",
+      "capability_id": "G50",
+      "deliverables": [
+        "schemas/product-refusal-report.schema.json"
+      ],
+      "gap_type": "product",
+      "owner_phase": 50,
+      "required_adr": "ADR 0059",
+      "status": "implemented"
+    },
+    {
+      "capability": "Multi-pass translator workbench",
+      "capability_id": "G51",
+      "deliverables": [
+        "schemas/translator-run.schema.json"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 51,
+      "required_adr": "ADR 0060",
+      "status": "implemented"
+    },
+    {
+      "capability": "Bidirectional provenance and clarification",
+      "capability_id": "G52",
+      "deliverables": [
+        "schemas/provenance-graph.schema.json"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 52,
+      "required_adr": "ADR 0061",
+      "status": "implemented"
+    },
+    {
+      "capability": "Logical translator agreement",
+      "capability_id": "G53",
+      "deliverables": [
+        "schemas/logical-translation-agreement-report.schema.json"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 53,
+      "required_adr": "ADR 0062",
+      "status": "implemented"
+    },
+    {
+      "capability": "Contradiction taxonomy v2",
+      "capability_id": "G54",
+      "deliverables": [
+        "docs/contradiction-taxonomy-v2.md"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 54,
+      "required_adr": "ADR 0063",
+      "status": "implemented"
+    },
+    {
+      "capability": "Requirement translation corpus",
+      "capability_id": "G55",
+      "deliverables": [
+        "benchmarks/requirements-translation/corpus.json"
+      ],
+      "gap_type": "benchmark",
+      "owner_phase": 55,
+      "required_adr": "ADR 0064",
+      "status": "implemented"
+    }
+  ],
+  "phase_max": 82,
+  "phase_min": 46,
+  "roadmap": "docs/nl-attestation-conclusion-roadmap.md",
+  "schema_version": "0.1"
+}

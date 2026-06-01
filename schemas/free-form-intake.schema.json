@@ -1,0 +1,59 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "intake_id": {
+      "title": "Intake Id",
+      "type": "string"
+    },
+    "language": {
+      "default": "en",
+      "title": "Language",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Metadata",
+      "type": "object"
+    },
+    "original_text": {
+      "title": "Original Text",
+      "type": "string"
+    },
+    "original_text_hash": {
+      "title": "Original Text Hash",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "submitted_at": {
+      "title": "Submitted At",
+      "type": "string"
+    },
+    "submitted_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Submitted By"
+    }
+  },
+  "required": [
+    "intake_id",
+    "original_text",
+    "original_text_hash",
+    "submitted_at"
+  ],
+  "title": "FreeFormIntakeArtifact",
+  "type": "object"
+}

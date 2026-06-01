@@ -1,0 +1,227 @@
+{
+  "assumptions": [],
+  "bindings": {},
+  "ir_version": "0.2",
+  "required_evidence": [],
+  "requirement_id": "REQ-TRANSLATION-CLEAN-001",
+  "semantic_ir": {
+    "annotations": {},
+    "args": [],
+    "children": [],
+    "confidence": "deterministic_parse",
+    "kind": "rule",
+    "metadata": {
+      "dsl_version": "0.3",
+      "requirement_class": "state_precondition"
+    },
+    "node_id": "rule.root",
+    "obligation": {
+      "action": {
+        "annotations": {},
+        "args": [],
+        "children": [],
+        "confidence": "deterministic_parse",
+        "kind": "action",
+        "metadata": {},
+        "name": "operation",
+        "node_id": "obligation.action",
+        "provenance": {
+          "derived_from": [
+            "obligation.action"
+          ],
+          "metadata": {},
+          "method": "deterministic_parse",
+          "source_document": "controlled_requirement",
+          "tool": "nlreq.dsl_v3",
+          "tool_version": "0.3"
+        },
+        "scope": [],
+        "source_spans": [
+          {
+            "document": "controlled_requirement",
+            "end_char": 98,
+            "start_char": 71,
+            "text": "then operation must succeed"
+          }
+        ]
+      },
+      "annotations": {},
+      "args": [],
+      "children": [],
+      "confidence": "deterministic_parse",
+      "kind": "action_obligation",
+      "metadata": {},
+      "must": {
+        "annotations": {},
+        "args": [
+          {
+            "kind": "identifier",
+            "value": "operation"
+          }
+        ],
+        "children": [],
+        "confidence": "deterministic_parse",
+        "kind": "predicate",
+        "metadata": {},
+        "name": "succeeds",
+        "node_id": "obligation.0",
+        "provenance": {
+          "derived_from": [
+            "obligation.0"
+          ],
+          "metadata": {},
+          "method": "deterministic_parse",
+          "source_document": "controlled_requirement",
+          "tool": "nlreq.dsl_v3",
+          "tool_version": "0.3"
+        },
+        "scope": [],
+        "source_spans": [
+          {
+            "document": "controlled_requirement",
+            "end_char": 98,
+            "start_char": 76,
+            "text": "operation must succeed"
+          }
+        ]
+      },
+      "node_id": "obligation.root",
+      "provenance": {
+        "derived_from": [
+          "obligation.root"
+        ],
+        "metadata": {},
+        "method": "deterministic_parse",
+        "source_document": "controlled_requirement",
+        "tool": "nlreq.dsl_v3",
+        "tool_version": "0.3"
+      },
+      "scope": [],
+      "source_spans": [
+        {
+          "document": "controlled_requirement",
+          "end_char": 98,
+          "start_char": 71,
+          "text": "then operation must succeed"
+        }
+      ]
+    },
+    "premise": {
+      "annotations": {},
+      "args": [],
+      "children": [
+        {
+          "annotations": {},
+          "args": [
+            {
+              "kind": "identifier",
+              "value": "actor"
+            }
+          ],
+          "children": [],
+          "confidence": "deterministic_parse",
+          "kind": "predicate",
+          "metadata": {},
+          "name": "approved",
+          "node_id": "premise.0",
+          "provenance": {
+            "derived_from": [
+              "premise.0"
+            ],
+            "metadata": {},
+            "method": "deterministic_parse",
+            "source_document": "controlled_requirement",
+            "tool": "nlreq.dsl_v3",
+            "tool_version": "0.3"
+          },
+          "scope": [],
+          "source_spans": [
+            {
+              "document": "controlled_requirement",
+              "end_char": 70,
+              "start_char": 53,
+              "text": "actor is approved"
+            }
+          ]
+        }
+      ],
+      "confidence": "deterministic_parse",
+      "kind": "and",
+      "metadata": {},
+      "node_id": "premise.root",
+      "provenance": {
+        "derived_from": [
+          "premise.root"
+        ],
+        "metadata": {},
+        "method": "deterministic_parse",
+        "source_document": "controlled_requirement",
+        "tool": "nlreq.dsl_v3",
+        "tool_version": "0.3"
+      },
+      "scope": [],
+      "source_spans": [
+        {
+          "document": "controlled_requirement",
+          "end_char": 70,
+          "start_char": 48,
+          "text": "when actor is approved"
+        }
+      ]
+    },
+    "provenance": {
+      "derived_from": [
+        "rule.root"
+      ],
+      "metadata": {},
+      "method": "deterministic_parse",
+      "source_document": "controlled_requirement",
+      "tool": "nlreq.dsl_v3",
+      "tool_version": "0.3"
+    },
+    "scope": [
+      {
+        "annotations": {},
+        "args": [],
+        "children": [],
+        "confidence": "deterministic_parse",
+        "kind": "forall",
+        "metadata": {},
+        "name": "operation",
+        "node_id": "scope.0",
+        "provenance": {
+          "derived_from": [
+            "scope.0"
+          ],
+          "metadata": {},
+          "method": "deterministic_parse",
+          "source_document": "controlled_requirement",
+          "tool": "nlreq.dsl_v3",
+          "tool_version": "0.3"
+        },
+        "scope": [],
+        "source_spans": [
+          {
+            "document": "controlled_requirement",
+            "end_char": 47,
+            "start_char": 32,
+            "text": "scope operation"
+          }
+        ],
+        "target": "Operation"
+      }
+    ],
+    "source_spans": [
+      {
+        "document": "controlled_requirement",
+        "end_char": 98,
+        "start_char": 0,
+        "text": "requirement state_precondition:\nscope operation\nwhen actor is approved\nthen operation must succeed"
+      }
+    ]
+  },
+  "source": {
+    "controlled_text": "requirement state_precondition:\nscope operation\nwhen actor is approved\nthen operation must succeed\n"
+  },
+  "title": "Clean controlled requirement"
+}

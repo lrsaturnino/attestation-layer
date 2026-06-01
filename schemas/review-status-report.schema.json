@@ -1,0 +1,53 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "missing_roles": {
+      "items": {
+        "enum": [
+          "author",
+          "requirement_reviewer",
+          "formal_reviewer",
+          "adapter_evidence_reviewer",
+          "self_audit_reviewer"
+        ],
+        "type": "string"
+      },
+      "title": "Missing Roles",
+      "type": "array"
+    },
+    "review_id": {
+      "title": "Review Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "stale_artifacts": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Stale Artifacts",
+      "type": "array"
+    },
+    "status": {
+      "enum": [
+        "open",
+        "approved",
+        "needs_review",
+        "rejected",
+        "stale"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "review_id",
+    "status"
+  ],
+  "title": "ReviewStatusReport",
+  "type": "object"
+}

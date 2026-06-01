@@ -27,7 +27,7 @@ nlreq = "nlreq.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-nlreq = ["grammar.lark", "dsl_v2.lark"]
+nlreq = ["grammar.lark", "dsl_v2.lark", "dsl_v3.lark"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

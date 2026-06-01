@@ -1,0 +1,55 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "implemented_items": {
+      "title": "Implemented Items",
+      "type": "integer"
+    },
+    "missing_owner_phases": {
+      "items": {
+        "type": "integer"
+      },
+      "title": "Missing Owner Phases",
+      "type": "array"
+    },
+    "numbering_errors": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Numbering Errors",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "failed"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "total_items": {
+      "title": "Total Items",
+      "type": "integer"
+    },
+    "unknown_phase_references": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unknown Phase References",
+      "type": "array"
+    }
+  },
+  "required": [
+    "result",
+    "total_items",
+    "implemented_items"
+  ],
+  "title": "ConclusionGapCheckReport",
+  "type": "object"
+}

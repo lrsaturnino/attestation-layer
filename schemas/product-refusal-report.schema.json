@@ -1,0 +1,146 @@
+{
+  "$defs": {
+    "ProductRefusalFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "refused",
+            "unknown"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "code": {
+          "enum": [
+            "NLR-PARSE-UNSUPPORTED",
+            "NLR-INTAKE-UNAPPROVED",
+            "NLR-TRANSLATION-DISAGREEMENT",
+            "NLR-SELF-CONTRADICTION",
+            "NLR-FORMAL-UNKNOWN",
+            "NLR-SYSTEM-INCONSISTENT",
+            "NLR-SPEC-COVERAGE",
+            "NLR-TRACE-MISMATCH",
+            "NLR-EVIDENCE-PRODUCER",
+            "NLR-CLOSURE-BLOCKED"
+          ],
+          "title": "Code",
+          "type": "string"
+        },
+        "likely_owner": {
+          "title": "Likely Owner",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "next_actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Next Actions",
+          "type": "array"
+        },
+        "no_span_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "No Span Reason"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "code",
+        "category",
+        "stage",
+        "message",
+        "likely_owner"
+      ],
+      "title": "ProductRefusalFinding",
+      "type": "object"
+    },
+    "SourceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "title": "Document",
+          "type": "string"
+        },
+        "end_char": {
+          "minimum": 0,
+          "title": "End Char",
+          "type": "integer"
+        },
+        "start_char": {
+          "minimum": 0,
+          "title": "Start Char",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "start_char",
+        "end_char",
+        "text"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "decision": {
+      "enum": [
+        "accepted",
+        "refused",
+        "unknown"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/ProductRefusalFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "decision"
+  ],
+  "title": "ProductRefusalReport",
+  "type": "object"
+}

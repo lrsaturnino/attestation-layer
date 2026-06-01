@@ -1,0 +1,49 @@
+start: requirement
+
+requirement: "requirement" CLAIM_KIND ":" scope premise_block obligation_block "."?
+scope: "scope" NAME
+premise_block: "when" predicate ("and" predicate)*
+obligation_block: "then" obligation ("and" obligation)*
+
+predicate: NAME "is" "authorized"         -> authorized
+         | NAME "is" "not" "authorized"   -> not_authorized
+         | NAME "is" "approved"           -> approved
+         | NAME "is" "not" "approved"     -> not_approved
+         | NAME "is" "confirmed"          -> confirmed
+         | NAME "state" "is" value        -> state_is
+         | value comp value                -> comparison
+         | NAME "is" "in" NAME            -> membership
+
+obligation: NAME "must" "succeed"                                         -> succeed
+          | NAME "must" "reject" "before" NAME                            -> reject_before
+          | "state" NAME "must" "be" value                                -> state_be
+          | "emit" NAME "within" NUMBER TIME_UNIT                         -> emit_within
+          | "keep" NAME comp value                                        -> keep_comparison
+          | "module" NAME "causes" "module" NAME "to" NAME "within" NUMBER TIME_UNIT -> cross_module_causal
+
+value: ESCAPED_STRING -> string
+     | NUMBER         -> number
+     | NAME           -> name_value
+
+comp: "==" -> eq
+    | "!=" -> neq
+    | "<=" -> lte
+    | ">=" -> gte
+    | "<"  -> lt
+    | ">"  -> gt
+
+CLAIM_KIND: "authorization_precondition"
+          | "state_precondition"
+          | "state_postcondition"
+          | "event_state_correspondence"
+          | "numeric_invariant"
+          | "bounded_temporal"
+          | "cross_module_causal_obligation"
+
+TIME_UNIT: "second" | "seconds" | "minute" | "minutes" | "hour" | "hours" | "day" | "days" | "block" | "blocks"
+NAME: /[A-Za-z_][A-Za-z0-9_]*/
+NUMBER: /[0-9]+(\.[0-9]+)?/
+
+%import common.ESCAPED_STRING
+%import common.WS
+%ignore WS

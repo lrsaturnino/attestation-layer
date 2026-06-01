@@ -1,0 +1,35 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "applied_clarification_id": {
+      "title": "Applied Clarification Id",
+      "type": "string"
+    },
+    "new_text": {
+      "title": "New Text",
+      "type": "string"
+    },
+    "new_text_hash": {
+      "title": "New Text Hash",
+      "type": "string"
+    },
+    "previous_text_hash": {
+      "title": "Previous Text Hash",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "previous_text_hash",
+    "new_text",
+    "new_text_hash",
+    "applied_clarification_id"
+  ],
+  "title": "ClarifiedControlledText",
+  "type": "object"
+}

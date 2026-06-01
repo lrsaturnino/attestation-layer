@@ -35,6 +35,12 @@ from .command_package import (
     run_command_evidence,
     validate_command_package,
 )
+from .conclusion import (
+    ConclusionGapChecklist,
+    build_default_conclusion_definition,
+    build_default_gap_checklist,
+    check_gap_checklist,
+)
 from .continuous import (
     build_attestation_run,
     continuous_attestation_markdown,
@@ -55,6 +61,7 @@ from .formal_backend import (
 )
 from .delta_extractor import build_delta_report, delta_report_markdown
 from .dsl_v2 import DslV2Parser
+from .dsl_v3 import DslV3Parser
 from .evidence_producers import validate_real_evidence_producers
 from .end_to_end_gate import run_end_to_end_requirement_gate
 from .gate import (
@@ -67,6 +74,13 @@ from .graphql_adapter import GraphQlAdapter
 from .graphql_package import build_graphql_package, validate_graphql_package
 from .impact import analyze_source_impact
 from .impact_v2 import SemanticImpactSuggestion, analyze_source_impact_v2
+from .intake import (
+    ControlledRewriteApproval,
+    ControlledRewriteProposal,
+    approve_controlled_rewrite,
+    create_controlled_rewrite_proposal,
+    create_free_form_intake,
+)
 from .javascript_source_adapter import JavaScriptSourceLanguageAdapter
 from .jsonschema_adapter import JsonSchemaAdapter
 from .jsonschema_package import build_json_schema_package, validate_json_schema_package
@@ -93,7 +107,25 @@ from .proof_closure import (
     default_evidence_producer_mapping,
     evaluate_closure_gate,
 )
+from .provenance import (
+    ClarificationResponse,
+    apply_clarification_response,
+    build_provenance_graph,
+    clarification_requests_from_agreement,
+)
 from .requirement_self_consistency import check_requirement_self_consistency
+from .refusal import (
+    ProductRefusalReport,
+    build_refusal_report_from_gate,
+    refusal_report_markdown,
+)
+from .review_workflow import (
+    ApprovalWorkflowArtifact,
+    approve_review,
+    artifact_ref_from_path,
+    open_review,
+    review_status,
+)
 from .status import decide_status
 from .adapter import default_generic_adapter
 from .conformance import AdapterConformanceFixture, assert_adapter_conforms
@@ -124,8 +156,10 @@ from .translator import (
 )
 from .translator_agreement import (
     TranslationAgreementInput,
+    TranslationAgreementReport,
     build_translation_agreement_report,
 )
+from .logical_agreement import build_logical_translation_agreement_report
 from .trace_replay import build_trace_replay_report
 from .tla_adapter import TlaAdapter, load_tla_model_config
 from .tla_package import (
@@ -137,6 +171,17 @@ from .tla_package import (
 from .verification_budget import (
     AbstractionAssumption,
     build_verification_budget_report,
+)
+from .translation_benchmark import (
+    RequirementTranslationCorpus,
+    RequirementTranslationResults,
+    build_translation_benchmark_report,
+)
+from .translator_workbench import (
+    TranslatorRunArtifact,
+    build_deterministic_translator_run,
+    compare_translator_run,
+    select_translator_candidate,
 )
 
 
@@ -157,6 +202,27 @@ def main(argv: list[str] | None = None) -> int:
     ir_v2_cmd.add_argument("file", type=Path)
     ir_v2_cmd.add_argument("--requirement-id", required=True)
     ir_v2_cmd.add_argument("--title", required=True)
+
+    ir_v3_cmd = subcommands.add_parser("ir-v3", help="Parse DSL v3 to compositional IR JSON.")
+    ir_v3_cmd.add_argument("file", type=Path)
+    ir_v3_cmd.add_argument("--requirement-id", required=True)
+    ir_v3_cmd.add_argument("--title", required=True)
+
+    conclusion_definition_cmd = subcommands.add_parser(
+        "conclusion-definition", help="Emit the conclusion definition artifact."
+    )
+    conclusion_definition_cmd.add_argument("--out", type=Path)
+
+    conclusion_gap_checklist_cmd = subcommands.add_parser(
+        "conclusion-gap-checklist", help="Emit the machine-readable conclusion gap checklist."
+    )
+    conclusion_gap_checklist_cmd.add_argument("--out", type=Path)
+
+    conclusion_gap_check_cmd = subcommands.add_parser(
+        "conclusion-gap-check", help="Validate conclusion gap phase and ADR references."
+    )
+    conclusion_gap_check_cmd.add_argument("checklist", type=Path)
+    conclusion_gap_check_cmd.add_argument("--out", type=Path)
 
     package_cmd = subcommands.add_parser("package", help="Build a Phase 0 requirement package.")
     package_cmd.add_argument("file", type=Path)
@@ -228,6 +294,37 @@ def main(argv: list[str] | None = None) -> int:
     draft_cmd.add_argument("--model")
     draft_cmd.add_argument("--prompt")
 
+    intake_draft_cmd = subcommands.add_parser(
+        "intake-draft", help="Create free-form intake and controlled rewrite proposal artifacts."
+    )
+    intake_draft_cmd.add_argument("original", type=Path)
+    intake_draft_cmd.add_argument("--suggested", type=Path, required=True)
+    intake_draft_cmd.add_argument("--out", type=Path, required=True)
+    intake_draft_cmd.add_argument("--intake-out", type=Path)
+    intake_draft_cmd.add_argument("--intake-id", required=True)
+    intake_draft_cmd.add_argument("--proposal-id", required=True)
+    intake_draft_cmd.add_argument("--submitted-by")
+    intake_draft_cmd.add_argument("--submitted-at", default="2026-06-01T00:00:00Z")
+    intake_draft_cmd.add_argument("--timestamp", default="2026-06-01T00:00:00Z")
+    intake_draft_cmd.add_argument("--method", choices=["manual", "llm", "rule_based"], default="manual")
+    intake_draft_cmd.add_argument("--model")
+    intake_draft_cmd.add_argument("--prompt")
+
+    intake_approve_cmd = subcommands.add_parser(
+        "intake-approve", help="Approve or reject a controlled rewrite proposal."
+    )
+    intake_approve_cmd.add_argument("proposal", type=Path)
+    intake_approve_cmd.add_argument("--approval-id", required=True)
+    intake_approve_cmd.add_argument("--approved-by", required=True)
+    intake_approve_cmd.add_argument("--approved-at", default="2026-06-01T00:00:00Z")
+    intake_approve_cmd.add_argument("--decision", choices=["approved", "rejected"], default="approved")
+    intake_approve_cmd.add_argument("--out", type=Path, required=True)
+
+    intake_diff_cmd = subcommands.add_parser(
+        "intake-diff", help="Print the hash-linked diff for a controlled rewrite proposal."
+    )
+    intake_diff_cmd.add_argument("proposal", type=Path)
+
     approve_draft_cmd = subcommands.add_parser(
         "approve-draft", help="Approve a controlled-text draft artifact."
     )
@@ -254,6 +351,92 @@ def main(argv: list[str] | None = None) -> int:
     )
     translator_agreement_cmd.add_argument("input", type=Path)
     translator_agreement_cmd.add_argument("--out", type=Path)
+
+    logical_translator_agreement_cmd = subcommands.add_parser(
+        "logical-translator-agreement", help="Compare translations with logical equivalence methods."
+    )
+    logical_translator_agreement_cmd.add_argument("input", type=Path)
+    logical_translator_agreement_cmd.add_argument("--out", type=Path)
+
+    translate_candidates_cmd = subcommands.add_parser(
+        "translate-candidates", help="Build a multi-pass translator candidate run."
+    )
+    translate_candidates_cmd.add_argument("file", type=Path)
+    translate_candidates_cmd.add_argument("--run-id", required=True)
+    translate_candidates_cmd.add_argument("--requirement-id", required=True)
+    translate_candidates_cmd.add_argument("--title", required=True)
+    translate_candidates_cmd.add_argument("--out", type=Path, required=True)
+
+    translate_compare_cmd = subcommands.add_parser(
+        "translate-compare", help="Compare translator workbench candidates."
+    )
+    translate_compare_cmd.add_argument("run", type=Path)
+    translate_compare_cmd.add_argument("--out", type=Path)
+
+    translate_select_cmd = subcommands.add_parser(
+        "translate-select", help="Select a reviewed translator candidate."
+    )
+    translate_select_cmd.add_argument("run", type=Path)
+    translate_select_cmd.add_argument("--candidate-id", required=True)
+    translate_select_cmd.add_argument("--approved-by", required=True)
+    translate_select_cmd.add_argument("--approved-at", default="2026-06-01T00:00:00Z")
+    translate_select_cmd.add_argument("--run-out", type=Path)
+    translate_select_cmd.add_argument("--out", type=Path, required=True)
+
+    provenance_graph_cmd = subcommands.add_parser(
+        "provenance-graph", help="Build bidirectional text/IR/formal provenance graph."
+    )
+    provenance_graph_cmd.add_argument("--requirement-ir", type=Path, required=True)
+    provenance_graph_cmd.add_argument("--lowered", type=Path)
+    provenance_graph_cmd.add_argument("--out", type=Path)
+
+    clarify_cmd = subcommands.add_parser(
+        "clarify", help="Emit clarification requests from translator agreement."
+    )
+    clarify_cmd.add_argument("--agreement", type=Path, required=True)
+    clarify_cmd.add_argument("--out", type=Path)
+
+    apply_clarification_cmd = subcommands.add_parser(
+        "apply-clarification", help="Apply a clarification response to controlled text."
+    )
+    apply_clarification_cmd.add_argument("--controlled", type=Path, required=True)
+    apply_clarification_cmd.add_argument("--response", type=Path, required=True)
+    apply_clarification_cmd.add_argument("--out", type=Path, required=True)
+
+    review_open_cmd = subcommands.add_parser(
+        "review-open", help="Open a hash-bound requirement review workflow."
+    )
+    review_open_cmd.add_argument("--review-id", required=True)
+    review_open_cmd.add_argument("--requirement-id", required=True)
+    review_open_cmd.add_argument("--artifact", action="append", required=True)
+    review_open_cmd.add_argument("--out", type=Path, required=True)
+
+    review_approve_cmd = subcommands.add_parser(
+        "review-approve", help="Record a hash-bound review approval."
+    )
+    review_approve_cmd.add_argument("workflow", type=Path)
+    review_approve_cmd.add_argument("--role", required=True)
+    review_approve_cmd.add_argument("--reviewer", required=True)
+    review_approve_cmd.add_argument("--decision", choices=["approved", "needs_review", "rejected"], default="approved")
+    review_approve_cmd.add_argument("--approved-at", default="2026-06-01T00:00:00Z")
+    review_approve_cmd.add_argument("--artifact", action="append", default=[])
+    review_approve_cmd.add_argument("--self-audit", action="store_true")
+    review_approve_cmd.add_argument("--self-audit-delay-hours", type=int)
+    review_approve_cmd.add_argument("--out", type=Path, required=True)
+
+    review_status_cmd = subcommands.add_parser(
+        "review-status", help="Report whether review approvals are current."
+    )
+    review_status_cmd.add_argument("workflow", type=Path)
+    review_status_cmd.add_argument("--artifact", action="append", default=[])
+    review_status_cmd.add_argument("--out", type=Path)
+
+    refusal_render_cmd = subcommands.add_parser(
+        "refusal-render", help="Render an end-to-end gate refusal report."
+    )
+    refusal_render_cmd.add_argument("gate_report", type=Path)
+    refusal_render_cmd.add_argument("--out", type=Path)
+    refusal_render_cmd.add_argument("--markdown-out", type=Path)
 
     python_source_impact_cmd = subcommands.add_parser(
         "python-source-impact", help="Run deterministic Python source impact analysis."
@@ -498,6 +681,7 @@ def main(argv: list[str] | None = None) -> int:
     requirement_gate_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     requirement_gate_cmd.add_argument("--artifact-dir", type=Path, required=True)
     requirement_gate_cmd.add_argument("--out", type=Path)
+    requirement_gate_cmd.add_argument("--markdown-out", type=Path)
     requirement_gate_cmd.add_argument("--downstream-action", default="merge")
     requirement_gate_cmd.add_argument("--self-check-backend", default="tla-runner")
     requirement_gate_cmd.add_argument("--checker-id")
@@ -522,6 +706,14 @@ def main(argv: list[str] | None = None) -> int:
     benchmark_corpus_cmd.add_argument("--corpus", type=Path, required=True)
     benchmark_corpus_cmd.add_argument("--results", type=Path, required=True)
     benchmark_corpus_cmd.add_argument("--out", type=Path)
+
+    benchmark_translation_cmd = subcommands.add_parser(
+        "benchmark-translation",
+        help="Evaluate translation workbench results against a requirement translation corpus.",
+    )
+    benchmark_translation_cmd.add_argument("--corpus", type=Path, required=True)
+    benchmark_translation_cmd.add_argument("--results", type=Path, required=True)
+    benchmark_translation_cmd.add_argument("--out", type=Path)
 
     validate_cmd = subcommands.add_parser("validate", help="Validate a package directory.")
     validate_cmd.add_argument("package_dir", type=Path)
@@ -994,6 +1186,45 @@ def main(argv: list[str] | None = None) -> int:
             )
             print(canonical_json(ir))
             return 0
+        if args.command == "ir-v3":
+            ir = DslV3Parser().parse_ir(
+                args.file.read_text(),
+                requirement_id=args.requirement_id,
+                title=args.title,
+            )
+            print(canonical_json(ir))
+            return 0
+        if args.command == "conclusion-definition":
+            from .jsonutil import write_json
+
+            artifact = build_default_conclusion_definition()
+            if args.out:
+                write_json(args.out, artifact)
+                print(f"Conclusion definition: {args.out}")
+            else:
+                print(canonical_json(artifact), end="")
+            return 0
+        if args.command == "conclusion-gap-checklist":
+            from .jsonutil import write_json
+
+            checklist = build_default_gap_checklist()
+            if args.out:
+                write_json(args.out, checklist)
+                print(f"Conclusion gap checklist: {args.out}")
+            else:
+                print(canonical_json(checklist), end="")
+            return 0
+        if args.command == "conclusion-gap-check":
+            from .jsonutil import write_json
+
+            checklist = ConclusionGapChecklist.model_validate_json(args.checklist.read_text())
+            report = check_gap_checklist(checklist)
+            if args.out:
+                write_json(args.out, report)
+                print(f"Conclusion gap check: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "passed" else 1
         if args.command == "package":
             build_package(
                 controlled_text=args.file.read_text(),
@@ -1085,6 +1316,48 @@ def main(argv: list[str] | None = None) -> int:
             write_json(args.out, draft)
             print(f"Controlled draft: {args.out}")
             return 0
+        if args.command == "intake-draft":
+            from .jsonutil import write_json
+
+            intake = create_free_form_intake(
+                intake_id=args.intake_id,
+                original_text=args.original.read_text(),
+                submitted_by=args.submitted_by,
+                submitted_at=args.submitted_at,
+            )
+            proposal = create_controlled_rewrite_proposal(
+                intake=intake,
+                proposal_id=args.proposal_id,
+                proposed_controlled_text=args.suggested.read_text(),
+                timestamp=args.timestamp,
+                method=args.method,
+                model=args.model,
+                prompt=args.prompt,
+            )
+            if args.intake_out:
+                write_json(args.intake_out, intake)
+                print(f"Free-form intake: {args.intake_out}")
+            write_json(args.out, proposal)
+            print(f"Controlled rewrite proposal: {args.out}")
+            return 0
+        if args.command == "intake-approve":
+            from .jsonutil import write_json
+
+            proposal = ControlledRewriteProposal.model_validate_json(args.proposal.read_text())
+            approval = approve_controlled_rewrite(
+                proposal,
+                approval_id=args.approval_id,
+                approved_by=args.approved_by,
+                approved_at=args.approved_at,
+                decision=args.decision,
+            )
+            write_json(args.out, approval)
+            print(f"Controlled rewrite approval: {args.out}")
+            return 0
+        if args.command == "intake-diff":
+            proposal = ControlledRewriteProposal.model_validate_json(args.proposal.read_text())
+            print(proposal.diff, end="")
+            return 0
         if args.command == "approve-draft":
             from .jsonutil import write_json
 
@@ -1131,6 +1404,164 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Translator agreement report: {args.out}")
             else:
                 print(canonical_json(report), end="")
+            return 0
+        if args.command == "logical-translator-agreement":
+            from .jsonutil import write_json
+
+            agreement_input = TranslationAgreementInput.model_validate_json(args.input.read_text())
+            report = build_logical_translation_agreement_report(agreement_input.candidates)
+            if args.out:
+                write_json(args.out, report)
+                print(f"Logical translator agreement report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0
+        if args.command == "translate-candidates":
+            from .jsonutil import write_json
+
+            run = build_deterministic_translator_run(
+                run_id=args.run_id,
+                controlled_text=args.file.read_text(),
+                requirement_id=args.requirement_id,
+                title=args.title,
+            )
+            write_json(args.out, run)
+            print(f"Translator run: {args.out}")
+            return 0
+        if args.command == "translate-compare":
+            from .jsonutil import write_json
+
+            run = TranslatorRunArtifact.model_validate_json(args.run.read_text())
+            report = compare_translator_run(run)
+            if args.out:
+                write_json(args.out, report)
+                print(f"Translator comparison report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0
+        if args.command == "translate-select":
+            from .jsonutil import write_json
+
+            run = TranslatorRunArtifact.model_validate_json(args.run.read_text())
+            updated, selection = select_translator_candidate(
+                run,
+                candidate_id=args.candidate_id,
+                approved_by=args.approved_by,
+                approved_at=args.approved_at,
+            )
+            if args.run_out:
+                write_json(args.run_out, updated)
+                print(f"Updated translator run: {args.run_out}")
+            write_json(args.out, selection)
+            print(f"Translator selection: {args.out}")
+            return 0
+        if args.command == "provenance-graph":
+            from .jsonutil import write_json
+            from .models import RequirementIRV2
+            from .translator import LoweredFormalArtifact
+
+            ir = validate_requirement_ir_json(args.requirement_ir.read_text())
+            if not isinstance(ir, RequirementIRV2):
+                raise ValueError("provenance-graph requires ir_version 0.2")
+            graph = build_provenance_graph(
+                ir,
+                lowered=LoweredFormalArtifact.model_validate_json(args.lowered.read_text())
+                if args.lowered
+                else None,
+            )
+            if args.out:
+                write_json(args.out, graph)
+                print(f"Provenance graph: {args.out}")
+            else:
+                print(canonical_json(graph), end="")
+            return 0
+        if args.command == "clarify":
+            from .jsonutil import write_json
+
+            raw_agreement = read_json(args.agreement)
+            if "candidates" in raw_agreement:
+                agreement = build_translation_agreement_report(
+                    TranslationAgreementInput.model_validate(raw_agreement)
+                )
+            else:
+                agreement = TranslationAgreementReport.model_validate(raw_agreement)
+            requests = clarification_requests_from_agreement(agreement)
+            if args.out:
+                write_json(args.out, requests)
+                print(f"Clarification requests: {args.out}")
+            else:
+                print(canonical_json(requests), end="")
+            return 0
+        if args.command == "apply-clarification":
+            from .jsonutil import write_json
+
+            response = ClarificationResponse.model_validate_json(args.response.read_text())
+            artifact = apply_clarification_response(args.controlled.read_text(), response)
+            write_json(args.out, artifact)
+            print(f"Clarified controlled text: {args.out}")
+            return 0
+        if args.command == "review-open":
+            from .jsonutil import write_json
+
+            workflow = open_review(
+                review_id=args.review_id,
+                requirement_id=args.requirement_id,
+                artifact_refs=_artifact_refs_from_args(args.artifact),
+            )
+            write_json(args.out, workflow)
+            print(f"Review workflow: {args.out}")
+            return 0
+        if args.command == "review-approve":
+            from .jsonutil import write_json
+
+            workflow = ApprovalWorkflowArtifact.model_validate_json(args.workflow.read_text())
+            updated = approve_review(
+                workflow,
+                role=args.role,
+                reviewer=args.reviewer,
+                decision=args.decision,
+                approved_at=args.approved_at,
+                current_artifact_refs=_artifact_refs_from_args(args.artifact)
+                if args.artifact
+                else None,
+                self_audit=args.self_audit,
+                self_audit_delay_hours=args.self_audit_delay_hours,
+            )
+            write_json(args.out, updated)
+            print(f"Review workflow: {args.out}")
+            return 0
+        if args.command == "review-status":
+            from .jsonutil import write_json
+
+            workflow = ApprovalWorkflowArtifact.model_validate_json(args.workflow.read_text())
+            report = review_status(
+                workflow,
+                current_artifact_refs=_artifact_refs_from_args(args.artifact)
+                if args.artifact
+                else None,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Review status: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0
+        if args.command == "refusal-render":
+            from .jsonutil import write_json
+            from .end_to_end_gate import EndToEndRequirementGateReport
+
+            gate_report = EndToEndRequirementGateReport.model_validate_json(
+                args.gate_report.read_text()
+            )
+            report = build_refusal_report_from_gate(gate_report)
+            if args.out:
+                write_json(args.out, report)
+                print(f"Refusal report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            if args.markdown_out:
+                args.markdown_out.write_text(refusal_report_markdown(report))
+                print(f"Refusal markdown: {args.markdown_out}")
             return 0
         if args.command == "python-source-impact":
             from .jsonutil import write_json
@@ -1661,6 +2092,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Requirement gate report: {args.out}")
             else:
                 print(canonical_json(report), end="")
+            if args.markdown_out:
+                refusal = build_refusal_report_from_gate(report)
+                args.markdown_out.write_text(refusal_report_markdown(refusal))
+                print(f"Requirement gate markdown: {args.markdown_out}")
             if args.fail_on_refusal and report.decision != "accepted":
                 return 1
             return 0
@@ -1675,6 +2110,19 @@ def main(argv: list[str] | None = None) -> int:
             if args.out:
                 write_json(args.out, report)
                 print(f"Benchmark corpus report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0
+        if args.command == "benchmark-translation":
+            from .jsonutil import write_json
+
+            report = build_translation_benchmark_report(
+                RequirementTranslationCorpus.model_validate_json(args.corpus.read_text()),
+                RequirementTranslationResults.model_validate_json(args.results.read_text()),
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Requirement translation benchmark report: {args.out}")
             else:
                 print(canonical_json(report), end="")
             return 0
@@ -2921,6 +3369,18 @@ def _command_conformance_checks() -> CommandChecksArtifact:
             ]
         }
     )
+
+
+def _artifact_refs_from_args(values: list[str]):
+    refs = []
+    for value in values:
+        if "=" not in value:
+            raise ValueError("--artifact values must use name=path")
+        name, raw_path = value.split("=", 1)
+        if not name:
+            raise ValueError("--artifact name cannot be empty")
+        refs.append(artifact_ref_from_path(name, Path(raw_path)))
+    return refs
 
 
 if __name__ == "__main__":

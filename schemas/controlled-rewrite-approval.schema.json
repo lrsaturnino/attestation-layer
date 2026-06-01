@@ -1,0 +1,66 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "approval_id": {
+      "title": "Approval Id",
+      "type": "string"
+    },
+    "approved_at": {
+      "title": "Approved At",
+      "type": "string"
+    },
+    "approved_by": {
+      "title": "Approved By",
+      "type": "string"
+    },
+    "approved_controlled_text_hash": {
+      "title": "Approved Controlled Text Hash",
+      "type": "string"
+    },
+    "approved_diff_hash": {
+      "title": "Approved Diff Hash",
+      "type": "string"
+    },
+    "decision": {
+      "enum": [
+        "approved",
+        "rejected"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "notes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Notes",
+      "type": "array"
+    },
+    "proposal_id": {
+      "title": "Proposal Id",
+      "type": "string"
+    },
+    "reviewed_original_text_hash": {
+      "title": "Reviewed Original Text Hash",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "approval_id",
+    "proposal_id",
+    "decision",
+    "approved_by",
+    "approved_at",
+    "approved_controlled_text_hash",
+    "approved_diff_hash",
+    "reviewed_original_text_hash"
+  ],
+  "title": "ControlledRewriteApproval",
+  "type": "object"
+}

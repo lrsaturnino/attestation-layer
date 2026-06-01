@@ -1,0 +1,4 @@
+requirement state_precondition:
+scope operation
+when actor is approved
+then operation must succeed

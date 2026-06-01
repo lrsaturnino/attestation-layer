@@ -1,0 +1,150 @@
+{
+  "$defs": {
+    "ProvenanceEdge": {
+      "additionalProperties": false,
+      "properties": {
+        "from_node": {
+          "title": "From Node",
+          "type": "string"
+        },
+        "relation": {
+          "enum": [
+            "parsed_to",
+            "lowered_to",
+            "explains",
+            "refuses"
+          ],
+          "title": "Relation",
+          "type": "string"
+        },
+        "to_node": {
+          "title": "To Node",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from_node",
+        "to_node",
+        "relation"
+      ],
+      "title": "ProvenanceEdge",
+      "type": "object"
+    },
+    "ProvenanceNode": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Hash"
+        },
+        "kind": {
+          "enum": [
+            "text_span",
+            "ir_node",
+            "formal_fragment",
+            "refusal_reason"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "source_span": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceSpan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "node_id",
+        "kind",
+        "label"
+      ],
+      "title": "ProvenanceNode",
+      "type": "object"
+    },
+    "SourceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "title": "Document",
+          "type": "string"
+        },
+        "end_char": {
+          "minimum": 0,
+          "title": "End Char",
+          "type": "integer"
+        },
+        "start_char": {
+          "minimum": 0,
+          "title": "Start Char",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "start_char",
+        "end_char",
+        "text"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "edges": {
+      "items": {
+        "$ref": "#/$defs/ProvenanceEdge"
+      },
+      "title": "Edges",
+      "type": "array"
+    },
+    "nodes": {
+      "items": {
+        "$ref": "#/$defs/ProvenanceNode"
+      },
+      "title": "Nodes",
+      "type": "array"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requirement_id"
+  ],
+  "title": "ProvenanceGraph",
+  "type": "object"
+}

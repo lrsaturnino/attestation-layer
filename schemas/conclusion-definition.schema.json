@@ -1,0 +1,85 @@
+{
+  "$defs": {
+    "ReleaseBar": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_evidence_labels": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Evidence Labels",
+          "type": "array"
+        },
+        "forbidden_claims": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Forbidden Claims",
+          "type": "array"
+        },
+        "minimum_capabilities": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Minimum Capabilities",
+          "type": "array"
+        },
+        "name": {
+          "enum": [
+            "alpha",
+            "beta",
+            "conclusion"
+          ],
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "minimum_capabilities",
+        "allowed_evidence_labels"
+      ],
+      "title": "ReleaseBar",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "definition_id": {
+      "title": "Definition Id",
+      "type": "string"
+    },
+    "evidence_label_policy": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Evidence Label Policy",
+      "type": "object"
+    },
+    "release_bars": {
+      "items": {
+        "$ref": "#/$defs/ReleaseBar"
+      },
+      "title": "Release Bars",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "target_statement": {
+      "title": "Target Statement",
+      "type": "string"
+    }
+  },
+  "required": [
+    "definition_id",
+    "target_statement",
+    "release_bars",
+    "evidence_label_policy"
+  ],
+  "title": "ConclusionDefinition",
+  "type": "object"
+}

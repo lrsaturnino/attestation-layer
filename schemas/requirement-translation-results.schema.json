@@ -1,0 +1,84 @@
+{
+  "$defs": {
+    "RequirementTranslationCaseResult": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "title": "Case Id",
+          "type": "string"
+        },
+        "clarification_questions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Clarification Questions",
+          "type": "array"
+        },
+        "outcome": {
+          "enum": [
+            "accepted",
+            "clarification",
+            "refused"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "refusal_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refusal Code"
+        },
+        "runtime_ms": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Runtime Ms",
+          "type": "integer"
+        },
+        "semantic_match": {
+          "default": false,
+          "title": "Semantic Match",
+          "type": "boolean"
+        },
+        "syntactically_valid": {
+          "default": false,
+          "title": "Syntactically Valid",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "case_id",
+        "outcome"
+      ],
+      "title": "RequirementTranslationCaseResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "results": {
+      "items": {
+        "$ref": "#/$defs/RequirementTranslationCaseResult"
+      },
+      "title": "Results",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "results"
+  ],
+  "title": "RequirementTranslationResults",
+  "type": "object"
+}

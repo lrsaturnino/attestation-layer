@@ -1,0 +1,100 @@
+{
+  "$defs": {
+    "GapChecklistItem": {
+      "additionalProperties": false,
+      "properties": {
+        "capability": {
+          "title": "Capability",
+          "type": "string"
+        },
+        "capability_id": {
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "deliverables": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Deliverables",
+          "type": "array"
+        },
+        "gap_type": {
+          "enum": [
+            "architecture",
+            "implementation",
+            "research",
+            "product",
+            "benchmark",
+            "adoption"
+          ],
+          "title": "Gap Type",
+          "type": "string"
+        },
+        "owner_phase": {
+          "title": "Owner Phase",
+          "type": "integer"
+        },
+        "required_adr": {
+          "title": "Required Adr",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "implemented",
+            "planned",
+            "blocked",
+            "deferred"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "capability_id",
+        "capability",
+        "gap_type",
+        "status",
+        "owner_phase",
+        "required_adr"
+      ],
+      "title": "GapChecklistItem",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "items": {
+      "items": {
+        "$ref": "#/$defs/GapChecklistItem"
+      },
+      "title": "Items",
+      "type": "array"
+    },
+    "phase_max": {
+      "default": 82,
+      "title": "Phase Max",
+      "type": "integer"
+    },
+    "phase_min": {
+      "default": 46,
+      "title": "Phase Min",
+      "type": "integer"
+    },
+    "roadmap": {
+      "title": "Roadmap",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "roadmap",
+    "items"
+  ],
+  "title": "ConclusionGapChecklist",
+  "type": "object"
+}

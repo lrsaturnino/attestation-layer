@@ -1,0 +1,27 @@
+{
+  "results": [
+    {
+      "case_id": "clean-controlled",
+      "outcome": "accepted",
+      "semantic_match": true,
+      "syntactically_valid": true
+    },
+    {
+      "case_id": "ambiguous-pronoun",
+      "clarification_questions": [
+        "What does it refer to?"
+      ],
+      "outcome": "clarification",
+      "semantic_match": false,
+      "syntactically_valid": false
+    },
+    {
+      "case_id": "adversarial",
+      "outcome": "refused",
+      "refusal_code": "NLR-PARSE-UNSUPPORTED",
+      "semantic_match": false,
+      "syntactically_valid": false
+    }
+  ],
+  "schema_version": "0.1"
+}

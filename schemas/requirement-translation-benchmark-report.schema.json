@@ -1,0 +1,153 @@
+{
+  "$defs": {
+    "RequirementTranslationObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "title": "Case Id",
+          "type": "string"
+        },
+        "expected_outcome": {
+          "enum": [
+            "accepted",
+            "clarification",
+            "refused"
+          ],
+          "title": "Expected Outcome",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "observed_outcome": {
+          "anyOf": [
+            {
+              "enum": [
+                "accepted",
+                "clarification",
+                "refused"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed Outcome"
+        },
+        "status": {
+          "enum": [
+            "matched",
+            "missing",
+            "semantic_mismatch",
+            "clarification_mismatch",
+            "refusal_mismatch",
+            "outcome_mismatch"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case_id",
+        "expected_outcome",
+        "status"
+      ],
+      "title": "RequirementTranslationObservation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "clarification_quality": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Clarification Quality"
+    },
+    "corpus_id": {
+      "title": "Corpus Id",
+      "type": "string"
+    },
+    "matched_cases": {
+      "title": "Matched Cases",
+      "type": "integer"
+    },
+    "observations": {
+      "items": {
+        "$ref": "#/$defs/RequirementTranslationObservation"
+      },
+      "title": "Observations",
+      "type": "array"
+    },
+    "refusal_correctness": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Refusal Correctness"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "failed"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "runtime_ms_total": {
+      "title": "Runtime Ms Total",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "semantic_match_rate": {
+      "title": "Semantic Match Rate",
+      "type": "number"
+    },
+    "syntactic_validity_rate": {
+      "title": "Syntactic Validity Rate",
+      "type": "number"
+    },
+    "total_cases": {
+      "title": "Total Cases",
+      "type": "integer"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "corpus_id",
+    "version",
+    "result",
+    "total_cases",
+    "matched_cases",
+    "syntactic_validity_rate",
+    "semantic_match_rate",
+    "runtime_ms_total"
+  ],
+  "title": "RequirementTranslationBenchmarkReport",
+  "type": "object"
+}

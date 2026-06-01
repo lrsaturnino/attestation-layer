@@ -1,0 +1,143 @@
+{
+  "$defs": {
+    "RewriteProducerMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "method": {
+          "default": "manual",
+          "enum": [
+            "manual",
+            "llm",
+            "rule_based"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt"
+        },
+        "prompt_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Hash"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "tool": {
+          "default": "nlreq.intake",
+          "title": "Tool",
+          "type": "string"
+        },
+        "tool_version": {
+          "default": "0.1",
+          "title": "Tool Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "timestamp"
+      ],
+      "title": "RewriteProducerMetadata",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "diff": {
+      "title": "Diff",
+      "type": "string"
+    },
+    "diff_hash": {
+      "title": "Diff Hash",
+      "type": "string"
+    },
+    "intake_id": {
+      "title": "Intake Id",
+      "type": "string"
+    },
+    "original_text_hash": {
+      "title": "Original Text Hash",
+      "type": "string"
+    },
+    "producer": {
+      "$ref": "#/$defs/RewriteProducerMetadata"
+    },
+    "proposal_id": {
+      "title": "Proposal Id",
+      "type": "string"
+    },
+    "proposed_controlled_text": {
+      "title": "Proposed Controlled Text",
+      "type": "string"
+    },
+    "proposed_controlled_text_hash": {
+      "title": "Proposed Controlled Text Hash",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "default": "needs_approval",
+      "enum": [
+        "needs_approval",
+        "approved",
+        "rejected"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "proposal_id",
+    "intake_id",
+    "original_text_hash",
+    "proposed_controlled_text",
+    "proposed_controlled_text_hash",
+    "diff",
+    "diff_hash",
+    "producer"
+  ],
+  "title": "ControlledRewriteProposal",
+  "type": "object"
+}

@@ -1,0 +1,101 @@
+{
+  "$defs": {
+    "LogicalAgreementComparison": {
+      "additionalProperties": false,
+      "properties": {
+        "left_translator_id": {
+          "title": "Left Translator Id",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "method": {
+          "enum": [
+            "normalized_ir_equality",
+            "alpha_renaming",
+            "commutative_predicate_equivalence",
+            "smt_simple_predicate_equivalence",
+            "bounded_trace_equivalence",
+            "unsupported"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "right_translator_id": {
+          "title": "Right Translator Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "agreed",
+            "conflict",
+            "needs_review"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "left_translator_id",
+        "right_translator_id",
+        "status",
+        "method",
+        "message"
+      ],
+      "title": "LogicalAgreementComparison",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "candidate_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Candidate Hashes",
+      "type": "object"
+    },
+    "comparisons": {
+      "items": {
+        "$ref": "#/$defs/LogicalAgreementComparison"
+      },
+      "title": "Comparisons",
+      "type": "array"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "agreed",
+        "conflict",
+        "needs_review"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "status",
+    "candidate_hashes"
+  ],
+  "title": "LogicalTranslationAgreementReport",
+  "type": "object"
+}

@@ -1,0 +1,72 @@
+{
+  "definition_id": "nl-attestation-conclusion-v1",
+  "evidence_label_policy": {
+    "BOUNDED_CHECKED": "May describe bounded model checking only with recorded bounds.",
+    "PROVEN_INDUCTIVE": "May be emitted only by a registered proof-producing backend.",
+    "REVIEWED": "Requires hash-bound human approval.",
+    "TRACE_VALIDATED": "May describe observed runtime traces, not theorem-level proof."
+  },
+  "release_bars": [
+    {
+      "allowed_evidence_labels": [
+        "TYPE_CHECKED",
+        "STATICALLY_RESOLVED",
+        "REVIEWED",
+        "BOUNDED_CHECKED"
+      ],
+      "forbidden_claims": [
+        "unbounded proof",
+        "silent semantic rewrite"
+      ],
+      "minimum_capabilities": [
+        "approved_controlled_intake",
+        "deterministic_ir",
+        "explicit_refusal"
+      ],
+      "name": "alpha"
+    },
+    {
+      "allowed_evidence_labels": [
+        "TYPE_CHECKED",
+        "STATICALLY_RESOLVED",
+        "REVIEWED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED"
+      ],
+      "forbidden_claims": [
+        "PROVEN_INDUCTIVE without proof-producing backend"
+      ],
+      "minimum_capabilities": [
+        "formal_backend_execution",
+        "system_consistency",
+        "trace_grounding"
+      ],
+      "name": "beta"
+    },
+    {
+      "allowed_evidence_labels": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "forbidden_claims": [
+        "full NL correctness",
+        "full program correctness"
+      ],
+      "minimum_capabilities": [
+        "cross_language_closure",
+        "signed_retained_evidence",
+        "public_benchmark_accountability"
+      ],
+      "name": "conclusion"
+    }
+  ],
+  "schema_version": "0.1",
+  "target_statement": "Human requirements must become approved controlled requirements, checked IR, self-consistent claims, system-compatible formal artifacts, grounded code and trace evidence, and a closed proof object before downstream action is allowed."
+}
