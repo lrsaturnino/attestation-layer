@@ -24,14 +24,15 @@ CLI:
 uv run nlreq translate-candidates requirement.nlreq3 --run-id RUN-1 \
   --requirement-id REQ-1 --title "Requirement" --out run.json
 uv run nlreq translate-compare run.json --out comparison.json
-uv run nlreq translate-select run.json --candidate-id candidate-dsl-v3 \
+uv run nlreq translate-select run.json --candidate-id candidate-dsl-v3-parser \
   --approved-by reviewer@example.invalid --out selection.json
 ```
 
 ## Invariants
 
 - Candidate generation records source text hash and replay metadata.
-- Candidate comparison feeds the existing translation agreement report.
+- Candidate comparison validates source text hashes and feeds the existing
+  translation agreement report.
 - LLM candidates cannot be selected unless explicitly approved.
 
 ## Exit Criteria
@@ -57,10 +58,19 @@ Output artifacts:
 - `TranslatorSelectionArtifact` records selected candidate hash and selection
   approval.
 
+Default candidate generation:
+
+- The CLI emits a deterministic DSL v3 parser candidate and a deterministic
+  rule-based post-processor candidate over canonical controlled text.
+- Both candidates carry the same source text hash and separate replay metadata.
+- Single-candidate runs remain supported for narrow tests and diagnostics, but
+  the product command produces a comparison-ready run by default.
+
 Comparison behavior:
 
 - `compare_translator_run` converts workbench candidates into the existing
   `TranslationAgreementInput` shape.
+- Candidate source hashes must match the run source hash or comparison fails.
 - Runs with only one candidate produce `needs_review` through the structural
   agreement layer.
 - Later logical agreement can consume selected or compared candidates without
@@ -68,6 +78,7 @@ Comparison behavior:
 
 Selection behavior:
 
+- Candidate source hashes must match the run source hash or selection fails.
 - Deterministic and manual candidates may be selected with an explicit reviewer
   approval.
 - LLM candidates require a candidate-level approval before selection.
@@ -76,7 +87,7 @@ Selection behavior:
 Tests:
 
 - `tests/test_milestone_group1.py` verifies single-candidate review blocking
-  and approved candidate selection.
+  approved candidate selection, and CLI multi-pass candidate generation.
 
 Out of scope:
 

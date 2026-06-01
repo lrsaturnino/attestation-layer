@@ -56,7 +56,10 @@ def build_refusal_report_from_gate(report: EndToEndRequirementGateReport) -> Pro
                 category="unknown" if blocker.status == "unknown" else "refused",
                 stage=blocker.stage,
                 message=blocker.message,
-                no_span_reason="end-to-end blocker is stage-level; inspect linked artifacts for fragment spans",
+                source_spans=blocker.source_spans,
+                no_span_reason=None
+                if blocker.source_spans
+                else "end-to-end blocker is stage-level; inspect linked artifacts for fragment spans",
                 next_actions=_next_actions(blocker.stage, blocker.status),
                 likely_owner=_owner_for_stage(blocker.stage),
             )

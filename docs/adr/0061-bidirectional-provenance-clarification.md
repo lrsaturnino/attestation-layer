@@ -15,7 +15,7 @@ requirements opaquely.
 Introduce a provenance graph with text-span, IR-node, formal-fragment, and
 refusal-reason nodes. Clarification requests target paths or nodes.
 Clarification responses apply span replacements and produce a new controlled
-text artifact with old and new hashes.
+text artifact with old and new hashes, target range, and replacement text.
 
 Operational rules:
 
@@ -24,6 +24,8 @@ Operational rules:
 - IR-to-refusal edges use `refuses`.
 - Clarification responses are patch-like artifacts over explicit character
   spans.
+- Clarification requests copy disagreement source spans when upstream
+  translation agreement can identify them.
 - Previous controlled text versions remain hash-addressed after clarification.
 
 Rejected alternatives:
@@ -37,6 +39,7 @@ Validation:
 
 - Provenance graph construction walks every semantic IR node.
 - Clarification application validates target ranges before producing new text.
+- A clarification target that exceeds the controlled text length is rejected.
 
 ## Consequences
 

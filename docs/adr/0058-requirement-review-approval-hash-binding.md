@@ -15,7 +15,8 @@ Introduce a review workflow artifact with roles, checklist, decision, reviewer,
 timestamp, self-audit metadata, and reviewed artifact hashes.
 
 Review status is stale when current artifact hashes differ from approved
-hashes. Solo mode is represented explicitly with `self_audit` and optional
+hashes. Solo mode is represented explicitly with `self_audit` and a recorded
+delay. If the caller omits that delay, the workflow records a default 24-hour
 delay.
 
 Operational rules:
@@ -24,6 +25,8 @@ Operational rules:
 - Required review roles are configurable; the default required role is
   `requirement_reviewer`.
 - Each role approval replaces the previous approval for that role.
+- Self-audit approvals must carry a delay, supplied explicitly or defaulted to
+  24 hours.
 - Review status reports stale artifacts and missing roles separately.
 - Checklist schema is emitted separately so UI and CI surfaces can validate it
   before submitting approval.
@@ -41,6 +44,8 @@ Validation:
   the approval.
 - `nlreq review-status --required-role` checks role completeness without
   mutating the workflow.
+- Tests assert the default self-audit delay so solo-mode metadata is never
+  silently absent.
 
 ## Consequences
 

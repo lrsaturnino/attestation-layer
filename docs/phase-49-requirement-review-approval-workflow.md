@@ -34,7 +34,7 @@ uv run nlreq review-status review.approved.json --artifact controlled=requiremen
 - Approval records bind role, reviewer, decision, checklist, timestamp, and
   artifact hashes.
 - Artifact changes make approval status `stale`.
-- Solo mode is represented by `self_audit` and an optional delay.
+- Solo mode is represented by `self_audit` and a recorded delay.
 
 ## Exit Criteria
 
@@ -64,8 +64,10 @@ Validation behavior:
 - Artifact content changes make the approval stale.
 - Required roles are configurable. The default required role is
   `requirement_reviewer`.
-- Self-audit status and optional delay are recorded on the approval rather than
+- Self-audit status and delay are recorded on the approval rather than
   inferred from reviewer identity.
+- Self-audit approvals default to a 24-hour delay when no explicit delay is
+  supplied.
 
 CLI behavior:
 
@@ -85,4 +87,5 @@ Failure modes:
 Tests:
 
 - `tests/test_milestone_group1.py` covers stale approvals, failed checklist
-  rejection, CLI checklist ingestion, and required-role status reporting.
+  rejection, default self-audit delay, CLI checklist ingestion, and
+  required-role status reporting.

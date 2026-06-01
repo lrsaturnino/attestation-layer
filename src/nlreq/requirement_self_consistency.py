@@ -152,6 +152,7 @@ def _deterministic_contradictions(root: SemanticNode) -> list[RequirementSelfCon
     for node in _walk_nodes(root):
         if node.kind == "and":
             contradictions.extend(_opposite_fragment_contradictions(node.children))
+            contradictions.extend(_mutually_exclusive_state_conflicts(node.children))
             contradictions.extend(_numeric_bound_conflicts(node.children))
             contradictions.extend(_duplicate_obligation_conflicts(node.children))
         if node.kind in {"eq", "neq", "lt", "lte", "gt", "gte"}:
@@ -231,6 +232,10 @@ def _obligation_like(left: SemanticNode, right: SemanticNode) -> bool:
 def _opposite_signature(signature: tuple[str, tuple[str, ...]]) -> tuple[str, tuple[str, ...]]:
     kind, args = signature
     opposites = {
+        "predicate:authorized": "predicate:not_authorized",
+        "predicate:not_authorized": "predicate:authorized",
+        "predicate:approved": "predicate:not_approved",
+        "predicate:not_approved": "predicate:approved",
         "eq": "neq",
         "neq": "eq",
         "lt": "gte",
@@ -238,11 +243,40 @@ def _opposite_signature(signature: tuple[str, tuple[str, ...]]) -> tuple[str, tu
         "gt": "lte",
         "gte": "lt",
     }
+    if kind in opposites:
+        return (opposites[kind], args)
     if kind.startswith("predicate:"):
         return (kind.replace("predicate:", "not_predicate:", 1), args)
     if kind.startswith("not_predicate:"):
         return (kind.replace("not_predicate:", "predicate:", 1), args)
     return (opposites.get(kind, ""), args)
+
+
+def _mutually_exclusive_state_conflicts(
+    children: list[SemanticNode],
+) -> list[RequirementSelfContradiction]:
+    states: dict[str, SemanticNode] = {}
+    contradictions: list[RequirementSelfContradiction] = []
+    for child in children:
+        if child.kind != "eq" or child.metadata.get("predicate") != "state_is":
+            continue
+        args = _node_args(child)
+        if len(args) < 2:
+            continue
+        state_key = _value_text(args[0])
+        if state_key in states and _value_text(_node_args(states[state_key])[1]) != _value_text(args[1]):
+            other = states[state_key]
+            contradictions.append(
+                RequirementSelfContradiction(
+                    contradiction_type="mutually_exclusive_states",
+                    code="CONTRADICTION_MUTUALLY_EXCLUSIVE_STATES",
+                    node_ids=[other.node_id, child.node_id],
+                    message="state predicate requires two different values under the same condition",
+                    source_spans=[*other.source_spans, *child.source_spans],
+                )
+            )
+        states[state_key] = child
+    return contradictions
 
 
 def _impossible_comparison(node: SemanticNode) -> RequirementSelfContradiction | None:
@@ -280,11 +314,15 @@ def _numeric_bound_conflicts(
             comparisons.setdefault(_value_text(args[0]), []).append(child)
     contradictions: list[RequirementSelfContradiction] = []
     for nodes in comparisons.values():
-        lower_bounds = [_bound_value(node) for node in nodes if node.kind in {"gt", "gte"}]
-        upper_bounds = [_bound_value(node) for node in nodes if node.kind in {"lt", "lte"}]
+        lower_bounds = [
+            _bound(node) for node in nodes if node.kind in {"gt", "gte"}
+        ]
+        upper_bounds = [
+            _bound(node) for node in nodes if node.kind in {"lt", "lte"}
+        ]
         lower_bounds = [item for item in lower_bounds if item is not None]
         upper_bounds = [item for item in upper_bounds if item is not None]
-        if lower_bounds and upper_bounds and max(lower_bounds) > min(upper_bounds):
+        if lower_bounds and upper_bounds and _bounds_conflict(lower_bounds, upper_bounds):
             involved = nodes[:]
             contradictions.append(
                 RequirementSelfContradiction(
@@ -341,6 +379,28 @@ def _bound_value(node: SemanticNode) -> float | None:
     if len(args) < 2 or args[1].kind != "number":
         return None
     return float(args[1].value)
+
+
+def _bound(node: SemanticNode) -> tuple[float, bool] | None:
+    value = _bound_value(node)
+    if value is None:
+        return None
+    return (value, node.kind in {"gte", "lte"})
+
+
+def _bounds_conflict(
+    lower_bounds: list[tuple[float, bool]],
+    upper_bounds: list[tuple[float, bool]],
+) -> bool:
+    strongest_lower = max(lower_bounds, key=lambda item: (item[0], not item[1]))
+    strongest_upper = min(upper_bounds, key=lambda item: (item[0], item[1]))
+    if strongest_lower[0] > strongest_upper[0]:
+        return True
+    if strongest_lower[0] == strongest_upper[0] and (
+        not strongest_lower[1] or not strongest_upper[1]
+    ):
+        return True
+    return False
 
 
 def _node_args(node: SemanticNode) -> list[ValueRef]:

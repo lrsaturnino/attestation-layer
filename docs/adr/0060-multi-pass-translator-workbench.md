@@ -14,8 +14,10 @@ multiple candidate strategies without trusting stochastic output.
 Represent translation as a run containing candidate artifacts. Each candidate
 records strategy, method, source hash, replay metadata, and optional approval.
 
-Candidate comparison feeds the existing translation agreement report. LLM
-candidates cannot be selected without explicit approval.
+The product CLI emits at least two deterministic candidates by default: a DSL
+v3 parser candidate and a rule-based post-processor candidate over canonical
+controlled text. Candidate comparison feeds the existing translation agreement
+report. LLM candidates cannot be selected without explicit approval.
 
 Operational rules:
 
@@ -23,6 +25,8 @@ Operational rules:
 - The selected candidate hash is recorded in a selection artifact.
 - A deterministic parser candidate can be replayed from source text and tool
   metadata.
+- Candidate source hashes must match the run source hash before comparison or
+  selection.
 - LLM candidates are allowed as candidate artifacts only; they do not become
   trusted formal artifacts by generation.
 
@@ -39,6 +43,7 @@ Validation:
   translation phases.
 - Single-candidate runs remain `needs_review` until another agreement path or
   explicit selection resolves them.
+- Multi-pass CLI runs should be comparison-ready without external services.
 
 ## Consequences
 

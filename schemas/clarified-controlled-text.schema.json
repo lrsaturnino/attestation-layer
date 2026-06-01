@@ -17,18 +17,35 @@
       "title": "Previous Text Hash",
       "type": "string"
     },
+    "replacement_text": {
+      "title": "Replacement Text",
+      "type": "string"
+    },
     "schema_version": {
       "const": "0.1",
       "default": "0.1",
       "title": "Schema Version",
       "type": "string"
+    },
+    "target_end_char": {
+      "minimum": 0,
+      "title": "Target End Char",
+      "type": "integer"
+    },
+    "target_start_char": {
+      "minimum": 0,
+      "title": "Target Start Char",
+      "type": "integer"
     }
   },
   "required": [
     "previous_text_hash",
     "new_text",
     "new_text_hash",
-    "applied_clarification_id"
+    "applied_clarification_id",
+    "target_start_char",
+    "target_end_char",
+    "replacement_text"
   ],
   "title": "ClarifiedControlledText",
   "type": "object"

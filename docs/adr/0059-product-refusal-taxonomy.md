@@ -22,6 +22,7 @@ Operational rules:
 - Refusal codes are stable product API values.
 - Unknown evidence remains `unknown` and does not become refusal by wording.
 - Every finding must explain source span availability.
+- Blocker source spans are copied into the refusal finding when available.
 - Stage-level blockers may use `no_span_reason` until provenance can attach a
   fragment span.
 - Markdown renderers must consume the JSON report object rather than
@@ -38,6 +39,7 @@ Rejected alternatives:
 Validation:
 
 - Gate blockers map through deterministic stage/status rules.
+- Source-span-bearing blockers produce findings without `no_span_reason`.
 - Benchmark cases can assert expected refusal codes.
 
 ## Consequences

@@ -105,6 +105,8 @@ def approve_review(
         if failed_items:
             joined = ", ".join(failed_items)
             raise ValueError(f"approved review cannot include failed checklist items: {joined}")
+    if self_audit and self_audit_delay_hours is None:
+        self_audit_delay_hours = 24
     approval = ReviewApprovalRecord(
         role=role,
         reviewer=reviewer,

@@ -15,10 +15,12 @@ from nlreq.intake import (
 )
 from nlreq.logical_agreement import build_logical_translation_agreement_report
 from nlreq.models import RequirementIRV2
+from nlreq.models import SourceSpan
 from nlreq.provenance import (
     ClarificationResponse,
     apply_clarification_response,
     build_provenance_graph,
+    clarification_requests_from_agreement,
 )
 from nlreq.refusal import build_refusal_report_from_gate, refusal_report_markdown
 from nlreq.requirement_self_consistency import check_requirement_self_consistency
@@ -35,6 +37,7 @@ from nlreq.translation_benchmark import (
     build_translation_benchmark_report,
 )
 from nlreq.translator_agreement import TranslationAgreementInput, TranslationCandidate
+from nlreq.translator_agreement import build_translation_agreement_report
 from nlreq.translator_workbench import (
     build_deterministic_translator_run,
     compare_translator_run,
@@ -218,6 +221,28 @@ def test_review_workflow_detects_stale_approval(tmp_path: Path) -> None:
     assert report.stale_artifacts == ["controlled"]
 
 
+def test_review_workflow_records_default_self_audit_delay(tmp_path: Path) -> None:
+    artifact = tmp_path / "requirement.nlreq3"
+    artifact.write_text(DSL_V3_CASES[1][1])
+    workflow = open_review(
+        review_id="REVIEW-SELF-AUDIT-1",
+        requirement_id="REQ-REVIEW-SELF-AUDIT-1",
+        artifact_refs=[artifact_ref_from_path("controlled", artifact)],
+    )
+
+    approved = approve_review(
+        workflow,
+        role="self_audit_reviewer",
+        reviewer="solo@example.invalid",
+        decision="approved",
+        approved_at="2026-06-01T00:00:00Z",
+        self_audit=True,
+    )
+
+    assert approved.approvals[0].self_audit is True
+    assert approved.approvals[0].self_audit_delay_hours == 24
+
+
 def test_review_workflow_rejects_failed_checklist_approval(tmp_path: Path, capsys) -> None:
     artifact = tmp_path / "requirement.nlreq3"
     artifact.write_text(DSL_V3_CASES[1][1])
@@ -301,6 +326,36 @@ def test_product_refusal_report_maps_gate_blockers_to_codes() -> None:
     assert "Resolve translator disagreement" in markdown
 
 
+def test_product_refusal_report_preserves_blocker_source_spans() -> None:
+    span = SourceSpan(
+        document="controlled_requirement",
+        start_char=5,
+        end_char=15,
+        text="actor role",
+    )
+    gate_report = EndToEndRequirementGateReport(
+        requirement_id="REQ-REFUSAL-SPAN-1",
+        decision="refused",
+        downstream_action="merge",
+        downstream_action_allowed=False,
+        proof_status="blocked",
+        closure_result="blocked",
+        blockers=[
+            EndToEndGateBlocker(
+                stage="translation_agreement",
+                status="refused",
+                message="candidate fragments differ",
+                source_spans=[span],
+            )
+        ],
+    )
+
+    report = build_refusal_report_from_gate(gate_report)
+
+    assert report.findings[0].source_spans == [span]
+    assert report.findings[0].no_span_reason is None
+
+
 def test_translator_workbench_blocks_unreviewed_llm_selection() -> None:
     run = build_deterministic_translator_run(
         run_id="RUN-1",
@@ -324,6 +379,39 @@ def test_translator_workbench_blocks_unreviewed_llm_selection() -> None:
     assert selection.approval.status == "approved"
 
 
+def test_translate_candidates_cli_emits_multi_pass_candidate_run(tmp_path: Path, capsys) -> None:
+    controlled = tmp_path / "requirement.nlreq3"
+    run_path = tmp_path / "translator-run.json"
+    comparison_path = tmp_path / "comparison.json"
+    controlled.write_text(DSL_V3_CASES[2][1])
+
+    assert main(
+        [
+            "translate-candidates",
+            str(controlled),
+            "--run-id",
+            "RUN-MULTI-1",
+            "--requirement-id",
+            "REQ-MULTI-1",
+            "--title",
+            "Multi pass",
+            "--out",
+            str(run_path),
+        ]
+    ) == 0
+    capsys.readouterr()
+
+    assert main(["translate-compare", str(run_path), "--out", str(comparison_path)]) == 0
+    run = json.loads(run_path.read_text())
+    comparison = json.loads(comparison_path.read_text())
+
+    assert [candidate["strategy"] for candidate in run["candidates"]] == [
+        "deterministic_parser",
+        "rule_based_post_processor",
+    ]
+    assert comparison["status"] == "agreed"
+
+
 def test_provenance_graph_and_clarification_response() -> None:
     controlled = DSL_V3_CASES[1][1]
     ir = DslV3Parser().parse_ir(controlled, requirement_id="REQ-PROV-1", title="Prov")
@@ -344,6 +432,39 @@ def test_provenance_graph_and_clarification_response() -> None:
 
     assert "actor is not approved" in clarified.new_text
     assert clarified.previous_text_hash != clarified.new_text_hash
+    assert clarified.target_start_char == response.target_start_char
+
+
+def test_clarification_requests_carry_disagreement_source_spans() -> None:
+    first = DslV3Parser().parse_ir(
+        "requirement bounded_temporal:\n"
+        "scope redemption\n"
+        "when wallet is authorized\n"
+        "then emit redemption_finalized within 6 hours\n",
+        requirement_id="REQ-CLARIFY-SPAN-1",
+        title="Clarify",
+    )
+    second = DslV3Parser().parse_ir(
+        "requirement bounded_temporal:\n"
+        "scope redemption\n"
+        "when wallet is authorized\n"
+        "then emit redemption_finalized within 7 hours\n",
+        requirement_id="REQ-CLARIFY-SPAN-1",
+        title="Clarify",
+    )
+    agreement = build_translation_agreement_report(
+        TranslationAgreementInput(
+            candidates=[
+                TranslationCandidate(translator_id="a", method="deterministic", requirement=first),
+                TranslationCandidate(translator_id="b", method="deterministic", requirement=second),
+            ]
+        )
+    )
+
+    requests = clarification_requests_from_agreement(agreement)
+
+    assert requests[0].source_spans
+    assert "within 7 hours" in requests[0].source_spans[0].text
 
 
 def test_logical_agreement_accepts_alpha_and_commutative_equivalence() -> None:
@@ -393,6 +514,62 @@ def test_contradiction_taxonomy_v2_reports_numeric_bound_conflict() -> None:
         and item.code == "CONTRADICTION_NUMERIC_BOUND_CONFLICT"
         for item in report.contradictions
     )
+
+
+def test_contradiction_taxonomy_v2_reports_direct_opposite_predicates() -> None:
+    ir = DslV3Parser().parse_ir(
+        "requirement state_precondition:\n"
+        "scope operation\n"
+        "when actor is authorized and actor is not authorized\n"
+        "then operation must succeed\n",
+        requirement_id="REQ-CONTRADICTION-PREDICATE-1",
+        title="Contradiction",
+    )
+
+    report = check_requirement_self_consistency(ir)
+
+    assert report.status == "contradiction"
+    assert any(
+        item.contradiction_type == "direct_opposite_predicates"
+        and item.code == "CONTRADICTION_DIRECT_OPPOSITE_PREDICATES"
+        for item in report.contradictions
+    )
+
+
+def test_contradiction_taxonomy_v2_reports_mutually_exclusive_states() -> None:
+    ir = DslV3Parser().parse_ir(
+        "requirement state_precondition:\n"
+        "scope operation\n"
+        "when account state is \"open\" and account state is \"closed\"\n"
+        "then operation must succeed\n",
+        requirement_id="REQ-CONTRADICTION-STATE-1",
+        title="Contradiction",
+    )
+
+    report = check_requirement_self_consistency(ir)
+
+    assert report.status == "contradiction"
+    assert any(
+        item.contradiction_type == "mutually_exclusive_states"
+        and item.code == "CONTRADICTION_MUTUALLY_EXCLUSIVE_STATES"
+        for item in report.contradictions
+    )
+
+
+def test_contradiction_taxonomy_v2_reports_strict_numeric_bound_conflict() -> None:
+    ir = DslV3Parser().parse_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when collateral > 10 and collateral <= 10\n"
+        "then keep collateral >= 1\n",
+        requirement_id="REQ-CONTRADICTION-STRICT-NUMERIC-1",
+        title="Contradiction",
+    )
+
+    report = check_requirement_self_consistency(ir)
+
+    assert report.status == "contradiction"
+    assert any(item.code == "CONTRADICTION_NUMERIC_BOUND_CONFLICT" for item in report.contradictions)
 
 
 def test_translation_benchmark_scores_semantics_clarification_and_refusal() -> None:

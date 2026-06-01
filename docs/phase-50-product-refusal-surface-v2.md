@@ -43,7 +43,7 @@ Gate blockers map to actionable refusal findings.
 Input artifacts:
 
 - `EndToEndRequirementGateReport` with stage-level blockers and decision.
-- Source-span-bearing artifacts from earlier phases when available.
+- Source-span-bearing blockers or artifacts from earlier phases when available.
 
 Output artifacts:
 
@@ -62,7 +62,8 @@ Finding contract:
 
 - Every finding includes a code, category, stage, message, likely owner, and
   next action.
-- A finding must include source spans or a `no_span_reason`.
+- A finding preserves blocker source spans when present.
+- A finding without source spans must include a `no_span_reason`.
 - Markdown and JSON are generated from the same model to avoid drift.
 
 Failure modes:
@@ -75,6 +76,8 @@ Tests:
 
 - `tests/test_milestone_group1.py` verifies gate blocker mapping and Markdown
   rendering for a translation disagreement.
+- The same module verifies source-span-bearing blockers stay span-grounded in
+  the product refusal report.
 
 Out of scope:
 

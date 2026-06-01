@@ -180,7 +180,7 @@ from .translation_benchmark import (
 )
 from .translator_workbench import (
     TranslatorRunArtifact,
-    build_deterministic_translator_run,
+    build_multi_pass_translator_run,
     compare_translator_run,
     select_translator_candidate,
 )
@@ -1422,7 +1422,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "translate-candidates":
             from .jsonutil import write_json
 
-            run = build_deterministic_translator_run(
+            run = build_multi_pass_translator_run(
                 run_id=args.run_id,
                 controlled_text=args.file.read_text(),
                 requirement_id=args.requirement_id,

@@ -12,6 +12,7 @@ from .formal_backend import FormalBackendBudget, FormalBackendExecution
 from .impact import analyze_source_impact
 from .impact_v2 import analyze_source_impact_v2
 from .jsonutil import sha256_json, write_json
+from .models import SourceSpan
 from .proof_closure import (
     backend_results_from_system_consistency,
     build_proof_object,
@@ -47,6 +48,7 @@ class EndToEndGateBlocker(BaseModel):
     stage: str
     status: str
     message: str
+    source_spans: list[SourceSpan] = Field(default_factory=list)
 
 
 class EndToEndRequirementGateReport(BaseModel):

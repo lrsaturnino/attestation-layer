@@ -14,6 +14,11 @@ comparisons, numeric bound conflicts, duplicate obligation conflicts, temporal
 impossibility, state conflicts, and overlapping opposite obligations where the
 IR exposes enough structure.
 
+Direct opposite predicates include controlled DSL pairs such as `authorized`
+and `not_authorized`, or `approved` and `not_approved`. Numeric bounds classify
+both crossing bounds and equal strict/inclusive conflicts, such as `x > 10`
+combined with `x <= 10`.
+
 Formal backend counterexamples remain part of the result when deterministic
 checks do not decide the case.
 
@@ -77,7 +82,8 @@ Failure modes:
 
 Tests:
 
-- `tests/test_milestone_group1.py` verifies numeric bound conflict
+- `tests/test_milestone_group1.py` verifies numeric bound conflict, direct
+  opposite predicate, mutually exclusive state, and strict numeric bound
   classification.
 - Existing self-consistency tests cover backend status mapping and
   deterministic contradiction paths.

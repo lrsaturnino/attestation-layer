@@ -72,6 +72,9 @@ class ClarifiedControlledText(BaseModel):
     new_text: str
     new_text_hash: str
     applied_clarification_id: str
+    target_start_char: int = Field(ge=0)
+    target_end_char: int = Field(ge=0)
+    replacement_text: str
 
 
 def build_provenance_graph(
@@ -116,11 +119,15 @@ def build_provenance_graph(
 def clarification_requests_from_agreement(
     agreement: TranslationAgreementReport,
 ) -> list[ClarificationRequest]:
+    disagreements_by_path = {item.path: item for item in agreement.disagreements}
     return [
         ClarificationRequest(
             clarification_id=item.question_id,
             requirement_id=agreement.requirement_id,
             question=item.question,
+            source_spans=disagreements_by_path.get(item.path).source_spans
+            if item.path in disagreements_by_path
+            else [],
             target_node_ids=[item.path],
             reason="translator_disagreement",
         )
@@ -134,6 +141,8 @@ def apply_clarification_response(
 ) -> ClarifiedControlledText:
     if response.target_start_char < 0 or response.target_end_char < response.target_start_char:
         raise ValueError("invalid clarification target span")
+    if response.target_end_char > len(controlled_text):
+        raise ValueError("clarification target span exceeds controlled text length")
     new_text = (
         controlled_text[: response.target_start_char]
         + response.replacement_text
@@ -144,6 +153,9 @@ def apply_clarification_response(
         new_text=new_text,
         new_text_hash=sha256_text(new_text),
         applied_clarification_id=response.clarification_id,
+        target_start_char=response.target_start_char,
+        target_end_char=response.target_end_char,
+        replacement_text=response.replacement_text,
     )
 
 

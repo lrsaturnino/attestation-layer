@@ -33,6 +33,8 @@ uv run nlreq apply-clarification --controlled requirement.nlreq3 \
 
 - Previous controlled text remains hash-addressed.
 - Clarification changes are span-targeted.
+- Clarification requests preserve disagreement source spans when the agreement
+  report provides them.
 - Unsupported formal fragments identify their IR node when available.
 
 ## Exit Criteria
@@ -55,7 +57,8 @@ Output artifacts:
   nodes.
 - `ClarificationRequest` artifacts grounded in target nodes or spans.
 - `ClarificationResponse` artifacts from reviewers.
-- `ClarifiedControlledText` preserving previous and new text hashes.
+- `ClarifiedControlledText` preserving previous and new text hashes, target
+  range, and replacement text.
 
 Graph semantics:
 
@@ -69,6 +72,7 @@ Clarification semantics:
 - Clarification requests are generated from translator disagreement and can be
   displayed directly by product surfaces.
 - Responses apply exact character-span replacements.
+- Replacement spans must fit within the controlled text.
 - Applying a response does not mutate prior artifacts; it creates a new
   controlled text version.
 
@@ -82,3 +86,5 @@ Tests:
 
 - `tests/test_milestone_group1.py` verifies graph construction and targeted
   clarification response hashing.
+- The same test module verifies disagreement source spans are carried into
+  clarification requests.

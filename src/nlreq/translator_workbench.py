@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .dsl_v3 import DslV3Parser
+from .dsl_v3 import DslV3Parser, canonicalize_dsl_v3_text
 from .jsonutil import sha256_json, sha256_text
 from .models import Approval, RequirementIRV2
 from .translator_agreement import TranslationAgreementInput, TranslationCandidate, build_translation_agreement_report
@@ -72,7 +72,65 @@ def build_deterministic_translator_run(
     )
 
 
+def build_multi_pass_translator_run(
+    *,
+    run_id: str,
+    controlled_text: str,
+    requirement_id: str,
+    title: str,
+) -> TranslatorRunArtifact:
+    """Build deterministic parser and post-processor candidates for audit replay."""
+    source_hash = sha256_text(controlled_text)
+    parser = DslV3Parser()
+    parsed = parser.parse_ir(controlled_text, requirement_id=requirement_id, title=title)
+    canonical_text = canonicalize_dsl_v3_text(controlled_text)
+    post_processed = parser.parse_ir(
+        canonical_text,
+        requirement_id=requirement_id,
+        title=title,
+    )
+    return TranslatorRunArtifact(
+        run_id=run_id,
+        requirement_id=requirement_id,
+        source_text_hash=source_hash,
+        candidates=[
+            TranslatorCandidateV2(
+                candidate_id="candidate-dsl-v3-parser",
+                translator_id="dsl-v3-parser",
+                strategy="deterministic_parser",
+                method="deterministic",
+                requirement=parsed,
+                source_text_hash=source_hash,
+                replay_metadata={
+                    "tool": "nlreq.dsl_v3",
+                    "replay": "deterministic",
+                    "strategy_version": TRANSLATOR_WORKBENCH_SCHEMA_VERSION,
+                },
+            ),
+            TranslatorCandidateV2(
+                candidate_id="candidate-rule-postprocessor",
+                translator_id="dsl-v3-rule-postprocessor",
+                strategy="rule_based_post_processor",
+                method="deterministic",
+                requirement=post_processed,
+                source_text_hash=source_hash,
+                replay_metadata={
+                    "tool": "nlreq.translator_workbench",
+                    "replay": "deterministic",
+                    "canonical_text_hash": sha256_text(canonical_text),
+                    "strategy_version": TRANSLATOR_WORKBENCH_SCHEMA_VERSION,
+                },
+            ),
+        ],
+    )
+
+
 def compare_translator_run(run: TranslatorRunArtifact):
+    for candidate in run.candidates:
+        if candidate.source_text_hash != run.source_text_hash:
+            raise ValueError(
+                f"candidate {candidate.candidate_id} source hash does not match run source hash"
+            )
     return build_translation_agreement_report(
         TranslationAgreementInput(
             candidates=[
@@ -102,6 +160,8 @@ def select_translator_candidate(
     candidate = next((item for item in run.candidates if item.candidate_id == candidate_id), None)
     if candidate is None:
         raise ValueError(f"unknown translator candidate: {candidate_id}")
+    if candidate.source_text_hash != run.source_text_hash:
+        raise ValueError("candidate source hash does not match translator run source hash")
     if candidate.method == "llm" and (candidate.approval is None or candidate.approval.status != "approved"):
         raise ValueError("LLM candidate cannot be selected without explicit candidate approval")
     approval = Approval(status="approved", approved_by=approved_by, approved_at=approved_at)

@@ -23,6 +23,12 @@ Operational rules:
 - Deterministic contradiction checks run before backend execution.
 - Contradictions include stable codes, node IDs, and source spans when
   available.
+- Controlled predicate pairs such as `authorized`/`not_authorized` and
+  `approved`/`not_approved` are treated as direct opposites.
+- State equality fragments assigning different values to the same state under
+  one conjunction are treated as mutually exclusive states.
+- Numeric bound conflicts include both crossing bounds and equal
+  strict/inclusive conflicts.
 - Backend timeout, unsupported, and tool-error outcomes remain explicit and do
   not approve a requirement.
 - Backend counterexamples are represented as contradiction records without
@@ -41,6 +47,8 @@ Validation:
   outcomes in one artifact.
 - Benchmarks can assert contradiction codes independently from backend
   availability.
+- Deterministic contradiction tests must prove the backend is not needed for
+  supported taxonomy classes.
 
 ## Consequences
 
