@@ -1,0 +1,68 @@
+{
+  "$defs": {
+    "CodeSpecManifestEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "dependency_module_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dependency Module Ids",
+          "type": "array"
+        },
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "recorded_source_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Recorded Source Hashes",
+          "type": "object"
+        },
+        "source_paths": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Source Paths",
+          "type": "array"
+        },
+        "spec_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Spec Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "module_id",
+        "source_paths",
+        "spec_ids"
+      ],
+      "title": "CodeSpecManifestEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/CodeSpecManifestEntry"
+      },
+      "title": "Entries",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "title": "CodeSpecManifest",
+  "type": "object"
+}

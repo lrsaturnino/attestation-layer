@@ -39,6 +39,7 @@ from nlreq.source_adapter import (
     SourceManifest,
     SourceSymbolResolution,
 )
+from nlreq.spec_drift import CodeSpecManifest, SpecDriftReport
 from nlreq.spec_extraction import SpecExtractionWorkbenchReport
 from nlreq.system_spec import SystemSpecRegistry, SystemSpecRegistryReport
 from nlreq.system_checker import SystemConsistencyResult, RequirementSetConsistencyReport
@@ -83,6 +84,8 @@ SCHEMAS = {
     "source-code-presentation.schema.json": CodePresentation,
     "source-manifest.schema.json": SourceManifest,
     "source-symbol-resolution.schema.json": SourceSymbolResolution,
+    "code-spec-manifest.schema.json": CodeSpecManifest,
+    "spec-drift-report.schema.json": SpecDriftReport,
     "spec-extraction-workbench.schema.json": SpecExtractionWorkbenchReport,
     "status-decision.schema.json": StatusDecision,
     "system-spec-registry.schema.json": SystemSpecRegistry,

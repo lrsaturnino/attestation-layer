@@ -98,6 +98,7 @@ from .routing import (
     load_routing_policy,
     routing_report_markdown,
 )
+from .spec_drift import CodeSpecManifest, build_spec_drift_report, mark_stale_specs
 from .spec_extraction import build_spec_extraction_workbench_report
 from .trace_validation import build_trace_validation_report, trace_validation_markdown
 from .system_spec import build_system_spec_registry_report, load_system_spec_registry
@@ -355,6 +356,15 @@ def main(argv: list[str] | None = None) -> int:
     spec_extract_cmd.add_argument("--code-presentation", type=Path)
     spec_extract_cmd.add_argument("--trace-replay", type=Path)
     spec_extract_cmd.add_argument("--out", type=Path)
+
+    spec_drift_cmd = subcommands.add_parser(
+        "spec-drift", help="Detect source/spec drift from a code-to-spec manifest."
+    )
+    spec_drift_cmd.add_argument("--manifest", type=Path, required=True)
+    spec_drift_cmd.add_argument("--registry", type=Path)
+    spec_drift_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    spec_drift_cmd.add_argument("--out", type=Path)
+    spec_drift_cmd.add_argument("--updated-registry-out", type=Path)
 
     proof_object_cmd = subcommands.add_parser(
         "proof-object", help="Aggregate backend evidence into a proof closure object."
@@ -1193,6 +1203,25 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Spec extraction workbench report: {args.out}")
             else:
                 print(canonical_json(report), end="")
+            return 0
+        if args.command == "spec-drift":
+            from .jsonutil import write_json
+
+            report = build_spec_drift_report(
+                CodeSpecManifest.model_validate_json(args.manifest.read_text()),
+                project_root=args.project_root,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Spec drift report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            if args.updated_registry_out:
+                if args.registry is None:
+                    raise ValueError("spec-drift requires --registry with --updated-registry-out")
+                updated = mark_stale_specs(load_system_spec_registry(args.registry), report)
+                write_json(args.updated_registry_out, updated)
+                print(f"Updated system spec registry: {args.updated_registry_out}")
             return 0
         if args.command == "proof-object":
             from .coverage_alignment import SpecCoverageReport, TraceAlignmentReport

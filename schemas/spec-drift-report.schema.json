@@ -1,0 +1,107 @@
+{
+  "$defs": {
+    "SpecDriftStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "changed_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changed Paths",
+          "type": "array"
+        },
+        "current_source_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Current Source Hashes",
+          "type": "object"
+        },
+        "dependency_module_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dependency Module Ids",
+          "type": "array"
+        },
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "recorded_source_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Recorded Source Hashes",
+          "type": "object"
+        },
+        "required_refresh_actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Refresh Actions",
+          "type": "array"
+        },
+        "spec_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Spec Ids",
+          "type": "array"
+        },
+        "stale_due_to_dependencies": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Stale Due To Dependencies",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "fresh",
+            "stale",
+            "missing_source"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "module_id",
+        "status",
+        "spec_ids"
+      ],
+      "title": "SpecDriftStatus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "result": {
+      "enum": [
+        "passed",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "statuses": {
+      "items": {
+        "$ref": "#/$defs/SpecDriftStatus"
+      },
+      "title": "Statuses",
+      "type": "array"
+    }
+  },
+  "required": [
+    "result"
+  ],
+  "title": "SpecDriftReport",
+  "type": "object"
+}
