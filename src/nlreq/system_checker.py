@@ -5,6 +5,13 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .formal_backend import FormalBackendBudget, FormalBackendExecution
+from .jsonutil import sha256_json, sha256_text
+from .model_checker_runner import (
+    ModelCheckerBudget,
+    ModelCheckerCommand,
+    run_model_checker,
+)
 from .models import BackendResult, Counterexample, EvidenceLevel, Predicate, RequirementIR, RequirementIRV2, SourceSpan
 from .system_spec import SystemSpecRegistry, build_system_spec_registry_report, specs_for_impact
 from .impact import ImpactAnalysisArtifact
@@ -109,6 +116,104 @@ def check_system_consistency(
     )
 
 
+def check_solver_backed_system_consistency(
+    *,
+    requirement: RequirementIRV2,
+    lowered: LoweredFormalArtifact,
+    registry: SystemSpecRegistry,
+    impact: ImpactAnalysisArtifact,
+    project_root: Path,
+    budget: FormalBackendBudget | None = None,
+    execution: FormalBackendExecution | None = None,
+) -> SystemConsistencyResult:
+    specs = specs_for_impact(registry, impact)
+    spec_ids = [spec.spec_id for spec in specs]
+    registry_report = build_system_spec_registry_report(
+        registry,
+        project_root=project_root,
+        module_ids=impact.affected_modules,
+    )
+    if lowered.status != "lowered" or lowered.content is None:
+        return _solver_result(
+            requirement.requirement_id,
+            "unsupported",
+            spec_ids,
+            {"reason": "lowered artifact is refused", "mode": "solver_backed"},
+        )
+    bad_specs = [status for status in registry_report.statuses if status.status != "fresh"]
+    if bad_specs:
+        return _solver_result(
+            requirement.requirement_id,
+            "unsupported",
+            spec_ids,
+            {
+                "mode": "solver_backed",
+                "reason": "system specs are missing, stale, or unreviewed",
+                "spec_statuses": [
+                    status.model_dump(mode="json", exclude_none=True) for status in bad_specs
+                ],
+            },
+        )
+
+    execution = execution or FormalBackendExecution()
+    artifact_dir = _solver_artifact_dir(requirement, execution)
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    spec_texts = [(spec.spec_id, (project_root / spec.path).read_text()) for spec in specs]
+    module_name = _safe_tla_name(f"{requirement.requirement_id}_S_AND_R")
+    module_path = artifact_dir / f"{module_name}.tla"
+    config_path = artifact_dir / f"{module_name}.cfg"
+    module_path.write_text(_composed_tla_module(module_name, lowered, spec_texts))
+    config_path.write_text("INIT Init\nNEXT Next\nPROPERTY SystemAndRequirement\n")
+
+    command = _solver_checker_command(execution, module_path, config_path, module_name)
+    runner_result = run_model_checker(
+        ModelCheckerCommand(
+            run_id=f"{requirement.requirement_id}:s-and-r",
+            checker_id=execution.checker_id,
+            command=command,
+            cwd=artifact_dir.as_posix(),
+            budget=_runner_budget(budget),
+            expected_exit_code=execution.expected_exit_code,
+            tool_version=execution.tool_version,
+            tool_version_command=execution.tool_version_command,
+            output_limit_bytes=execution.output_limit_bytes,
+        )
+    )
+    status = _solver_status_for_runner(runner_result.outcome)
+    counterexamples = _solver_counterexamples(requirement.requirement_id, runner_result)
+    return _solver_result(
+        requirement.requirement_id,
+        status,
+        spec_ids,
+        {
+            "mode": "solver_backed",
+            "checker_id": execution.checker_id,
+            "runner_outcome": runner_result.outcome,
+            "runner_result_hash": sha256_json(runner_result),
+            "artifact_dir": artifact_dir.as_posix(),
+            "module": module_path.name,
+            "module_hash": sha256_text(module_path.read_text()),
+            "config": config_path.name,
+            "config_hash": sha256_text(config_path.read_text()),
+            "command": command,
+            "bounds": _budget_details(budget),
+            "spec_hashes": {
+                spec_id: sha256_text(text)
+                for spec_id, text in spec_texts
+            },
+            "counterexamples": [
+                item.model_dump(mode="json", exclude_none=True)
+                for item in counterexamples
+            ],
+            "stdout": runner_result.stdout.model_dump(mode="json"),
+            "stderr": runner_result.stderr.model_dump(mode="json"),
+            "unsupported_markers": runner_result.unsupported_markers,
+            "tool_error": runner_result.tool_error,
+        },
+        counterexamples=counterexamples,
+    )
+
+
 def check_requirement_set_consistency(requirements: list[RequirementIR]) -> RequirementSetConsistencyReport:
     contradictions: list[RequirementContradiction] = []
     seen: dict[tuple[str, tuple[str, ...]], tuple[str, Predicate]] = {}
@@ -157,3 +262,134 @@ def _system_result(
             details=details,
         ),
     )
+
+
+def _solver_result(
+    requirement_id: str,
+    status: Literal["valid", "counterexample", "timeout", "unsupported", "invalid"],
+    spec_ids: list[str],
+    details: dict[str, object],
+    *,
+    counterexamples: list[Counterexample] | None = None,
+) -> SystemConsistencyResult:
+    return SystemConsistencyResult(
+        requirement_id=requirement_id,
+        spec_ids=spec_ids,
+        counterexamples=counterexamples or [],
+        result=BackendResult(
+            backend="solver_system_checker",
+            status=status,
+            evidence_level=EvidenceLevel.BOUNDED_CHECKED if status == "valid" else None,
+            details=details,
+        ),
+    )
+
+
+def _solver_artifact_dir(
+    requirement: RequirementIRV2, execution: FormalBackendExecution
+) -> Path:
+    if execution.artifact_dir is not None:
+        return Path(execution.artifact_dir).resolve(strict=False)
+    return (
+        Path.cwd()
+        / ".nlreq-formal-artifacts"
+        / requirement.requirement_id
+        / "solver-system-checker"
+    ).resolve(strict=False)
+
+
+def _composed_tla_module(
+    module_name: str,
+    lowered: LoweredFormalArtifact,
+    spec_texts: list[tuple[str, str]],
+) -> str:
+    body = _strip_tla_module_wrapper(lowered.content or "")
+    spec_hashes = "\n".join(
+        f"\\* System spec {spec_id}: {sha256_text(text)}" for spec_id, text in spec_texts
+    )
+    return (
+        f"---- MODULE {module_name} ----\n"
+        f"{spec_hashes}\n\n"
+        f"{body}\n\n"
+        "SystemSpecAssumptions == TRUE\n"
+        "SystemAndRequirement == SystemSpecAssumptions => RequirementHolds\n\n"
+        "====\n"
+    )
+
+
+def _strip_tla_module_wrapper(content: str) -> str:
+    lines = content.splitlines()
+    if lines and lines[0].startswith("---- MODULE "):
+        lines = lines[1:]
+    if lines and lines[-1] == "====":
+        lines = lines[:-1]
+    return "\n".join(lines).strip()
+
+
+def _solver_checker_command(
+    execution: FormalBackendExecution,
+    module_path: Path,
+    config_path: Path,
+    module_name: str,
+) -> list[str]:
+    command = execution.command or ["tlc2.TLC", "-config", config_path.name, module_path.name]
+    replacements = {
+        "{module}": module_path.name,
+        "{config}": config_path.name,
+        "{module_name}": module_name,
+    }
+    rendered: list[str] = []
+    for part in command:
+        value = part
+        for token, replacement in replacements.items():
+            value = value.replace(token, replacement)
+        rendered.append(value)
+    return rendered
+
+
+def _runner_budget(budget: FormalBackendBudget | None) -> ModelCheckerBudget:
+    if budget is None:
+        return ModelCheckerBudget(timeout_seconds=120)
+    return ModelCheckerBudget(
+        timeout_seconds=budget.timeout_seconds or 120,
+        max_depth=budget.max_depth,
+        max_states=budget.max_states,
+        memory_budget_mb=budget.memory_budget_mb,
+        solver_options=budget.solver_options,
+    )
+
+
+def _budget_details(budget: FormalBackendBudget | None) -> dict[str, object]:
+    return _runner_budget(budget).model_dump(mode="json", exclude_none=True)
+
+
+def _solver_status_for_runner(outcome: str) -> Literal["valid", "counterexample", "timeout", "unsupported", "invalid"]:
+    if outcome == "tool_error":
+        return "invalid"
+    if outcome in {"valid", "counterexample", "timeout", "unsupported"}:
+        return outcome
+    return "invalid"
+
+
+def _solver_counterexamples(requirement_id: str, runner_result) -> list[Counterexample]:
+    if runner_result.outcome != "counterexample":
+        return []
+    return [
+        Counterexample(
+            counterexample_id=f"{requirement_id}:solver:{index}",
+            backend="solver_system_checker",
+            claim_id=requirement_id,
+            description="solver-backed S-and-R checker produced a counterexample",
+            metadata=item.model_dump(mode="json", exclude_none=True),
+        )
+        for index, item in enumerate(runner_result.counterexamples, start=1)
+    ]
+
+
+def _safe_tla_name(value: str) -> str:
+    cleaned = "".join(char if char.isalnum() else "_" for char in value)
+    if not cleaned:
+        return "Requirement"
+    if cleaned[0].isdigit():
+        return "_" + cleaned
+    return cleaned

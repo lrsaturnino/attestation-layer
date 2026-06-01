@@ -100,7 +100,11 @@ from .routing import (
 )
 from .trace_validation import build_trace_validation_report, trace_validation_markdown
 from .system_spec import build_system_spec_registry_report, load_system_spec_registry
-from .system_checker import check_requirement_set_consistency, check_system_consistency
+from .system_checker import (
+    check_requirement_set_consistency,
+    check_solver_backed_system_consistency,
+    check_system_consistency,
+)
 from .translator import (
     ControlledDraft,
     approve_controlled_draft,
@@ -251,6 +255,31 @@ def main(argv: list[str] | None = None) -> int:
     system_consistency_cmd.add_argument("--impact", type=Path, required=True)
     system_consistency_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     system_consistency_cmd.add_argument("--out", type=Path)
+
+    solver_system_cmd = subcommands.add_parser(
+        "solver-system-consistency-check",
+        help="Run solver-backed S-and-R consistency over fresh reviewed specs.",
+    )
+    solver_system_cmd.add_argument("--requirement-ir", type=Path, required=True)
+    solver_system_cmd.add_argument("--lowered", type=Path, required=True)
+    solver_system_cmd.add_argument("--registry", type=Path, required=True)
+    solver_system_cmd.add_argument("--impact", type=Path, required=True)
+    solver_system_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    solver_system_cmd.add_argument("--artifact-dir", type=Path)
+    solver_system_cmd.add_argument("--checker-id")
+    solver_system_cmd.add_argument("--checker-command", nargs=argparse.REMAINDER)
+    solver_system_cmd.add_argument("--timeout-seconds", type=int)
+    solver_system_cmd.add_argument("--max-depth", type=int)
+    solver_system_cmd.add_argument("--max-states", type=int)
+    solver_system_cmd.add_argument("--memory-budget-mb", type=int)
+    solver_system_cmd.add_argument("--solver-option", action="append", default=[])
+    solver_system_cmd.add_argument("--expected-exit-code", type=int, default=0)
+    solver_system_cmd.add_argument("--tool-version")
+    solver_system_cmd.add_argument("--tool-version-command", nargs="+")
+    solver_system_cmd.add_argument(
+        "--output-limit-bytes", type=int, default=DEFAULT_RUNNER_OUTPUT_LIMIT_BYTES
+    )
+    solver_system_cmd.add_argument("--out", type=Path)
 
     req_set_cmd = subcommands.add_parser(
         "requirement-set-consistency", help="Check flat requirement set contradictions."
@@ -969,6 +998,35 @@ def main(argv: list[str] | None = None) -> int:
             if args.out:
                 write_json(args.out, result)
                 print(f"System consistency result: {args.out}")
+            else:
+                print(canonical_json(result), end="")
+            return 0
+        if args.command == "solver-system-consistency-check":
+            from .impact import ImpactAnalysisArtifact
+            from .jsonutil import write_json
+            from .models import RequirementIRV2
+            from .translator import LoweredFormalArtifact
+
+            ir = validate_requirement_ir_json(args.requirement_ir.read_text())
+            if not isinstance(ir, RequirementIRV2):
+                raise ValueError("solver-system-consistency-check requires ir_version 0.2")
+            checker_command = (
+                _normalize_remainder_command(args.checker_command)
+                if args.checker_command
+                else None
+            )
+            result = check_solver_backed_system_consistency(
+                requirement=ir,
+                lowered=LoweredFormalArtifact.model_validate_json(args.lowered.read_text()),
+                registry=load_system_spec_registry(args.registry),
+                impact=ImpactAnalysisArtifact.model_validate_json(args.impact.read_text()),
+                project_root=args.project_root,
+                budget=_formal_backend_budget_from_args(args),
+                execution=_formal_backend_execution_from_args(args, checker_command),
+            )
+            if args.out:
+                write_json(args.out, result)
+                print(f"Solver-backed system consistency result: {args.out}")
             else:
                 print(canonical_json(result), end="")
             return 0

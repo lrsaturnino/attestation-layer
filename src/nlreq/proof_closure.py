@@ -157,6 +157,13 @@ def default_evidence_producer_mapping() -> EvidenceProducerMapping:
                 tool_version="0.1",
             ),
             EvidenceProducer(
+                producer_id="solver_system_checker",
+                producer_kind="system_checker",
+                allowed_evidence_levels=[EvidenceLevel.BOUNDED_CHECKED],
+                tool="nlreq.system_checker.check_solver_backed_system_consistency",
+                tool_version="0.1",
+            ),
+            EvidenceProducer(
                 producer_id="core_smt",
                 producer_kind="smt_solver",
                 allowed_evidence_levels=[EvidenceLevel.SMT_CHECKED],
