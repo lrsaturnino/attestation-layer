@@ -1,0 +1,97 @@
+{
+  "$defs": {
+    "ModuleCoverageStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "spec_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Spec Ids",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "covered",
+            "missing",
+            "stale",
+            "unreviewed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "module_id",
+        "status"
+      ],
+      "title": "ModuleCoverageStatus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "coverage_ratio": {
+      "title": "Coverage Ratio",
+      "type": "number"
+    },
+    "covered_modules": {
+      "title": "Covered Modules",
+      "type": "integer"
+    },
+    "modules": {
+      "items": {
+        "$ref": "#/$defs/ModuleCoverageStatus"
+      },
+      "title": "Modules",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "threshold": {
+      "title": "Threshold",
+      "type": "number"
+    },
+    "total_modules": {
+      "title": "Total Modules",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "result",
+    "threshold",
+    "covered_modules",
+    "total_modules",
+    "coverage_ratio"
+  ],
+  "title": "SpecCoverageReport",
+  "type": "object"
+}

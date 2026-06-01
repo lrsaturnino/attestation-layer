@@ -37,6 +37,7 @@ from .continuous import (
     continuous_attestation_markdown,
     load_attestation_run,
 )
+from .coverage_alignment import build_spec_coverage_report, build_trace_alignment_report
 from .compositional_ir import (
     DEFAULT_MIGRATION_TIMESTAMP,
     DEFAULT_MIGRATION_TOOL_VERSION,
@@ -203,6 +204,23 @@ def main(argv: list[str] | None = None) -> int:
     )
     req_set_cmd.add_argument("ir", nargs="+", type=Path)
     req_set_cmd.add_argument("--out", type=Path)
+
+    spec_coverage_cmd = subcommands.add_parser(
+        "spec-coverage", help="Build spec coverage report for affected modules."
+    )
+    spec_coverage_cmd.add_argument("--impact", type=Path, required=True)
+    spec_coverage_cmd.add_argument("--registry", type=Path, required=True)
+    spec_coverage_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    spec_coverage_cmd.add_argument("--threshold", type=float, default=1.0)
+    spec_coverage_cmd.add_argument("--out", type=Path)
+
+    trace_align_cmd = subcommands.add_parser(
+        "trace-align", help="Classify normalized traces against requirement/spec context."
+    )
+    trace_align_cmd.add_argument("--requirement-ir", type=Path, required=True)
+    trace_align_cmd.add_argument("--trace-artifact", type=Path, required=True)
+    trace_align_cmd.add_argument("--coverage", type=Path, required=True)
+    trace_align_cmd.add_argument("--out", type=Path)
 
     validate_cmd = subcommands.add_parser("validate", help="Validate a package directory.")
     validate_cmd.add_argument("package_dir", type=Path)
@@ -819,6 +837,42 @@ def main(argv: list[str] | None = None) -> int:
             if args.out:
                 write_json(args.out, report)
                 print(f"Requirement set consistency: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0
+        if args.command == "spec-coverage":
+            from .coverage_alignment import SpecCoverageReport
+            from .impact import ImpactAnalysisArtifact
+            from .jsonutil import write_json
+
+            report = build_spec_coverage_report(
+                impact=ImpactAnalysisArtifact.model_validate_json(args.impact.read_text()),
+                registry=load_system_spec_registry(args.registry),
+                project_root=args.project_root,
+                threshold=args.threshold,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Spec coverage report: {args.out}")
+            else:
+                print(canonical_json(SpecCoverageReport.model_validate(report)), end="")
+            return 0
+        if args.command == "trace-align":
+            from .coverage_alignment import SpecCoverageReport
+            from .jsonutil import write_json
+            from .models import NormalizedTraceArtifact, RequirementIRV2
+
+            ir = validate_requirement_ir_json(args.requirement_ir.read_text())
+            if not isinstance(ir, RequirementIRV2):
+                raise ValueError("trace-align requires ir_version 0.2")
+            report = build_trace_alignment_report(
+                requirement=ir,
+                traces=NormalizedTraceArtifact.model_validate_json(args.trace_artifact.read_text()),
+                coverage=SpecCoverageReport.model_validate_json(args.coverage.read_text()),
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Trace alignment report: {args.out}")
             else:
                 print(canonical_json(report), end="")
             return 0

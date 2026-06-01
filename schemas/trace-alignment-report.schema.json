@@ -1,0 +1,87 @@
+{
+  "$defs": {
+    "TraceAlignmentStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Action"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "aligned",
+            "violating",
+            "uncovered",
+            "unsupported"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "trace_id": {
+          "title": "Trace Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "trace_id",
+        "status",
+        "requirement_id"
+      ],
+      "title": "TraceAlignmentStatus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "alignments": {
+      "items": {
+        "$ref": "#/$defs/TraceAlignmentStatus"
+      },
+      "title": "Alignments",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "result"
+  ],
+  "title": "TraceAlignmentReport",
+  "type": "object"
+}

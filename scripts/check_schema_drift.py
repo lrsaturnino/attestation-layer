@@ -20,6 +20,7 @@ from nlreq.models import (
 )
 from nlreq.command_adapter import CommandChecksArtifact, CommandResultsArtifact
 from nlreq.formal_backend import FormalBackendRequest, FormalBackendResponse
+from nlreq.coverage_alignment import SpecCoverageReport, TraceAlignmentReport
 from nlreq.gate import GatePolicy, GateWaiver
 from nlreq.impact import ImpactAnalysisArtifact
 from nlreq.routing import AdapterRegistryArtifact, RoutingPolicyArtifact
@@ -47,6 +48,8 @@ SCHEMAS = {
     "command-checks.schema.json": CommandChecksArtifact,
     "command-results.schema.json": CommandResultsArtifact,
     "counterexamples.schema.json": CounterexamplesArtifact,
+    "spec-coverage-report.schema.json": SpecCoverageReport,
+    "trace-alignment-report.schema.json": TraceAlignmentReport,
     "controlled-draft.schema.json": ControlledDraft,
     "evidence.schema.json": EvidenceObject,
     "formal-backend-request.schema.json": FormalBackendRequest,
