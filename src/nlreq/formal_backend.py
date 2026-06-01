@@ -401,7 +401,7 @@ def _budget_details(budget: FormalBackendBudget | None) -> dict[str, Any]:
 
 def _backend_status_for_runner_outcome(outcome: str) -> str:
     if outcome == "tool_error":
-        return "tool_error"
+        return "invalid"
     return outcome
 
 

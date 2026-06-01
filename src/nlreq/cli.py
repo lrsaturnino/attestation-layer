@@ -85,6 +85,7 @@ from .proof_closure import (
     build_proof_object,
     evaluate_closure_gate,
 )
+from .requirement_self_consistency import check_requirement_self_consistency
 from .status import decide_status
 from .adapter import default_generic_adapter
 from .conformance import AdapterConformanceFixture, assert_adapter_conforms
@@ -256,6 +257,27 @@ def main(argv: list[str] | None = None) -> int:
     )
     req_set_cmd.add_argument("ir", nargs="+", type=Path)
     req_set_cmd.add_argument("--out", type=Path)
+
+    req_self_cmd = subcommands.add_parser(
+        "requirement-self-consistency", help="Check one compositional requirement before S-and-R."
+    )
+    req_self_cmd.add_argument("--requirement-ir", type=Path, required=True)
+    req_self_cmd.add_argument("--backend", default="tla-runner")
+    req_self_cmd.add_argument("--artifact-dir", type=Path)
+    req_self_cmd.add_argument("--checker-id")
+    req_self_cmd.add_argument("--checker-command", nargs=argparse.REMAINDER)
+    req_self_cmd.add_argument("--timeout-seconds", type=int)
+    req_self_cmd.add_argument("--max-depth", type=int)
+    req_self_cmd.add_argument("--max-states", type=int)
+    req_self_cmd.add_argument("--memory-budget-mb", type=int)
+    req_self_cmd.add_argument("--solver-option", action="append", default=[])
+    req_self_cmd.add_argument("--expected-exit-code", type=int, default=0)
+    req_self_cmd.add_argument("--tool-version")
+    req_self_cmd.add_argument("--tool-version-command", nargs="+")
+    req_self_cmd.add_argument(
+        "--output-limit-bytes", type=int, default=DEFAULT_RUNNER_OUTPUT_LIMIT_BYTES
+    )
+    req_self_cmd.add_argument("--out", type=Path)
 
     spec_coverage_cmd = subcommands.add_parser(
         "spec-coverage", help="Build spec coverage report for affected modules."
@@ -959,6 +981,30 @@ def main(argv: list[str] | None = None) -> int:
             if args.out:
                 write_json(args.out, report)
                 print(f"Requirement set consistency: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0
+        if args.command == "requirement-self-consistency":
+            from .jsonutil import write_json
+            from .models import RequirementIRV2
+
+            ir = validate_requirement_ir_json(args.requirement_ir.read_text())
+            if not isinstance(ir, RequirementIRV2):
+                raise ValueError("requirement-self-consistency requires ir_version 0.2")
+            checker_command = (
+                _normalize_remainder_command(args.checker_command)
+                if args.checker_command
+                else None
+            )
+            report = check_requirement_self_consistency(
+                ir,
+                backend_id=args.backend,
+                budget=_formal_backend_budget_from_args(args),
+                execution=_formal_backend_execution_from_args(args, checker_command),
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Requirement self-consistency: {args.out}")
             else:
                 print(canonical_json(report), end="")
             return 0

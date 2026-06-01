@@ -31,6 +31,7 @@ from nlreq.proof_closure import (
     ProofDispatchPlan,
     ProofObject,
 )
+from nlreq.requirement_self_consistency import RequirementSelfConsistencyResult
 from nlreq.routing import AdapterRegistryArtifact, RoutingPolicyArtifact
 from nlreq.source_adapter import (
     CodePresentation,
@@ -82,6 +83,7 @@ SCHEMAS = {
     "system-spec-registry-report.schema.json": SystemSpecRegistryReport,
     "system-consistency-result.schema.json": SystemConsistencyResult,
     "requirement-set-consistency.schema.json": RequirementSetConsistencyReport,
+    "requirement-self-consistency.schema.json": RequirementSelfConsistencyResult,
     "lowered-formal-artifact.schema.json": LoweredFormalArtifact,
     "model-checker-run.schema.json": ModelCheckerRunResult,
     "model-checker-runs.schema.json": ModelCheckerRunArtifact,
