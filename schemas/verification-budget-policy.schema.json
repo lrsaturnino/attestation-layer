@@ -1,0 +1,92 @@
+{
+  "$defs": {
+    "RequirementClassBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "abstraction_level": {
+          "default": "local",
+          "enum": [
+            "none",
+            "local",
+            "compositional",
+            "abstract"
+          ],
+          "title": "Abstraction Level",
+          "type": "string"
+        },
+        "finite_domains": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Finite Domains",
+          "type": "object"
+        },
+        "max_depth": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Depth"
+        },
+        "max_states": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max States"
+        },
+        "requirement_class": {
+          "enum": [
+            "safety",
+            "liveness",
+            "trace_grounded",
+            "system_compatibility"
+          ],
+          "title": "Requirement Class",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "requirement_class",
+        "timeout_seconds"
+      ],
+      "title": "RequirementClassBudget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "budgets": {
+      "items": {
+        "$ref": "#/$defs/RequirementClassBudget"
+      },
+      "title": "Budgets",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "title": "VerificationBudgetPolicy",
+  "type": "object"
+}

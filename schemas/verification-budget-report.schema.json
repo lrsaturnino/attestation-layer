@@ -1,0 +1,165 @@
+{
+  "$defs": {
+    "AbstractionAssumption": {
+      "additionalProperties": false,
+      "properties": {
+        "assumption_id": {
+          "title": "Assumption Id",
+          "type": "string"
+        },
+        "reviewed": {
+          "default": false,
+          "title": "Reviewed",
+          "type": "boolean"
+        },
+        "scope": {
+          "title": "Scope",
+          "type": "string"
+        },
+        "statement": {
+          "title": "Statement",
+          "type": "string"
+        }
+      },
+      "required": [
+        "assumption_id",
+        "statement",
+        "scope"
+      ],
+      "title": "AbstractionAssumption",
+      "type": "object"
+    },
+    "RequirementClassBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "abstraction_level": {
+          "default": "local",
+          "enum": [
+            "none",
+            "local",
+            "compositional",
+            "abstract"
+          ],
+          "title": "Abstraction Level",
+          "type": "string"
+        },
+        "finite_domains": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "title": "Finite Domains",
+          "type": "object"
+        },
+        "max_depth": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Depth"
+        },
+        "max_states": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max States"
+        },
+        "requirement_class": {
+          "enum": [
+            "safety",
+            "liveness",
+            "trace_grounded",
+            "system_compatibility"
+          ],
+          "title": "Requirement Class",
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "exclusiveMinimum": 0,
+          "title": "Timeout Seconds",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "requirement_class",
+        "timeout_seconds"
+      ],
+      "title": "RequirementClassBudget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "assumptions": {
+      "items": {
+        "$ref": "#/$defs/AbstractionAssumption"
+      },
+      "title": "Assumptions",
+      "type": "array"
+    },
+    "assumptions_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Assumptions Hash"
+    },
+    "blockers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "budget": {
+      "$ref": "#/$defs/RequirementClassBudget"
+    },
+    "requirement_class": {
+      "title": "Requirement Class",
+      "type": "string"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "ready",
+        "needs_review"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "requirement_class",
+    "budget",
+    "result"
+  ],
+  "title": "VerificationBudgetReport",
+  "type": "object"
+}

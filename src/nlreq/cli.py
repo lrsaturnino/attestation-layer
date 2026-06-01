@@ -128,6 +128,10 @@ from .tla_package import (
     tla_results_markdown,
     validate_tla_package,
 )
+from .verification_budget import (
+    AbstractionAssumption,
+    build_verification_budget_report,
+)
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -388,6 +392,18 @@ def main(argv: list[str] | None = None) -> int:
     delta_extract_cmd.add_argument("--spec-drift", type=Path)
     delta_extract_cmd.add_argument("--out", type=Path)
     delta_extract_cmd.add_argument("--markdown-out", type=Path)
+
+    verification_budget_cmd = subcommands.add_parser(
+        "verification-budget", help="Build a verification budget and abstraction report."
+    )
+    verification_budget_cmd.add_argument("--requirement-ir", type=Path, required=True)
+    verification_budget_cmd.add_argument(
+        "--requirement-class",
+        choices=["safety", "liveness", "trace_grounded", "system_compatibility"],
+        required=True,
+    )
+    verification_budget_cmd.add_argument("--assumption", action="append", default=[])
+    verification_budget_cmd.add_argument("--out", type=Path)
 
     proof_object_cmd = subcommands.add_parser(
         "proof-object", help="Aggregate backend evidence into a proof closure object."
@@ -1313,6 +1329,24 @@ def main(argv: list[str] | None = None) -> int:
             if args.markdown_out:
                 args.markdown_out.write_text(delta_report_markdown(report))
                 print(f"Delta markdown: {args.markdown_out}")
+            return 0
+        if args.command == "verification-budget":
+            from .jsonutil import write_json
+            from .models import RequirementIRV2
+
+            ir = validate_requirement_ir_json(args.requirement_ir.read_text())
+            if not isinstance(ir, RequirementIRV2):
+                raise ValueError("verification-budget requires ir_version 0.2")
+            report = build_verification_budget_report(
+                ir,
+                requirement_class=args.requirement_class,
+                assumptions=_assumptions_from_args(args.assumption),
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Verification budget report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
             return 0
         if args.command == "proof-object":
             from .coverage_alignment import SpecCoverageReport, TraceAlignmentReport
@@ -2336,6 +2370,24 @@ def _semantic_suggestions_from_args(entries: list[str]) -> list[SemanticImpactSu
                 )
             )
     return suggestions
+
+
+def _assumptions_from_args(entries: list[str]) -> list[AbstractionAssumption]:
+    assumptions: list[AbstractionAssumption] = []
+    for entry in entries:
+        parts = entry.split(":", 3)
+        if len(parts) < 3:
+            raise ValueError("assumption must be ID:scope:statement[:reviewed]")
+        reviewed = len(parts) == 4 and parts[3].lower() == "reviewed"
+        assumptions.append(
+            AbstractionAssumption(
+                assumption_id=parts[0],
+                scope=parts[1],
+                statement=parts[2],
+                reviewed=reviewed,
+            )
+        )
+    return assumptions
 
 
 def _requirement_ids_from_args(args: argparse.Namespace) -> list[str]:

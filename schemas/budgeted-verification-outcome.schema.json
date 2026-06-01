@@ -1,0 +1,59 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "approving": {
+      "title": "Approving",
+      "type": "boolean"
+    },
+    "backend_status": {
+      "title": "Backend Status",
+      "type": "string"
+    },
+    "budget_hash": {
+      "title": "Budget Hash",
+      "type": "string"
+    },
+    "outcome": {
+      "enum": [
+        "valid",
+        "counterexample",
+        "timeout",
+        "unknown",
+        "inconclusive"
+      ],
+      "title": "Outcome",
+      "type": "string"
+    },
+    "reason": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reason"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "outcome",
+    "budget_hash",
+    "backend_status",
+    "approving"
+  ],
+  "title": "BudgetedVerificationOutcome",
+  "type": "object"
+}

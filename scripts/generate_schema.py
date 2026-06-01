@@ -50,6 +50,11 @@ from nlreq.trace_replay import TraceReplayReport
 from nlreq.tla_adapter import TlaModelConfigArtifact, TlaResultsArtifact
 from nlreq.translator_agreement import TranslationAgreementInput, TranslationAgreementReport
 from nlreq.translator import ControlledDraft, LoweredFormalArtifact
+from nlreq.verification_budget import (
+    BudgetedVerificationOutcome,
+    VerificationBudgetReport,
+    VerificationBudgetPolicy,
+)
 
 
 SCHEMAS = {
@@ -105,6 +110,9 @@ SCHEMAS = {
     "tla-model-config.schema.json": TlaModelConfigArtifact,
     "tla-results.schema.json": TlaResultsArtifact,
     "verification-tasks.schema.json": VerificationTasksArtifact,
+    "verification-budget-policy.schema.json": VerificationBudgetPolicy,
+    "verification-budget-report.schema.json": VerificationBudgetReport,
+    "budgeted-verification-outcome.schema.json": BudgetedVerificationOutcome,
     "waiver.schema.json": GateWaiver,
 }
 
