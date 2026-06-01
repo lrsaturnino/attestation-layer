@@ -1,0 +1,23 @@
+[
+  {
+    "trace_id": "TRACE-BENCH-POSITIVE",
+    "adapter_id": "python-source",
+    "source_hash": "sha256:positive",
+    "events": [
+      {
+        "event_id": "evt-action",
+        "timestamp": "2026-06-01T00:00:00Z",
+        "action": "finalize_redemption"
+      },
+      {
+        "event_id": "evt-finalized",
+        "timestamp": "2026-06-01T00:00:01Z",
+        "action": "redemption_finalized",
+        "post_state": {
+          "collateral": 150,
+          "reserve_floor": 100
+        }
+      }
+    ]
+  }
+]

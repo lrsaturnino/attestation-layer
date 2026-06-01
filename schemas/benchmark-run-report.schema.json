@@ -1,0 +1,155 @@
+{
+  "$defs": {
+    "BenchmarkObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "title": "Case Id",
+          "type": "string"
+        },
+        "counterexample_count": {
+          "default": 0,
+          "title": "Counterexample Count",
+          "type": "integer"
+        },
+        "expected_decision": {
+          "enum": [
+            "accepted",
+            "refused",
+            "unknown"
+          ],
+          "title": "Expected Decision",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "observed_decision": {
+          "anyOf": [
+            {
+              "enum": [
+                "accepted",
+                "refused",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed Decision"
+        },
+        "runtime_ms": {
+          "default": 0,
+          "title": "Runtime Ms",
+          "type": "integer"
+        },
+        "status": {
+          "enum": [
+            "matched",
+            "missing",
+            "false_closure",
+            "false_refusal",
+            "unknown_mismatch"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case_id",
+        "expected_decision",
+        "status"
+      ],
+      "title": "BenchmarkObservation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "closure_rate": {
+      "title": "Closure Rate",
+      "type": "number"
+    },
+    "corpus_id": {
+      "title": "Corpus Id",
+      "type": "string"
+    },
+    "counterexample_quality": {
+      "anyOf": [
+        {
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Counterexample Quality"
+    },
+    "false_closure_rate": {
+      "title": "False Closure Rate",
+      "type": "number"
+    },
+    "false_refusal_rate": {
+      "title": "False Refusal Rate",
+      "type": "number"
+    },
+    "matched_cases": {
+      "title": "Matched Cases",
+      "type": "integer"
+    },
+    "observations": {
+      "items": {
+        "$ref": "#/$defs/BenchmarkObservation"
+      },
+      "title": "Observations",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "failed"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "runtime_ms_total": {
+      "title": "Runtime Ms Total",
+      "type": "integer"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "total_cases": {
+      "title": "Total Cases",
+      "type": "integer"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "corpus_id",
+    "version",
+    "result",
+    "total_cases",
+    "matched_cases",
+    "closure_rate",
+    "false_closure_rate",
+    "false_refusal_rate",
+    "runtime_ms_total"
+  ],
+  "title": "BenchmarkRunReport",
+  "type": "object"
+}

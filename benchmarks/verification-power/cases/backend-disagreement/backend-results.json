@@ -1,0 +1,29 @@
+[
+  {
+    "backend": "tla-runner",
+    "status": "valid",
+    "evidence_level": "BOUNDED_CHECKED",
+    "details": {
+      "overlap_key": "bounded-safety",
+      "bounds": {
+        "max_depth": 8
+      },
+      "unsupported_constructs": []
+    }
+  },
+  {
+    "backend": "alloy-runner",
+    "status": "counterexample",
+    "evidence_level": "BOUNDED_CHECKED",
+    "details": {
+      "overlap_key": "bounded-safety",
+      "bounds": {
+        "max_depth": 8
+      },
+      "counterexample": {
+        "state": "wallet_authorized"
+      },
+      "unsupported_constructs": []
+    }
+  }
+]

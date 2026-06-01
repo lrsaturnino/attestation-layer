@@ -1,0 +1,14 @@
+[
+  {
+    "trace_id": "TRACE-BENCH-TRACE-MISMATCH",
+    "adapter_id": "python-source",
+    "source_hash": "sha256:trace-mismatch",
+    "events": [
+      {
+        "event_id": "evt-action",
+        "timestamp": "2026-06-01T00:00:00Z",
+        "action": "finalize_redemption"
+      }
+    ]
+  }
+]

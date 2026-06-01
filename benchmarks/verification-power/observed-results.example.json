@@ -1,0 +1,39 @@
+[
+  {
+    "case_id": "positive-closure",
+    "decision": "accepted",
+    "runtime_ms": 120
+  },
+  {
+    "case_id": "counterexample",
+    "decision": "refused",
+    "runtime_ms": 95,
+    "counterexample_count": 1
+  },
+  {
+    "case_id": "parser-disagreement",
+    "decision": "unknown",
+    "runtime_ms": 12
+  },
+  {
+    "case_id": "stale-spec",
+    "decision": "refused",
+    "runtime_ms": 40
+  },
+  {
+    "case_id": "trace-mismatch",
+    "decision": "refused",
+    "runtime_ms": 65,
+    "counterexample_count": 1
+  },
+  {
+    "case_id": "timeout",
+    "decision": "unknown",
+    "runtime_ms": 1000
+  },
+  {
+    "case_id": "backend-disagreement",
+    "decision": "refused",
+    "runtime_ms": 30
+  }
+]

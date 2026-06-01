@@ -27,6 +27,7 @@ from .adoption import (
 from .asyncapi_adapter import AsyncApiAdapter
 from .asyncapi_package import build_asyncapi_package, validate_asyncapi_package
 from .backend_agreement import build_backend_agreement_report
+from .benchmark_corpus import build_benchmark_run_report
 from .command_adapter import CommandAdapter, CommandChecksArtifact, load_command_checks
 from .command_package import (
     build_command_package,
@@ -513,6 +514,14 @@ def main(argv: list[str] | None = None) -> int:
         "--output-limit-bytes", type=int, default=DEFAULT_RUNNER_OUTPUT_LIMIT_BYTES
     )
     requirement_gate_cmd.add_argument("--fail-on-refusal", action="store_true")
+
+    benchmark_corpus_cmd = subcommands.add_parser(
+        "benchmark-corpus",
+        help="Evaluate observed requirement-gate results against a benchmark corpus.",
+    )
+    benchmark_corpus_cmd.add_argument("--corpus", type=Path, required=True)
+    benchmark_corpus_cmd.add_argument("--results", type=Path, required=True)
+    benchmark_corpus_cmd.add_argument("--out", type=Path)
 
     validate_cmd = subcommands.add_parser("validate", help="Validate a package directory.")
     validate_cmd.add_argument("package_dir", type=Path)
@@ -1654,6 +1663,20 @@ def main(argv: list[str] | None = None) -> int:
                 print(canonical_json(report), end="")
             if args.fail_on_refusal and report.decision != "accepted":
                 return 1
+            return 0
+        if args.command == "benchmark-corpus":
+            from .benchmark_corpus import BenchmarkCorpus, BenchmarkResultsArtifact
+            from .jsonutil import write_json
+
+            report = build_benchmark_run_report(
+                BenchmarkCorpus.model_validate_json(args.corpus.read_text()),
+                BenchmarkResultsArtifact.model_validate_json(args.results.read_text()).root,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Benchmark corpus report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
             return 0
         if args.command == "validate":
             ir, evidence, status = validate_package(args.package_dir)

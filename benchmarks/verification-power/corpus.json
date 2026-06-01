@@ -1,0 +1,115 @@
+{
+  "schema_version": "0.1",
+  "corpus_id": "verification-power",
+  "version": "2026-06-01",
+  "cases": [
+    {
+      "case_id": "positive-closure",
+      "title": "Positive closure",
+      "description": "A reviewed spec and aligned trace should close the requirement gate.",
+      "artifacts": {
+        "requirements": ["cases/positive-closure/requirement.nlreq2"],
+        "source": ["cases/positive-closure/src/redemption.py"],
+        "specs": ["cases/positive-closure/specs/Redemption.tla"],
+        "traces": ["cases/positive-closure/traces.json"]
+      },
+      "tags": ["positive_closure", "gate"],
+      "expected": {
+        "decision": "accepted"
+      }
+    },
+    {
+      "case_id": "counterexample",
+      "title": "System counterexample",
+      "description": "The system spec declares a counterexample marker for the requirement.",
+      "artifacts": {
+        "requirements": ["cases/counterexample/requirement.nlreq2"],
+        "source": ["cases/counterexample/src/redemption.py"],
+        "specs": ["cases/counterexample/specs/Redemption.tla"],
+        "traces": ["cases/counterexample/traces.json"]
+      },
+      "tags": ["counterexample", "system_consistency"],
+      "expected": {
+        "decision": "refused",
+        "failure_mode": "system_counterexample",
+        "counterexample_expected": true
+      }
+    },
+    {
+      "case_id": "parser-disagreement",
+      "title": "Parser disagreement",
+      "description": "Malformed controlled text should remain unknown until clarified.",
+      "artifacts": {
+        "requirements": ["cases/parser-disagreement/requirement.nlreq2"]
+      },
+      "tags": ["parser_disagreement", "translation"],
+      "expected": {
+        "decision": "unknown",
+        "failure_mode": "parser_disagreement"
+      }
+    },
+    {
+      "case_id": "stale-spec",
+      "title": "Stale spec",
+      "description": "A stale reviewed spec should prevent closure.",
+      "artifacts": {
+        "requirements": ["cases/stale-spec/requirement.nlreq2"],
+        "source": ["cases/stale-spec/src/redemption.py"],
+        "specs": ["cases/stale-spec/specs/Redemption.tla"],
+        "traces": ["cases/stale-spec/traces.json"]
+      },
+      "tags": ["stale_spec", "coverage"],
+      "expected": {
+        "decision": "refused",
+        "failure_mode": "stale_spec"
+      }
+    },
+    {
+      "case_id": "trace-mismatch",
+      "title": "Trace mismatch",
+      "description": "A trace that omits the required event should produce a replay counterexample.",
+      "artifacts": {
+        "requirements": ["cases/trace-mismatch/requirement.nlreq2"],
+        "source": ["cases/trace-mismatch/src/redemption.py"],
+        "specs": ["cases/trace-mismatch/specs/Redemption.tla"],
+        "traces": ["cases/trace-mismatch/traces.json"]
+      },
+      "tags": ["trace_mismatch", "trace_replay"],
+      "expected": {
+        "decision": "refused",
+        "failure_mode": "trace_mismatch",
+        "counterexample_expected": true
+      }
+    },
+    {
+      "case_id": "timeout",
+      "title": "Timeout",
+      "description": "A timeout marker should avoid false acceptance.",
+      "artifacts": {
+        "requirements": ["cases/timeout/requirement.nlreq2"],
+        "source": ["cases/timeout/src/redemption.py"],
+        "specs": ["cases/timeout/specs/Redemption.tla"],
+        "traces": ["cases/timeout/traces.json"]
+      },
+      "tags": ["timeout", "unknown"],
+      "expected": {
+        "decision": "unknown",
+        "failure_mode": "timeout"
+      }
+    },
+    {
+      "case_id": "backend-disagreement",
+      "title": "Backend disagreement",
+      "description": "Overlapping backend results disagree and must not be hidden inside closure.",
+      "artifacts": {
+        "requirements": ["cases/backend-disagreement/requirement.nlreq2"],
+        "backend_results": ["cases/backend-disagreement/backend-results.json"]
+      },
+      "tags": ["backend_disagreement", "multi_backend"],
+      "expected": {
+        "decision": "refused",
+        "failure_mode": "backend_disagreement"
+      }
+    }
+  ]
+}

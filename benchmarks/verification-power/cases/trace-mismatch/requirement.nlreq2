@@ -1,0 +1,4 @@
+For every redemption:
+when wallet is authorized
+and requested_amount <= spendable_balance
+then finalize_redemption must emit redemption_finalized within 6 hours.

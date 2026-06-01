@@ -1,0 +1,19 @@
+[
+  {
+    "trace_id": "TRACE-BENCH-COUNTEREXAMPLE",
+    "adapter_id": "python-source",
+    "source_hash": "sha256:counterexample",
+    "events": [
+      {
+        "event_id": "evt-action",
+        "timestamp": "2026-06-01T00:00:00Z",
+        "action": "finalize_redemption"
+      },
+      {
+        "event_id": "evt-finalized",
+        "timestamp": "2026-06-01T00:00:01Z",
+        "action": "redemption_finalized"
+      }
+    ]
+  }
+]

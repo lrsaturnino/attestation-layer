@@ -1,0 +1,52 @@
+{
+  "$defs": {
+    "BenchmarkCaseResult": {
+      "additionalProperties": false,
+      "properties": {
+        "case_id": {
+          "title": "Case Id",
+          "type": "string"
+        },
+        "counterexample_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Counterexample Count",
+          "type": "integer"
+        },
+        "decision": {
+          "enum": [
+            "accepted",
+            "refused",
+            "unknown"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "runtime_ms": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Runtime Ms",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "case_id",
+        "decision"
+      ],
+      "title": "BenchmarkCaseResult",
+      "type": "object"
+    }
+  },
+  "items": {
+    "$ref": "#/$defs/BenchmarkCaseResult"
+  },
+  "title": "BenchmarkResultsArtifact",
+  "type": "array"
+}

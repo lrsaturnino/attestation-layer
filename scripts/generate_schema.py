@@ -21,6 +21,11 @@ from nlreq.models import (
 from nlreq.command_adapter import CommandChecksArtifact, CommandResultsArtifact
 from nlreq.agnostic_wedge import AgnosticWedgeReport
 from nlreq.backend_agreement import BackendAgreementReport
+from nlreq.benchmark_corpus import (
+    BenchmarkCorpus,
+    BenchmarkResultsArtifact,
+    BenchmarkRunReport,
+)
 from nlreq.delta_extractor import DeltaReport
 from nlreq.end_to_end_gate import EndToEndRequirementGateReport
 from nlreq.evidence_producers import EvidenceProducerValidationReport
@@ -69,6 +74,9 @@ SCHEMAS = {
     "agnostic-wedge-report.schema.json": AgnosticWedgeReport,
     "backend-agreement-report.schema.json": BackendAgreementReport,
     "backend-results.schema.json": BackendResultsArtifact,
+    "benchmark-corpus.schema.json": BenchmarkCorpus,
+    "benchmark-results.schema.json": BenchmarkResultsArtifact,
+    "benchmark-run-report.schema.json": BenchmarkRunReport,
     "bindings.schema.json": BindingsArtifact,
     "command-checks.schema.json": CommandChecksArtifact,
     "command-results.schema.json": CommandResultsArtifact,
