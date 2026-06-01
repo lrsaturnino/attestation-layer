@@ -116,6 +116,7 @@ from .translator_agreement import (
     TranslationAgreementInput,
     build_translation_agreement_report,
 )
+from .trace_replay import build_trace_replay_report
 from .tla_adapter import TlaAdapter, load_tla_model_config
 from .tla_package import (
     build_tla_package,
@@ -334,6 +335,14 @@ def main(argv: list[str] | None = None) -> int:
     trace_align_cmd.add_argument("--trace-artifact", type=Path, required=True)
     trace_align_cmd.add_argument("--coverage", type=Path, required=True)
     trace_align_cmd.add_argument("--out", type=Path)
+
+    trace_replay_cmd = subcommands.add_parser(
+        "trace-replay", help="Replay normalized traces against compositional requirement obligations."
+    )
+    trace_replay_cmd.add_argument("--requirement-ir", type=Path, required=True)
+    trace_replay_cmd.add_argument("--trace-artifact", type=Path, required=True)
+    trace_replay_cmd.add_argument("--coverage", type=Path, required=True)
+    trace_replay_cmd.add_argument("--out", type=Path)
 
     proof_object_cmd = subcommands.add_parser(
         "proof-object", help="Aggregate backend evidence into a proof closure object."
@@ -1121,6 +1130,25 @@ def main(argv: list[str] | None = None) -> int:
             if args.out:
                 write_json(args.out, report)
                 print(f"Trace alignment report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0
+        if args.command == "trace-replay":
+            from .coverage_alignment import SpecCoverageReport
+            from .jsonutil import write_json
+            from .models import NormalizedTraceArtifact, RequirementIRV2
+
+            ir = validate_requirement_ir_json(args.requirement_ir.read_text())
+            if not isinstance(ir, RequirementIRV2):
+                raise ValueError("trace-replay requires ir_version 0.2")
+            report = build_trace_replay_report(
+                requirement=ir,
+                traces=NormalizedTraceArtifact.model_validate_json(args.trace_artifact.read_text()),
+                coverage=SpecCoverageReport.model_validate_json(args.coverage.read_text()),
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Trace replay report: {args.out}")
             else:
                 print(canonical_json(report), end="")
             return 0

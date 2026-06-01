@@ -42,6 +42,7 @@ from nlreq.source_adapter import (
 from nlreq.system_spec import SystemSpecRegistry, SystemSpecRegistryReport
 from nlreq.system_checker import SystemConsistencyResult, RequirementSetConsistencyReport
 from nlreq.trace_validation import TraceValidationResultsArtifact
+from nlreq.trace_replay import TraceReplayReport
 from nlreq.tla_adapter import TlaModelConfigArtifact, TlaResultsArtifact
 from nlreq.translator_agreement import TranslationAgreementInput, TranslationAgreementReport
 from nlreq.translator import ControlledDraft, LoweredFormalArtifact
@@ -91,6 +92,7 @@ SCHEMAS = {
     "model-checker-run.schema.json": ModelCheckerRunResult,
     "model-checker-runs.schema.json": ModelCheckerRunArtifact,
     "trace-validation-results.schema.json": TraceValidationResultsArtifact,
+    "trace-replay-report.schema.json": TraceReplayReport,
     "tla-model-config.schema.json": TlaModelConfigArtifact,
     "tla-results.schema.json": TlaResultsArtifact,
     "verification-tasks.schema.json": VerificationTasksArtifact,
