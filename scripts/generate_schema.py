@@ -21,6 +21,7 @@ from nlreq.models import (
 from nlreq.command_adapter import CommandChecksArtifact, CommandResultsArtifact
 from nlreq.agnostic_wedge import AgnosticWedgeReport
 from nlreq.delta_extractor import DeltaReport
+from nlreq.evidence_producers import EvidenceProducerValidationReport
 from nlreq.formal_backend import FormalBackendRequest, FormalBackendResponse
 from nlreq.coverage_alignment import SpecCoverageReport, TraceAlignmentReport
 from nlreq.gate import GatePolicy, GateWaiver
@@ -76,6 +77,7 @@ SCHEMAS = {
     "translation-agreement-input.schema.json": TranslationAgreementInput,
     "translation-agreement-report.schema.json": TranslationAgreementReport,
     "evidence.schema.json": EvidenceObject,
+    "evidence-producer-validation.schema.json": EvidenceProducerValidationReport,
     "formal-backend-request.schema.json": FormalBackendRequest,
     "formal-backend-response.schema.json": FormalBackendResponse,
     "gate-policy.schema.json": GatePolicy,

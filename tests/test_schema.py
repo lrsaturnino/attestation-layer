@@ -31,6 +31,7 @@ def test_auxiliary_artifact_schemas_are_committed() -> None:
     assert (schema_dir / "counterexamples.schema.json").exists()
     assert (schema_dir / "delta-report.schema.json").exists()
     assert (schema_dir / "evidence-producer-mapping.schema.json").exists()
+    assert (schema_dir / "evidence-producer-validation.schema.json").exists()
     assert (schema_dir / "formal-backend-request.schema.json").exists()
     assert (schema_dir / "formal-backend-response.schema.json").exists()
     assert (schema_dir / "gate-policy.schema.json").exists()

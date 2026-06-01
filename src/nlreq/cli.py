@@ -53,6 +53,7 @@ from .formal_backend import (
 )
 from .delta_extractor import build_delta_report, delta_report_markdown
 from .dsl_v2 import DslV2Parser
+from .evidence_producers import validate_real_evidence_producers
 from .gate import (
     build_hard_gate_report,
     hard_gate_report_markdown,
@@ -85,6 +86,7 @@ from .proof_closure import (
     backend_results_from_formal_response,
     backend_results_from_system_consistency,
     build_proof_object,
+    default_evidence_producer_mapping,
     evaluate_closure_gate,
 )
 from .requirement_self_consistency import check_requirement_self_consistency
@@ -404,6 +406,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     verification_budget_cmd.add_argument("--assumption", action="append", default=[])
     verification_budget_cmd.add_argument("--out", type=Path)
+
+    evidence_producers_cmd = subcommands.add_parser(
+        "evidence-producers-validate",
+        help="Validate real producer metadata for backend evidence.",
+    )
+    evidence_producers_cmd.add_argument("--backend-result", action="append", type=Path, default=[])
+    evidence_producers_cmd.add_argument("--producer-mapping", type=Path)
+    evidence_producers_cmd.add_argument("--out", type=Path)
 
     proof_object_cmd = subcommands.add_parser(
         "proof-object", help="Aggregate backend evidence into a proof closure object."
@@ -1345,6 +1355,29 @@ def main(argv: list[str] | None = None) -> int:
             if args.out:
                 write_json(args.out, report)
                 print(f"Verification budget report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0
+        if args.command == "evidence-producers-validate":
+            from .jsonutil import write_json
+            from .models import BackendResult
+            from .proof_closure import EvidenceProducerMapping
+
+            mapping = (
+                EvidenceProducerMapping.model_validate_json(args.producer_mapping.read_text())
+                if args.producer_mapping
+                else default_evidence_producer_mapping()
+            )
+            report = validate_real_evidence_producers(
+                [
+                    BackendResult.model_validate_json(path.read_text())
+                    for path in args.backend_result
+                ],
+                mapping,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Evidence producer validation report: {args.out}")
             else:
                 print(canonical_json(report), end="")
             return 0
