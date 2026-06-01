@@ -15,6 +15,7 @@ from .agent_workflow import (
     load_continuous_run,
     package_input_refs,
 )
+from .agnostic_wedge import build_agnostic_wedge_report
 from .adoption import (
     build_ci_report,
     build_package_index,
@@ -247,6 +248,16 @@ def main(argv: list[str] | None = None) -> int:
     closure_gate_cmd.add_argument("--downstream-action", default="merge")
     closure_gate_cmd.add_argument("--out", type=Path)
     closure_gate_cmd.add_argument("--fail-on-blocking", action="store_true")
+
+    agnostic_wedge_cmd = subcommands.add_parser(
+        "agnostic-wedge", help="Validate a closed proof object across languages or formalisms."
+    )
+    agnostic_wedge_cmd.add_argument("--proof-object", type=Path, required=True)
+    agnostic_wedge_cmd.add_argument("--source-manifest", action="append", type=Path, default=[])
+    agnostic_wedge_cmd.add_argument("--formal-backend-response", action="append", type=Path, default=[])
+    agnostic_wedge_cmd.add_argument("--requirement-ir", type=Path)
+    agnostic_wedge_cmd.add_argument("--out", type=Path)
+    agnostic_wedge_cmd.add_argument("--fail-on-blocking", action="store_true")
 
     validate_cmd = subcommands.add_parser("validate", help="Validate a package directory.")
     validate_cmd.add_argument("package_dir", type=Path)
@@ -962,6 +973,39 @@ def main(argv: list[str] | None = None) -> int:
             if args.out:
                 write_json(args.out, report)
                 print(f"Closure gate report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            if args.fail_on_blocking and report.result == "blocked":
+                return 1
+            return 0
+        if args.command == "agnostic-wedge":
+            from .formal_backend import FormalBackendResponse
+            from .jsonutil import write_json
+            from .models import RequirementIRV2
+            from .proof_closure import ProofObject
+            from .source_adapter import SourceManifest
+
+            requirement = None
+            if args.requirement_ir:
+                ir = validate_requirement_ir_json(args.requirement_ir.read_text())
+                if not isinstance(ir, RequirementIRV2):
+                    raise ValueError("agnostic-wedge requires ir_version 0.2")
+                requirement = ir
+            report = build_agnostic_wedge_report(
+                proof=ProofObject.model_validate_json(args.proof_object.read_text()),
+                source_manifests=[
+                    SourceManifest.model_validate_json(path.read_text())
+                    for path in args.source_manifest
+                ],
+                formal_responses=[
+                    FormalBackendResponse.model_validate_json(path.read_text())
+                    for path in args.formal_backend_response
+                ],
+                requirement=requirement,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Agnostic wedge report: {args.out}")
             else:
                 print(canonical_json(report), end="")
             if args.fail_on_blocking and report.result == "blocked":

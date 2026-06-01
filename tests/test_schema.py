@@ -18,6 +18,7 @@ def test_auxiliary_artifact_schemas_are_committed() -> None:
     schema_dir = Path("schemas")
 
     assert (schema_dir / "adapter-registry.schema.json").exists()
+    assert (schema_dir / "agnostic-wedge-report.schema.json").exists()
     assert (schema_dir / "assumptions.schema.json").exists()
     assert (schema_dir / "backend-results.schema.json").exists()
     assert (schema_dir / "bindings.schema.json").exists()

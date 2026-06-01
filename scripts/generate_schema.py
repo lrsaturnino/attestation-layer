@@ -19,6 +19,7 @@ from nlreq.models import (
     VerificationTasksArtifact,
 )
 from nlreq.command_adapter import CommandChecksArtifact, CommandResultsArtifact
+from nlreq.agnostic_wedge import AgnosticWedgeReport
 from nlreq.formal_backend import FormalBackendRequest, FormalBackendResponse
 from nlreq.coverage_alignment import SpecCoverageReport, TraceAlignmentReport
 from nlreq.gate import GatePolicy, GateWaiver
@@ -49,6 +50,7 @@ SCHEMAS = {
     "requirement-ir-migration.schema.json": RequirementIRMigrationRecord,
     "assumptions.schema.json": AssumptionsArtifact,
     "adapter-registry.schema.json": AdapterRegistryArtifact,
+    "agnostic-wedge-report.schema.json": AgnosticWedgeReport,
     "backend-results.schema.json": BackendResultsArtifact,
     "bindings.schema.json": BindingsArtifact,
     "command-checks.schema.json": CommandChecksArtifact,

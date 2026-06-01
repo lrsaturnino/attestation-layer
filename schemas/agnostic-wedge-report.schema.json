@@ -1,0 +1,213 @@
+{
+  "$defs": {
+    "AgnosticWedgeBlocker": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "missing_input",
+            "proof_not_closed",
+            "insufficient_diversity",
+            "formal_backend",
+            "ir_boundary"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "subject": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject"
+        }
+      },
+      "required": [
+        "category",
+        "message"
+      ],
+      "title": "AgnosticWedgeBlocker",
+      "type": "object"
+    },
+    "FormalTargetSlice": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_id": {
+          "title": "Backend Id",
+          "type": "string"
+        },
+        "evidence_level": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Level"
+        },
+        "result_status": {
+          "title": "Result Status",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "backend_id",
+        "target",
+        "result_status"
+      ],
+      "title": "FormalTargetSlice",
+      "type": "object"
+    },
+    "SourceLanguageSlice": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "title": "Adapter",
+          "type": "string"
+        },
+        "language": {
+          "title": "Language",
+          "type": "string"
+        },
+        "module_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Module Ids",
+          "type": "array"
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime"
+        }
+      },
+      "required": [
+        "adapter",
+        "language"
+      ],
+      "title": "SourceLanguageSlice",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "blockers": {
+      "items": {
+        "$ref": "#/$defs/AgnosticWedgeBlocker"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "formal_targets": {
+      "items": {
+        "$ref": "#/$defs/FormalTargetSlice"
+      },
+      "title": "Formal Targets",
+      "type": "array"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "proof_id": {
+      "title": "Proof Id",
+      "type": "string"
+    },
+    "proof_status": {
+      "enum": [
+        "closed",
+        "open",
+        "blocked"
+      ],
+      "title": "Proof Status",
+      "type": "string"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_languages": {
+      "items": {
+        "$ref": "#/$defs/SourceLanguageSlice"
+      },
+      "title": "Source Languages",
+      "type": "array"
+    },
+    "tool": {
+      "default": "nlreq.agnostic_wedge",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "wedge_type": {
+      "enum": [
+        "cross_language",
+        "cross_formalism",
+        "none"
+      ],
+      "title": "Wedge Type",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "proof_id",
+    "result",
+    "wedge_type",
+    "proof_status"
+  ],
+  "title": "AgnosticWedgeReport",
+  "type": "object"
+}
