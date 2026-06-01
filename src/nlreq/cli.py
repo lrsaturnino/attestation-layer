@@ -98,6 +98,7 @@ from .routing import (
     load_routing_policy,
     routing_report_markdown,
 )
+from .spec_extraction import build_spec_extraction_workbench_report
 from .trace_validation import build_trace_validation_report, trace_validation_markdown
 from .system_spec import build_system_spec_registry_report, load_system_spec_registry
 from .system_checker import (
@@ -343,6 +344,17 @@ def main(argv: list[str] | None = None) -> int:
     trace_replay_cmd.add_argument("--trace-artifact", type=Path, required=True)
     trace_replay_cmd.add_argument("--coverage", type=Path, required=True)
     trace_replay_cmd.add_argument("--out", type=Path)
+
+    spec_extract_cmd = subcommands.add_parser(
+        "spec-extract", help="Generate draft candidate specs for under-specified modules."
+    )
+    spec_extract_cmd.add_argument("--requirement-ir", type=Path, required=True)
+    spec_extract_cmd.add_argument("--impact", type=Path, required=True)
+    spec_extract_cmd.add_argument("--registry", type=Path, required=True)
+    spec_extract_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    spec_extract_cmd.add_argument("--code-presentation", type=Path)
+    spec_extract_cmd.add_argument("--trace-replay", type=Path)
+    spec_extract_cmd.add_argument("--out", type=Path)
 
     proof_object_cmd = subcommands.add_parser(
         "proof-object", help="Aggregate backend evidence into a proof closure object."
@@ -1149,6 +1161,36 @@ def main(argv: list[str] | None = None) -> int:
             if args.out:
                 write_json(args.out, report)
                 print(f"Trace replay report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0
+        if args.command == "spec-extract":
+            from .impact import ImpactAnalysisArtifact
+            from .jsonutil import write_json
+            from .models import RequirementIRV2
+            from .source_adapter import CodePresentation
+            from .trace_replay import TraceReplayReport
+
+            ir = validate_requirement_ir_json(args.requirement_ir.read_text())
+            if not isinstance(ir, RequirementIRV2):
+                raise ValueError("spec-extract requires ir_version 0.2")
+            report = build_spec_extraction_workbench_report(
+                requirement=ir,
+                impact=ImpactAnalysisArtifact.model_validate_json(args.impact.read_text()),
+                registry=load_system_spec_registry(args.registry),
+                project_root=args.project_root,
+                code_presentation=CodePresentation.model_validate_json(
+                    args.code_presentation.read_text()
+                )
+                if args.code_presentation
+                else None,
+                trace_replay=TraceReplayReport.model_validate_json(args.trace_replay.read_text())
+                if args.trace_replay
+                else None,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Spec extraction workbench report: {args.out}")
             else:
                 print(canonical_json(report), end="")
             return 0
