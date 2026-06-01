@@ -67,6 +67,12 @@ from .protobuf_adapter import ProtobufAdapter
 from .protobuf_package import build_protobuf_package, validate_protobuf_package
 from .python_package import build_python_package, validate_python_package
 from .python_source_adapter import PythonSourceLanguageAdapter
+from .proof_closure import (
+    backend_results_from_formal_response,
+    backend_results_from_system_consistency,
+    build_proof_object,
+    evaluate_closure_gate,
+)
 from .status import decide_status
 from .adapter import default_generic_adapter
 from .conformance import AdapterConformanceFixture, assert_adapter_conforms
@@ -221,6 +227,26 @@ def main(argv: list[str] | None = None) -> int:
     trace_align_cmd.add_argument("--trace-artifact", type=Path, required=True)
     trace_align_cmd.add_argument("--coverage", type=Path, required=True)
     trace_align_cmd.add_argument("--out", type=Path)
+
+    proof_object_cmd = subcommands.add_parser(
+        "proof-object", help="Aggregate backend evidence into a proof closure object."
+    )
+    proof_object_cmd.add_argument("--requirement-ir", type=Path, required=True)
+    proof_object_cmd.add_argument("--system-consistency", action="append", type=Path, default=[])
+    proof_object_cmd.add_argument("--formal-backend-response", action="append", type=Path, default=[])
+    proof_object_cmd.add_argument("--backend-result", action="append", type=Path, default=[])
+    proof_object_cmd.add_argument("--spec-coverage", type=Path)
+    proof_object_cmd.add_argument("--trace-alignment", type=Path)
+    proof_object_cmd.add_argument("--producer-mapping", type=Path)
+    proof_object_cmd.add_argument("--out", type=Path)
+
+    closure_gate_cmd = subcommands.add_parser(
+        "closure-gate", help="Evaluate whether a downstream action has a closed proof object."
+    )
+    closure_gate_cmd.add_argument("proof_object", type=Path)
+    closure_gate_cmd.add_argument("--downstream-action", default="merge")
+    closure_gate_cmd.add_argument("--out", type=Path)
+    closure_gate_cmd.add_argument("--fail-on-blocking", action="store_true")
 
     validate_cmd = subcommands.add_parser("validate", help="Validate a package directory.")
     validate_cmd.add_argument("package_dir", type=Path)
@@ -875,6 +901,71 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Trace alignment report: {args.out}")
             else:
                 print(canonical_json(report), end="")
+            return 0
+        if args.command == "proof-object":
+            from .coverage_alignment import SpecCoverageReport, TraceAlignmentReport
+            from .formal_backend import FormalBackendResponse
+            from .jsonutil import write_json
+            from .models import BackendResult, RequirementIRV2
+            from .proof_closure import EvidenceProducerMapping
+            from .system_checker import SystemConsistencyResult
+
+            ir = validate_requirement_ir_json(args.requirement_ir.read_text())
+            if not isinstance(ir, RequirementIRV2):
+                raise ValueError("proof-object requires ir_version 0.2")
+            backend_results: list[BackendResult] = []
+            for path in args.system_consistency:
+                backend_results.extend(
+                    backend_results_from_system_consistency(
+                        SystemConsistencyResult.model_validate_json(path.read_text())
+                    )
+                )
+            for path in args.formal_backend_response:
+                backend_results.extend(
+                    backend_results_from_formal_response(
+                        FormalBackendResponse.model_validate_json(path.read_text())
+                    )
+                )
+            for path in args.backend_result:
+                backend_results.append(BackendResult.model_validate_json(path.read_text()))
+            proof = build_proof_object(
+                requirement=ir,
+                backend_results=backend_results,
+                coverage=(
+                    SpecCoverageReport.model_validate_json(args.spec_coverage.read_text())
+                    if args.spec_coverage
+                    else None
+                ),
+                trace_alignment=(
+                    TraceAlignmentReport.model_validate_json(args.trace_alignment.read_text())
+                    if args.trace_alignment
+                    else None
+                ),
+                producer_mapping=(
+                    EvidenceProducerMapping.model_validate_json(args.producer_mapping.read_text())
+                    if args.producer_mapping
+                    else None
+                ),
+            )
+            if args.out:
+                write_json(args.out, proof)
+                print(f"Proof object: {args.out}")
+            else:
+                print(canonical_json(proof), end="")
+            return 0
+        if args.command == "closure-gate":
+            from .jsonutil import write_json
+            from .proof_closure import ProofObject
+
+            proof = ProofObject.model_validate_json(args.proof_object.read_text())
+            report = evaluate_closure_gate(proof, downstream_action=args.downstream_action)
+            if args.out:
+                write_json(args.out, report)
+                print(f"Closure gate report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            if args.fail_on_blocking and report.result == "blocked":
+                return 1
             return 0
         if args.command == "validate":
             ir, evidence, status = validate_package(args.package_dir)

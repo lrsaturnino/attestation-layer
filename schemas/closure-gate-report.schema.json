@@ -1,0 +1,135 @@
+{
+  "$defs": {
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    },
+    "ProofClosureBlocker": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Backend"
+        },
+        "category": {
+          "enum": [
+            "missing_context",
+            "coverage",
+            "trace_alignment",
+            "producer_mapping",
+            "backend_result",
+            "premise"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "evidence_level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "premise_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Premise Id"
+        }
+      },
+      "required": [
+        "category",
+        "message"
+      ],
+      "title": "ProofClosureBlocker",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "blockers": {
+      "items": {
+        "$ref": "#/$defs/ProofClosureBlocker"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "downstream_action": {
+      "title": "Downstream Action",
+      "type": "string"
+    },
+    "proof_id": {
+      "title": "Proof Id",
+      "type": "string"
+    },
+    "proof_status": {
+      "enum": [
+        "closed",
+        "open",
+        "blocked"
+      ],
+      "title": "Proof Status",
+      "type": "string"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "result",
+    "downstream_action",
+    "proof_id",
+    "requirement_id",
+    "proof_status"
+  ],
+  "title": "ClosureGateReport",
+  "type": "object"
+}

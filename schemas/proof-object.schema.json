@@ -1,0 +1,512 @@
+{
+  "$defs": {
+    "BackendResult": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "title": "Backend",
+          "type": "string"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "evidence_level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "enum": [
+            "valid",
+            "invalid",
+            "counterexample",
+            "timeout",
+            "unsupported",
+            "needs_review"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "backend",
+        "status"
+      ],
+      "title": "BackendResult",
+      "type": "object"
+    },
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    },
+    "EvidenceProducer": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_evidence_levels": {
+          "items": {
+            "$ref": "#/$defs/EvidenceLevel"
+          },
+          "title": "Allowed Evidence Levels",
+          "type": "array"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "producer_id": {
+          "title": "Producer Id",
+          "type": "string"
+        },
+        "producer_kind": {
+          "enum": [
+            "formal_backend",
+            "model_checker",
+            "proof_assistant",
+            "smt_solver",
+            "system_checker",
+            "trace_validator",
+            "test_runner",
+            "review",
+            "coverage_checker",
+            "formal_boundary",
+            "other"
+          ],
+          "title": "Producer Kind",
+          "type": "string"
+        },
+        "real_producer": {
+          "default": true,
+          "title": "Real Producer",
+          "type": "boolean"
+        },
+        "reproducibility": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Reproducibility",
+          "type": "object"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "tool_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Version"
+        }
+      },
+      "required": [
+        "producer_id",
+        "producer_kind",
+        "tool"
+      ],
+      "title": "EvidenceProducer",
+      "type": "object"
+    },
+    "EvidenceProducerMapping": {
+      "additionalProperties": false,
+      "properties": {
+        "producers": {
+          "items": {
+            "$ref": "#/$defs/EvidenceProducer"
+          },
+          "title": "Producers",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "title": "EvidenceProducerMapping",
+      "type": "object"
+    },
+    "ProofClosureBlocker": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Backend"
+        },
+        "category": {
+          "enum": [
+            "missing_context",
+            "coverage",
+            "trace_alignment",
+            "producer_mapping",
+            "backend_result",
+            "premise"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "evidence_level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "premise_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Premise Id"
+        }
+      },
+      "required": [
+        "category",
+        "message"
+      ],
+      "title": "ProofClosureBlocker",
+      "type": "object"
+    },
+    "ProofDispatchPlan": {
+      "additionalProperties": false,
+      "properties": {
+        "policy_id": {
+          "title": "Policy Id",
+          "type": "string"
+        },
+        "routes": {
+          "items": {
+            "$ref": "#/$defs/ProofPremiseRoute"
+          },
+          "title": "Routes",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "policy_id"
+      ],
+      "title": "ProofDispatchPlan",
+      "type": "object"
+    },
+    "ProofPremise": {
+      "additionalProperties": false,
+      "properties": {
+        "achieved_evidence": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "backend_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Backend Status"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "node_kind": {
+          "title": "Node Kind",
+          "type": "string"
+        },
+        "premise_id": {
+          "title": "Premise Id",
+          "type": "string"
+        },
+        "producer_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Producer Id"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "required_evidence": {
+          "$ref": "#/$defs/EvidenceLevel"
+        },
+        "role": {
+          "enum": [
+            "premise",
+            "obligation"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "routed_backend": {
+          "title": "Routed Backend",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "discharged",
+            "open",
+            "blocked"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "premise_id",
+        "node_id",
+        "node_kind",
+        "role",
+        "required_evidence",
+        "routed_backend",
+        "status"
+      ],
+      "title": "ProofPremise",
+      "type": "object"
+    },
+    "ProofPremiseRoute": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_id": {
+          "title": "Backend Id",
+          "type": "string"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "node_kind": {
+          "title": "Node Kind",
+          "type": "string"
+        },
+        "premise_id": {
+          "title": "Premise Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "required_evidence": {
+          "$ref": "#/$defs/EvidenceLevel"
+        },
+        "role": {
+          "enum": [
+            "premise",
+            "obligation"
+          ],
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "premise_id",
+        "node_id",
+        "node_kind",
+        "role",
+        "backend_id",
+        "required_evidence",
+        "reason"
+      ],
+      "title": "ProofPremiseRoute",
+      "type": "object"
+    },
+    "ProofReproducibility": {
+      "additionalProperties": false,
+      "properties": {
+        "input_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Input Hashes",
+          "type": "object"
+        },
+        "tool": {
+          "default": "nlreq.proof_closure",
+          "title": "Tool",
+          "type": "string"
+        },
+        "tool_version": {
+          "default": "0.1",
+          "title": "Tool Version",
+          "type": "string"
+        }
+      },
+      "title": "ProofReproducibility",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "backend_results": {
+      "items": {
+        "$ref": "#/$defs/BackendResult"
+      },
+      "title": "Backend Results",
+      "type": "array"
+    },
+    "blockers": {
+      "items": {
+        "$ref": "#/$defs/ProofClosureBlocker"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "coverage_result": {
+      "enum": [
+        "passed",
+        "blocked",
+        "missing"
+      ],
+      "title": "Coverage Result",
+      "type": "string"
+    },
+    "dispatch": {
+      "$ref": "#/$defs/ProofDispatchPlan"
+    },
+    "premises": {
+      "items": {
+        "$ref": "#/$defs/ProofPremise"
+      },
+      "title": "Premises",
+      "type": "array"
+    },
+    "producer_mapping": {
+      "$ref": "#/$defs/EvidenceProducerMapping"
+    },
+    "proof_id": {
+      "title": "Proof Id",
+      "type": "string"
+    },
+    "reproducibility": {
+      "$ref": "#/$defs/ProofReproducibility"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "requirement_ir_hash": {
+      "title": "Requirement Ir Hash",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "closed",
+        "open",
+        "blocked"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "trace_alignment_result": {
+      "enum": [
+        "passed",
+        "blocked",
+        "missing"
+      ],
+      "title": "Trace Alignment Result",
+      "type": "string"
+    }
+  },
+  "required": [
+    "proof_id",
+    "requirement_id",
+    "requirement_ir_hash",
+    "status",
+    "dispatch",
+    "producer_mapping",
+    "coverage_result",
+    "trace_alignment_result",
+    "reproducibility"
+  ],
+  "title": "ProofObject",
+  "type": "object"
+}

@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    },
+    "ProofPremiseRoute": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_id": {
+          "title": "Backend Id",
+          "type": "string"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "node_kind": {
+          "title": "Node Kind",
+          "type": "string"
+        },
+        "premise_id": {
+          "title": "Premise Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "required_evidence": {
+          "$ref": "#/$defs/EvidenceLevel"
+        },
+        "role": {
+          "enum": [
+            "premise",
+            "obligation"
+          ],
+          "title": "Role",
+          "type": "string"
+        }
+      },
+      "required": [
+        "premise_id",
+        "node_id",
+        "node_kind",
+        "role",
+        "backend_id",
+        "required_evidence",
+        "reason"
+      ],
+      "title": "ProofPremiseRoute",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "policy_id": {
+      "title": "Policy Id",
+      "type": "string"
+    },
+    "routes": {
+      "items": {
+        "$ref": "#/$defs/ProofPremiseRoute"
+      },
+      "title": "Routes",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "policy_id"
+  ],
+  "title": "ProofDispatchPlan",
+  "type": "object"
+}

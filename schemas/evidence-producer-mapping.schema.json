@@ -1,0 +1,117 @@
+{
+  "$defs": {
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    },
+    "EvidenceProducer": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_evidence_levels": {
+          "items": {
+            "$ref": "#/$defs/EvidenceLevel"
+          },
+          "title": "Allowed Evidence Levels",
+          "type": "array"
+        },
+        "command": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Command"
+        },
+        "producer_id": {
+          "title": "Producer Id",
+          "type": "string"
+        },
+        "producer_kind": {
+          "enum": [
+            "formal_backend",
+            "model_checker",
+            "proof_assistant",
+            "smt_solver",
+            "system_checker",
+            "trace_validator",
+            "test_runner",
+            "review",
+            "coverage_checker",
+            "formal_boundary",
+            "other"
+          ],
+          "title": "Producer Kind",
+          "type": "string"
+        },
+        "real_producer": {
+          "default": true,
+          "title": "Real Producer",
+          "type": "boolean"
+        },
+        "reproducibility": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Reproducibility",
+          "type": "object"
+        },
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "tool_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Version"
+        }
+      },
+      "required": [
+        "producer_id",
+        "producer_kind",
+        "tool"
+      ],
+      "title": "EvidenceProducer",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "producers": {
+      "items": {
+        "$ref": "#/$defs/EvidenceProducer"
+      },
+      "title": "Producers",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "title": "EvidenceProducerMapping",
+  "type": "object"
+}
