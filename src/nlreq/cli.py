@@ -79,6 +79,7 @@ from .routing import (
     routing_report_markdown,
 )
 from .trace_validation import build_trace_validation_report, trace_validation_markdown
+from .system_spec import build_system_spec_registry_report, load_system_spec_registry
 from .translator import (
     ControlledDraft,
     approve_controlled_draft,
@@ -177,6 +178,14 @@ def main(argv: list[str] | None = None) -> int:
     python_source_impact_cmd.add_argument("--symbol", action="append", required=True)
     python_source_impact_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     python_source_impact_cmd.add_argument("--out", type=Path)
+
+    system_spec_cmd = subcommands.add_parser(
+        "system-spec-registry", help="Validate and report system spec registry freshness."
+    )
+    system_spec_cmd.add_argument("registry", type=Path)
+    system_spec_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    system_spec_cmd.add_argument("--module-id", action="append", default=[])
+    system_spec_cmd.add_argument("--out", type=Path)
 
     validate_cmd = subcommands.add_parser("validate", help="Validate a package directory.")
     validate_cmd.add_argument("package_dir", type=Path)
@@ -746,6 +755,21 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Python source impact: {args.out}")
             else:
                 print(canonical_json(artifact), end="")
+            return 0
+        if args.command == "system-spec-registry":
+            from .jsonutil import write_json
+
+            registry = load_system_spec_registry(args.registry)
+            report = build_system_spec_registry_report(
+                registry,
+                project_root=args.project_root,
+                module_ids=args.module_id,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"System spec registry report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
             return 0
         if args.command == "validate":
             ir, evidence, status = validate_package(args.package_dir)

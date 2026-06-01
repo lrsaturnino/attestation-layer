@@ -29,6 +29,7 @@ from nlreq.source_adapter import (
     SourceManifest,
     SourceSymbolResolution,
 )
+from nlreq.system_spec import SystemSpecRegistry, SystemSpecRegistryReport
 from nlreq.trace_validation import TraceValidationResultsArtifact
 from nlreq.tla_adapter import TlaModelConfigArtifact, TlaResultsArtifact
 from nlreq.translator import ControlledDraft, LoweredFormalArtifact
@@ -60,6 +61,8 @@ SCHEMAS = {
     "source-manifest.schema.json": SourceManifest,
     "source-symbol-resolution.schema.json": SourceSymbolResolution,
     "status-decision.schema.json": StatusDecision,
+    "system-spec-registry.schema.json": SystemSpecRegistry,
+    "system-spec-registry-report.schema.json": SystemSpecRegistryReport,
     "lowered-formal-artifact.schema.json": LoweredFormalArtifact,
     "trace-validation-results.schema.json": TraceValidationResultsArtifact,
     "tla-model-config.schema.json": TlaModelConfigArtifact,

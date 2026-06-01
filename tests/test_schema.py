@@ -39,6 +39,8 @@ def test_auxiliary_artifact_schemas_are_committed() -> None:
     assert (schema_dir / "source-code-presentation.schema.json").exists()
     assert (schema_dir / "source-manifest.schema.json").exists()
     assert (schema_dir / "source-symbol-resolution.schema.json").exists()
+    assert (schema_dir / "system-spec-registry.schema.json").exists()
+    assert (schema_dir / "system-spec-registry-report.schema.json").exists()
     assert (schema_dir / "trace-validation-results.schema.json").exists()
     assert (schema_dir / "lowered-formal-artifact.schema.json").exists()
     assert (schema_dir / "tla-model-config.schema.json").exists()

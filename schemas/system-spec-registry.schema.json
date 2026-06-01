@@ -1,0 +1,107 @@
+{
+  "$defs": {
+    "SystemSpecEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "formalism": {
+          "enum": [
+            "tla",
+            "smt",
+            "ltl",
+            "alloy",
+            "lean",
+            "other"
+          ],
+          "title": "Formalism",
+          "type": "string"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "fresh",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "module_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Module Ids",
+          "type": "array"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "recorded_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recorded Hash"
+        },
+        "review_status": {
+          "enum": [
+            "draft",
+            "reviewed",
+            "rejected"
+          ],
+          "title": "Review Status",
+          "type": "string"
+        },
+        "spec_id": {
+          "title": "Spec Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spec_id",
+        "module_ids",
+        "formalism",
+        "path",
+        "version",
+        "review_status"
+      ],
+      "title": "SystemSpecEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "specs": {
+      "items": {
+        "$ref": "#/$defs/SystemSpecEntry"
+      },
+      "title": "Specs",
+      "type": "array"
+    }
+  },
+  "title": "SystemSpecRegistry",
+  "type": "object"
+}

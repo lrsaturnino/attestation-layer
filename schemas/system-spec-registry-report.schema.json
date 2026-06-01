@@ -1,0 +1,127 @@
+{
+  "$defs": {
+    "SystemSpecStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "current_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Hash"
+        },
+        "formalism": {
+          "title": "Formalism",
+          "type": "string"
+        },
+        "freshness": {
+          "title": "Freshness",
+          "type": "string"
+        },
+        "module_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Module Ids",
+          "type": "array"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "recorded_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recorded Hash"
+        },
+        "review_status": {
+          "title": "Review Status",
+          "type": "string"
+        },
+        "spec_id": {
+          "title": "Spec Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "fresh",
+            "stale",
+            "missing",
+            "unreviewed"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spec_id",
+        "module_ids",
+        "path",
+        "version",
+        "formalism",
+        "review_status",
+        "freshness",
+        "status"
+      ],
+      "title": "SystemSpecStatus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "result": {
+      "enum": [
+        "valid",
+        "needs_review"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "statuses": {
+      "items": {
+        "$ref": "#/$defs/SystemSpecStatus"
+      },
+      "title": "Statuses",
+      "type": "array"
+    }
+  },
+  "required": [
+    "result"
+  ],
+  "title": "SystemSpecRegistryReport",
+  "type": "object"
+}
