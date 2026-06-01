@@ -1,0 +1,102 @@
+{
+  "$defs": {
+    "RequirementContradiction": {
+      "additionalProperties": false,
+      "properties": {
+        "contradiction_type": {
+          "const": "opposite_predicate",
+          "title": "Contradiction Type",
+          "type": "string"
+        },
+        "fragments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fragments",
+          "type": "array"
+        },
+        "requirement_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "contradiction_type",
+        "requirement_ids",
+        "fragments"
+      ],
+      "title": "RequirementContradiction",
+      "type": "object"
+    },
+    "SourceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "title": "Document",
+          "type": "string"
+        },
+        "end_char": {
+          "minimum": 0,
+          "title": "End Char",
+          "type": "integer"
+        },
+        "start_char": {
+          "minimum": 0,
+          "title": "Start Char",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "start_char",
+        "end_char",
+        "text"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "contradictions": {
+      "items": {
+        "$ref": "#/$defs/RequirementContradiction"
+      },
+      "title": "Contradictions",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "valid",
+        "contradiction"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "result"
+  ],
+  "title": "RequirementSetConsistencyReport",
+  "type": "object"
+}

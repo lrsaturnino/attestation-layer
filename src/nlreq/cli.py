@@ -80,6 +80,7 @@ from .routing import (
 )
 from .trace_validation import build_trace_validation_report, trace_validation_markdown
 from .system_spec import build_system_spec_registry_report, load_system_spec_registry
+from .system_checker import check_requirement_set_consistency, check_system_consistency
 from .translator import (
     ControlledDraft,
     approve_controlled_draft,
@@ -186,6 +187,22 @@ def main(argv: list[str] | None = None) -> int:
     system_spec_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     system_spec_cmd.add_argument("--module-id", action="append", default=[])
     system_spec_cmd.add_argument("--out", type=Path)
+
+    system_consistency_cmd = subcommands.add_parser(
+        "system-consistency-check", help="Run deterministic S-and-R consistency check."
+    )
+    system_consistency_cmd.add_argument("--requirement-ir", type=Path, required=True)
+    system_consistency_cmd.add_argument("--lowered", type=Path, required=True)
+    system_consistency_cmd.add_argument("--registry", type=Path, required=True)
+    system_consistency_cmd.add_argument("--impact", type=Path, required=True)
+    system_consistency_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    system_consistency_cmd.add_argument("--out", type=Path)
+
+    req_set_cmd = subcommands.add_parser(
+        "requirement-set-consistency", help="Check flat requirement set contradictions."
+    )
+    req_set_cmd.add_argument("ir", nargs="+", type=Path)
+    req_set_cmd.add_argument("--out", type=Path)
 
     validate_cmd = subcommands.add_parser("validate", help="Validate a package directory.")
     validate_cmd.add_argument("package_dir", type=Path)
@@ -768,6 +785,40 @@ def main(argv: list[str] | None = None) -> int:
             if args.out:
                 write_json(args.out, report)
                 print(f"System spec registry report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0
+        if args.command == "system-consistency-check":
+            from .impact import ImpactAnalysisArtifact
+            from .jsonutil import write_json
+            from .models import RequirementIRV2
+            from .translator import LoweredFormalArtifact
+
+            ir = validate_requirement_ir_json(args.requirement_ir.read_text())
+            if not isinstance(ir, RequirementIRV2):
+                raise ValueError("system-consistency-check requires ir_version 0.2")
+            result = check_system_consistency(
+                requirement=ir,
+                lowered=LoweredFormalArtifact.model_validate_json(args.lowered.read_text()),
+                registry=load_system_spec_registry(args.registry),
+                impact=ImpactAnalysisArtifact.model_validate_json(args.impact.read_text()),
+                project_root=args.project_root,
+            )
+            if args.out:
+                write_json(args.out, result)
+                print(f"System consistency result: {args.out}")
+            else:
+                print(canonical_json(result), end="")
+            return 0
+        if args.command == "requirement-set-consistency":
+            from .jsonutil import write_json
+
+            report = check_requirement_set_consistency(
+                [RequirementIR.model_validate_json(path.read_text()) for path in args.ir]
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Requirement set consistency: {args.out}")
             else:
                 print(canonical_json(report), end="")
             return 0
