@@ -65,6 +65,7 @@ from .graphql_adapter import GraphQlAdapter
 from .graphql_package import build_graphql_package, validate_graphql_package
 from .impact import analyze_source_impact
 from .impact_v2 import SemanticImpactSuggestion, analyze_source_impact_v2
+from .javascript_source_adapter import JavaScriptSourceLanguageAdapter
 from .jsonschema_adapter import JsonSchemaAdapter
 from .jsonschema_package import build_json_schema_package, validate_json_schema_package
 from .jsonutil import canonical_json, read_json
@@ -269,6 +270,24 @@ def main(argv: list[str] | None = None) -> int:
     python_source_impact_v2_cmd.add_argument("--semantic-suggestion", action="append", default=[])
     python_source_impact_v2_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     python_source_impact_v2_cmd.add_argument("--out", type=Path)
+
+    javascript_source_impact_cmd = subcommands.add_parser(
+        "javascript-source-impact", help="Run deterministic JavaScript source impact analysis."
+    )
+    javascript_source_impact_cmd.add_argument("--manifest", type=Path, required=True)
+    javascript_source_impact_cmd.add_argument("--symbol", action="append", required=True)
+    javascript_source_impact_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    javascript_source_impact_cmd.add_argument("--out", type=Path)
+
+    javascript_source_impact_v2_cmd = subcommands.add_parser(
+        "javascript-source-impact-v2", help="Run richer JavaScript source impact analysis."
+    )
+    javascript_source_impact_v2_cmd.add_argument("--manifest", type=Path, required=True)
+    javascript_source_impact_v2_cmd.add_argument("--symbol", action="append", required=True)
+    javascript_source_impact_v2_cmd.add_argument("--trace-artifact", type=Path)
+    javascript_source_impact_v2_cmd.add_argument("--semantic-suggestion", action="append", default=[])
+    javascript_source_impact_v2_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    javascript_source_impact_v2_cmd.add_argument("--out", type=Path)
 
     system_spec_cmd = subcommands.add_parser(
         "system-spec-registry", help="Validate and report system spec registry freshness."
@@ -1105,6 +1124,44 @@ def main(argv: list[str] | None = None) -> int:
             if args.out:
                 write_json(args.out, artifact)
                 print(f"Python source impact v2: {args.out}")
+            else:
+                print(canonical_json(artifact), end="")
+            return 0
+        if args.command == "javascript-source-impact":
+            from .jsonutil import write_json
+
+            adapter = JavaScriptSourceLanguageAdapter(project_root=args.project_root)
+            manifest = adapter.parse_manifest(args.manifest)
+            artifact = analyze_source_impact(adapter, manifest, symbols=args.symbol)
+            if args.out:
+                write_json(args.out, artifact)
+                print(f"JavaScript source impact: {args.out}")
+            else:
+                print(canonical_json(artifact), end="")
+            return 0
+        if args.command == "javascript-source-impact-v2":
+            from .jsonutil import write_json
+            from .models import NormalizedTraceArtifact
+
+            adapter = JavaScriptSourceLanguageAdapter(project_root=args.project_root)
+            manifest = adapter.parse_manifest(args.manifest)
+            traces = (
+                NormalizedTraceArtifact.model_validate_json(args.trace_artifact.read_text())
+                if args.trace_artifact
+                else None
+            )
+            artifact = analyze_source_impact_v2(
+                adapter,
+                manifest,
+                symbols=args.symbol,
+                traces=traces,
+                semantic_suggestions=_semantic_suggestions_from_args(
+                    args.semantic_suggestion
+                ),
+            )
+            if args.out:
+                write_json(args.out, artifact)
+                print(f"JavaScript source impact v2: {args.out}")
             else:
                 print(canonical_json(artifact), end="")
             return 0
