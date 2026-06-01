@@ -1,0 +1,743 @@
+{
+  "$defs": {
+    "Approval": {
+      "additionalProperties": false,
+      "properties": {
+        "approved_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved At"
+        },
+        "approved_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved By"
+        },
+        "self_audit": {
+          "default": false,
+          "title": "Self Audit",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "approved",
+            "needs_review",
+            "rejected"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Approval",
+      "type": "object"
+    },
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    },
+    "FormalBackendBudget": {
+      "additionalProperties": false,
+      "properties": {
+        "max_depth": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max Depth"
+        },
+        "max_states": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Max States"
+        },
+        "timeout_seconds": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timeout Seconds"
+        }
+      },
+      "title": "FormalBackendBudget",
+      "type": "object"
+    },
+    "RequiredEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_path": {
+          "title": "Claim Path",
+          "type": "string"
+        },
+        "minimum_level": {
+          "$ref": "#/$defs/EvidenceLevel"
+        }
+      },
+      "required": [
+        "claim_path",
+        "minimum_level"
+      ],
+      "title": "RequiredEvidence",
+      "type": "object"
+    },
+    "RequirementIRV2": {
+      "additionalProperties": false,
+      "properties": {
+        "assumptions": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SymbolBinding"
+          },
+          "title": "Bindings",
+          "type": "object"
+        },
+        "ir_version": {
+          "const": "0.2",
+          "default": "0.2",
+          "title": "Ir Version",
+          "type": "string"
+        },
+        "required_evidence": {
+          "items": {
+            "$ref": "#/$defs/RequiredEvidence"
+          },
+          "title": "Required Evidence",
+          "type": "array"
+        },
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "semantic_ir": {
+          "$ref": "#/$defs/SemanticNode"
+        },
+        "source": {
+          "$ref": "#/$defs/RequirementSource"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "title",
+        "source",
+        "semantic_ir"
+      ],
+      "title": "RequirementIRV2",
+      "type": "object"
+    },
+    "RequirementSource": {
+      "additionalProperties": false,
+      "properties": {
+        "controlled_text": {
+          "title": "Controlled Text",
+          "type": "string"
+        },
+        "controlled_text_approval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Approval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "original_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Original Text"
+        }
+      },
+      "required": [
+        "controlled_text"
+      ],
+      "title": "RequirementSource",
+      "type": "object"
+    },
+    "SemanticNode": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticNode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "annotations": {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Annotations",
+          "type": "object"
+        },
+        "args": {
+          "items": {
+            "$ref": "#/$defs/ValueRef"
+          },
+          "title": "Args",
+          "type": "array"
+        },
+        "children": {
+          "items": {
+            "$ref": "#/$defs/SemanticNode"
+          },
+          "title": "Children",
+          "type": "array"
+        },
+        "confidence": {
+          "enum": [
+            "reviewed",
+            "deterministic_parse",
+            "adapter_resolved",
+            "migration_inferred",
+            "llm_suggested",
+            "unknown"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "rule",
+            "premise",
+            "obligation",
+            "action_obligation",
+            "forall",
+            "exists",
+            "entity_scope",
+            "module_scope",
+            "and",
+            "or",
+            "not",
+            "implies",
+            "iff",
+            "predicate",
+            "comparison",
+            "membership",
+            "state_ref",
+            "action",
+            "call",
+            "event",
+            "transition",
+            "pre_state",
+            "post_state",
+            "invariant",
+            "state_delta",
+            "always",
+            "eventually",
+            "until",
+            "before",
+            "within",
+            "eq",
+            "neq",
+            "lt",
+            "lte",
+            "gt",
+            "gte",
+            "increase",
+            "decrease",
+            "system_spec_ref",
+            "code_symbol_ref",
+            "trace_ref",
+            "policy_ref"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "left": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticNode"
+            },
+            {
+              "$ref": "#/$defs/ValueRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Left"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "must": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticNode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "obligation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticNode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "premise": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticNode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "provenance": {
+          "$ref": "#/$defs/SemanticProvenance"
+        },
+        "right": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticNode"
+            },
+            {
+              "$ref": "#/$defs/ValueRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Right"
+        },
+        "scope": {
+          "items": {
+            "$ref": "#/$defs/SemanticNode"
+          },
+          "title": "Scope",
+          "type": "array"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "temporal_bound": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TemporalBound"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ValueRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "node_id",
+        "kind",
+        "provenance",
+        "confidence"
+      ],
+      "title": "SemanticNode",
+      "type": "object"
+    },
+    "SemanticProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "derived_from": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Derived From",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "method": {
+          "enum": [
+            "deterministic_parse",
+            "manual_review",
+            "migration",
+            "llm_draft",
+            "adapter",
+            "unknown"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "source_document": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Document"
+        },
+        "timestamp": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timestamp"
+        },
+        "tool": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool"
+        },
+        "tool_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Version"
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "title": "SemanticProvenance",
+      "type": "object"
+    },
+    "SourceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "title": "Document",
+          "type": "string"
+        },
+        "end_char": {
+          "minimum": 0,
+          "title": "End Char",
+          "type": "integer"
+        },
+        "start_char": {
+          "minimum": 0,
+          "title": "Start Char",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "start_char",
+        "end_char",
+        "text"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    },
+    "SymbolBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "title": "Adapter",
+          "type": "string"
+        },
+        "confidence": {
+          "enum": [
+            "generic_symbol_table",
+            "manual_override",
+            "adapter_resolved",
+            "llm_suggested"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "symbol": {
+          "title": "Symbol",
+          "type": "string"
+        },
+        "symbol_type": {
+          "title": "Symbol Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "adapter",
+        "symbol",
+        "symbol_type",
+        "confidence"
+      ],
+      "title": "SymbolBinding",
+      "type": "object"
+    },
+    "TemporalBound": {
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "enum": [
+            "second",
+            "minute",
+            "hour",
+            "day",
+            "block"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "title": "TemporalBound",
+      "type": "object"
+    },
+    "ValueRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "identifier",
+            "number",
+            "string"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "ValueRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "backend_id": {
+      "title": "Backend Id",
+      "type": "string"
+    },
+    "budget": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FormalBackendBudget"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "entry_node_id": {
+      "default": "rule.root",
+      "title": "Entry Node Id",
+      "type": "string"
+    },
+    "requirement": {
+      "$ref": "#/$defs/RequirementIRV2"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "target": {
+      "enum": [
+        "tla",
+        "smt",
+        "ltl",
+        "alloy",
+        "lean"
+      ],
+      "title": "Target",
+      "type": "string"
+    }
+  },
+  "required": [
+    "backend_id",
+    "target",
+    "requirement"
+  ],
+  "title": "FormalBackendRequest",
+  "type": "object"
+}

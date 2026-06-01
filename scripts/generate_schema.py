@@ -19,6 +19,7 @@ from nlreq.models import (
     VerificationTasksArtifact,
 )
 from nlreq.command_adapter import CommandChecksArtifact, CommandResultsArtifact
+from nlreq.formal_backend import FormalBackendRequest, FormalBackendResponse
 from nlreq.gate import GatePolicy, GateWaiver
 from nlreq.routing import AdapterRegistryArtifact, RoutingPolicyArtifact
 from nlreq.trace_validation import TraceValidationResultsArtifact
@@ -37,6 +38,8 @@ SCHEMAS = {
     "command-results.schema.json": CommandResultsArtifact,
     "counterexamples.schema.json": CounterexamplesArtifact,
     "evidence.schema.json": EvidenceObject,
+    "formal-backend-request.schema.json": FormalBackendRequest,
+    "formal-backend-response.schema.json": FormalBackendResponse,
     "gate-policy.schema.json": GatePolicy,
     "generated-tests.schema.json": GeneratedTestsArtifact,
     "normalized-traces.schema.json": NormalizedTraceArtifact,

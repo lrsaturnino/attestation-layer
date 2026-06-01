@@ -1,0 +1,177 @@
+{
+  "$defs": {
+    "BackendResult": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "title": "Backend",
+          "type": "string"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "evidence_level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "enum": [
+            "valid",
+            "invalid",
+            "counterexample",
+            "timeout",
+            "unsupported",
+            "needs_review"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "backend",
+        "status"
+      ],
+      "title": "BackendResult",
+      "type": "object"
+    },
+    "ConsumedAnnotation": {
+      "additionalProperties": false,
+      "properties": {
+        "keys": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Keys",
+          "type": "array"
+        },
+        "namespace": {
+          "title": "Namespace",
+          "type": "string"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id",
+        "namespace",
+        "schema_version"
+      ],
+      "title": "ConsumedAnnotation",
+      "type": "object"
+    },
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    },
+    "UnsupportedConstruct": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id",
+        "kind",
+        "reason"
+      ],
+      "title": "UnsupportedConstruct",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "backend_id": {
+      "title": "Backend Id",
+      "type": "string"
+    },
+    "consumed_annotations": {
+      "items": {
+        "$ref": "#/$defs/ConsumedAnnotation"
+      },
+      "title": "Consumed Annotations",
+      "type": "array"
+    },
+    "lowered_artifact_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Lowered Artifact Hash"
+    },
+    "result": {
+      "$ref": "#/$defs/BackendResult"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "target": {
+      "enum": [
+        "tla",
+        "smt",
+        "ltl",
+        "alloy",
+        "lean"
+      ],
+      "title": "Target",
+      "type": "string"
+    },
+    "unsupported_constructs": {
+      "items": {
+        "$ref": "#/$defs/UnsupportedConstruct"
+      },
+      "title": "Unsupported Constructs",
+      "type": "array"
+    }
+  },
+  "required": [
+    "backend_id",
+    "target",
+    "result"
+  ],
+  "title": "FormalBackendResponse",
+  "type": "object"
+}

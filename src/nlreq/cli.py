@@ -43,6 +43,7 @@ from .compositional_ir import (
     migrate_requirement_ir_v1_to_v2,
     validate_requirement_ir_json,
 )
+from .formal_backend import build_formal_backend_request, check_formal_backend
 from .gate import (
     build_hard_gate_report,
     hard_gate_report_markdown,
@@ -115,6 +116,12 @@ def main(argv: list[str] | None = None) -> int:
     migrate_ir_cmd.add_argument("--migration-record", type=Path, required=True)
     migrate_ir_cmd.add_argument("--tool-version", default=DEFAULT_MIGRATION_TOOL_VERSION)
     migrate_ir_cmd.add_argument("--timestamp", default=DEFAULT_MIGRATION_TIMESTAMP)
+
+    formal_backend_check_cmd = subcommands.add_parser(
+        "formal-backend-check", help="Check compositional IR against a formal backend boundary."
+    )
+    formal_backend_check_cmd.add_argument("file", type=Path)
+    formal_backend_check_cmd.add_argument("--backend", default="tla-boundary")
 
     validate_cmd = subcommands.add_parser("validate", help="Validate a package directory.")
     validate_cmd.add_argument("package_dir", type=Path)
@@ -606,6 +613,15 @@ def main(argv: list[str] | None = None) -> int:
             write_json(args.migration_record, record)
             print(f"Migrated IR: {args.out}")
             print(f"Migration record: {args.migration_record}")
+            return 0
+        if args.command == "formal-backend-check":
+            from .models import RequirementIRV2
+
+            ir = validate_requirement_ir_json(args.file.read_text())
+            if not isinstance(ir, RequirementIRV2):
+                raise ValueError("formal-backend-check requires ir_version 0.2")
+            request = build_formal_backend_request(ir, backend_id=args.backend)
+            print(canonical_json(check_formal_backend(request)), end="")
             return 0
         if args.command == "validate":
             ir, evidence, status = validate_package(args.package_dir)
