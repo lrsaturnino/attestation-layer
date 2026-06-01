@@ -52,6 +52,8 @@ def test_auxiliary_artifact_schemas_are_committed() -> None:
     assert (schema_dir / "trace-validation-results.schema.json").exists()
     assert (schema_dir / "trace-alignment-report.schema.json").exists()
     assert (schema_dir / "lowered-formal-artifact.schema.json").exists()
+    assert (schema_dir / "model-checker-run.schema.json").exists()
+    assert (schema_dir / "model-checker-runs.schema.json").exists()
     assert (schema_dir / "tla-model-config.schema.json").exists()
     assert (schema_dir / "tla-results.schema.json").exists()
     assert (schema_dir / "verification-tasks.schema.json").exists()

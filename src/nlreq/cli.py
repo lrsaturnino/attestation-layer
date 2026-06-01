@@ -59,6 +59,12 @@ from .impact import analyze_source_impact
 from .jsonschema_adapter import JsonSchemaAdapter
 from .jsonschema_package import build_json_schema_package, validate_json_schema_package
 from .jsonutil import canonical_json, read_json
+from .model_checker_runner import (
+    DEFAULT_OUTPUT_LIMIT_BYTES as DEFAULT_RUNNER_OUTPUT_LIMIT_BYTES,
+    ModelCheckerBudget,
+    ModelCheckerCommand,
+    run_model_checker,
+)
 from .models import EvidenceObject, RequirementIR, StatusDecision, SymbolRef
 from .openapi_adapter import OpenApiAdapter
 from .openapi_package import build_openapi_package, validate_openapi_package
@@ -147,6 +153,26 @@ def main(argv: list[str] | None = None) -> int:
     )
     formal_backend_check_cmd.add_argument("file", type=Path)
     formal_backend_check_cmd.add_argument("--backend", default="tla-boundary")
+
+    model_checker_run_cmd = subcommands.add_parser(
+        "model-checker-run", help="Run a local model checker with normalized metadata."
+    )
+    model_checker_run_cmd.add_argument("--run-id", required=True)
+    model_checker_run_cmd.add_argument("--checker-id", required=True)
+    model_checker_run_cmd.add_argument("--cwd", type=Path, default=Path("."))
+    model_checker_run_cmd.add_argument("--timeout-seconds", type=int)
+    model_checker_run_cmd.add_argument("--max-depth", type=int)
+    model_checker_run_cmd.add_argument("--max-states", type=int)
+    model_checker_run_cmd.add_argument("--memory-budget-mb", type=int)
+    model_checker_run_cmd.add_argument("--solver-option", action="append", default=[])
+    model_checker_run_cmd.add_argument("--expected-exit-code", type=int, default=0)
+    model_checker_run_cmd.add_argument("--tool-version")
+    model_checker_run_cmd.add_argument("--tool-version-command", nargs="+")
+    model_checker_run_cmd.add_argument(
+        "--output-limit-bytes", type=int, default=DEFAULT_RUNNER_OUTPUT_LIMIT_BYTES
+    )
+    model_checker_run_cmd.add_argument("--out", type=Path)
+    model_checker_run_cmd.add_argument("model_checker_command", nargs=argparse.REMAINDER)
 
     draft_cmd = subcommands.add_parser(
         "draft-controlled", help="Create a controlled-text draft artifact."
@@ -766,6 +792,38 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("formal-backend-check requires ir_version 0.2")
             request = build_formal_backend_request(ir, backend_id=args.backend)
             print(canonical_json(check_formal_backend(request)), end="")
+            return 0
+        if args.command == "model-checker-run":
+            command = list(args.model_checker_command)
+            if command and command[0] == "--":
+                command = command[1:]
+            if not command:
+                raise ValueError("model-checker-run requires a command after --")
+            request = ModelCheckerCommand(
+                run_id=args.run_id,
+                checker_id=args.checker_id,
+                command=command,
+                cwd=args.cwd.as_posix(),
+                budget=ModelCheckerBudget(
+                    timeout_seconds=args.timeout_seconds,
+                    max_depth=args.max_depth,
+                    max_states=args.max_states,
+                    memory_budget_mb=args.memory_budget_mb,
+                    solver_options=_parse_solver_options(args.solver_option),
+                ),
+                expected_exit_code=args.expected_exit_code,
+                tool_version=args.tool_version,
+                tool_version_command=args.tool_version_command,
+                output_limit_bytes=args.output_limit_bytes,
+            )
+            result = run_model_checker(request)
+            if args.out is not None:
+                from .jsonutil import write_json
+
+                write_json(args.out, result)
+                print(f"Model checker run: {args.out}")
+            else:
+                print(canonical_json(result), end="")
             return 0
         if args.command == "draft-controlled":
             from .jsonutil import write_json
@@ -1828,6 +1886,34 @@ def _optional_tla_adapter(args: argparse.Namespace) -> TlaAdapter | None:
         load_tla_model_config(args.tla_model_config),
         project_root=args.project_root,
     )
+
+
+def _parse_solver_options(entries: list[str]) -> dict[str, str | int | float | bool]:
+    options: dict[str, str | int | float | bool] = {}
+    for entry in entries:
+        if "=" not in entry:
+            raise ValueError(f"solver option must be KEY=VALUE: {entry}")
+        key, value = entry.split("=", 1)
+        if not key:
+            raise ValueError(f"solver option key must be non-empty: {entry}")
+        options[key] = _parse_scalar_option(value)
+    return options
+
+
+def _parse_scalar_option(value: str) -> str | int | float | bool:
+    lowered = value.lower()
+    if lowered == "true":
+        return True
+    if lowered == "false":
+        return False
+    try:
+        return int(value)
+    except ValueError:
+        pass
+    try:
+        return float(value)
+    except ValueError:
+        return value
 
 
 def _requirement_ids_from_args(args: argparse.Namespace) -> list[str]:

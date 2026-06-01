@@ -24,6 +24,7 @@ from nlreq.formal_backend import FormalBackendRequest, FormalBackendResponse
 from nlreq.coverage_alignment import SpecCoverageReport, TraceAlignmentReport
 from nlreq.gate import GatePolicy, GateWaiver
 from nlreq.impact import ImpactAnalysisArtifact
+from nlreq.model_checker_runner import ModelCheckerRunArtifact, ModelCheckerRunResult
 from nlreq.proof_closure import (
     ClosureGateReport,
     EvidenceProducerMapping,
@@ -82,6 +83,8 @@ SCHEMAS = {
     "system-consistency-result.schema.json": SystemConsistencyResult,
     "requirement-set-consistency.schema.json": RequirementSetConsistencyReport,
     "lowered-formal-artifact.schema.json": LoweredFormalArtifact,
+    "model-checker-run.schema.json": ModelCheckerRunResult,
+    "model-checker-runs.schema.json": ModelCheckerRunArtifact,
     "trace-validation-results.schema.json": TraceValidationResultsArtifact,
     "tla-model-config.schema.json": TlaModelConfigArtifact,
     "tla-results.schema.json": TlaResultsArtifact,
