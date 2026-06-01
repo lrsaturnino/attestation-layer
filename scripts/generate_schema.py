@@ -30,6 +30,7 @@ from nlreq.source_adapter import (
 )
 from nlreq.trace_validation import TraceValidationResultsArtifact
 from nlreq.tla_adapter import TlaModelConfigArtifact, TlaResultsArtifact
+from nlreq.translator import ControlledDraft, LoweredFormalArtifact
 
 
 SCHEMAS = {
@@ -43,6 +44,7 @@ SCHEMAS = {
     "command-checks.schema.json": CommandChecksArtifact,
     "command-results.schema.json": CommandResultsArtifact,
     "counterexamples.schema.json": CounterexamplesArtifact,
+    "controlled-draft.schema.json": ControlledDraft,
     "evidence.schema.json": EvidenceObject,
     "formal-backend-request.schema.json": FormalBackendRequest,
     "formal-backend-response.schema.json": FormalBackendResponse,
@@ -56,6 +58,7 @@ SCHEMAS = {
     "source-manifest.schema.json": SourceManifest,
     "source-symbol-resolution.schema.json": SourceSymbolResolution,
     "status-decision.schema.json": StatusDecision,
+    "lowered-formal-artifact.schema.json": LoweredFormalArtifact,
     "trace-validation-results.schema.json": TraceValidationResultsArtifact,
     "tla-model-config.schema.json": TlaModelConfigArtifact,
     "tla-results.schema.json": TlaResultsArtifact,

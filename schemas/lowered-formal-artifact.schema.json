@@ -1,0 +1,194 @@
+{
+  "$defs": {
+    "LoweringDiagnostic": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "node_id",
+        "kind",
+        "reason"
+      ],
+      "title": "LoweringDiagnostic",
+      "type": "object"
+    },
+    "SourceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "title": "Document",
+          "type": "string"
+        },
+        "end_char": {
+          "minimum": 0,
+          "title": "End Char",
+          "type": "integer"
+        },
+        "start_char": {
+          "minimum": 0,
+          "title": "Start Char",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "start_char",
+        "end_char",
+        "text"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    },
+    "TemporalBoundRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "node_id",
+        "value",
+        "unit"
+      ],
+      "title": "TemporalBoundRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "content": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Content"
+    },
+    "content_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Content Hash"
+    },
+    "diagnostics": {
+      "items": {
+        "$ref": "#/$defs/LoweringDiagnostic"
+      },
+      "title": "Diagnostics",
+      "type": "array"
+    },
+    "metadata": {
+      "additionalProperties": true,
+      "title": "Metadata",
+      "type": "object"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_ir_hash": {
+      "title": "Source Ir Hash",
+      "type": "string"
+    },
+    "source_ir_version": {
+      "const": "0.2",
+      "title": "Source Ir Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "lowered",
+        "refused"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "target": {
+      "const": "tla",
+      "default": "tla",
+      "title": "Target",
+      "type": "string"
+    },
+    "temporal_bounds": {
+      "items": {
+        "$ref": "#/$defs/TemporalBoundRecord"
+      },
+      "title": "Temporal Bounds",
+      "type": "array"
+    },
+    "translator": {
+      "default": "nlreq.translator.tla_skeleton",
+      "title": "Translator",
+      "type": "string"
+    },
+    "translator_version": {
+      "default": "0.1",
+      "title": "Translator Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "source_ir_version",
+    "source_ir_hash",
+    "status"
+  ],
+  "title": "LoweredFormalArtifact",
+  "type": "object"
+}

@@ -77,6 +77,13 @@ from .routing import (
     routing_report_markdown,
 )
 from .trace_validation import build_trace_validation_report, trace_validation_markdown
+from .translator import (
+    ControlledDraft,
+    approve_controlled_draft,
+    create_controlled_draft,
+    lower_ir_v2_to_tla,
+    parse_approved_draft_ir_v2,
+)
 from .tla_adapter import TlaAdapter, load_tla_model_config
 from .tla_package import (
     build_tla_package,
@@ -128,6 +135,38 @@ def main(argv: list[str] | None = None) -> int:
     )
     formal_backend_check_cmd.add_argument("file", type=Path)
     formal_backend_check_cmd.add_argument("--backend", default="tla-boundary")
+
+    draft_cmd = subcommands.add_parser(
+        "draft-controlled", help="Create a controlled-text draft artifact."
+    )
+    draft_cmd.add_argument("original", type=Path)
+    draft_cmd.add_argument("--suggested", type=Path, required=True)
+    draft_cmd.add_argument("--out", type=Path, required=True)
+    draft_cmd.add_argument("--timestamp", default="2026-06-01T00:00:00Z")
+    draft_cmd.add_argument("--method", choices=["manual", "llm"], default="manual")
+    draft_cmd.add_argument("--model")
+    draft_cmd.add_argument("--prompt")
+
+    approve_draft_cmd = subcommands.add_parser(
+        "approve-draft", help="Approve a controlled-text draft artifact."
+    )
+    approve_draft_cmd.add_argument("draft", type=Path)
+    approve_draft_cmd.add_argument("--approved-by", required=True)
+    approve_draft_cmd.add_argument("--approved-at", default="2026-06-01T00:00:00Z")
+    approve_draft_cmd.add_argument("--out", type=Path, required=True)
+
+    ir_v2_from_draft_cmd = subcommands.add_parser(
+        "ir-v2-from-draft", help="Parse an approved draft artifact to compositional IR."
+    )
+    ir_v2_from_draft_cmd.add_argument("draft", type=Path)
+    ir_v2_from_draft_cmd.add_argument("--requirement-id", required=True)
+    ir_v2_from_draft_cmd.add_argument("--title", required=True)
+
+    lower_ir_v2_cmd = subcommands.add_parser(
+        "lower-ir-v2", help="Lower compositional IR to the first formal target artifact."
+    )
+    lower_ir_v2_cmd.add_argument("file", type=Path)
+    lower_ir_v2_cmd.add_argument("--out", type=Path)
 
     validate_cmd = subcommands.add_parser("validate", help="Validate a package directory.")
     validate_cmd.add_argument("package_dir", type=Path)
@@ -636,6 +675,55 @@ def main(argv: list[str] | None = None) -> int:
                 raise ValueError("formal-backend-check requires ir_version 0.2")
             request = build_formal_backend_request(ir, backend_id=args.backend)
             print(canonical_json(check_formal_backend(request)), end="")
+            return 0
+        if args.command == "draft-controlled":
+            from .jsonutil import write_json
+
+            draft = create_controlled_draft(
+                original_text=args.original.read_text(),
+                suggested_text=args.suggested.read_text(),
+                timestamp=args.timestamp,
+                method=args.method,
+                model=args.model,
+                prompt=args.prompt,
+            )
+            write_json(args.out, draft)
+            print(f"Controlled draft: {args.out}")
+            return 0
+        if args.command == "approve-draft":
+            from .jsonutil import write_json
+
+            draft = ControlledDraft.model_validate_json(args.draft.read_text())
+            approved = approve_controlled_draft(
+                draft,
+                approved_by=args.approved_by,
+                approved_at=args.approved_at,
+            )
+            write_json(args.out, approved)
+            print(f"Approved draft: {args.out}")
+            return 0
+        if args.command == "ir-v2-from-draft":
+            draft = ControlledDraft.model_validate_json(args.draft.read_text())
+            ir = parse_approved_draft_ir_v2(
+                draft,
+                requirement_id=args.requirement_id,
+                title=args.title,
+            )
+            print(canonical_json(ir), end="")
+            return 0
+        if args.command == "lower-ir-v2":
+            from .jsonutil import write_json
+            from .models import RequirementIRV2
+
+            ir = validate_requirement_ir_json(args.file.read_text())
+            if not isinstance(ir, RequirementIRV2):
+                raise ValueError("lower-ir-v2 requires ir_version 0.2")
+            artifact = lower_ir_v2_to_tla(ir)
+            if args.out:
+                write_json(args.out, artifact)
+                print(f"Lowered formal artifact: {args.out}")
+            else:
+                print(canonical_json(artifact), end="")
             return 0
         if args.command == "validate":
             ir, evidence, status = validate_package(args.package_dir)
