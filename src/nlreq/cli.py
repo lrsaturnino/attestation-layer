@@ -45,7 +45,12 @@ from .compositional_ir import (
     migrate_requirement_ir_v1_to_v2,
     validate_requirement_ir_json,
 )
-from .formal_backend import build_formal_backend_request, check_formal_backend
+from .formal_backend import (
+    FormalBackendBudget,
+    FormalBackendExecution,
+    build_formal_backend_request,
+    check_formal_backend,
+)
 from .dsl_v2 import DslV2Parser
 from .gate import (
     build_hard_gate_report,
@@ -153,6 +158,20 @@ def main(argv: list[str] | None = None) -> int:
     )
     formal_backend_check_cmd.add_argument("file", type=Path)
     formal_backend_check_cmd.add_argument("--backend", default="tla-boundary")
+    formal_backend_check_cmd.add_argument("--artifact-dir", type=Path)
+    formal_backend_check_cmd.add_argument("--checker-id")
+    formal_backend_check_cmd.add_argument("--checker-command", nargs=argparse.REMAINDER)
+    formal_backend_check_cmd.add_argument("--timeout-seconds", type=int)
+    formal_backend_check_cmd.add_argument("--max-depth", type=int)
+    formal_backend_check_cmd.add_argument("--max-states", type=int)
+    formal_backend_check_cmd.add_argument("--memory-budget-mb", type=int)
+    formal_backend_check_cmd.add_argument("--solver-option", action="append", default=[])
+    formal_backend_check_cmd.add_argument("--expected-exit-code", type=int, default=0)
+    formal_backend_check_cmd.add_argument("--tool-version")
+    formal_backend_check_cmd.add_argument("--tool-version-command", nargs="+")
+    formal_backend_check_cmd.add_argument(
+        "--output-limit-bytes", type=int, default=DEFAULT_RUNNER_OUTPUT_LIMIT_BYTES
+    )
 
     model_checker_run_cmd = subcommands.add_parser(
         "model-checker-run", help="Run a local model checker with normalized metadata."
@@ -790,13 +809,21 @@ def main(argv: list[str] | None = None) -> int:
             ir = validate_requirement_ir_json(args.file.read_text())
             if not isinstance(ir, RequirementIRV2):
                 raise ValueError("formal-backend-check requires ir_version 0.2")
-            request = build_formal_backend_request(ir, backend_id=args.backend)
+            checker_command = (
+                _normalize_remainder_command(args.checker_command)
+                if args.checker_command
+                else None
+            )
+            request = build_formal_backend_request(
+                ir,
+                backend_id=args.backend,
+                budget=_formal_backend_budget_from_args(args),
+                execution=_formal_backend_execution_from_args(args, checker_command),
+            )
             print(canonical_json(check_formal_backend(request)), end="")
             return 0
         if args.command == "model-checker-run":
-            command = list(args.model_checker_command)
-            if command and command[0] == "--":
-                command = command[1:]
+            command = _normalize_remainder_command(args.model_checker_command)
             if not command:
                 raise ValueError("model-checker-run requires a command after --")
             request = ModelCheckerCommand(
@@ -1914,6 +1941,59 @@ def _parse_scalar_option(value: str) -> str | int | float | bool:
         return float(value)
     except ValueError:
         return value
+
+
+def _normalize_remainder_command(command: list[str] | None) -> list[str]:
+    normalized = list(command or [])
+    if normalized and normalized[0] == "--":
+        return normalized[1:]
+    return normalized
+
+
+def _formal_backend_budget_from_args(args: argparse.Namespace) -> FormalBackendBudget | None:
+    if not any(
+        [
+            args.timeout_seconds,
+            args.max_depth,
+            args.max_states,
+            args.memory_budget_mb,
+            args.solver_option,
+        ]
+    ):
+        return None
+    return FormalBackendBudget(
+        timeout_seconds=args.timeout_seconds,
+        max_depth=args.max_depth,
+        max_states=args.max_states,
+        memory_budget_mb=args.memory_budget_mb,
+        solver_options=_parse_solver_options(args.solver_option),
+    )
+
+
+def _formal_backend_execution_from_args(
+    args: argparse.Namespace, checker_command: list[str] | None
+) -> FormalBackendExecution | None:
+    if not any(
+        [
+            args.artifact_dir,
+            args.checker_id,
+            checker_command,
+            args.tool_version,
+            args.tool_version_command,
+            args.expected_exit_code,
+            args.output_limit_bytes != DEFAULT_RUNNER_OUTPUT_LIMIT_BYTES,
+        ]
+    ):
+        return None
+    return FormalBackendExecution(
+        checker_id=args.checker_id or "tlc",
+        command=checker_command,
+        artifact_dir=args.artifact_dir.as_posix() if args.artifact_dir else None,
+        expected_exit_code=args.expected_exit_code,
+        tool_version=args.tool_version,
+        tool_version_command=args.tool_version_command,
+        output_limit_bytes=args.output_limit_bytes,
+    )
 
 
 def _requirement_ids_from_args(args: argparse.Namespace) -> list[str]:

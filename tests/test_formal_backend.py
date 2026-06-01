@@ -1,12 +1,17 @@
 import json
+import sys
 from pathlib import Path
 
 import pytest
 
 from nlreq.cli import main
 from nlreq.compositional_ir import migrate_requirement_ir_v1_to_v2
+from nlreq.dsl_v2 import DslV2Parser
 from nlreq.formal_backend import (
+    FormalBackendBudget,
+    FormalBackendExecution,
     TlaBoundaryBackend,
+    TlaRunnerBackend,
     build_formal_backend_request,
     check_formal_backend,
     existing_formal_boundaries,
@@ -89,7 +94,77 @@ def test_existing_formal_boundaries_document_core_smt_and_tla() -> None:
         "core_smt",
         "tla",
         "tla-boundary",
+        "tla-runner",
     }
+
+
+def test_tla_runner_lowers_writes_artifacts_and_maps_valid_result(tmp_path: Path) -> None:
+    ir = _dsl_v2_ir()
+    request = build_formal_backend_request(
+        ir,
+        backend_id=TlaRunnerBackend.backend_id,
+        budget=FormalBackendBudget(timeout_seconds=5, max_depth=10),
+        execution=FormalBackendExecution(
+            checker_id="custom",
+            command=[
+                sys.executable,
+                "-c",
+                "print('Model checking completed. No error has been found.')",
+            ],
+            artifact_dir=tmp_path.as_posix(),
+            tool_version="custom-checker 1.0",
+        ),
+    )
+
+    response = check_formal_backend(request)
+
+    assert response.backend_id == "tla-runner"
+    assert response.result.status == "valid"
+    assert response.result.evidence_level.value == "BOUNDED_CHECKED"
+    assert response.result.details["runner_outcome"] == "valid"
+    assert response.result.details["bounds"]["max_depth"] == 10
+    assert (tmp_path / "Req_REQ_DSL_V2_001.tla").is_file()
+    assert (tmp_path / "Req_REQ_DSL_V2_001.cfg").read_text() == (
+        "INIT Init\nNEXT Next\nPROPERTY RequirementHolds\n"
+    )
+
+
+def test_tla_runner_preserves_counterexample_artifacts(tmp_path: Path) -> None:
+    request = build_formal_backend_request(
+        _dsl_v2_ir(),
+        backend_id=TlaRunnerBackend.backend_id,
+        execution=FormalBackendExecution(
+            checker_id="custom",
+            command=[sys.executable, "-c", "print('Invariant is violated.')"],
+            artifact_dir=tmp_path.as_posix(),
+        ),
+    )
+
+    response = check_formal_backend(request)
+
+    assert response.result.status == "counterexample"
+    assert response.result.details["counterexamples"][0]["marker"] == "invariant is violated"
+
+
+def test_tla_runner_refuses_unsupported_lowering_before_execution(tmp_path: Path) -> None:
+    ir = RequirementIRV2.model_validate_json(
+        (FIXTURES / "compositional_ir_v02_multi_premise.json").read_text()
+    )
+    request = build_formal_backend_request(
+        ir,
+        backend_id=TlaRunnerBackend.backend_id,
+        execution=FormalBackendExecution(
+            checker_id="custom",
+            command=[sys.executable, "-c", "raise SystemExit(99)"],
+            artifact_dir=tmp_path.as_posix(),
+        ),
+    )
+
+    response = check_formal_backend(request)
+
+    assert response.result.status == "unsupported"
+    assert not list(tmp_path.iterdir())
+    assert response.unsupported_constructs[0].kind == "invariant"
 
 
 def test_formal_backend_check_cli_outputs_response_json(capsys) -> None:
@@ -109,9 +184,49 @@ def test_formal_backend_check_cli_outputs_response_json(capsys) -> None:
     assert output["result"]["status"] == "unsupported"
 
 
+def test_tla_runner_cli_executes_checker_and_writes_artifacts(tmp_path: Path, capsys) -> None:
+    ir_path = tmp_path / "requirement.ir.json"
+    artifact_dir = tmp_path / "artifacts"
+    ir_path.write_text(_dsl_v2_ir().model_dump_json())
+
+    exit_code = main(
+        [
+            "formal-backend-check",
+            str(ir_path),
+            "--backend",
+            TlaRunnerBackend.backend_id,
+            "--artifact-dir",
+            str(artifact_dir),
+            "--checker-id",
+            "custom",
+            "--timeout-seconds",
+            "5",
+            "--checker-command",
+            sys.executable,
+            "-c",
+            "print('verification successful')",
+        ]
+    )
+
+    output = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert output["backend_id"] == "tla-runner"
+    assert output["result"]["status"] == "valid"
+    assert (artifact_dir / "Req_REQ_DSL_V2_001.tla").is_file()
+
+
 def _migrated_auth_ir() -> RequirementIRV2:
     source = RequirementIR.model_validate_json(
         (GOLDENS / "REQ-AUTH-001" / "requirement.ir.json").read_text()
     )
     migrated, _record = migrate_requirement_ir_v1_to_v2(source)
     return migrated
+
+
+def _dsl_v2_ir() -> RequirementIRV2:
+    return DslV2Parser().parse_ir(
+        (FIXTURES / "dsl_v2_redemption.nlreq2").read_text(),
+        requirement_id="REQ-DSL-V2-001",
+        title="Redemption finalization is timely and reserve-safe",
+    )

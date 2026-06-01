@@ -171,6 +171,13 @@ def default_evidence_producer_mapping() -> EvidenceProducerMapping:
                 tool_version="0.1",
             ),
             EvidenceProducer(
+                producer_id="tla-runner",
+                producer_kind="model_checker",
+                allowed_evidence_levels=[EvidenceLevel.BOUNDED_CHECKED],
+                tool="nlreq.formal_backend.TlaRunnerBackend",
+                tool_version="0.1",
+            ),
+            EvidenceProducer(
                 producer_id="tla-boundary",
                 producer_kind="formal_boundary",
                 real_producer=False,
