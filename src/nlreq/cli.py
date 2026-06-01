@@ -112,6 +112,10 @@ from .translator import (
     lower_ir_v2_to_tla,
     parse_approved_draft_ir_v2,
 )
+from .translator_agreement import (
+    TranslationAgreementInput,
+    build_translation_agreement_report,
+)
 from .tla_adapter import TlaAdapter, load_tla_model_config
 from .tla_package import (
     build_tla_package,
@@ -229,6 +233,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     lower_ir_v2_cmd.add_argument("file", type=Path)
     lower_ir_v2_cmd.add_argument("--out", type=Path)
+
+    translator_agreement_cmd = subcommands.add_parser(
+        "translator-agreement", help="Compare multiple requirement translations structurally."
+    )
+    translator_agreement_cmd.add_argument("input", type=Path)
+    translator_agreement_cmd.add_argument("--out", type=Path)
 
     python_source_impact_cmd = subcommands.add_parser(
         "python-source-impact", help="Run deterministic Python source impact analysis."
@@ -951,6 +961,18 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Lowered formal artifact: {args.out}")
             else:
                 print(canonical_json(artifact), end="")
+            return 0
+        if args.command == "translator-agreement":
+            from .jsonutil import write_json
+
+            report = build_translation_agreement_report(
+                TranslationAgreementInput.model_validate_json(args.input.read_text())
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Translator agreement report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
             return 0
         if args.command == "python-source-impact":
             from .jsonutil import write_json

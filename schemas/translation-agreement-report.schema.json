@@ -1,0 +1,186 @@
+{
+  "$defs": {
+    "SourceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "title": "Document",
+          "type": "string"
+        },
+        "end_char": {
+          "minimum": 0,
+          "title": "End Char",
+          "type": "integer"
+        },
+        "start_char": {
+          "minimum": 0,
+          "title": "Start Char",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "start_char",
+        "end_char",
+        "text"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    },
+    "TranslationClarification": {
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "question": {
+          "title": "Question",
+          "type": "string"
+        },
+        "question_id": {
+          "title": "Question Id",
+          "type": "string"
+        },
+        "translator_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Translator Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "question_id",
+        "question",
+        "path",
+        "translator_ids"
+      ],
+      "title": "TranslationClarification",
+      "type": "object"
+    },
+    "TranslationDisagreement": {
+      "additionalProperties": false,
+      "properties": {
+        "left_fragment": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Left Fragment"
+        },
+        "left_translator_id": {
+          "title": "Left Translator Id",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "right_fragment": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Right Fragment"
+        },
+        "right_translator_id": {
+          "title": "Right Translator Id",
+          "type": "string"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "left_translator_id",
+        "right_translator_id",
+        "path",
+        "reason"
+      ],
+      "title": "TranslationDisagreement",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "blockers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "candidate_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Candidate Hashes",
+      "type": "object"
+    },
+    "clarifications": {
+      "items": {
+        "$ref": "#/$defs/TranslationClarification"
+      },
+      "title": "Clarifications",
+      "type": "array"
+    },
+    "disagreements": {
+      "items": {
+        "$ref": "#/$defs/TranslationDisagreement"
+      },
+      "title": "Disagreements",
+      "type": "array"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "agreed",
+        "disagreed",
+        "needs_review"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "status",
+    "candidate_hashes"
+  ],
+  "title": "TranslationAgreementReport",
+  "type": "object"
+}

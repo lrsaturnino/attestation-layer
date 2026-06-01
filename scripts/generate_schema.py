@@ -43,6 +43,7 @@ from nlreq.system_spec import SystemSpecRegistry, SystemSpecRegistryReport
 from nlreq.system_checker import SystemConsistencyResult, RequirementSetConsistencyReport
 from nlreq.trace_validation import TraceValidationResultsArtifact
 from nlreq.tla_adapter import TlaModelConfigArtifact, TlaResultsArtifact
+from nlreq.translator_agreement import TranslationAgreementInput, TranslationAgreementReport
 from nlreq.translator import ControlledDraft, LoweredFormalArtifact
 
 
@@ -61,6 +62,8 @@ SCHEMAS = {
     "spec-coverage-report.schema.json": SpecCoverageReport,
     "trace-alignment-report.schema.json": TraceAlignmentReport,
     "controlled-draft.schema.json": ControlledDraft,
+    "translation-agreement-input.schema.json": TranslationAgreementInput,
+    "translation-agreement-report.schema.json": TranslationAgreementReport,
     "evidence.schema.json": EvidenceObject,
     "formal-backend-request.schema.json": FormalBackendRequest,
     "formal-backend-response.schema.json": FormalBackendResponse,
