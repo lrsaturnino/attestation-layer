@@ -25,6 +25,7 @@ class SemanticAgreementResolution(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     selected_candidate_id: str
+    selected_candidate_hash: str | None = None
     reason: str
     approval: Approval
 
@@ -94,7 +95,8 @@ def build_semantic_agreement_report(
     else:
         status = "agreed"
 
-    if status == "disagreed" and _resolution_is_valid(resolution, candidates):
+    effective_resolution = _resolution_with_hash(resolution, candidate_hashes)
+    if status == "disagreed" and _resolution_is_valid(effective_resolution, candidate_hashes):
         status = "resolved_by_review"
 
     return SemanticAgreementReport(
@@ -103,7 +105,7 @@ def build_semantic_agreement_report(
         candidate_hashes=candidate_hashes,
         comparisons=comparisons,
         blockers=blockers,
-        resolution=resolution,
+        resolution=effective_resolution,
         acceptance_allowed=status in {"agreed", "resolved_by_review"},
     )
 
@@ -146,12 +148,25 @@ def _compare(
     )
 
 
+def _resolution_with_hash(
+    resolution: SemanticAgreementResolution | None,
+    candidate_hashes: dict[str, str],
+) -> SemanticAgreementResolution | None:
+    if resolution is None:
+        return None
+    selected_hash = candidate_hashes.get(resolution.selected_candidate_id)
+    if resolution.selected_candidate_hash is None and selected_hash is not None:
+        return resolution.model_copy(update={"selected_candidate_hash": selected_hash})
+    return resolution
+
+
 def _resolution_is_valid(
     resolution: SemanticAgreementResolution | None,
-    candidates: list[FormalClaimAgreementCandidate],
+    candidate_hashes: dict[str, str],
 ) -> bool:
     if resolution is None:
         return False
     if resolution.approval.status != "approved":
         return False
-    return resolution.selected_candidate_id in {candidate.candidate_id for candidate in candidates}
+    selected_hash = candidate_hashes.get(resolution.selected_candidate_id)
+    return selected_hash is not None and resolution.selected_candidate_hash == selected_hash

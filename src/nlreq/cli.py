@@ -481,6 +481,7 @@ def main(argv: list[str] | None = None) -> int:
     semantic_agreement_cmd.add_argument("--candidate-id", action="append", default=[])
     semantic_agreement_cmd.add_argument("--translator-id", action="append", default=[])
     semantic_agreement_cmd.add_argument("--resolution-candidate-id")
+    semantic_agreement_cmd.add_argument("--resolution-candidate-hash")
     semantic_agreement_cmd.add_argument("--resolution-reason")
     semantic_agreement_cmd.add_argument("--approved-by")
     semantic_agreement_cmd.add_argument("--approved-at")
@@ -1834,6 +1835,7 @@ def main(argv: list[str] | None = None) -> int:
                     raise ValueError("semantic-agreement resolution requires --approved-by and --approved-at")
                 resolution = SemanticAgreementResolution(
                     selected_candidate_id=args.resolution_candidate_id,
+                    selected_candidate_hash=args.resolution_candidate_hash,
                     reason=args.resolution_reason or "reviewer selected semantic candidate",
                     approval=Approval(
                         status="approved",

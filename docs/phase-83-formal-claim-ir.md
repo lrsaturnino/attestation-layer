@@ -93,6 +93,58 @@ Required evidence is derived from controlled claim-class semantics:
 No formal claim lowering emits backend evidence. It only states what evidence
 must later be produced.
 
+## Implementation Specification
+
+### Inputs
+
+The lowering input is a validated `RequirementIRV2` artifact with
+`ir_version == "0.2"` and a semantic root that declares a DSL v3
+`requirement_class` in `semantic_ir.metadata`.
+
+The lowering path is deterministic. It must not inspect source files, backend
+state, benchmark results, or reviewer comments. Those artifacts are consumed by
+later phases.
+
+### Outputs
+
+The output is always `FormalClaimLoweringReport`.
+
+When `result == "lowered"`, the report includes exactly one `FormalClaim`.
+When `result == "refused"`, `formal_claim` is absent and
+`unsupported_fragments` explains why no backend-neutral claim can be trusted.
+
+The report records:
+
+- the source IR hash;
+- input hashes for source IR and, when lowered, the formal claim;
+- semantics rules used during lowering;
+- stable refusal code `NLR-SEMANTIC-UNSUPPORTED` for unsupported semantics.
+
+### Fragment Mapping
+
+Fragment identifiers use `formal.<semantic_node_id>` so source-node mapping is
+stable across schema generation and CLI output. `node_map` maps semantic-node
+IDs to formal fragment IDs and must include scope, premise, action, and
+obligation fragments.
+
+The canonical formula is a display and comparison artifact. It is not a proof
+term and must not be used to bypass typed fragment checks.
+
+### Decision Rules
+
+Lowering succeeds only when:
+
+- the requirement class is one of the controlled semantics claim classes;
+- every traversed semantic node is in the supported kind set;
+- premises lower to predicate, comparison, or membership fragments;
+- obligations lower to success, rejection order, post-state, event emission,
+  invariant, or causal transition fragments;
+- temporal obligations carry explicit bounds.
+
+Lowering refuses before constructing a formal claim when any semantic node is
+unsupported. There is no partially lowered formal claim because downstream
+agreement could otherwise compare incomplete formulas.
+
 ## Failure Behavior
 
 Failure modes are stable:
@@ -115,11 +167,12 @@ This phase exits when:
 
 ## Tests
 
-`tests/test_milestone_group5.py` verifies lowering for authorization,
+`tests/test_milestone_group8.py` verifies lowering for authorization,
 state-precondition, numeric-invariant, and event-state claim classes.
+It also verifies unsupported semantic nodes are refused without partial formal
+claims.
 
 ## Out Of Scope
 
 This phase does not project to TLA or SMT. It also does not claim formal
 compatibility with system specs; those are Milestone 6 concerns.
-

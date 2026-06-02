@@ -5,7 +5,7 @@ Phase 88 extends the translation benchmark with semantic closure metrics.
 ## Purpose
 
 The seed translation benchmark measured syntax, semantic match, clarification,
-refusal, and runtime. Milestone 5 needs additional signals for ambiguity,
+refusal, and runtime. Milestone group 8 needs additional signals for ambiguity,
 needs-review outcomes, formal-claim output, semantic profile, and false
 acceptance.
 
@@ -52,6 +52,64 @@ Needs-review cases require an observed `needs_review_reason`.
 Any result flagged as `false_acceptance` fails the report regardless of matched
 outcome counts.
 
+## Implementation Specification
+
+### Inputs
+
+The benchmark consumes:
+
+- `RequirementTranslationCorpus`;
+- `RequirementTranslationResults`.
+
+Corpus cases define the authoritative evaluation set. Observed results for
+unknown case IDs are ignored for aggregate scoring so unrelated runs cannot
+inflate or deflate release metrics.
+
+### Outputs
+
+The output is `RequirementTranslationBenchmarkReport`, with:
+
+- pass/fail result;
+- total and matched case counts;
+- syntactic validity rate;
+- semantic match rate;
+- ambiguity rate;
+- needs-review rate;
+- false-acceptance rate;
+- clarification quality;
+- refusal correctness;
+- corpus-scoped runtime;
+- per-case observations.
+
+### Observation Rules
+
+Missing results are `missing`.
+
+Accepted cases are `matched` only when `semantic_match == true`.
+
+Clarification cases are `matched` only when expected questions are a subset of
+observed questions.
+
+Refusal cases are `matched` only when the expected refusal code equals the
+observed refusal code.
+
+Needs-review cases are `matched` only when the observed result includes a
+non-empty review reason.
+
+False acceptance takes precedence over other outcomes and fails the report.
+
+### Metric Rules
+
+Aggregate rates are divided by corpus size, not by observed result count.
+
+Only corpus results contribute to syntactic, semantic, ambiguity, needs-review,
+false-acceptance, and runtime metrics.
+
+Clarification quality counts missing clarification results as zero quality.
+
+The report passes only when every corpus case matches and false acceptance is
+zero.
+
 ## Compatibility
 
 Existing benchmark corpus and observed result files remain valid because new
@@ -68,7 +126,7 @@ This phase exits when:
 
 ## Tests
 
-`tests/test_milestone_group5.py` verifies the new metrics and false-acceptance
+`tests/test_milestone_group8.py` verifies the new metrics and false-acceptance
 failure behavior. Existing group-1 tests continue to validate backward
 compatibility.
 
@@ -76,4 +134,3 @@ compatibility.
 
 This phase does not make the seed corpus public-release sized. It extends the
 methodology and schema so later milestones can add more cases.
-

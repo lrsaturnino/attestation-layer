@@ -67,6 +67,64 @@ The reference declares refusal behavior:
 - bounded temporal semantics carry explicit bounds and cannot be labeled
   `PROVEN_INDUCTIVE`.
 
+## Implementation Specification
+
+### Inputs
+
+The semantics reference has no external input. It is generated from
+`build_controlled_requirement_semantics_reference()` so docs, CLI output,
+formal-claim lowering, and schema generation share one source of truth.
+
+### Outputs
+
+The output is `ControlledRequirementSemanticsReference`, with:
+
+- `schema_version`;
+- `dsl_version`;
+- generated tool metadata;
+- claim-class semantics;
+- construct semantics;
+- global refusal rules.
+
+The CLI emits the same artifact through:
+
+```bash
+uv run nlreq controlled-semantics --out controlled-semantics.json
+```
+
+### Claim-Class Requirements
+
+Every supported claim class must declare:
+
+- `supported == true`;
+- a canonical rule written in backend-neutral language;
+- minimum evidence levels needed by later closure phases;
+- limitations when the claim has bounded, trace, or cross-module semantics.
+
+No claim class may imply `PROVEN_INDUCTIVE`. Inductive proof remains available
+only from a proof-producing backend classified by the evidence boundary.
+
+### Construct Requirements
+
+Every construct entry must declare:
+
+- the DSL fragment shape;
+- the formal role it plays in a formal claim;
+- its canonical meaning;
+- allowed claim classes;
+- required evidence when the construct introduces a stronger obligation;
+- refusal behavior when syntax or semantics are unsupported.
+
+The reference deliberately names unsupported behavior. Parser acceptance,
+semantic lowering, and repair UX must be able to explain why a construct cannot
+be accepted without inventing policy at runtime.
+
+### Compatibility Rules
+
+Changing a construct meaning is a semantics change, not a formatting change.
+Such changes require updating this phase spec, ADR 0093, the generated schema
+if needed, and golden tests that assert the new rule.
+
 ## Exit Criteria
 
 This phase exits when:
@@ -78,11 +136,10 @@ This phase exits when:
 
 ## Tests
 
-`tests/test_milestone_group5.py` verifies the semantics reference covers all
+`tests/test_milestone_group8.py` verifies the semantics reference covers all
 claim classes and includes refusal rules.
 
 ## Out Of Scope
 
 This phase does not make unsupported natural language acceptable. It documents
 the controlled subset only.
-

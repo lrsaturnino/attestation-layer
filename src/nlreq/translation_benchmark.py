@@ -125,16 +125,21 @@ def build_translation_benchmark_report(
 ) -> RequirementTranslationBenchmarkReport:
     result_by_id = {result.case_id: result for result in results.results}
     observations = [_observe(case, result_by_id.get(case.case_id)) for case in corpus.cases]
+    corpus_results = [
+        result
+        for case in corpus.cases
+        if (result := result_by_id.get(case.case_id)) is not None
+    ]
     total = len(corpus.cases)
     matched = sum(1 for item in observations if item.status == "matched")
-    syntactic = sum(1 for result in result_by_id.values() if result.syntactically_valid)
-    semantic = sum(1 for result in result_by_id.values() if result.semantic_match)
-    ambiguous = sum(1 for result in result_by_id.values() if result.ambiguous)
-    needs_review = sum(1 for result in result_by_id.values() if result.outcome == "needs_review")
-    false_acceptance = sum(1 for result in result_by_id.values() if result.false_acceptance)
+    syntactic = sum(1 for result in corpus_results if result.syntactically_valid)
+    semantic = sum(1 for result in corpus_results if result.semantic_match)
+    ambiguous = sum(1 for result in corpus_results if result.ambiguous)
+    needs_review = sum(1 for result in corpus_results if result.outcome == "needs_review")
+    false_acceptance = sum(1 for result in corpus_results if result.false_acceptance)
     clarification_cases = [case for case in corpus.cases if case.expected.outcome == "clarification"]
     refusal_cases = [case for case in corpus.cases if case.expected.outcome == "refused"]
-    runtime = sum((result_by_id.get(case.case_id).runtime_ms if result_by_id.get(case.case_id) else 0) for case in corpus.cases)
+    runtime = sum(result.runtime_ms for result in corpus_results)
     return RequirementTranslationBenchmarkReport(
         corpus_id=corpus.corpus_id,
         version=corpus.version,
@@ -198,7 +203,15 @@ def _quality(
 ) -> float | None:
     if not cases:
         return None
-    return _ratio(sum(1 for case in cases if _questions_match(case, results.get(case.case_id, _empty(case.case_id)))), len(cases))
+    return _ratio(
+        sum(
+            1
+            for case in cases
+            if (result := results.get(case.case_id)) is not None
+            and _questions_match(case, result)
+        ),
+        len(cases),
+    )
 
 
 def _refusal_correctness(
@@ -214,10 +227,6 @@ def _refusal_correctness(
         and result.refusal_code == case.expected.expected_refusal_code
     )
     return _ratio(correct, len(cases))
-
-
-def _empty(case_id: str) -> RequirementTranslationCaseResult:
-    return RequirementTranslationCaseResult(case_id=case_id, outcome="refused")
 
 
 def _ratio(numerator: int, denominator: int) -> float:

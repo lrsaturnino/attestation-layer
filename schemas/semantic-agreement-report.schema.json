@@ -110,6 +110,18 @@
           "title": "Reason",
           "type": "string"
         },
+        "selected_candidate_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Selected Candidate Hash"
+        },
         "selected_candidate_id": {
           "title": "Selected Candidate Id",
           "type": "string"
