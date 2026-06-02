@@ -1,4 +1,4 @@
-# ADR 0067: IR-To-TLA Projection Semantics v2
+# ADR 0067: IR-To-TLA Projection Semantics
 
 ## Status
 
@@ -20,4 +20,4 @@ be benchmarked and refused consistently.
 
 ## Validation
 
-`nlreq tla-projection-v2` emits a schema-backed report.
+`nlreq tla-projection` emits a schema-backed report.

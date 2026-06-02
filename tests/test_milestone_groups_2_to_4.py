@@ -2,10 +2,10 @@ import hashlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from nlreq.adapter_certification import certify_adapter_v2
+from nlreq.adapter_certification import certify_adapter
 from nlreq.artifact_store import ArtifactStoreManifest, lookup_artifact, put_artifact
 from nlreq.benchmark_corpus import BenchmarkCaseResult, BenchmarkCorpus
-from nlreq.benchmark_v2 import build_benchmark_v2_report
+from nlreq.benchmark_reporting import build_benchmark_evaluation_report
 from nlreq.conclusion_certification import build_conclusion_certification_report
 from nlreq.dsl_v2 import DslV2Parser
 from nlreq.formal_backend import (
@@ -19,7 +19,7 @@ from nlreq.formal_backend import (
 from nlreq.gate import GatePolicy, GatePolicyWaiverRules, GateWaiver
 from nlreq.jsonutil import write_json
 from nlreq.models import NormalizedTrace, NormalizedTraceArtifact, SymbolRef, TraceEvent
-from nlreq.policy_v2 import build_waiver_audit_report
+from nlreq.policy_governance import build_waiver_audit_report
 from nlreq.production_source_adapters import SoliditySourceAdapter
 from nlreq.public_sdk import build_default_public_documentation_index
 from nlreq.reference_demo import ReferenceDemoManifest, build_reference_demo_report
@@ -43,8 +43,8 @@ from nlreq.spec_freshness import (
 )
 from nlreq.system_spec import SystemSpecRegistry
 from nlreq.threat_model import build_default_threat_model
-from nlreq.tla_projection_v2 import build_tla_projection_v2_report
-from nlreq.trace_normalization_v2 import RawTraceArtifact, normalize_raw_traces_v2
+from nlreq.tla_projection import build_tla_projection_report
+from nlreq.trace_normalization import RawTraceArtifact, normalize_raw_traces
 
 
 def test_production_backends_are_registered_and_missing_tool_is_unsupported(tmp_path: Path) -> None:
@@ -87,8 +87,8 @@ def test_tlc_production_backend_accepts_custom_checker_command(tmp_path: Path) -
     assert response.result.evidence_level.value == "BOUNDED_CHECKED"
 
 
-def test_tla_projection_v2_records_bounds_and_refuses_unsupported_fragments() -> None:
-    report = build_tla_projection_v2_report(_dsl_v2_ir())
+def test_tla_projection_records_bounds_and_refuses_unsupported_fragments() -> None:
+    report = build_tla_projection_report(_dsl_v2_ir())
 
     assert report.result == "projected"
     assert report.lowered.status == "lowered"
@@ -154,7 +154,7 @@ def test_solidity_adapter_certification_resolves_static_symbols(tmp_path: Path) 
     )
     adapter = SoliditySourceAdapter(project_root=tmp_path)
 
-    report = certify_adapter_v2(
+    report = certify_adapter(
         adapter,
         manifest,
         symbol_refs=[SymbolRef(name="requestRedemption")],
@@ -188,7 +188,7 @@ def test_trace_normalization_and_registered_local_extraction(tmp_path: Path) -> 
         }
     )
 
-    normalized_report = normalize_raw_traces_v2(raw)
+    normalized_report = normalize_raw_traces(raw)
     trace_path = tmp_path / "traces.json"
     write_json(trace_path, normalized_report.normalized)
     registry = TraceProducerRegistry(
@@ -255,11 +255,11 @@ def test_artifact_store_lookup_and_signed_evidence_verification(tmp_path: Path) 
     assert verification.result == "valid"
 
 
-def test_benchmark_v2_waiver_audit_and_conclusion_certification() -> None:
+def test_benchmark_evaluation_waiver_audit_and_conclusion_certification() -> None:
     corpus = BenchmarkCorpus.model_validate(
         {
             "schema_version": "0.1",
-            "corpus_id": "public-v2",
+            "corpus_id": "public-release",
             "version": "2",
             "cases": [
                 {
@@ -272,7 +272,7 @@ def test_benchmark_v2_waiver_audit_and_conclusion_certification() -> None:
             ],
         }
     )
-    benchmark = build_benchmark_v2_report(
+    benchmark = build_benchmark_evaluation_report(
         corpus,
         [BenchmarkCaseResult(case_id="case-1", decision="accepted")],
     )

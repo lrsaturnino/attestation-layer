@@ -1,6 +1,6 @@
 {
   "$defs": {
-    "CounterexampleStepV2": {
+    "CounterexampleStep": {
       "additionalProperties": false,
       "properties": {
         "event": {
@@ -51,10 +51,10 @@
         "step_index",
         "source"
       ],
-      "title": "CounterexampleStepV2",
+      "title": "CounterexampleStep",
       "type": "object"
     },
-    "NormalizedCounterexampleV2": {
+    "NormalizedCounterexample": {
       "additionalProperties": false,
       "properties": {
         "backend": {
@@ -93,7 +93,7 @@
         },
         "steps": {
           "items": {
-            "$ref": "#/$defs/CounterexampleStepV2"
+            "$ref": "#/$defs/CounterexampleStep"
           },
           "title": "Steps",
           "type": "array"
@@ -110,7 +110,7 @@
         "status",
         "summary"
       ],
-      "title": "NormalizedCounterexampleV2",
+      "title": "NormalizedCounterexample",
       "type": "object"
     }
   },
@@ -118,7 +118,7 @@
   "properties": {
     "counterexamples": {
       "items": {
-        "$ref": "#/$defs/NormalizedCounterexampleV2"
+        "$ref": "#/$defs/NormalizedCounterexample"
       },
       "title": "Counterexamples",
       "type": "array"
@@ -145,7 +145,7 @@
       "type": "string"
     },
     "tool": {
-      "default": "nlreq.counterexample_v2",
+      "default": "nlreq.counterexample_normalization",
       "title": "Tool",
       "type": "string"
     },
@@ -158,6 +158,6 @@
   "required": [
     "result"
   ],
-  "title": "CounterexampleNormalizationV2Report",
+  "title": "CounterexampleNormalizationReport",
   "type": "object"
 }

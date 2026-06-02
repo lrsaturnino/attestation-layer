@@ -10,7 +10,7 @@ from .delta_extractor import build_delta_report
 from .dsl_v2 import DslV2Parser
 from .formal_backend import FormalBackendBudget, FormalBackendExecution
 from .impact import analyze_source_impact
-from .impact_v2 import analyze_source_impact_v2
+from .source_impact import analyze_source_impact_with_context
 from .jsonutil import sha256_json, write_json
 from .models import SourceSpan
 from .proof_closure import (
@@ -138,13 +138,13 @@ def run_end_to_end_requirement_gate(
     impact = analyze_source_impact(source_adapter, source_manifest, symbols=symbols)
     record("source_impact", "source-impact.json", impact)
 
-    impact_v2 = analyze_source_impact_v2(
+    impact_context = analyze_source_impact_with_context(
         source_adapter,
         source_manifest,
         symbols=symbols,
         traces=traces,
     )
-    record("source_impact_v2", "source-impact-v2.json", impact_v2)
+    record("source_impact_context", "source-impact-context.json", impact_context)
 
     coverage = build_spec_coverage_report(
         impact=impact,
@@ -199,7 +199,7 @@ def run_end_to_end_requirement_gate(
         "translation_agreement": translation.status,
         "requirement_self_consistency": self_consistency.status,
         "source_impact": "completed",
-        "source_impact_v2": "completed",
+        "source_impact_context": "completed",
         "spec_coverage": coverage.result,
         "trace_alignment": trace_alignment.result,
         "trace_replay": trace_replay.result,

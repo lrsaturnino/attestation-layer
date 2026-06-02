@@ -2,20 +2,20 @@ import json
 from pathlib import Path
 
 from nlreq.cli import main
-from nlreq.impact_v2 import SemanticImpactSuggestion, analyze_source_impact_v2
+from nlreq.source_impact import SemanticImpactSuggestion, analyze_source_impact_with_context
 from nlreq.models import NormalizedTraceArtifact
 from nlreq.python_source_adapter import PythonSourceLanguageAdapter
 from nlreq.source_adapter import SourceManifest
 
 
-def test_impact_v2_combines_call_graph_trace_touchpoints_and_suggestions(
+def test_source_impact_context_combines_call_graph_trace_touchpoints_and_suggestions(
     tmp_path: Path,
 ) -> None:
     manifest = _project(tmp_path)
     adapter = PythonSourceLanguageAdapter(project_root=tmp_path)
     traces = _traces()
 
-    report = analyze_source_impact_v2(
+    report = analyze_source_impact_with_context(
         adapter,
         manifest,
         symbols=["operation"],
@@ -33,26 +33,26 @@ def test_impact_v2_combines_call_graph_trace_touchpoints_and_suggestions(
     assert report.disagreements[0].deterministic is False
 
 
-def test_impact_v2_bidirectional_call_graph_expansion(tmp_path: Path) -> None:
+def test_source_impact_context_bidirectional_call_graph_expansion(tmp_path: Path) -> None:
     manifest = _project(tmp_path)
     adapter = PythonSourceLanguageAdapter(project_root=tmp_path)
 
-    report = analyze_source_impact_v2(adapter, manifest, symbols=["state_change"])
+    report = analyze_source_impact_with_context(adapter, manifest, symbols=["state_change"])
 
     assert report.deterministic_modules == ["auth", "state"]
 
 
-def test_python_source_impact_v2_cli(tmp_path: Path, capsys) -> None:
+def test_python_source_impact_context_cli(tmp_path: Path, capsys) -> None:
     manifest = _project(tmp_path)
     manifest_path = tmp_path / "source-manifest.json"
     trace_path = tmp_path / "traces.json"
-    out = tmp_path / "impact-v2.json"
+    out = tmp_path / "source-impact-context.json"
     manifest_path.write_text(json.dumps(manifest.model_dump(mode="json"), indent=2))
     trace_path.write_text(_traces().model_dump_json())
 
     exit_code = main(
         [
-            "python-source-impact-v2",
+            "python-source-impact-context",
             "--manifest",
             str(manifest_path),
             "--symbol",
@@ -71,7 +71,7 @@ def test_python_source_impact_v2_cli(tmp_path: Path, capsys) -> None:
     output = capsys.readouterr().out
 
     assert exit_code == 0
-    assert "Python source impact v2:" in output
+    assert "Python contextual source impact:" in output
     data = json.loads(out.read_text())
     assert data["affected_modules"] == ["audit", "auth", "state"]
     assert {item["module_id"] for item in data["disagreements"]} == {"audit", "billing"}

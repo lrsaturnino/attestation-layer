@@ -18,15 +18,15 @@ aggregated into one proof object.
 | Phase | Focus | Core Dependency From Groups 1-2 |
 |---:|---|---|
 | 62 | Specula-style extraction runner | Provenance graph, refusal surface, formal artifact boundary |
-| 63 | Code-to-spec manifest v2 | Impact analysis, system spec registry, `S and R` composition |
+| 63 | Code-to-spec manifest | Impact analysis, system spec registry, `S and R` composition |
 | 64 | Spec freshness lockfile | Gap checklist discipline, spec drift semantics |
 | 65 | Runtime trace extraction SDK | Normalized trace schema, trace replay grounding |
-| 66 | Trace normalization v2 | Product refusal codes, counterexample normalization |
+| 66 | Trace normalization | Product refusal codes, counterexample normalization |
 | 67 | Solidity adapter | Adapter boundary, event/state correspondence DSL v3 class |
-| 68 | Go adapter | Adapter conformance, source impact v2 |
+| 68 | Go adapter | Adapter conformance, contextual source impact |
 | 69 | TypeScript adapter | JavaScript adapter lessons, package/source split |
 | 70 | Rust or Java adapter | Compiled ecosystem conformance pressure test |
-| 71 | Adapter certification suite v2 | Cross-adapter conformance and producer validation |
+| 71 | Adapter certification suite | Cross-adapter conformance and producer validation |
 | 72 | Cross-language proof object | Proof-level evidence boundary, backend agreement reports |
 
 ## Required Shape

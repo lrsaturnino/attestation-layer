@@ -11,12 +11,12 @@ and current verification surface.
 | 46 | `docs/phase-46-conclusion-definition-gap-audit.md` | `docs/adr/0055-conclusion-definition-release-bars-evidence-labels.md` | conclusion definition, gap checklist, release bars | `conclusion-gap-checklist`, `tests/test_milestone_group1.py` |
 | 47 | `docs/phase-47-free-form-intake-controlled-rewrite.md` | `docs/adr/0056-free-form-intake-controlled-rewrite-approval.md` | free-form intake, rewrite proposal, approval hash binding | `intake-draft`, `intake-approve`, `intake-diff` |
 | 48 | `docs/phase-48-controlled-requirement-dsl-v3.md` | `docs/adr/0057-controlled-requirement-dsl-v3.md` | DSL v3 grammar, canonical formatter, IR v0.2 mapping | `ir-v3`, DSL v3 fixture tests |
-| 49 | `docs/phase-49-requirement-review-approval-workflow.md` | `docs/adr/0058-requirement-review-approval-hash-binding.md` | approval workflow, checklist v2, stale review report | `review-open`, `review-approve`, `review-status` |
-| 50 | `docs/phase-50-product-refusal-surface-v2.md` | `docs/adr/0059-product-refusal-taxonomy.md` | refusal findings, stable `NLR-*` codes, Markdown renderer | `refusal-render`, `requirement-gate --markdown-out` |
+| 49 | `docs/phase-49-requirement-review-approval-workflow.md` | `docs/adr/0058-requirement-review-approval-hash-binding.md` | approval workflow, checklist, stale review report | `review-open`, `review-approve`, `review-status` |
+| 50 | `docs/phase-50-product-refusal-surface.md` | `docs/adr/0059-product-refusal-taxonomy.md` | refusal findings, stable `NLR-*` codes, Markdown renderer | `refusal-render`, `requirement-gate --markdown-out` |
 | 51 | `docs/phase-51-multi-pass-nl-translator-workbench.md` | `docs/adr/0060-multi-pass-translator-workbench.md` | translator run, candidate, selection artifacts | `translate-candidates`, `translate-compare`, `translate-select` |
 | 52 | `docs/phase-52-bidirectional-provenance-clarification.md` | `docs/adr/0061-bidirectional-provenance-clarification.md` | provenance graph, clarification request/response, clarified text | `provenance-graph`, `clarify`, `apply-clarification` |
 | 53 | `docs/phase-53-logical-translator-agreement.md` | `docs/adr/0062-logical-translator-agreement.md` | logical agreement report, equivalence hierarchy | `logical-translator-agreement` |
-| 54 | `docs/phase-54-contradiction-taxonomy-v2.md` | `docs/adr/0063-requirement-contradiction-taxonomy.md` | self-consistency report, contradiction codes | `requirement-self-consistency` |
+| 54 | `docs/phase-54-contradiction-taxonomy.md` | `docs/adr/0063-requirement-contradiction-taxonomy.md` | self-consistency report, contradiction codes | `requirement-self-consistency` |
 | 55 | `docs/phase-55-requirement-corpus-for-translation.md` | `docs/adr/0064-requirement-translation-corpus.md` | translation corpus, observed results, benchmark report | `benchmark-translation` |
 
 ## Group-Level Invariants

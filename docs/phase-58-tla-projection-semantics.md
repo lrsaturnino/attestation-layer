@@ -1,4 +1,4 @@
-# Phase 58 - TLA Projection Semantics v2
+# Phase 58 - TLA Projection Semantics
 
 ## Status
 
@@ -11,9 +11,9 @@ opaque generated file.
 
 ## Implementation
 
-- `nlreq.tla_projection_v2`
-- `nlreq tla-projection-v2`
-- `schemas/tla-projection-v2-report.schema.json`
+- `nlreq.tla_projection`
+- `nlreq tla-projection`
+- `schemas/tla-projection-report.schema.json`
 
 The report records projected and unsupported fragments, temporal bounds, input
 hashes, and rules stating that generated TLA is not evidence until a backend

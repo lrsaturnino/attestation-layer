@@ -1,4 +1,4 @@
-# Phase 50 Product Refusal Surface v2
+# Phase 50 Product Refusal Surface
 
 Phase 50 makes refusal actionable and stable for product workflows.
 

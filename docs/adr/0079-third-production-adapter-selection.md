@@ -20,4 +20,4 @@ only third adapter.
 
 ## Validation
 
-Both languages are accepted by `adapter-certify-v2`.
+Both languages are accepted by `adapter-certify`.

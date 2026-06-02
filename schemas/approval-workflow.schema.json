@@ -39,7 +39,7 @@
           "type": "object"
         },
         "checklist": {
-          "$ref": "#/$defs/ReviewChecklistV2"
+          "$ref": "#/$defs/ReviewChecklist"
         },
         "decision": {
           "enum": [
@@ -95,7 +95,7 @@
       "title": "ReviewApprovalRecord",
       "type": "object"
     },
-    "ReviewChecklistV2": {
+    "ReviewChecklist": {
       "additionalProperties": false,
       "properties": {
         "controlled_form_matches_intent": {
@@ -159,7 +159,7 @@
           "type": "string"
         }
       },
-      "title": "ReviewChecklistV2",
+      "title": "ReviewChecklist",
       "type": "object"
     }
   },

@@ -23,7 +23,7 @@ The gate:
 - lowers to the formal target;
 - runs requirement self-consistency;
 - extracts source traces;
-- runs source impact and impact v2;
+- runs source impact and contextual source impact;
 - checks spec coverage and trace alignment;
 - runs trace replay;
 - checks system consistency;

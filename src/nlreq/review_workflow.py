@@ -27,7 +27,7 @@ class ArtifactReviewRef(BaseModel):
     content_hash: str
 
 
-class ReviewChecklistV2(BaseModel):
+class ReviewChecklist(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     controlled_form_matches_intent: Literal["pass", "fail", "n/a"] = "pass"
@@ -45,7 +45,7 @@ class ReviewApprovalRecord(BaseModel):
     reviewer: str
     decision: Literal["approved", "needs_review", "rejected"]
     artifact_hashes: dict[str, str]
-    checklist: ReviewChecklistV2
+    checklist: ReviewChecklist
     approved_at: str
     self_audit: bool = False
     self_audit_delay_hours: int | None = Field(default=None, ge=0)
@@ -93,13 +93,13 @@ def approve_review(
     decision: Literal["approved", "needs_review", "rejected"],
     approved_at: str,
     current_artifact_refs: list[ArtifactReviewRef] | None = None,
-    checklist: ReviewChecklistV2 | None = None,
+    checklist: ReviewChecklist | None = None,
     self_audit: bool = False,
     self_audit_delay_hours: int | None = None,
 ) -> ApprovalWorkflowArtifact:
     refs = current_artifact_refs or workflow.artifact_refs
     hashes = {ref.name: ref.content_hash for ref in refs}
-    checklist = checklist or ReviewChecklistV2()
+    checklist = checklist or ReviewChecklist()
     if decision == "approved":
         failed_items = _failing_checklist_items(checklist)
         if failed_items:
@@ -160,7 +160,7 @@ def artifact_ref_from_path(name: str, path: Path) -> ArtifactReviewRef:
     return ArtifactReviewRef(name=name, path=path.as_posix(), content_hash=sha256_text(content))
 
 
-def _failing_checklist_items(checklist: ReviewChecklistV2) -> list[str]:
+def _failing_checklist_items(checklist: ReviewChecklist) -> list[str]:
     return [
         name
         for name, value in checklist.model_dump(mode="json").items()

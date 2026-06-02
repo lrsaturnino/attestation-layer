@@ -48,7 +48,7 @@ Implemented capabilities:
 - trace replay grounding;
 - spec extraction workbench;
 - spec drift CI semantics;
-- impact analysis v2;
+- source impact analysis;
 - delta extraction;
 - verification budgets;
 - evidence producer validation;
@@ -158,16 +158,16 @@ multi-pass translation, provenance, clarification, logical agreement,
 contradiction taxonomy, and the translation corpus.
 
 Step 2 makes the formal verification spine real: Apalache, TLC when included,
-TLA projection v2, counterexample normalization, real `S and R` composition, and
+TLA projection, counterexample normalization, real `S and R` composition, and
 the proof-level evidence boundary.
 
 Step 3 connects the formal core to real code and runtime behavior:
-Specula-style extraction, code-to-spec manifest v2, freshness lockfile, runtime
+Specula-style extraction, code-to-spec manifest, freshness lockfile, runtime
 trace extraction, trace normalization, production adapters, adapter
 certification, and cross-language proof objects.
 
 Step 4 makes the project adoptable, auditable, and defensible: artifact storage,
-signed evidence, CI/PR gating, benchmark v2, performance and caching, waiver
+signed evidence, CI/PR gating, benchmark evaluation, performance and caching, waiver
 governance, threat model, reference brownfield demo, public docs and SDK, and
 final release certification.
 
@@ -183,35 +183,35 @@ step should contribute fixtures for the capabilities it introduces.
 | 47 | Free-Form Intake And Controlled Rewrite | safe human input path | ADR 0056 |
 | 48 | Controlled Requirement DSL v3 | richer but bounded input grammar | ADR 0057 |
 | 49 | Requirement Review And Approval Workflow | no silent semantic shifts | ADR 0058 |
-| 50 | Product Refusal Surface v2 | actionable iteration loop | ADR 0059 |
+| 50 | Product Refusal Surface | actionable iteration loop | ADR 0059 |
 | 51 | Multi-Pass NL Translator Workbench | untrusted NL-to-IR bridge | ADR 0060 |
 | 52 | Bidirectional Provenance And Clarification | explain ambiguity precisely | ADR 0061 |
 | 53 | Logical Translator Agreement | beyond structural diffs | ADR 0062 |
-| 54 | Contradiction Taxonomy v2 | ALICE-style self-checking | ADR 0063 |
+| 54 | Contradiction Taxonomy | ALICE-style self-checking | ADR 0063 |
 | 55 | Requirement Corpus For Translation | measure semantic translation quality | ADR 0064 |
 | 56 | Apalache Backend Production Integration | real symbolic bounded checking | ADR 0065 |
 | 57 | TLC Backend Production Integration | explicit-state checking path | ADR 0066 |
-| 58 | TLA Projection Semantics v2 | larger formal fragment | ADR 0067 |
-| 59 | Counterexample Normalization v2 | actionable formal failures | ADR 0068 |
+| 58 | TLA Projection Semantics | larger formal fragment | ADR 0067 |
+| 59 | Counterexample Normalization | actionable formal failures | ADR 0068 |
 | 60 | Real `S and R` Composition | system compatibility against specs | ADR 0069 |
 | 61 | Proof-Level Evidence Boundary | separate bounded from inductive proof | ADR 0070 |
 | 62 | Specula-Style Extraction Runner | code to candidate spec | ADR 0071 |
-| 63 | Code-To-Spec Manifest v2 | brownfield coverage map | ADR 0072 |
+| 63 | Code-To-Spec Manifest | brownfield coverage map | ADR 0072 |
 | 64 | Spec Freshness Lockfile | reproducible freshness invariant | ADR 0073 |
 | 65 | Runtime Trace Extraction SDK | real trace producers | ADR 0074 |
-| 66 | Trace Normalization v2 | cross-runtime trace semantics | ADR 0075 |
+| 66 | Trace Normalization | cross-runtime trace semantics | ADR 0075 |
 | 67 | Solidity Adapter | event/transaction adapter | ADR 0076 |
 | 68 | Go Adapter | compiled service adapter | ADR 0077 |
 | 69 | TypeScript Adapter | frontend/service adapter | ADR 0078 |
 | 70 | Rust Or Java Adapter | third ecosystem pressure test | ADR 0079 |
-| 71 | Adapter Certification Suite v2 | stable plugin contract | ADR 0080 |
+| 71 | Adapter Certification Suite | stable plugin contract | ADR 0080 |
 | 72 | Cross-Language Proof Object | one closure over multiple adapters | ADR 0081 |
 | 73 | Evidence Artifact Store | retention and replayability | ADR 0082 |
 | 74 | Signed Evidence And Producer Attestation | anti-forgery hardening | ADR 0083 |
 | 75 | CI And PR Action Gate | adoption surface | ADR 0084 |
-| 76 | Benchmark Corpus v2 | serious public evaluation | ADR 0085 |
+| 76 | Benchmark Evaluation | serious public evaluation | ADR 0085 |
 | 77 | Performance And Caching | usable runtime | ADR 0086 |
-| 78 | Policy And Waiver Governance v2 | controlled exceptions | ADR 0087 |
+| 78 | Policy And Waiver Governance | controlled exceptions | ADR 0087 |
 | 79 | Threat Model And TCB Audit | security review | ADR 0088 |
 | 80 | Reference Brownfield Demo | credible real-system demo | ADR 0089 |
 | 81 | Public Documentation And SDK | external adopter path | ADR 0090 |
@@ -360,7 +360,7 @@ Scope:
 Deliverables:
 
 - approval workflow schema;
-- review checklist v2;
+- review checklist;
 - stale-review detector;
 - CLI:
   - `nlreq review-open`;
@@ -379,7 +379,7 @@ Required ADR:
 
 - ADR 0058: Requirement review, approval hash binding, and self-audit policy.
 
-### Phase 50 - Product Refusal Surface v2
+### Phase 50 - Product Refusal Surface
 
 Purpose: make refusal actionable enough for normal users to iterate.
 
@@ -435,7 +435,7 @@ Scope:
 
 Deliverables:
 
-- translator candidate schema v2;
+- translator candidate schema;
 - translator run schema;
 - workbench CLI:
   - `nlreq translate-candidates`;
@@ -512,7 +512,7 @@ Scope:
 
 Deliverables:
 
-- logical agreement report v2;
+- logical agreement report;
 - equivalence checker modules;
 - fixtures for equivalent but syntactically different requirements;
 - fixtures for structurally similar but semantically different requirements.
@@ -528,7 +528,7 @@ Required ADR:
 
 - ADR 0062: Logical translator agreement and equivalence-method hierarchy.
 
-### Phase 54 - Contradiction Taxonomy v2
+### Phase 54 - Contradiction Taxonomy
 
 Purpose: make self-consistency a first-class requirements analysis backend.
 
@@ -552,7 +552,7 @@ Scope:
 Deliverables:
 
 - contradiction taxonomy doc;
-- self-consistency report v2 schema;
+- self-consistency report schema;
 - SMT encodings for supported contradiction classes;
 - fixtures from real and synthetic requirements.
 
@@ -674,7 +674,7 @@ Required ADR:
 
 - ADR 0066: TLC backend contract and explicit-state checking policy.
 
-### Phase 58 - TLA Projection Semantics v2
+### Phase 58 - TLA Projection Semantics
 
 Purpose: expand and specify the IR-to-TLA lowering semantics.
 
@@ -706,9 +706,9 @@ Exit criteria:
 
 Required ADR:
 
-- ADR 0067: IR-to-TLA projection semantics v2.
+- ADR 0067: IR-to-TLA projection semantics.
 
-### Phase 59 - Counterexample Normalization v2
+### Phase 59 - Counterexample Normalization
 
 Purpose: make formal failures actionable across backends.
 
@@ -726,7 +726,7 @@ Scope:
 
 Deliverables:
 
-- counterexample schema v2;
+- counterexample schema;
 - backend-specific parsers for Apalache and TLC;
 - markdown renderer;
 - delta extractor integration;
@@ -763,7 +763,7 @@ Scope:
 Deliverables:
 
 - composition artifact schema;
-- `system-consistency-check-v2`;
+- `system-consistency-check`;
 - combined TLA generator;
 - invariant selection policy;
 - fixtures for compatible and incompatible requirements.
@@ -773,7 +773,7 @@ Exit criteria:
 - at least one non-toy system spec composes with a requirement;
 - backend counterexample names the existing invariant violated;
 - timeout is budgeted and explicit;
-- closure gate consumes v2 system consistency.
+- closure gate consumes system consistency.
 
 Required ADR:
 
@@ -850,7 +850,7 @@ Required ADR:
 
 - ADR 0071: Specula-style extraction trust model and promotion workflow.
 
-### Phase 63 - Code-To-Spec Manifest v2
+### Phase 63 - Code-To-Spec Manifest
 
 Purpose: make coverage precise enough for brownfield requirements.
 
@@ -867,22 +867,22 @@ Scope:
 
 Deliverables:
 
-- manifest v2 schema;
+- manifest schema;
 - migration from current registry;
-- coverage evaluator v2;
+- coverage evaluator;
 - authoring guide;
 - conformance tests.
 
 Exit criteria:
 
-- impact analysis can select spec modules through manifest v2;
+- impact analysis can select spec modules through the manifest;
 - missing mapping is a structured blocker;
 - stale mapping is distinct from stale spec;
 - manifest changes require review.
 
 Required ADR:
 
-- ADR 0072: Code-to-spec manifest v2 and brownfield coverage semantics.
+- ADR 0072: Code-to-spec manifest and brownfield coverage semantics.
 
 ### Phase 64 - Spec Freshness Lockfile
 
@@ -955,7 +955,7 @@ Required ADR:
 
 - ADR 0074: Runtime trace extraction SDK and trace producer metadata.
 
-### Phase 66 - Trace Normalization v2
+### Phase 66 - Trace Normalization
 
 Purpose: improve normalized traces for cross-runtime and cross-language use.
 
@@ -973,10 +973,10 @@ Scope:
 
 Deliverables:
 
-- normalized trace schema v2;
+- normalized trace schema;
 - migration command;
-- trace validation v2;
-- trace replay v2;
+- trace validation;
+- trace replay;
 - fixtures across Python, JavaScript, Solidity-like, and Go-like traces.
 
 Exit criteria:
@@ -989,7 +989,7 @@ Exit criteria:
 
 Required ADR:
 
-- ADR 0075: Normalized trace schema v2 and lossy-normalization policy.
+- ADR 0075: Normalized trace schema and lossy-normalization policy.
 
 ### Phase 67 - Solidity Adapter
 
@@ -1129,7 +1129,7 @@ Required ADR:
 
 - ADR 0079: Third production adapter selection and interface pressure-test.
 
-### Phase 71 - Adapter Certification Suite v2
+### Phase 71 - Adapter Certification Suite
 
 Purpose: make adapter validity externally testable.
 
@@ -1154,7 +1154,7 @@ Deliverables:
 - `nlreq adapter-certify`;
 - fixture suite;
 - compatibility matrix;
-- adapter authoring guide v2.
+- adapter authoring guide.
 
 Exit criteria:
 
@@ -1165,7 +1165,7 @@ Exit criteria:
 
 Required ADR:
 
-- ADR 0080: Adapter certification levels and conformance suite v2.
+- ADR 0080: Adapter certification levels and conformance suite.
 
 ### Phase 72 - Cross-Language Proof Object
 
@@ -1185,7 +1185,7 @@ Scope:
 
 Deliverables:
 
-- proof object v2;
+- proof object;
 - cross-language dispatch plan;
 - causal trace stitching report;
 - cross-language closure gate policy;
@@ -1306,7 +1306,7 @@ Required ADR:
 
 - ADR 0084: CI/PR action gate, report-only adoption, and hard-gate policy.
 
-### Phase 76 - Benchmark Corpus v2
+### Phase 76 - Benchmark Evaluation
 
 Purpose: move from seed corpus to serious public evaluation.
 
@@ -1323,7 +1323,7 @@ Scope:
 
 Deliverables:
 
-- benchmark corpus v2;
+- benchmark corpus;
 - benchmark methodology doc;
 - benchmark runner improvements;
 - public results format;
@@ -1339,7 +1339,7 @@ Exit criteria:
 
 Required ADR:
 
-- ADR 0085: Benchmark corpus v2 methodology and regression policy.
+- ADR 0085: Benchmark evaluation methodology and regression policy.
 
 ### Phase 77 - Performance And Caching
 
@@ -1374,7 +1374,7 @@ Required ADR:
 
 - ADR 0086: Verification cache, invalidation, and evidence disclosure policy.
 
-### Phase 78 - Policy And Waiver Governance v2
+### Phase 78 - Policy And Waiver Governance
 
 Purpose: support real adoption without normalizing unsafe bypasses.
 
@@ -1390,8 +1390,8 @@ Scope:
 
 Deliverables:
 
-- policy schema v2;
-- waiver schema v2;
+- policy schema;
+- waiver schema;
 - policy evaluator;
 - waiver audit report;
 - docs.
@@ -1580,25 +1580,25 @@ The following ADRs are still needed after ADR 0054:
 | 0064 | Requirement translation corpus and semantic accuracy metrics | 55 |
 | 0065 | Apalache production backend and evidence mapping | 56 |
 | 0066 | TLC backend contract and explicit-state checking policy | 57 |
-| 0067 | IR-to-TLA projection semantics v2 | 58 |
+| 0067 | IR-to-TLA projection semantics | 58 |
 | 0068 | Normalized counterexample traces and refusal output | 59 |
 | 0069 | `S and R` composition semantics and invariant preservation | 60 |
 | 0070 | Proof-level evidence boundary and inductive-proof producer policy | 61 |
 | 0071 | Specula-style extraction trust model and promotion workflow | 62 |
-| 0072 | Code-to-spec manifest v2 and brownfield coverage semantics | 63 |
+| 0072 | Code-to-spec manifest and brownfield coverage semantics | 63 |
 | 0073 | Spec freshness lockfile and hash-based drift invariant | 64 |
 | 0074 | Runtime trace extraction SDK and trace producer metadata | 65 |
-| 0075 | Normalized trace schema v2 and lossy-normalization policy | 66 |
+| 0075 | Normalized trace schema and lossy-normalization policy | 66 |
 | 0076 | Solidity adapter scope, tooling, and trace semantics | 67 |
 | 0077 | Go adapter scope, tooling, and runtime trace semantics | 68 |
 | 0078 | TypeScript adapter and async trace normalization policy | 69 |
 | 0079 | Third production adapter selection and interface pressure-test | 70 |
-| 0080 | Adapter certification levels and conformance suite v2 | 71 |
+| 0080 | Adapter certification levels and conformance suite | 71 |
 | 0081 | Cross-language proof object and causal evidence aggregation | 72 |
 | 0082 | Evidence artifact store, retention, and replay bundle format | 73 |
 | 0083 | Signed evidence envelopes and producer attestation policy | 74 |
 | 0084 | CI/PR action gate, report-only adoption, and hard-gate policy | 75 |
-| 0085 | Benchmark corpus v2 methodology and regression policy | 76 |
+| 0085 | Benchmark evaluation methodology and regression policy | 76 |
 | 0086 | Verification cache, invalidation, and evidence disclosure policy | 77 |
 | 0087 | Gate policy, waiver governance, and exception audit semantics | 78 |
 | 0088 | Threat model, TCB boundary, and adversarial evidence policy | 79 |
@@ -1624,8 +1624,7 @@ Hard dependencies:
 - Phase 66 depends on Phase 65.
 - Phases 67-70 depend on Phase 71 certification definitions, but early adapter
   work can prototype before certification is frozen.
-- Phase 72 depends on at least two production adapters and trace normalization
-  v2.
+- Phase 72 depends on at least two production adapters and trace normalization.
 - Phase 74 depends on Phase 73.
 - Phase 75 depends on Phase 50, Phase 73, and Phase 78.
 - Phase 76 should begin early but cannot stabilize until Phases 51-72 provide
@@ -1663,7 +1662,7 @@ This cut defers:
 - TLC as second TLA backend;
 - proof-level inductive evidence;
 - signed evidence;
-- full waiver governance v2;
+- full waiver governance;
 - public SDK polish.
 
 It cannot defer:
@@ -1742,7 +1741,7 @@ Before declaring conclusion:
 - all built-in adapters have certification reports;
 - all high-assurance producers are registered;
 - artifact store can replay a full gate run;
-- public benchmark v2 passes with zero false closures in hard-gated cases;
+- public benchmark evaluation passes with zero false closures in hard-gated cases;
 - reference brownfield demo reproduces from clean checkout;
 - threat model is reviewed;
 - CI action gate can run in report-only and hard-gate mode;

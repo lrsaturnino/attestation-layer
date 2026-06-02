@@ -19,8 +19,8 @@ misrepresented as inductive proof.
 |---:|---|---|
 | 56 | Apalache production backend | Approved IR, refusal codes, producer metadata |
 | 57 | TLC production backend | Backend agreement and normalized counterexample shape |
-| 58 | TLA projection semantics v2 | DSL v3 and provenance to IR nodes |
-| 59 | Counterexample normalization v2 | Product refusal surface and provenance graph |
+| 58 | TLA projection semantics | DSL v3 and provenance to IR nodes |
+| 59 | Counterexample normalization | Product refusal surface and provenance graph |
 | 60 | Real `S and R` composition | Self-consistency, system registry, coverage reports |
 | 61 | Proof-level evidence boundary | Release-bar evidence-label discipline |
 

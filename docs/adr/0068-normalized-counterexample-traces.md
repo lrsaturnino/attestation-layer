@@ -11,7 +11,7 @@ benchmarks.
 
 ## Decision
 
-Normalize formal backend counterexamples into v2 records with source hashes,
+Normalize formal backend counterexamples into portable records with source hashes,
 backend IDs, steps, excerpts, and metadata.
 
 ## Consequences
@@ -20,4 +20,4 @@ Different backend output formats can feed the same downstream refusal surface.
 
 ## Validation
 
-`nlreq counterexample-normalize-v2` consumes formal backend responses.
+`nlreq counterexample-normalize` consumes formal backend responses.

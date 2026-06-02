@@ -16,7 +16,7 @@ from .agent_workflow import (
     package_input_refs,
 )
 from .agnostic_wedge import build_agnostic_wedge_report
-from .adapter_certification import certify_adapter_v2
+from .adapter_certification import certify_adapter
 from .adoption import (
     build_ci_report,
     build_package_index,
@@ -30,7 +30,7 @@ from .asyncapi_adapter import AsyncApiAdapter
 from .asyncapi_package import build_asyncapi_package, validate_asyncapi_package
 from .backend_agreement import build_backend_agreement_report
 from .benchmark_corpus import build_benchmark_run_report
-from .benchmark_v2 import build_benchmark_v2_report
+from .benchmark_reporting import build_benchmark_evaluation_report
 from .ci_pr_gate import build_ci_pr_gate_report, ci_pr_gate_markdown
 from .command_adapter import CommandAdapter, CommandChecksArtifact, load_command_checks
 from .command_package import (
@@ -58,7 +58,7 @@ from .compositional_ir import (
     migrate_requirement_ir_v1_to_v2,
     validate_requirement_ir_json,
 )
-from .counterexample_v2 import normalize_backend_counterexamples_v2
+from .counterexample_normalization import normalize_backend_counterexamples
 from .cross_language import CausalTraceLink, build_cross_language_proof_object
 from .formal_backend import (
     FormalBackendBudget,
@@ -81,7 +81,7 @@ from .gate import (
 from .graphql_adapter import GraphQlAdapter
 from .graphql_package import build_graphql_package, validate_graphql_package
 from .impact import analyze_source_impact
-from .impact_v2 import SemanticImpactSuggestion, analyze_source_impact_v2
+from .source_impact import SemanticImpactSuggestion, analyze_source_impact_with_context
 from .intake import (
     ControlledRewriteApproval,
     ControlledRewriteProposal,
@@ -115,7 +115,7 @@ from .proof_closure import (
     default_evidence_producer_mapping,
     evaluate_closure_gate,
 )
-from .policy_v2 import build_waiver_audit_report
+from .policy_governance import build_waiver_audit_report
 from .production_source_adapters import production_adapter_for_language
 from .public_sdk import build_default_public_documentation_index
 from .provenance import (
@@ -133,7 +133,7 @@ from .refusal import (
 from .reference_demo import ReferenceDemoManifest, build_reference_demo_report
 from .review_workflow import (
     ApprovalWorkflowArtifact,
-    ReviewChecklistV2,
+    ReviewChecklist,
     approve_review,
     artifact_ref_from_path,
     open_review,
@@ -159,7 +159,7 @@ from .spec_freshness import (
     validate_spec_freshness_lockfile,
 )
 from .trace_validation import build_trace_validation_report, trace_validation_markdown
-from .trace_normalization_v2 import RawTraceArtifact, normalize_raw_traces_v2
+from .trace_normalization import RawTraceArtifact, normalize_raw_traces
 from .system_spec import build_system_spec_registry_report, load_system_spec_registry
 from .system_checker import (
     check_requirement_set_consistency,
@@ -174,7 +174,7 @@ from .translator import (
     lower_ir_v2_to_tla,
     parse_approved_draft_ir_v2,
 )
-from .tla_projection_v2 import build_tla_projection_v2_report
+from .tla_projection import build_tla_projection_report
 from .translator_agreement import (
     TranslationAgreementInput,
     TranslationAgreementReport,
@@ -269,7 +269,7 @@ def main(argv: list[str] | None = None) -> int:
         "conclusion-certify", help="Build a conclusion release certification report."
     )
     conclusion_certify_cmd.add_argument("--release-id", required=True)
-    conclusion_certify_cmd.add_argument("--benchmark-v2", type=Path, required=True)
+    conclusion_certify_cmd.add_argument("--benchmark-report", type=Path, required=True)
     conclusion_certify_cmd.add_argument("--threat-model", type=Path, required=True)
     conclusion_certify_cmd.add_argument("--reference-demo-report", type=Path, required=True)
     conclusion_certify_cmd.add_argument("--docs-index", type=Path, required=True)
@@ -428,11 +428,11 @@ def main(argv: list[str] | None = None) -> int:
     lower_ir_v2_cmd.add_argument("file", type=Path)
     lower_ir_v2_cmd.add_argument("--out", type=Path)
 
-    tla_projection_v2_cmd = subcommands.add_parser(
-        "tla-projection-v2", help="Build the TLA projection semantics v2 report."
+    tla_projection_cmd = subcommands.add_parser(
+        "tla-projection", help="Build the TLA projection semantics report."
     )
-    tla_projection_v2_cmd.add_argument("file", type=Path)
-    tla_projection_v2_cmd.add_argument("--out", type=Path)
+    tla_projection_cmd.add_argument("file", type=Path)
+    tla_projection_cmd.add_argument("--out", type=Path)
 
     translator_agreement_cmd = subcommands.add_parser(
         "translator-agreement", help="Compare multiple requirement translations structurally."
@@ -536,15 +536,15 @@ def main(argv: list[str] | None = None) -> int:
     python_source_impact_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     python_source_impact_cmd.add_argument("--out", type=Path)
 
-    python_source_impact_v2_cmd = subcommands.add_parser(
-        "python-source-impact-v2", help="Run richer Python source impact analysis."
+    python_source_impact_context_cmd = subcommands.add_parser(
+        "python-source-impact-context", help="Run contextual Python source impact analysis."
     )
-    python_source_impact_v2_cmd.add_argument("--manifest", type=Path, required=True)
-    python_source_impact_v2_cmd.add_argument("--symbol", action="append", required=True)
-    python_source_impact_v2_cmd.add_argument("--trace-artifact", type=Path)
-    python_source_impact_v2_cmd.add_argument("--semantic-suggestion", action="append", default=[])
-    python_source_impact_v2_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
-    python_source_impact_v2_cmd.add_argument("--out", type=Path)
+    python_source_impact_context_cmd.add_argument("--manifest", type=Path, required=True)
+    python_source_impact_context_cmd.add_argument("--symbol", action="append", required=True)
+    python_source_impact_context_cmd.add_argument("--trace-artifact", type=Path)
+    python_source_impact_context_cmd.add_argument("--semantic-suggestion", action="append", default=[])
+    python_source_impact_context_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    python_source_impact_context_cmd.add_argument("--out", type=Path)
 
     javascript_source_impact_cmd = subcommands.add_parser(
         "javascript-source-impact", help="Run deterministic JavaScript source impact analysis."
@@ -554,15 +554,15 @@ def main(argv: list[str] | None = None) -> int:
     javascript_source_impact_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     javascript_source_impact_cmd.add_argument("--out", type=Path)
 
-    javascript_source_impact_v2_cmd = subcommands.add_parser(
-        "javascript-source-impact-v2", help="Run richer JavaScript source impact analysis."
+    javascript_source_impact_context_cmd = subcommands.add_parser(
+        "javascript-source-impact-context", help="Run contextual JavaScript source impact analysis."
     )
-    javascript_source_impact_v2_cmd.add_argument("--manifest", type=Path, required=True)
-    javascript_source_impact_v2_cmd.add_argument("--symbol", action="append", required=True)
-    javascript_source_impact_v2_cmd.add_argument("--trace-artifact", type=Path)
-    javascript_source_impact_v2_cmd.add_argument("--semantic-suggestion", action="append", default=[])
-    javascript_source_impact_v2_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
-    javascript_source_impact_v2_cmd.add_argument("--out", type=Path)
+    javascript_source_impact_context_cmd.add_argument("--manifest", type=Path, required=True)
+    javascript_source_impact_context_cmd.add_argument("--symbol", action="append", required=True)
+    javascript_source_impact_context_cmd.add_argument("--trace-artifact", type=Path)
+    javascript_source_impact_context_cmd.add_argument("--semantic-suggestion", action="append", default=[])
+    javascript_source_impact_context_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    javascript_source_impact_context_cmd.add_argument("--out", type=Path)
 
     system_spec_cmd = subcommands.add_parser(
         "system-spec-registry", help="Validate and report system spec registry freshness."
@@ -748,11 +748,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     backend_agreement_cmd.add_argument("--out", type=Path)
 
-    counterexample_v2_cmd = subcommands.add_parser(
-        "counterexample-normalize-v2", help="Normalize backend counterexamples into v2 traces."
+    counterexample_cmd = subcommands.add_parser(
+        "counterexample-normalize", help="Normalize backend counterexamples into portable traces."
     )
-    counterexample_v2_cmd.add_argument("--formal-backend-response", action="append", type=Path, default=[])
-    counterexample_v2_cmd.add_argument("--out", type=Path)
+    counterexample_cmd.add_argument("--formal-backend-response", action="append", type=Path, default=[])
+    counterexample_cmd.add_argument("--out", type=Path)
 
     proof_object_cmd = subcommands.add_parser(
         "proof-object", help="Aggregate backend evidence into a proof closure object."
@@ -837,13 +837,13 @@ def main(argv: list[str] | None = None) -> int:
     benchmark_corpus_cmd.add_argument("--results", type=Path, required=True)
     benchmark_corpus_cmd.add_argument("--out", type=Path)
 
-    benchmark_v2_cmd = subcommands.add_parser(
-        "benchmark-v2", help="Evaluate benchmark corpus with v2 metrics and budgets."
+    benchmark_evaluate_cmd = subcommands.add_parser(
+        "benchmark-evaluate", help="Evaluate benchmark corpus with release metrics and budgets."
     )
-    benchmark_v2_cmd.add_argument("--corpus", type=Path, required=True)
-    benchmark_v2_cmd.add_argument("--results", type=Path, required=True)
-    benchmark_v2_cmd.add_argument("--false-closure-budget", type=float, default=0.0)
-    benchmark_v2_cmd.add_argument("--out", type=Path)
+    benchmark_evaluate_cmd.add_argument("--corpus", type=Path, required=True)
+    benchmark_evaluate_cmd.add_argument("--results", type=Path, required=True)
+    benchmark_evaluate_cmd.add_argument("--false-closure-budget", type=float, default=0.0)
+    benchmark_evaluate_cmd.add_argument("--out", type=Path)
 
     benchmark_translation_cmd = subcommands.add_parser(
         "benchmark-translation",
@@ -1221,11 +1221,11 @@ def main(argv: list[str] | None = None) -> int:
     trace_validate_cmd.add_argument("--out", type=Path)
     trace_validate_cmd.add_argument("--markdown-out", type=Path)
 
-    trace_normalize_v2_cmd = subcommands.add_parser(
-        "trace-normalize-v2", help="Normalize raw trace artifact to normalized trace schema."
+    trace_normalize_cmd = subcommands.add_parser(
+        "trace-normalize", help="Normalize raw trace artifact to normalized trace schema."
     )
-    trace_normalize_v2_cmd.add_argument("raw", type=Path)
-    trace_normalize_v2_cmd.add_argument("--out", type=Path)
+    trace_normalize_cmd.add_argument("raw", type=Path)
+    trace_normalize_cmd.add_argument("--out", type=Path)
 
     trace_extract_cmd = subcommands.add_parser(
         "trace-extract", help="Extract normalized traces through a registered local JSON producer."
@@ -1238,7 +1238,7 @@ def main(argv: list[str] | None = None) -> int:
     trace_extract_cmd.add_argument("--out", type=Path)
 
     adapter_certify_cmd = subcommands.add_parser(
-        "adapter-certify-v2", help="Run adapter certification suite v2 for production adapters."
+        "adapter-certify", help="Run adapter certification suite for production adapters."
     )
     adapter_certify_cmd.add_argument("--language", choices=["solidity", "go", "typescript", "rust", "java"], required=True)
     adapter_certify_cmd.add_argument("--manifest", type=Path, required=True)
@@ -1431,7 +1431,7 @@ def main(argv: list[str] | None = None) -> int:
                 print(canonical_json(index), end="")
             return 0
         if args.command == "conclusion-certify":
-            from .benchmark_v2 import BenchmarkV2Report
+            from .benchmark_reporting import BenchmarkEvaluationReport
             from .jsonutil import write_json
             from .public_sdk import PublicDocumentationIndex
             from .reference_demo import ReferenceDemoReport
@@ -1439,7 +1439,7 @@ def main(argv: list[str] | None = None) -> int:
 
             report = build_conclusion_certification_report(
                 release_id=args.release_id,
-                benchmark=BenchmarkV2Report.model_validate_json(args.benchmark_v2.read_text()),
+                benchmark=BenchmarkEvaluationReport.model_validate_json(args.benchmark_report.read_text()),
                 threat_model=ThreatModelReport.model_validate_json(args.threat_model.read_text()),
                 demo=ReferenceDemoReport.model_validate_json(args.reference_demo_report.read_text()),
                 docs=PublicDocumentationIndex.model_validate_json(args.docs_index.read_text()),
@@ -1682,17 +1682,17 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(artifact), end="")
             return 0
-        if args.command == "tla-projection-v2":
+        if args.command == "tla-projection":
             from .jsonutil import write_json
             from .models import RequirementIRV2
 
             ir = validate_requirement_ir_json(args.file.read_text())
             if not isinstance(ir, RequirementIRV2):
-                raise ValueError("tla-projection-v2 requires ir_version 0.2")
-            report = build_tla_projection_v2_report(ir)
+                raise ValueError("tla-projection requires ir_version 0.2")
+            report = build_tla_projection_report(ir)
             if args.out:
                 write_json(args.out, report)
-                print(f"TLA projection v2 report: {args.out}")
+                print(f"TLA projection report: {args.out}")
             else:
                 print(canonical_json(report), end="")
             return 0 if report.result == "projected" else 1
@@ -1827,7 +1827,7 @@ def main(argv: list[str] | None = None) -> int:
                 current_artifact_refs=_artifact_refs_from_args(args.artifact)
                 if args.artifact
                 else None,
-                checklist=ReviewChecklistV2.model_validate_json(args.checklist.read_text())
+                checklist=ReviewChecklist.model_validate_json(args.checklist.read_text())
                 if args.checklist
                 else None,
                 self_audit=args.self_audit,
@@ -1882,7 +1882,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(artifact), end="")
             return 0
-        if args.command == "python-source-impact-v2":
+        if args.command == "python-source-impact-context":
             from .jsonutil import write_json
             from .models import NormalizedTraceArtifact
 
@@ -1893,7 +1893,7 @@ def main(argv: list[str] | None = None) -> int:
                 if args.trace_artifact
                 else None
             )
-            artifact = analyze_source_impact_v2(
+            artifact = analyze_source_impact_with_context(
                 adapter,
                 manifest,
                 symbols=args.symbol,
@@ -1904,7 +1904,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             if args.out:
                 write_json(args.out, artifact)
-                print(f"Python source impact v2: {args.out}")
+                print(f"Python contextual source impact: {args.out}")
             else:
                 print(canonical_json(artifact), end="")
             return 0
@@ -1920,7 +1920,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(artifact), end="")
             return 0
-        if args.command == "javascript-source-impact-v2":
+        if args.command == "javascript-source-impact-context":
             from .jsonutil import write_json
             from .models import NormalizedTraceArtifact
 
@@ -1931,7 +1931,7 @@ def main(argv: list[str] | None = None) -> int:
                 if args.trace_artifact
                 else None
             )
-            artifact = analyze_source_impact_v2(
+            artifact = analyze_source_impact_with_context(
                 adapter,
                 manifest,
                 symbols=args.symbol,
@@ -1942,7 +1942,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             if args.out:
                 write_json(args.out, artifact)
-                print(f"JavaScript source impact v2: {args.out}")
+                print(f"JavaScript contextual source impact: {args.out}")
             else:
                 print(canonical_json(artifact), end="")
             return 0
@@ -2303,11 +2303,11 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(report), end="")
             return 0
-        if args.command == "counterexample-normalize-v2":
+        if args.command == "counterexample-normalize":
             from .formal_backend import FormalBackendResponse
             from .jsonutil import write_json
 
-            report = normalize_backend_counterexamples_v2(
+            report = normalize_backend_counterexamples(
                 [
                     FormalBackendResponse.model_validate_json(path.read_text())
                     for path in args.formal_backend_response
@@ -2315,7 +2315,7 @@ def main(argv: list[str] | None = None) -> int:
             )
             if args.out:
                 write_json(args.out, report)
-                print(f"Counterexample normalization v2 report: {args.out}")
+                print(f"Counterexample normalization report: {args.out}")
             else:
                 print(canonical_json(report), end="")
             return 0
@@ -2505,18 +2505,18 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(report), end="")
             return 0
-        if args.command == "benchmark-v2":
+        if args.command == "benchmark-evaluate":
             from .benchmark_corpus import BenchmarkCorpus, BenchmarkResultsArtifact
             from .jsonutil import write_json
 
-            report = build_benchmark_v2_report(
+            report = build_benchmark_evaluation_report(
                 BenchmarkCorpus.model_validate_json(args.corpus.read_text()),
                 BenchmarkResultsArtifact.model_validate_json(args.results.read_text()).root,
                 false_closure_budget=args.false_closure_budget,
             )
             if args.out:
                 write_json(args.out, report)
-                print(f"Benchmark v2 report: {args.out}")
+                print(f"Benchmark evaluation report: {args.out}")
             else:
                 print(canonical_json(report), end="")
             return 0 if report.result == "passed" else 1
@@ -3122,15 +3122,15 @@ def main(argv: list[str] | None = None) -> int:
             if not wrote_output:
                 print(canonical_json(report), end="")
             return 0
-        if args.command == "trace-normalize-v2":
+        if args.command == "trace-normalize":
             from .jsonutil import write_json
 
-            report = normalize_raw_traces_v2(
+            report = normalize_raw_traces(
                 RawTraceArtifact.model_validate_json(args.raw.read_text())
             )
             if args.out:
                 write_json(args.out, report)
-                print(f"Trace normalization v2 report: {args.out}")
+                print(f"Trace normalization report: {args.out}")
             else:
                 print(canonical_json(report), end="")
             return 0
@@ -3153,12 +3153,12 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(report), end="")
             return 0 if report.status == "extracted" else 1
-        if args.command == "adapter-certify-v2":
+        if args.command == "adapter-certify":
             from .jsonutil import write_json
 
             adapter = production_adapter_for_language(args.language, project_root=args.project_root)
             manifest = adapter.parse_manifest(args.manifest)
-            report = certify_adapter_v2(
+            report = certify_adapter(
                 adapter,
                 manifest,
                 symbol_refs=[SymbolRef(name=symbol) for symbol in args.symbol],

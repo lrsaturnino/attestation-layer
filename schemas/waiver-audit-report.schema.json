@@ -64,7 +64,7 @@
       "type": "string"
     },
     "tool": {
-      "default": "nlreq.policy_v2",
+      "default": "nlreq.policy_governance",
       "title": "Tool",
       "type": "string"
     },

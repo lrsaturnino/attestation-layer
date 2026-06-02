@@ -1,4 +1,4 @@
-# Phase 66 - Trace Normalization v2
+# Phase 66 - Trace Normalization
 
 ## Status
 
@@ -11,10 +11,10 @@ recording lossy normalization.
 
 ## Implementation
 
-- `nlreq.trace_normalization_v2`
-- `nlreq trace-normalize-v2`
+- `nlreq.trace_normalization`
+- `nlreq trace-normalize`
 - `schemas/raw-trace-artifact.schema.json`
-- `schemas/trace-normalization-v2-report.schema.json`
+- `schemas/trace-normalization-report.schema.json`
 
 Raw trace events become normalized trace events. Adapter-specific `raw_` fields
 are retained in metadata and recorded as loss records.

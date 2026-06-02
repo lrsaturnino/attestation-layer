@@ -8,11 +8,11 @@ from .benchmark_corpus import BenchmarkCaseResult, BenchmarkCorpus, build_benchm
 from .jsonutil import sha256_json
 
 
-BENCHMARK_V2_SCHEMA_VERSION = "0.1"
-BENCHMARK_V2_TOOL_VERSION = "0.1"
+BENCHMARK_REPORT_SCHEMA_VERSION = "0.1"
+BENCHMARK_REPORT_TOOL_VERSION = "0.1"
 
 
-class BenchmarkV2Metric(BaseModel):
+class BenchmarkMetric(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
@@ -21,55 +21,55 @@ class BenchmarkV2Metric(BaseModel):
     passed: bool = True
 
 
-class BenchmarkV2Report(BaseModel):
+class BenchmarkEvaluationReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["0.1"] = BENCHMARK_V2_SCHEMA_VERSION
+    schema_version: Literal["0.1"] = BENCHMARK_REPORT_SCHEMA_VERSION
     corpus_id: str
     version: str
     result: Literal["passed", "failed"]
     total_cases: int
-    metrics: list[BenchmarkV2Metric] = Field(default_factory=list)
+    metrics: list[BenchmarkMetric] = Field(default_factory=list)
     category_counts: dict[str, int] = Field(default_factory=dict)
     base_report_hash: str
     input_hashes: dict[str, str] = Field(default_factory=dict)
-    tool: str = "nlreq.benchmark_v2"
-    tool_version: str = BENCHMARK_V2_TOOL_VERSION
+    tool: str = "nlreq.benchmark_reporting"
+    tool_version: str = BENCHMARK_REPORT_TOOL_VERSION
 
 
-def build_benchmark_v2_report(
+def build_benchmark_evaluation_report(
     corpus: BenchmarkCorpus,
     results: list[BenchmarkCaseResult],
     *,
     false_closure_budget: float = 0.0,
-) -> BenchmarkV2Report:
+) -> BenchmarkEvaluationReport:
     base = build_benchmark_run_report(corpus, results)
     category_counts: dict[str, int] = {}
     for case in corpus.cases:
         for tag in case.tags:
             category_counts[tag] = category_counts.get(tag, 0) + 1
     metrics = [
-        BenchmarkV2Metric(
+        BenchmarkMetric(
             name="closure_rate",
             value=base.closure_rate,
         ),
-        BenchmarkV2Metric(
+        BenchmarkMetric(
             name="false_closure_rate",
             value=base.false_closure_rate,
             budget=false_closure_budget,
             passed=base.false_closure_rate <= false_closure_budget,
         ),
-        BenchmarkV2Metric(
+        BenchmarkMetric(
             name="false_refusal_rate",
             value=base.false_refusal_rate,
         ),
-        BenchmarkV2Metric(
+        BenchmarkMetric(
             name="runtime_ms_total",
             value=float(base.runtime_ms_total),
         ),
     ]
     failed = base.result == "failed" or any(not metric.passed for metric in metrics)
-    return BenchmarkV2Report(
+    return BenchmarkEvaluationReport(
         corpus_id=corpus.corpus_id,
         version=corpus.version,
         result="failed" if failed else "passed",

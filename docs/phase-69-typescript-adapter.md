@@ -12,7 +12,7 @@ lessons from the existing adapter.
 ## Implementation
 
 - `nlreq.production_source_adapters.TypeScriptSourceAdapter`
-- `nlreq adapter-certify-v2 --language typescript`
+- `nlreq adapter-certify --language typescript`
 
 The adapter recognizes functions, exported variables, classes, interfaces, and
 type declarations. It uses the common source manifest and normalized trace

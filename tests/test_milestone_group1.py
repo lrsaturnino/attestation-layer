@@ -25,7 +25,7 @@ from nlreq.provenance import (
 from nlreq.refusal import build_refusal_report_from_gate, refusal_report_markdown
 from nlreq.requirement_self_consistency import check_requirement_self_consistency
 from nlreq.review_workflow import (
-    ReviewChecklistV2,
+    ReviewChecklist,
     approve_review,
     artifact_ref_from_path,
     open_review,
@@ -259,14 +259,14 @@ def test_review_workflow_rejects_failed_checklist_approval(tmp_path: Path, capsy
             reviewer="reviewer@example.invalid",
             decision="approved",
             approved_at="2026-06-01T00:00:00Z",
-            checklist=ReviewChecklistV2(controlled_form_matches_intent="fail"),
+            checklist=ReviewChecklist(controlled_form_matches_intent="fail"),
         )
 
     workflow_path = tmp_path / "review.json"
     checklist_path = tmp_path / "checklist.json"
     out_path = tmp_path / "approved.json"
     workflow_path.write_text(workflow.model_dump_json())
-    checklist_path.write_text(ReviewChecklistV2().model_dump_json())
+    checklist_path.write_text(ReviewChecklist().model_dump_json())
 
     assert main(
         [

@@ -1,4 +1,4 @@
-# Contradiction Taxonomy v2
+# Contradiction Taxonomy
 
 Phase 54 expands requirement self-consistency from narrow deterministic checks
 into a stable taxonomy. The checker remains conservative: unsupported or unknown

@@ -48,7 +48,7 @@
       "status": "implemented"
     },
     {
-      "capability": "Product refusal surface v2",
+      "capability": "Product refusal surface",
       "capability_id": "G50",
       "deliverables": [
         "schemas/product-refusal-report.schema.json"
@@ -92,10 +92,10 @@
       "status": "implemented"
     },
     {
-      "capability": "Contradiction taxonomy v2",
+      "capability": "Contradiction taxonomy",
       "capability_id": "G54",
       "deliverables": [
-        "docs/contradiction-taxonomy-v2.md"
+        "docs/contradiction-taxonomy.md"
       ],
       "gap_type": "implementation",
       "owner_phase": 54,
@@ -138,10 +138,10 @@
       "status": "implemented"
     },
     {
-      "capability": "TLA projection semantics v2",
+      "capability": "TLA projection semantics",
       "capability_id": "G58",
       "deliverables": [
-        "src/nlreq/tla_projection_v2.py"
+        "src/nlreq/tla_projection.py"
       ],
       "gap_type": "implementation",
       "owner_phase": 58,
@@ -149,10 +149,10 @@
       "status": "implemented"
     },
     {
-      "capability": "Counterexample normalization v2",
+      "capability": "Counterexample normalization",
       "capability_id": "G59",
       "deliverables": [
-        "src/nlreq/counterexample_v2.py"
+        "src/nlreq/counterexample_normalization.py"
       ],
       "gap_type": "implementation",
       "owner_phase": 59,
@@ -193,7 +193,7 @@
       "status": "implemented"
     },
     {
-      "capability": "Code-to-spec manifest v2",
+      "capability": "Code-to-spec manifest",
       "capability_id": "G63",
       "deliverables": [
         "src/nlreq/spec_drift.py"
@@ -226,10 +226,10 @@
       "status": "implemented"
     },
     {
-      "capability": "Trace normalization v2",
+      "capability": "Trace normalization",
       "capability_id": "G66",
       "deliverables": [
-        "src/nlreq/trace_normalization_v2.py"
+        "src/nlreq/trace_normalization.py"
       ],
       "gap_type": "implementation",
       "owner_phase": 66,
@@ -281,7 +281,7 @@
       "status": "implemented"
     },
     {
-      "capability": "Adapter certification suite v2",
+      "capability": "Adapter certification suite",
       "capability_id": "G71",
       "deliverables": [
         "src/nlreq/adapter_certification.py"
@@ -336,10 +336,10 @@
       "status": "implemented"
     },
     {
-      "capability": "Benchmark corpus v2",
+      "capability": "Benchmark evaluation",
       "capability_id": "G76",
       "deliverables": [
-        "src/nlreq/benchmark_v2.py"
+        "src/nlreq/benchmark_reporting.py"
       ],
       "gap_type": "benchmark",
       "owner_phase": 76,
@@ -358,10 +358,10 @@
       "status": "implemented"
     },
     {
-      "capability": "Policy and waiver governance v2",
+      "capability": "Policy and waiver governance",
       "capability_id": "G78",
       "deliverables": [
-        "src/nlreq/policy_v2.py"
+        "src/nlreq/policy_governance.py"
       ],
       "gap_type": "product",
       "owner_phase": 78,

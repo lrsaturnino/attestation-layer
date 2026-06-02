@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .benchmark_v2 import BenchmarkV2Report
+from .benchmark_reporting import BenchmarkEvaluationReport
 from .public_sdk import PublicDocumentationIndex
 from .reference_demo import ReferenceDemoReport
 from .threat_model import ThreatModelReport
@@ -39,7 +39,7 @@ class ConclusionCertificationReport(BaseModel):
 def build_conclusion_certification_report(
     *,
     release_id: str,
-    benchmark: BenchmarkV2Report,
+    benchmark: BenchmarkEvaluationReport,
     threat_model: ThreatModelReport,
     demo: ReferenceDemoReport,
     docs: PublicDocumentationIndex,
@@ -47,7 +47,7 @@ def build_conclusion_certification_report(
 ) -> ConclusionCertificationReport:
     criteria = [
         ConclusionCriterionStatus(
-            criterion_id="benchmark-v2",
+            criterion_id="benchmark-evaluation",
             status="passed" if benchmark.result == "passed" else "failed",
             evidence=[benchmark.base_report_hash],
         ),

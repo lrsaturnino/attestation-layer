@@ -15,7 +15,7 @@ artifacts, not trusted formal artifacts.
 `src/nlreq/translator_workbench.py` defines:
 
 - `TranslatorRunArtifact`
-- `TranslatorCandidateV2`
+- `TranslatorCandidateArtifact`
 - `TranslatorSelectionArtifact`
 
 CLI:
@@ -53,7 +53,7 @@ Output artifacts:
 
 - `TranslatorRunArtifact` records source text hash, candidates, and optional
   selected candidate ID.
-- `TranslatorCandidateV2` records strategy, method, requirement IR, source text
+- `TranslatorCandidateArtifact` records strategy, method, requirement IR, source text
   hash, replay metadata, and optional approval.
 - `TranslatorSelectionArtifact` records selected candidate hash and selection
   approval.

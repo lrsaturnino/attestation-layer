@@ -12,8 +12,8 @@ Pressure-test the adapter interface against additional compiled ecosystems.
 
 - `nlreq.production_source_adapters.RustSourceAdapter`
 - `nlreq.production_source_adapters.JavaSourceAdapter`
-- `nlreq adapter-certify-v2 --language rust`
-- `nlreq adapter-certify-v2 --language java`
+- `nlreq adapter-certify --language rust`
+- `nlreq adapter-certify --language java`
 
 Rust recognizes functions, structs, enums, and traits. Java recognizes classes,
 interfaces, enums, and methods. Both consume normalized traces through the

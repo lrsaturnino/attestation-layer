@@ -10,11 +10,11 @@ from .models import Counterexample
 from .system_checker import SystemConsistencyResult
 
 
-COUNTEREXAMPLE_V2_SCHEMA_VERSION = "0.1"
-COUNTEREXAMPLE_V2_TOOL_VERSION = "0.1"
+COUNTEREXAMPLE_NORMALIZATION_SCHEMA_VERSION = "0.1"
+COUNTEREXAMPLE_NORMALIZATION_TOOL_VERSION = "0.1"
 
 
-class CounterexampleStepV2(BaseModel):
+class CounterexampleStep(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     step_index: int = Field(ge=0)
@@ -25,7 +25,7 @@ class CounterexampleStepV2(BaseModel):
     event: dict[str, Any] = Field(default_factory=dict)
 
 
-class NormalizedCounterexampleV2(BaseModel):
+class NormalizedCounterexample(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     counterexample_id: str
@@ -33,26 +33,26 @@ class NormalizedCounterexampleV2(BaseModel):
     requirement_id: str | None = None
     source_result_hash: str
     status: Literal["counterexample"]
-    steps: list[CounterexampleStepV2] = Field(default_factory=list)
+    steps: list[CounterexampleStep] = Field(default_factory=list)
     summary: str
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
-class CounterexampleNormalizationV2Report(BaseModel):
+class CounterexampleNormalizationReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["0.1"] = COUNTEREXAMPLE_V2_SCHEMA_VERSION
+    schema_version: Literal["0.1"] = COUNTEREXAMPLE_NORMALIZATION_SCHEMA_VERSION
     result: Literal["counterexamples", "none"]
-    counterexamples: list[NormalizedCounterexampleV2] = Field(default_factory=list)
+    counterexamples: list[NormalizedCounterexample] = Field(default_factory=list)
     input_hashes: dict[str, str] = Field(default_factory=dict)
-    tool: str = "nlreq.counterexample_v2"
-    tool_version: str = COUNTEREXAMPLE_V2_TOOL_VERSION
+    tool: str = "nlreq.counterexample_normalization"
+    tool_version: str = COUNTEREXAMPLE_NORMALIZATION_TOOL_VERSION
 
 
-def normalize_backend_counterexamples_v2(
+def normalize_backend_counterexamples(
     responses: list[FormalBackendResponse],
-) -> CounterexampleNormalizationV2Report:
-    normalized: list[NormalizedCounterexampleV2] = []
+) -> CounterexampleNormalizationReport:
+    normalized: list[NormalizedCounterexample] = []
     input_hashes: dict[str, str] = {}
     for response in responses:
         response_hash = sha256_json(response)
@@ -64,7 +64,7 @@ def normalize_backend_counterexamples_v2(
             raw_items = [{"source": "backend", "marker": None, "excerpt": None}]
         for index, item in enumerate(raw_items, start=1):
             normalized.append(
-                NormalizedCounterexampleV2(
+                NormalizedCounterexample(
                     counterexample_id=f"{response.backend_id}:cex:{index}",
                     backend=response.backend_id,
                     requirement_id=response.result.details.get("requirement_id"),
@@ -82,24 +82,24 @@ def normalize_backend_counterexamples_v2(
                     },
                 )
             )
-    return CounterexampleNormalizationV2Report(
+    return CounterexampleNormalizationReport(
         result="counterexamples" if normalized else "none",
         counterexamples=normalized,
         input_hashes=input_hashes,
     )
 
 
-def normalize_system_counterexamples_v2(
+def normalize_system_counterexamples(
     results: list[SystemConsistencyResult],
-) -> CounterexampleNormalizationV2Report:
-    normalized: list[NormalizedCounterexampleV2] = []
+) -> CounterexampleNormalizationReport:
+    normalized: list[NormalizedCounterexample] = []
     input_hashes: dict[str, str] = {}
     for result in results:
         result_hash = sha256_json(result)
         input_hashes[result.requirement_id] = result_hash
         for counterexample in result.counterexamples:
             normalized.append(_from_counterexample(counterexample, result_hash))
-    return CounterexampleNormalizationV2Report(
+    return CounterexampleNormalizationReport(
         result="counterexamples" if normalized else "none",
         counterexamples=normalized,
         input_hashes=input_hashes,
@@ -109,15 +109,15 @@ def normalize_system_counterexamples_v2(
 def _from_counterexample(
     counterexample: Counterexample,
     source_hash: str,
-) -> NormalizedCounterexampleV2:
-    return NormalizedCounterexampleV2(
+) -> NormalizedCounterexample:
+    return NormalizedCounterexample(
         counterexample_id=counterexample.counterexample_id,
         backend=counterexample.backend,
         requirement_id=counterexample.claim_id,
         source_result_hash=source_hash,
         status="counterexample",
         steps=[
-            CounterexampleStepV2(
+            CounterexampleStep(
                 step_index=0,
                 source="normalized-counterexample",
                 state={
@@ -132,9 +132,9 @@ def _from_counterexample(
     )
 
 
-def _step_from_raw(index: int, item: Any) -> CounterexampleStepV2:
+def _step_from_raw(index: int, item: Any) -> CounterexampleStep:
     if isinstance(item, dict):
-        return CounterexampleStepV2(
+        return CounterexampleStep(
             step_index=index,
             source=str(item.get("source") or "combined"),
             marker=item.get("marker"),
@@ -145,7 +145,7 @@ def _step_from_raw(index: int, item: Any) -> CounterexampleStepV2:
                 if key not in {"source", "marker", "excerpt"}
             },
         )
-    return CounterexampleStepV2(
+    return CounterexampleStep(
         step_index=index,
         source="combined",
         excerpt=str(item),

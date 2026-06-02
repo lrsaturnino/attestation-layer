@@ -609,7 +609,7 @@
       "title": "TemporalBound",
       "type": "object"
     },
-    "TranslatorCandidateV2": {
+    "TranslatorCandidateArtifact": {
       "additionalProperties": false,
       "properties": {
         "approval": {
@@ -673,7 +673,7 @@
         "requirement",
         "source_text_hash"
       ],
-      "title": "TranslatorCandidateV2",
+      "title": "TranslatorCandidateArtifact",
       "type": "object"
     },
     "ValueRef": {
@@ -715,7 +715,7 @@
   "properties": {
     "candidates": {
       "items": {
-        "$ref": "#/$defs/TranslatorCandidateV2"
+        "$ref": "#/$defs/TranslatorCandidateArtifact"
       },
       "title": "Candidates",
       "type": "array"

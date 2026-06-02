@@ -1,4 +1,4 @@
-# Phase 71 - Adapter Certification Suite v2
+# Phase 71 - Adapter Certification Suite
 
 ## Status
 
@@ -11,7 +11,7 @@ Provide a stable certification report for source adapters.
 ## Implementation
 
 - `nlreq.adapter_certification`
-- `nlreq adapter-certify-v2`
+- `nlreq adapter-certify`
 - `schemas/adapter-certification-report.schema.json`
 
 Certification evaluates manifest shape, symbol resolution, call graph output,

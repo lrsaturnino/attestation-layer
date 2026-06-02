@@ -12,7 +12,7 @@ making the core Solidity-specific.
 ## Implementation
 
 - `nlreq.production_source_adapters.SoliditySourceAdapter`
-- `nlreq adapter-certify-v2 --language solidity`
+- `nlreq adapter-certify --language solidity`
 - `schemas/adapter-certification-report.schema.json`
 
 The adapter resolves contracts, libraries, interfaces, functions, events, and

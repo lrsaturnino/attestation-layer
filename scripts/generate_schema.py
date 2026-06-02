@@ -32,7 +32,7 @@ from nlreq.benchmark_corpus import (
     BenchmarkResultsArtifact,
     BenchmarkRunReport,
 )
-from nlreq.benchmark_v2 import BenchmarkV2Report
+from nlreq.benchmark_reporting import BenchmarkEvaluationReport
 from nlreq.ci_pr_gate import CiPrGateReport
 from nlreq.conclusion import (
     ConclusionDefinition,
@@ -40,7 +40,7 @@ from nlreq.conclusion import (
     ConclusionGapChecklist,
 )
 from nlreq.conclusion_certification import ConclusionCertificationReport
-from nlreq.counterexample_v2 import CounterexampleNormalizationV2Report
+from nlreq.counterexample_normalization import CounterexampleNormalizationReport
 from nlreq.cross_language import CrossLanguageProofObject
 from nlreq.evidence_boundary import ProofEvidenceBoundaryReport
 from nlreq.intake import (
@@ -56,7 +56,7 @@ from nlreq.provenance import (
     ProvenanceGraph,
 )
 from nlreq.refusal import ProductRefusalReport
-from nlreq.review_workflow import ApprovalWorkflowArtifact, ReviewChecklistV2, ReviewStatusReport
+from nlreq.review_workflow import ApprovalWorkflowArtifact, ReviewChecklist, ReviewStatusReport
 from nlreq.translation_benchmark import (
     RequirementTranslationBenchmarkReport,
     RequirementTranslationCorpus,
@@ -70,7 +70,7 @@ from nlreq.formal_backend import FormalBackendRequest, FormalBackendResponse
 from nlreq.coverage_alignment import SpecCoverageReport, TraceAlignmentReport
 from nlreq.gate import GatePolicy, GateWaiver
 from nlreq.impact import ImpactAnalysisArtifact
-from nlreq.impact_v2 import ImpactAnalysisV2Artifact
+from nlreq.source_impact import SourceImpactAnalysisArtifact
 from nlreq.model_checker_runner import ModelCheckerRunArtifact, ModelCheckerRunResult
 from nlreq.proof_closure import (
     ClosureGateReport,
@@ -78,7 +78,7 @@ from nlreq.proof_closure import (
     ProofDispatchPlan,
     ProofObject,
 )
-from nlreq.policy_v2 import WaiverAuditReport
+from nlreq.policy_governance import WaiverAuditReport
 from nlreq.public_sdk import PublicDocumentationIndex
 from nlreq.reference_demo import ReferenceDemoManifest, ReferenceDemoReport
 from nlreq.requirement_self_consistency import RequirementSelfConsistencyResult
@@ -102,8 +102,8 @@ from nlreq.system_composition import SandRCompositionReport
 from nlreq.system_spec import SystemSpecRegistry, SystemSpecRegistryReport
 from nlreq.system_checker import SystemConsistencyResult, RequirementSetConsistencyReport
 from nlreq.threat_model import ThreatModelReport
-from nlreq.tla_projection_v2 import TlaProjectionV2Report
-from nlreq.trace_normalization_v2 import RawTraceArtifact, TraceNormalizationV2Report
+from nlreq.tla_projection import TlaProjectionReport
+from nlreq.trace_normalization import RawTraceArtifact, TraceNormalizationReport
 from nlreq.trace_validation import TraceValidationResultsArtifact
 from nlreq.trace_replay import TraceReplayReport
 from nlreq.tla_adapter import TlaModelConfigArtifact, TlaResultsArtifact
@@ -136,7 +136,7 @@ SCHEMAS = {
     "benchmark-corpus.schema.json": BenchmarkCorpus,
     "benchmark-results.schema.json": BenchmarkResultsArtifact,
     "benchmark-run-report.schema.json": BenchmarkRunReport,
-    "benchmark-v2-report.schema.json": BenchmarkV2Report,
+    "benchmark-evaluation-report.schema.json": BenchmarkEvaluationReport,
     "ci-pr-gate-report.schema.json": CiPrGateReport,
     "conclusion-definition.schema.json": ConclusionDefinition,
     "conclusion-certification-report.schema.json": ConclusionCertificationReport,
@@ -145,7 +145,7 @@ SCHEMAS = {
     "bindings.schema.json": BindingsArtifact,
     "command-checks.schema.json": CommandChecksArtifact,
     "command-results.schema.json": CommandResultsArtifact,
-    "counterexample-normalization-v2-report.schema.json": CounterexampleNormalizationV2Report,
+    "counterexample-normalization-report.schema.json": CounterexampleNormalizationReport,
     "counterexamples.schema.json": CounterexamplesArtifact,
     "cross-language-proof-object.schema.json": CrossLanguageProofObject,
     "spec-coverage-report.schema.json": SpecCoverageReport,
@@ -167,7 +167,7 @@ SCHEMAS = {
     "clarified-controlled-text.schema.json": ClarifiedControlledText,
     "product-refusal-report.schema.json": ProductRefusalReport,
     "approval-workflow.schema.json": ApprovalWorkflowArtifact,
-    "review-checklist-v2.schema.json": ReviewChecklistV2,
+    "review-checklist.schema.json": ReviewChecklist,
     "review-status-report.schema.json": ReviewStatusReport,
     "requirement-translation-corpus.schema.json": RequirementTranslationCorpus,
     "requirement-translation-results.schema.json": RequirementTranslationResults,
@@ -179,7 +179,7 @@ SCHEMAS = {
     "formal-backend-response.schema.json": FormalBackendResponse,
     "gate-policy.schema.json": GatePolicy,
     "impact-analysis.schema.json": ImpactAnalysisArtifact,
-    "impact-analysis-v2.schema.json": ImpactAnalysisV2Artifact,
+    "source-impact-analysis.schema.json": SourceImpactAnalysisArtifact,
     "evidence-producer-mapping.schema.json": EvidenceProducerMapping,
     "proof-dispatch-plan.schema.json": ProofDispatchPlan,
     "proof-object.schema.json": ProofObject,
@@ -216,12 +216,12 @@ SCHEMAS = {
     "model-checker-run.schema.json": ModelCheckerRunResult,
     "model-checker-runs.schema.json": ModelCheckerRunArtifact,
     "raw-trace-artifact.schema.json": RawTraceArtifact,
-    "trace-normalization-v2-report.schema.json": TraceNormalizationV2Report,
+    "trace-normalization-report.schema.json": TraceNormalizationReport,
     "trace-producer-registry.schema.json": TraceProducerRegistry,
     "trace-extraction-result.schema.json": TraceExtractionResult,
     "trace-validation-results.schema.json": TraceValidationResultsArtifact,
     "trace-replay-report.schema.json": TraceReplayReport,
-    "tla-projection-v2-report.schema.json": TlaProjectionV2Report,
+    "tla-projection-report.schema.json": TlaProjectionReport,
     "tla-model-config.schema.json": TlaModelConfigArtifact,
     "tla-results.schema.json": TlaResultsArtifact,
     "verification-tasks.schema.json": VerificationTasksArtifact,

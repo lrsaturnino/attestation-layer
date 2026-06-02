@@ -34,7 +34,7 @@ Phase 43 implementation includes:
 - code presentation snippets for LLM/reviewer context;
 - normalized trace extraction with adapter, language, and runtime grounding;
 - CLI commands for `javascript-source-impact` and
-  `javascript-source-impact-v2`;
+  `javascript-source-impact-context`;
 - shared source-adapter conformance harness used by Python and JavaScript;
 - tests for resolution, call graph, bindings, traces, impact CLI, trace replay,
   proof closure, and cross-language wedge reporting.

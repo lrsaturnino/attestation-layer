@@ -1,10 +1,10 @@
-# Phase 54 Contradiction Taxonomy v2
+# Phase 54 Contradiction Taxonomy
 
 Phase 54 makes self-consistency a first-class requirement analysis backend.
 
 ## Taxonomy
 
-The v2 taxonomy is documented in `docs/contradiction-taxonomy-v2.md` and
+The taxonomy is documented in `docs/contradiction-taxonomy.md` and
 implemented in `src/nlreq/requirement_self_consistency.py`.
 
 ## Deterministic Checks

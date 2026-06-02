@@ -1137,10 +1137,10 @@ Adapters are how the system becomes useful in real environments, but no adapter 
 
 Roadmap:
 
-- V1: adapter-neutral core and generic adapter.
-- V2: one real adapter selected by work priorities.
-- V3: multiple adapters sharing the same package/evidence/status format.
-- V4: cross-system requirements only after individual adapters are trustworthy.
+- Foundation: adapter-neutral core and generic adapter.
+- First production adapter: one real adapter selected by work priorities.
+- Adapter library: multiple adapters sharing the same package/evidence/status format.
+- Cross-system requirements: only after individual adapters are trustworthy.
 
 Do not market cross-system validation until there is evidence across at least two mature adapters.
 

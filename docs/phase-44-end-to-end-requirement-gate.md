@@ -31,7 +31,7 @@ Phase 44 implementation includes:
 - artifact directory with hash-linked intermediate outputs;
 - deterministic translation agreement using two parser passes;
 - requirement self-consistency execution;
-- source impact and impact v2 execution;
+- source impact and contextual source impact execution;
 - spec coverage, trace alignment, and trace replay;
 - system consistency check;
 - delta extraction;

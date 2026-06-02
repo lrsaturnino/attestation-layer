@@ -1,4 +1,4 @@
-# ADR 0075: Normalized Trace Schema v2 And Lossy-Normalization Policy
+# ADR 0075: Normalized Trace Schema And Lossy-Normalization Policy
 
 ## Status
 

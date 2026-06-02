@@ -1,4 +1,4 @@
-# Phase 38 Impact Analysis v2
+# Phase 38 Source Impact Analysis
 
 Phase 38 improves brownfield targeting before coverage, drift, and verification
 run. It combines deterministic call graph expansion, runtime trace touchpoints,
@@ -26,12 +26,12 @@ All language-specific import semantics are solved.
 
 Phase 38 implementation includes:
 
-- impact analysis v2 model and schema;
+- source impact analysis model and schema;
 - bidirectional deterministic call graph expansion;
 - runtime trace touchpoint extraction from trace and event metadata;
 - optional semantic impact suggestions with source labels;
 - disagreement records for semantic-only and trace-only modules;
-- CLI command for `python-source-impact-v2`;
+- CLI command for `python-source-impact-context`;
 - tests for call graph expansion, trace touchpoints, semantic disagreement, and
   CLI output.
 

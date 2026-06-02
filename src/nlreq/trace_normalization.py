@@ -8,8 +8,8 @@ from .jsonutil import sha256_json, sha256_text
 from .models import NormalizedTrace, NormalizedTraceArtifact, TraceEvent
 
 
-TRACE_NORMALIZATION_V2_SCHEMA_VERSION = "0.1"
-TRACE_NORMALIZATION_V2_TOOL_VERSION = "0.1"
+TRACE_NORMALIZATION_SCHEMA_VERSION = "0.1"
+TRACE_NORMALIZATION_TOOL_VERSION = "0.1"
 
 
 class RawTraceEvent(BaseModel):
@@ -39,7 +39,7 @@ class RawTrace(BaseModel):
 class RawTraceArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["0.1"] = TRACE_NORMALIZATION_V2_SCHEMA_VERSION
+    schema_version: Literal["0.1"] = TRACE_NORMALIZATION_SCHEMA_VERSION
     traces: list[RawTrace] = Field(default_factory=list)
 
 
@@ -52,19 +52,19 @@ class TraceNormalizationLossRecord(BaseModel):
     reason: str
 
 
-class TraceNormalizationV2Report(BaseModel):
+class TraceNormalizationReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["0.1"] = TRACE_NORMALIZATION_V2_SCHEMA_VERSION
+    schema_version: Literal["0.1"] = TRACE_NORMALIZATION_SCHEMA_VERSION
     result: Literal["normalized", "lossy_normalized"]
     normalized: NormalizedTraceArtifact
     loss_records: list[TraceNormalizationLossRecord] = Field(default_factory=list)
     input_hashes: dict[str, str] = Field(default_factory=dict)
-    tool: str = "nlreq.trace_normalization_v2"
-    tool_version: str = TRACE_NORMALIZATION_V2_TOOL_VERSION
+    tool: str = "nlreq.trace_normalization"
+    tool_version: str = TRACE_NORMALIZATION_TOOL_VERSION
 
 
-def normalize_raw_traces_v2(raw: RawTraceArtifact) -> TraceNormalizationV2Report:
+def normalize_raw_traces(raw: RawTraceArtifact) -> TraceNormalizationReport:
     loss_records: list[TraceNormalizationLossRecord] = []
     normalized_traces: list[NormalizedTrace] = []
     for trace in raw.traces:
@@ -107,7 +107,7 @@ def normalize_raw_traces_v2(raw: RawTraceArtifact) -> TraceNormalizationV2Report
             )
         )
     normalized = NormalizedTraceArtifact.model_validate(normalized_traces)
-    return TraceNormalizationV2Report(
+    return TraceNormalizationReport(
         result="lossy_normalized" if loss_records else "normalized",
         normalized=normalized,
         loss_records=loss_records,

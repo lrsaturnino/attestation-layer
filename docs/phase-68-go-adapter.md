@@ -12,7 +12,7 @@ interface beyond Python and JavaScript.
 ## Implementation
 
 - `nlreq.production_source_adapters.GoSourceAdapter`
-- `nlreq adapter-certify-v2 --language go`
+- `nlreq adapter-certify --language go`
 
 The adapter recognizes Go functions, methods, and type declarations. Runtime
 traces are consumed through normalized trace artifacts and registered trace

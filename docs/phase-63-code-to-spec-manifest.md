@@ -1,4 +1,4 @@
-# Phase 63 - Code-To-Spec Manifest v2
+# Phase 63 - Code-To-Spec Manifest
 
 ## Status
 

@@ -1,4 +1,4 @@
-# ADR 0047: Impact Analysis v2 And Semantic-Disagreement Policy
+# ADR 0047: Source Impact Analysis And Semantic-Disagreement Policy
 
 ## Status
 
@@ -14,7 +14,7 @@ should be reviewed without being trusted as proof.
 
 ## Decision
 
-Introduce an impact analysis v2 artifact.
+Introduce a contextual source impact analysis artifact.
 
 The analyzer records:
 

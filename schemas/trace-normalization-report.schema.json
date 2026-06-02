@@ -249,7 +249,7 @@
       "type": "string"
     },
     "tool": {
-      "default": "nlreq.trace_normalization_v2",
+      "default": "nlreq.trace_normalization",
       "title": "Tool",
       "type": "string"
     },
@@ -263,6 +263,6 @@
     "result",
     "normalized"
   ],
-  "title": "TraceNormalizationV2Report",
+  "title": "TraceNormalizationReport",
   "type": "object"
 }

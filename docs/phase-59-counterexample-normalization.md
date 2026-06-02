@@ -1,4 +1,4 @@
-# Phase 59 - Counterexample Normalization v2
+# Phase 59 - Counterexample Normalization
 
 ## Status
 
@@ -11,9 +11,9 @@ benchmark, and PR-rendering paths can consume.
 
 ## Implementation
 
-- `nlreq.counterexample_v2`
-- `nlreq counterexample-normalize-v2`
-- `schemas/counterexample-normalization-v2-report.schema.json`
+- `nlreq.counterexample_normalization`
+- `nlreq counterexample-normalize`
+- `schemas/counterexample-normalization-report.schema.json`
 
 Formal backend responses with `counterexample` status are converted into
 normalized counterexample records with backend, source hash, steps, excerpt, and

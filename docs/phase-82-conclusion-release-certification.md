@@ -15,7 +15,7 @@ demo, public docs, and schema-freeze evidence.
 - `nlreq conclusion-certify`
 - `schemas/conclusion-certification-report.schema.json`
 
-Certification consumes benchmark v2, threat model, reference demo, and public
+Certification consumes benchmark evaluation, threat model, reference demo, and public
 documentation reports. It emits passed, failed, or scoped-out criteria and known
 limitations.
 

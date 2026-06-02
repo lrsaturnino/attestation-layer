@@ -8,7 +8,7 @@ from .models import NormalizedTraceArtifact
 from .source_adapter import SourceLanguageAdapter, SourceManifest
 
 
-IMPACT_V2_SCHEMA_VERSION = "0.1"
+SOURCE_IMPACT_SCHEMA_VERSION = "0.1"
 
 
 class SemanticImpactSuggestion(BaseModel):
@@ -29,10 +29,10 @@ class ImpactDisagreement(BaseModel):
     reason: str
 
 
-class ImpactAnalysisV2Artifact(BaseModel):
+class SourceImpactAnalysisArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["0.1"] = IMPACT_V2_SCHEMA_VERSION
+    schema_version: Literal["0.1"] = SOURCE_IMPACT_SCHEMA_VERSION
     adapter_id: str
     language: str
     input_symbols: list[str]
@@ -45,14 +45,14 @@ class ImpactAnalysisV2Artifact(BaseModel):
     metadata: dict[str, str] = Field(default_factory=dict)
 
 
-def analyze_source_impact_v2(
+def analyze_source_impact_with_context(
     adapter: SourceLanguageAdapter,
     manifest: SourceManifest,
     *,
     symbols: list[str],
     traces: NormalizedTraceArtifact | None = None,
     semantic_suggestions: list[SemanticImpactSuggestion] | None = None,
-) -> ImpactAnalysisV2Artifact:
+) -> SourceImpactAnalysisArtifact:
     graph = adapter.call_graph(manifest)
     direct_modules = {
         module.module_id
@@ -65,7 +65,7 @@ def analyze_source_impact_v2(
     suggested_modules = {suggestion.module_id for suggestion in suggestions}
     affected = deterministic | trace_modules
     disagreements = _disagreements(deterministic, trace_modules, suggested_modules)
-    return ImpactAnalysisV2Artifact(
+    return SourceImpactAnalysisArtifact(
         adapter_id=adapter.adapter_id,
         language=adapter.language,
         input_symbols=sorted(symbols),

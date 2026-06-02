@@ -48,7 +48,7 @@ class AdapterCertificationReport(BaseModel):
     tool_version: str = ADAPTER_CERTIFICATION_TOOL_VERSION
 
 
-def certify_adapter_v2(
+def certify_adapter(
     adapter: SourceLanguageAdapter,
     manifest: SourceManifest,
     *,

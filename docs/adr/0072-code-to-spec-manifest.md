@@ -1,4 +1,4 @@
-# ADR 0072: Code-To-Spec Manifest v2 And Brownfield Coverage Semantics
+# ADR 0072: Code-To-Spec Manifest And Brownfield Coverage Semantics
 
 ## Status
 

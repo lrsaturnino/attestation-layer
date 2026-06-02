@@ -19,9 +19,9 @@ demo, and certify the conclusion release against public criteria.
 | 73 | Evidence artifact store | `nlreq.artifact_store`, artifact lookup schemas, `artifact-put`, `artifact-get` |
 | 74 | Signed evidence | `nlreq.signed_evidence`, producer key registry, `sign-evidence`, `verify-evidence` |
 | 75 | CI and PR action gate | `nlreq.ci_pr_gate`, report-only/hard-gate modes, PR Markdown renderer |
-| 76 | Benchmark corpus v2 | `nlreq.benchmark_v2`, false-closure budget, category metrics |
+| 76 | Benchmark evaluation | `nlreq.benchmark_reporting`, false-closure budget, category metrics |
 | 77 | Performance and caching | `nlreq.verification_cache`, hash-keyed cache records and lookup semantics |
-| 78 | Policy and waiver governance v2 | `nlreq.policy_v2`, waiver audit report and expiration enforcement |
+| 78 | Policy and waiver governance | `nlreq.policy_governance`, waiver audit report and expiration enforcement |
 | 79 | Threat model and TCB audit | `nlreq.threat_model`, TCB inventory and adversarial scenarios |
 | 80 | Reference brownfield demo | `nlreq.reference_demo`, reproducibility manifest and artifact-presence check |
 | 81 | Public documentation and SDK | `nlreq.public_sdk`, versioned public docs and example index |
@@ -34,7 +34,7 @@ demo, and certify the conclusion release against public criteria.
 - Signed evidence is required only when policy asks for high assurance. Local
   unsigned developer evidence remains possible but must not be mislabeled.
 - CI reports have machine-readable result fields; Markdown is only a rendering.
-- Benchmark v2 tracks false closure explicitly and can budget it at zero for
+- Benchmark evaluation tracks false closure explicitly and can budget it at zero for
   hard-gated cases.
 - Cache hits are keyed by input hashes, tool versions, and optional policy hash.
   Cache reuse is disclosed and cannot upgrade assurance.
@@ -57,7 +57,7 @@ demo, and certify the conclusion release against public criteria.
 ## Exit Readiness Checklist
 
 - Every group 4 phase has a spec and ADR.
-- Artifact store, signing, CI report, benchmark v2, cache, waiver audit, threat
+- Artifact store, signing, CI report, benchmark evaluation, cache, waiver audit, threat
   model, demo, docs, and certification schemas regenerate with no drift.
 - CLI exposes the main productization commands.
 - Tests cover non-approving behavior for missing tools, stale freshness,

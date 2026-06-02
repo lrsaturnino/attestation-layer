@@ -10,7 +10,7 @@ The conclusion roadmap needs a formal stop condition.
 
 ## Decision
 
-Add a conclusion certification report over benchmark v2, threat model,
+Add a conclusion certification report over benchmark evaluation, threat model,
 reference demo, public docs, and schema freeze evidence.
 
 ## Consequences

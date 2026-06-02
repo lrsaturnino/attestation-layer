@@ -8,8 +8,8 @@ from pydantic import BaseModel, ConfigDict, Field
 from .gate import GatePolicy, GateWaiver
 
 
-POLICY_V2_SCHEMA_VERSION = "0.1"
-POLICY_V2_TOOL_VERSION = "0.1"
+POLICY_GOVERNANCE_SCHEMA_VERSION = "0.1"
+POLICY_GOVERNANCE_TOOL_VERSION = "0.1"
 
 
 class WaiverAuditFinding(BaseModel):
@@ -24,12 +24,12 @@ class WaiverAuditFinding(BaseModel):
 class WaiverAuditReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["0.1"] = POLICY_V2_SCHEMA_VERSION
+    schema_version: Literal["0.1"] = POLICY_GOVERNANCE_SCHEMA_VERSION
     policy_id: str
     result: Literal["passed", "blocked"]
     findings: list[WaiverAuditFinding] = Field(default_factory=list)
-    tool: str = "nlreq.policy_v2"
-    tool_version: str = POLICY_V2_TOOL_VERSION
+    tool: str = "nlreq.policy_governance"
+    tool_version: str = POLICY_GOVERNANCE_TOOL_VERSION
 
 
 def build_waiver_audit_report(

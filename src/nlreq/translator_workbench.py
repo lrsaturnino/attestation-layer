@@ -13,7 +13,7 @@ from .translator_agreement import TranslationAgreementInput, TranslationCandidat
 TRANSLATOR_WORKBENCH_SCHEMA_VERSION = "0.1"
 
 
-class TranslatorCandidateV2(BaseModel):
+class TranslatorCandidateArtifact(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     candidate_id: str
@@ -33,7 +33,7 @@ class TranslatorRunArtifact(BaseModel):
     run_id: str
     requirement_id: str
     source_text_hash: str
-    candidates: list[TranslatorCandidateV2] = Field(default_factory=list)
+    candidates: list[TranslatorCandidateArtifact] = Field(default_factory=list)
     selected_candidate_id: str | None = None
 
 
@@ -55,7 +55,7 @@ def build_deterministic_translator_run(
     title: str,
 ) -> TranslatorRunArtifact:
     requirement = DslV3Parser().parse_ir(controlled_text, requirement_id=requirement_id, title=title)
-    candidate = TranslatorCandidateV2(
+    candidate = TranslatorCandidateArtifact(
         candidate_id="candidate-dsl-v3",
         translator_id="dsl-v3-parser",
         strategy="deterministic_parser",
@@ -94,7 +94,7 @@ def build_multi_pass_translator_run(
         requirement_id=requirement_id,
         source_text_hash=source_hash,
         candidates=[
-            TranslatorCandidateV2(
+            TranslatorCandidateArtifact(
                 candidate_id="candidate-dsl-v3-parser",
                 translator_id="dsl-v3-parser",
                 strategy="deterministic_parser",
@@ -107,7 +107,7 @@ def build_multi_pass_translator_run(
                     "strategy_version": TRANSLATOR_WORKBENCH_SCHEMA_VERSION,
                 },
             ),
-            TranslatorCandidateV2(
+            TranslatorCandidateArtifact(
                 candidate_id="candidate-rule-postprocessor",
                 translator_id="dsl-v3-rule-postprocessor",
                 strategy="rule_based_post_processor",

@@ -16,7 +16,7 @@ Phase 49 makes review a hash-bound state transition.
 
 - `ApprovalWorkflowArtifact`
 - `ReviewApprovalRecord`
-- `ReviewChecklistV2`
+- `ReviewChecklist`
 - `ReviewStatusReport`
 
 CLI:
@@ -45,7 +45,7 @@ Tests cover approved and stale states.
 Input artifacts:
 
 - One or more named artifact references created with `artifact_ref_from_path`.
-- Optional `ReviewChecklistV2` JSON supplied to `nlreq review-approve`.
+- Optional `ReviewChecklist` JSON supplied to `nlreq review-approve`.
 - Required role list supplied to `review_status` or `nlreq review-status`.
 
 Output artifacts:
@@ -55,7 +55,7 @@ Output artifacts:
 - `ReviewApprovalRecord` binds reviewer, decision, timestamp, role, checklist,
   self-audit metadata, and the artifact hashes reviewed at approval time.
 - `ReviewStatusReport` names stale artifacts and missing required roles.
-- `schemas/review-checklist-v2.schema.json` exposes the checklist shape for
+- `schemas/review-checklist.schema.json` exposes the checklist shape for
   product and CI surfaces.
 
 Validation behavior:

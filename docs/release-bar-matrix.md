@@ -8,7 +8,7 @@
 | Review hash binding | Required | Required | Required |
 | Multi-pass translator workbench | Required | Required | Required |
 | Logical translator agreement | Required for supported fragments | Required | Required |
-| Contradiction taxonomy v2 | Required | Required | Required |
+| Contradiction taxonomy | Required | Required | Required |
 | Real formal backend execution | Optional | Required | Required |
 | Real `S and R` composition | Optional | Required | Required |
 | Fresh brownfield specs and traces | Optional | Required | Required |

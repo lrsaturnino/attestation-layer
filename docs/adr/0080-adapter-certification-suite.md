@@ -1,4 +1,4 @@
-# ADR 0080: Adapter Certification Levels And Conformance Suite v2
+# ADR 0080: Adapter Certification Levels And Conformance Suite
 
 ## Status
 
@@ -19,4 +19,4 @@ Adapters can be compared without pretending every adapter has equal depth.
 
 ## Validation
 
-`nlreq adapter-certify-v2` emits a schema-backed report.
+`nlreq adapter-certify` emits a schema-backed report.

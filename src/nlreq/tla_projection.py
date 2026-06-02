@@ -9,8 +9,8 @@ from .models import RequirementIRV2, SemanticNode
 from .translator import LoweredFormalArtifact, lower_ir_v2_to_tla
 
 
-TLA_PROJECTION_V2_SCHEMA_VERSION = "0.1"
-TLA_PROJECTION_V2_TOOL_VERSION = "0.1"
+TLA_PROJECTION_SCHEMA_VERSION = "0.1"
+TLA_PROJECTION_TOOL_VERSION = "0.1"
 
 
 class TlaProjectionFragment(BaseModel):
@@ -22,10 +22,10 @@ class TlaProjectionFragment(BaseModel):
     reason: str | None = None
 
 
-class TlaProjectionV2Report(BaseModel):
+class TlaProjectionReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["0.1"] = TLA_PROJECTION_V2_SCHEMA_VERSION
+    schema_version: Literal["0.1"] = TLA_PROJECTION_SCHEMA_VERSION
     requirement_id: str
     result: Literal["projected", "unsupported"]
     lowered: LoweredFormalArtifact
@@ -33,11 +33,11 @@ class TlaProjectionV2Report(BaseModel):
     temporal_bounds: list[dict[str, str | int | float]] = Field(default_factory=list)
     input_hashes: dict[str, str] = Field(default_factory=dict)
     semantic_rules: list[str] = Field(default_factory=list)
-    tool: str = "nlreq.tla_projection_v2"
-    tool_version: str = TLA_PROJECTION_V2_TOOL_VERSION
+    tool: str = "nlreq.tla_projection"
+    tool_version: str = TLA_PROJECTION_TOOL_VERSION
 
 
-def build_tla_projection_v2_report(requirement: RequirementIRV2) -> TlaProjectionV2Report:
+def build_tla_projection_report(requirement: RequirementIRV2) -> TlaProjectionReport:
     lowered = lower_ir_v2_to_tla(requirement)
     diagnostics = {diagnostic.node_id: diagnostic for diagnostic in lowered.diagnostics}
     fragments = [
@@ -49,7 +49,7 @@ def build_tla_projection_v2_report(requirement: RequirementIRV2) -> TlaProjectio
         )
         for node in _walk_nodes(requirement.semantic_ir)
     ]
-    return TlaProjectionV2Report(
+    return TlaProjectionReport(
         requirement_id=requirement.requirement_id,
         result="projected" if lowered.status == "lowered" else "unsupported",
         lowered=lowered,

@@ -1,4 +1,4 @@
-# Phase 78 - Policy And Waiver Governance v2
+# Phase 78 - Policy And Waiver Governance
 
 ## Status
 
@@ -11,7 +11,7 @@ closure into closed proof closure.
 
 ## Implementation
 
-- `nlreq.policy_v2`
+- `nlreq.policy_governance`
 - `nlreq waiver-audit`
 - `schemas/waiver-audit-report.schema.json`
 
