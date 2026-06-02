@@ -86,7 +86,8 @@
           "enum": [
             "accepted",
             "clarification",
-            "refused"
+            "refused",
+            "needs_review"
           ],
           "title": "Outcome",
           "type": "string"

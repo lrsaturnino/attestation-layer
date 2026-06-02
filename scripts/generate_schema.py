@@ -41,6 +41,7 @@ from nlreq.conclusion import (
 )
 from nlreq.conclusion_certification import ConclusionCertificationReport
 from nlreq.counterexample_normalization import CounterexampleNormalizationReport
+from nlreq.controlled_semantics import ControlledRequirementSemanticsReference
 from nlreq.cross_language import CrossLanguageProofObject
 from nlreq.evidence_boundary import ProofEvidenceBoundaryReport
 from nlreq.intake import (
@@ -57,16 +58,20 @@ from nlreq.provenance import (
 )
 from nlreq.refusal import ProductRefusalReport
 from nlreq.review_workflow import ApprovalWorkflowArtifact, ReviewChecklist, ReviewStatusReport
+from nlreq.semantic_agreement import SemanticAgreementReport
+from nlreq.semantic_translation import SemanticTranslationReport
 from nlreq.translation_benchmark import (
     RequirementTranslationBenchmarkReport,
     RequirementTranslationCorpus,
     RequirementTranslationResults,
 )
+from nlreq.translation_repair import TranslationRepairReport
 from nlreq.translator_workbench import TranslatorRunArtifact, TranslatorSelectionArtifact
 from nlreq.delta_extractor import DeltaReport
 from nlreq.end_to_end_gate import EndToEndRequirementGateReport
 from nlreq.evidence_producers import EvidenceProducerValidationReport
 from nlreq.formal_backend import FormalBackendRequest, FormalBackendResponse
+from nlreq.formal_claim import FormalClaim, FormalClaimLoweringReport
 from nlreq.coverage_alignment import SpecCoverageReport, TraceAlignmentReport
 from nlreq.gate import GatePolicy, GateWaiver
 from nlreq.impact import ImpactAnalysisArtifact
@@ -151,6 +156,7 @@ SCHEMAS = {
     "spec-coverage-report.schema.json": SpecCoverageReport,
     "trace-alignment-report.schema.json": TraceAlignmentReport,
     "controlled-draft.schema.json": ControlledDraft,
+    "controlled-requirement-semantics.schema.json": ControlledRequirementSemanticsReference,
     "free-form-intake.schema.json": FreeFormIntakeArtifact,
     "controlled-rewrite-proposal.schema.json": ControlledRewriteProposal,
     "controlled-rewrite-approval.schema.json": ControlledRewriteApproval,
@@ -161,11 +167,14 @@ SCHEMAS = {
     "logical-translation-agreement-report.schema.json": LogicalTranslationAgreementReport,
     "translator-run.schema.json": TranslatorRunArtifact,
     "translator-selection.schema.json": TranslatorSelectionArtifact,
+    "translation-repair-report.schema.json": TranslationRepairReport,
     "provenance-graph.schema.json": ProvenanceGraph,
     "clarification-request.schema.json": ClarificationRequest,
     "clarification-response.schema.json": ClarificationResponse,
     "clarified-controlled-text.schema.json": ClarifiedControlledText,
     "product-refusal-report.schema.json": ProductRefusalReport,
+    "semantic-agreement-report.schema.json": SemanticAgreementReport,
+    "semantic-translation-report.schema.json": SemanticTranslationReport,
     "approval-workflow.schema.json": ApprovalWorkflowArtifact,
     "review-checklist.schema.json": ReviewChecklist,
     "review-status-report.schema.json": ReviewStatusReport,
@@ -177,6 +186,8 @@ SCHEMAS = {
     "proof-evidence-boundary-report.schema.json": ProofEvidenceBoundaryReport,
     "formal-backend-request.schema.json": FormalBackendRequest,
     "formal-backend-response.schema.json": FormalBackendResponse,
+    "formal-claim.schema.json": FormalClaim,
+    "formal-claim-lowering-report.schema.json": FormalClaimLoweringReport,
     "gate-policy.schema.json": GatePolicy,
     "impact-analysis.schema.json": ImpactAnalysisArtifact,
     "source-impact-analysis.schema.json": SourceImpactAnalysisArtifact,

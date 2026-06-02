@@ -1,0 +1,186 @@
+{
+  "$defs": {
+    "ControlledClaimClassSemantics": {
+      "additionalProperties": false,
+      "properties": {
+        "canonical_rule": {
+          "title": "Canonical Rule",
+          "type": "string"
+        },
+        "claim_class": {
+          "enum": [
+            "authorization_precondition",
+            "state_precondition",
+            "state_postcondition",
+            "numeric_invariant",
+            "event_state_correspondence",
+            "bounded_temporal",
+            "cross_module_causal_obligation"
+          ],
+          "title": "Claim Class",
+          "type": "string"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        },
+        "required_evidence": {
+          "items": {
+            "$ref": "#/$defs/EvidenceLevel"
+          },
+          "title": "Required Evidence",
+          "type": "array"
+        },
+        "supported": {
+          "title": "Supported",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "claim_class",
+        "supported",
+        "canonical_rule"
+      ],
+      "title": "ControlledClaimClassSemantics",
+      "type": "object"
+    },
+    "ControlledConstructSemantics": {
+      "additionalProperties": false,
+      "properties": {
+        "allowed_claim_classes": {
+          "items": {
+            "enum": [
+              "authorization_precondition",
+              "state_precondition",
+              "state_postcondition",
+              "numeric_invariant",
+              "event_state_correspondence",
+              "bounded_temporal",
+              "cross_module_causal_obligation"
+            ],
+            "type": "string"
+          },
+          "title": "Allowed Claim Classes",
+          "type": "array"
+        },
+        "canonical_meaning": {
+          "title": "Canonical Meaning",
+          "type": "string"
+        },
+        "construct_id": {
+          "title": "Construct Id",
+          "type": "string"
+        },
+        "dsl_fragment": {
+          "title": "Dsl Fragment",
+          "type": "string"
+        },
+        "formal_role": {
+          "enum": [
+            "scope",
+            "premise",
+            "obligation",
+            "temporal_bound"
+          ],
+          "title": "Formal Role",
+          "type": "string"
+        },
+        "refusal_behavior": {
+          "title": "Refusal Behavior",
+          "type": "string"
+        },
+        "required_evidence": {
+          "items": {
+            "$ref": "#/$defs/EvidenceLevel"
+          },
+          "title": "Required Evidence",
+          "type": "array"
+        },
+        "supported": {
+          "default": true,
+          "title": "Supported",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "construct_id",
+        "dsl_fragment",
+        "formal_role",
+        "canonical_meaning",
+        "refusal_behavior"
+      ],
+      "title": "ControlledConstructSemantics",
+      "type": "object"
+    },
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "claim_classes": {
+      "items": {
+        "$ref": "#/$defs/ControlledClaimClassSemantics"
+      },
+      "title": "Claim Classes",
+      "type": "array"
+    },
+    "constructs": {
+      "items": {
+        "$ref": "#/$defs/ControlledConstructSemantics"
+      },
+      "title": "Constructs",
+      "type": "array"
+    },
+    "dsl_version": {
+      "const": "0.3",
+      "default": "0.3",
+      "title": "Dsl Version",
+      "type": "string"
+    },
+    "refusal_rules": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Refusal Rules",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.controlled_semantics",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "claim_classes",
+    "constructs"
+  ],
+  "title": "ControlledRequirementSemanticsReference",
+  "type": "object"
+}

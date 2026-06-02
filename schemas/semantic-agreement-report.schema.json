@@ -1,0 +1,235 @@
+{
+  "$defs": {
+    "Approval": {
+      "additionalProperties": false,
+      "properties": {
+        "approved_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved At"
+        },
+        "approved_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved By"
+        },
+        "self_audit": {
+          "default": false,
+          "title": "Self Audit",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "approved",
+            "needs_review",
+            "rejected"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Approval",
+      "type": "object"
+    },
+    "SemanticAgreementComparison": {
+      "additionalProperties": false,
+      "properties": {
+        "left_candidate_id": {
+          "title": "Left Candidate Id",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "profile": {
+          "enum": [
+            "canonical_formal_claim_equality",
+            "alpha_identifier_equivalence",
+            "commutative_claim_equivalence",
+            "unsupported"
+          ],
+          "title": "Profile",
+          "type": "string"
+        },
+        "right_candidate_id": {
+          "title": "Right Candidate Id",
+          "type": "string"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "agreed",
+            "conflict",
+            "needs_review"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "left_candidate_id",
+        "right_candidate_id",
+        "status",
+        "profile",
+        "message"
+      ],
+      "title": "SemanticAgreementComparison",
+      "type": "object"
+    },
+    "SemanticAgreementResolution": {
+      "additionalProperties": false,
+      "properties": {
+        "approval": {
+          "$ref": "#/$defs/Approval"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "selected_candidate_id": {
+          "title": "Selected Candidate Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "selected_candidate_id",
+        "reason",
+        "approval"
+      ],
+      "title": "SemanticAgreementResolution",
+      "type": "object"
+    },
+    "SourceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "title": "Document",
+          "type": "string"
+        },
+        "end_char": {
+          "minimum": 0,
+          "title": "End Char",
+          "type": "integer"
+        },
+        "start_char": {
+          "minimum": 0,
+          "title": "Start Char",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "start_char",
+        "end_char",
+        "text"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "acceptance_allowed": {
+      "title": "Acceptance Allowed",
+      "type": "boolean"
+    },
+    "blockers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "candidate_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Candidate Hashes",
+      "type": "object"
+    },
+    "comparisons": {
+      "items": {
+        "$ref": "#/$defs/SemanticAgreementComparison"
+      },
+      "title": "Comparisons",
+      "type": "array"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "resolution": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SemanticAgreementResolution"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "status": {
+      "enum": [
+        "agreed",
+        "disagreed",
+        "needs_review",
+        "resolved_by_review"
+      ],
+      "title": "Status",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.semantic_agreement",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "status",
+    "candidate_hashes",
+    "acceptance_allowed"
+  ],
+  "title": "SemanticAgreementReport",
+  "type": "object"
+}

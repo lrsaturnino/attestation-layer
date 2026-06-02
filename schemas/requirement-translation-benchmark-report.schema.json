@@ -11,7 +11,8 @@
           "enum": [
             "accepted",
             "clarification",
-            "refused"
+            "refused",
+            "needs_review"
           ],
           "title": "Expected Outcome",
           "type": "string"
@@ -29,7 +30,8 @@
               "enum": [
                 "accepted",
                 "clarification",
-                "refused"
+                "refused",
+                "needs_review"
               ],
               "type": "string"
             },
@@ -47,6 +49,8 @@
             "semantic_mismatch",
             "clarification_mismatch",
             "refusal_mismatch",
+            "review_mismatch",
+            "false_acceptance",
             "outcome_mismatch"
           ],
           "title": "Status",
@@ -64,6 +68,10 @@
   },
   "additionalProperties": false,
   "properties": {
+    "ambiguity_rate": {
+      "title": "Ambiguity Rate",
+      "type": "number"
+    },
     "clarification_quality": {
       "anyOf": [
         {
@@ -80,9 +88,17 @@
       "title": "Corpus Id",
       "type": "string"
     },
+    "false_acceptance_rate": {
+      "title": "False Acceptance Rate",
+      "type": "number"
+    },
     "matched_cases": {
       "title": "Matched Cases",
       "type": "integer"
+    },
+    "needs_review_rate": {
+      "title": "Needs Review Rate",
+      "type": "number"
     },
     "observations": {
       "items": {
@@ -146,6 +162,9 @@
     "matched_cases",
     "syntactic_validity_rate",
     "semantic_match_rate",
+    "ambiguity_rate",
+    "needs_review_rate",
+    "false_acceptance_rate",
     "runtime_ms_total"
   ],
   "title": "RequirementTranslationBenchmarkReport",

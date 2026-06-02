@@ -51,6 +51,7 @@ from .continuous import (
     continuous_attestation_markdown,
     load_attestation_run,
 )
+from .controlled_semantics import build_controlled_requirement_semantics_reference
 from .coverage_alignment import build_spec_coverage_report, build_trace_alignment_report
 from .compositional_ir import (
     DEFAULT_MIGRATION_TIMESTAMP,
@@ -66,6 +67,7 @@ from .formal_backend import (
     build_formal_backend_request,
     check_formal_backend,
 )
+from .formal_claim import FormalClaimLoweringReport, build_formal_claim
 from .delta_extractor import build_delta_report, delta_report_markdown
 from .dsl_v2 import DslV2Parser
 from .dsl_v3 import DslV3Parser
@@ -100,6 +102,7 @@ from .model_checker_runner import (
     run_model_checker,
 )
 from .models import EvidenceObject, RequirementIR, StatusDecision, SymbolRef
+from .models import Approval
 from .openapi_adapter import OpenApiAdapter
 from .openapi_package import build_openapi_package, validate_openapi_package
 from .package import build_package, validate_package
@@ -129,6 +132,16 @@ from .refusal import (
     ProductRefusalReport,
     build_refusal_report_from_gate,
     refusal_report_markdown,
+)
+from .semantic_agreement import (
+    FormalClaimAgreementCandidate,
+    SemanticAgreementReport,
+    SemanticAgreementResolution,
+    build_semantic_agreement_report,
+)
+from .semantic_translation import (
+    SemanticTranslationReport,
+    translate_controlled_requirement_to_formal_claim,
 )
 from .reference_demo import ReferenceDemoManifest, build_reference_demo_report
 from .review_workflow import (
@@ -209,6 +222,7 @@ from .translation_benchmark import (
     RequirementTranslationResults,
     build_translation_benchmark_report,
 )
+from .translation_repair import build_translation_repair_report
 from .translator_workbench import (
     TranslatorRunArtifact,
     build_multi_pass_translator_run,
@@ -427,6 +441,45 @@ def main(argv: list[str] | None = None) -> int:
     )
     lower_ir_v2_cmd.add_argument("file", type=Path)
     lower_ir_v2_cmd.add_argument("--out", type=Path)
+
+    controlled_semantics_cmd = subcommands.add_parser(
+        "controlled-semantics", help="Emit the DSL v3 controlled requirement semantics reference."
+    )
+    controlled_semantics_cmd.add_argument("--out", type=Path)
+
+    formal_claim_cmd = subcommands.add_parser(
+        "formal-claim", help="Lower compositional requirement IR to formal claim IR."
+    )
+    formal_claim_cmd.add_argument("file", type=Path)
+    formal_claim_cmd.add_argument("--out", type=Path)
+
+    semantic_translate_cmd = subcommands.add_parser(
+        "semantic-translate", help="Translate controlled DSL v3 text to semantic IR and formal claim IR."
+    )
+    semantic_translate_cmd.add_argument("file", type=Path)
+    semantic_translate_cmd.add_argument("--requirement-id", required=True)
+    semantic_translate_cmd.add_argument("--title", required=True)
+    semantic_translate_cmd.add_argument("--translation-id")
+    semantic_translate_cmd.add_argument("--out", type=Path)
+
+    semantic_agreement_cmd = subcommands.add_parser(
+        "semantic-agreement", help="Compare formal claim candidates with semantic equivalence profiles."
+    )
+    semantic_agreement_cmd.add_argument("formal_claim_report", nargs="+", type=Path)
+    semantic_agreement_cmd.add_argument("--candidate-id", action="append", default=[])
+    semantic_agreement_cmd.add_argument("--translator-id", action="append", default=[])
+    semantic_agreement_cmd.add_argument("--resolution-candidate-id")
+    semantic_agreement_cmd.add_argument("--resolution-reason")
+    semantic_agreement_cmd.add_argument("--approved-by")
+    semantic_agreement_cmd.add_argument("--approved-at")
+    semantic_agreement_cmd.add_argument("--out", type=Path)
+
+    translation_repair_cmd = subcommands.add_parser(
+        "translation-repair", help="Build source-span repair prompts for translation refusal or disagreement."
+    )
+    translation_repair_cmd.add_argument("--translation-report", type=Path)
+    translation_repair_cmd.add_argument("--agreement-report", type=Path)
+    translation_repair_cmd.add_argument("--out", type=Path)
 
     tla_projection_cmd = subcommands.add_parser(
         "tla-projection", help="Build the TLA projection semantics report."
@@ -1681,6 +1734,101 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Lowered formal artifact: {args.out}")
             else:
                 print(canonical_json(artifact), end="")
+            return 0
+        if args.command == "controlled-semantics":
+            from .jsonutil import write_json
+
+            reference = build_controlled_requirement_semantics_reference()
+            if args.out:
+                write_json(args.out, reference)
+                print(f"Controlled semantics reference: {args.out}")
+            else:
+                print(canonical_json(reference), end="")
+            return 0
+        if args.command == "formal-claim":
+            from .jsonutil import write_json
+            from .models import RequirementIRV2
+
+            ir = validate_requirement_ir_json(args.file.read_text())
+            if not isinstance(ir, RequirementIRV2):
+                raise ValueError("formal-claim requires ir_version 0.2")
+            report = build_formal_claim(ir)
+            if args.out:
+                write_json(args.out, report)
+                print(f"Formal claim report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "lowered" else 1
+        if args.command == "semantic-translate":
+            from .jsonutil import write_json
+
+            report = translate_controlled_requirement_to_formal_claim(
+                controlled_text=args.file.read_text(),
+                requirement_id=args.requirement_id,
+                title=args.title,
+                translation_id=args.translation_id,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Semantic translation report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "accepted" else 1
+        if args.command == "semantic-agreement":
+            from .jsonutil import write_json
+
+            reports = [
+                FormalClaimLoweringReport.model_validate_json(path.read_text())
+                for path in args.formal_claim_report
+            ]
+            candidates = [
+                FormalClaimAgreementCandidate(
+                    candidate_id=args.candidate_id[index]
+                    if index < len(args.candidate_id)
+                    else f"candidate-{index + 1}",
+                    translator_id=args.translator_id[index]
+                    if index < len(args.translator_id)
+                    else f"translator-{index + 1}",
+                    report=report,
+                )
+                for index, report in enumerate(reports)
+            ]
+            resolution = None
+            if args.resolution_candidate_id is not None:
+                if args.approved_by is None or args.approved_at is None:
+                    raise ValueError("semantic-agreement resolution requires --approved-by and --approved-at")
+                resolution = SemanticAgreementResolution(
+                    selected_candidate_id=args.resolution_candidate_id,
+                    reason=args.resolution_reason or "reviewer selected semantic candidate",
+                    approval=Approval(
+                        status="approved",
+                        approved_by=args.approved_by,
+                        approved_at=args.approved_at,
+                    ),
+                )
+            report = build_semantic_agreement_report(candidates, resolution=resolution)
+            if args.out:
+                write_json(args.out, report)
+                print(f"Semantic agreement report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.acceptance_allowed else 1
+        if args.command == "translation-repair":
+            from .jsonutil import write_json
+
+            report = build_translation_repair_report(
+                translation=SemanticTranslationReport.model_validate_json(args.translation_report.read_text())
+                if args.translation_report
+                else None,
+                agreement=SemanticAgreementReport.model_validate_json(args.agreement_report.read_text())
+                if args.agreement_report
+                else None,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Translation repair report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
             return 0
         if args.command == "tla-projection":
             from .jsonutil import write_json

@@ -1,0 +1,187 @@
+{
+  "$defs": {
+    "SourceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "title": "Document",
+          "type": "string"
+        },
+        "end_char": {
+          "minimum": 0,
+          "title": "End Char",
+          "type": "integer"
+        },
+        "start_char": {
+          "minimum": 0,
+          "title": "Start Char",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "start_char",
+        "end_char",
+        "text"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    },
+    "TranslationRepairHighlight": {
+      "additionalProperties": false,
+      "properties": {
+        "highlight_id": {
+          "title": "Highlight Id",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "no_span_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "No Span Reason"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "highlight_id",
+        "stage",
+        "message"
+      ],
+      "title": "TranslationRepairHighlight",
+      "type": "object"
+    },
+    "TranslationRepairPrompt": {
+      "additionalProperties": false,
+      "properties": {
+        "next_actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Next Actions",
+          "type": "array"
+        },
+        "prompt_id": {
+          "title": "Prompt Id",
+          "type": "string"
+        },
+        "question": {
+          "title": "Question",
+          "type": "string"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        },
+        "target_stage": {
+          "title": "Target Stage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prompt_id",
+        "question",
+        "target_stage"
+      ],
+      "title": "TranslationRepairPrompt",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "decision": {
+      "enum": [
+        "no_repair_needed",
+        "repair_required",
+        "review_required"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "highlights": {
+      "items": {
+        "$ref": "#/$defs/TranslationRepairHighlight"
+      },
+      "title": "Highlights",
+      "type": "array"
+    },
+    "next_actions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Next Actions",
+      "type": "array"
+    },
+    "prompts": {
+      "items": {
+        "$ref": "#/$defs/TranslationRepairPrompt"
+      },
+      "title": "Prompts",
+      "type": "array"
+    },
+    "refusal_code": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Refusal Code"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.translation_repair",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "decision"
+  ],
+  "title": "TranslationRepairReport",
+  "type": "object"
+}

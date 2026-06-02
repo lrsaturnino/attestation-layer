@@ -2,11 +2,14 @@
   "results": [
     {
       "case_id": "clean-controlled",
+      "formal_claim_hash": "sha256:example-formal-claim",
       "outcome": "accepted",
       "semantic_match": true,
+      "semantic_profile": "dsl-v3/state_precondition",
       "syntactically_valid": true
     },
     {
+      "ambiguous": true,
       "case_id": "ambiguous-pronoun",
       "clarification_questions": [
         "What does it refer to?"

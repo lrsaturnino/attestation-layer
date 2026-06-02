@@ -3,6 +3,11 @@
     "RequirementTranslationCaseResult": {
       "additionalProperties": false,
       "properties": {
+        "ambiguous": {
+          "default": false,
+          "title": "Ambiguous",
+          "type": "boolean"
+        },
         "case_id": {
           "title": "Case Id",
           "type": "string"
@@ -14,11 +19,41 @@
           "title": "Clarification Questions",
           "type": "array"
         },
+        "false_acceptance": {
+          "default": false,
+          "title": "False Acceptance",
+          "type": "boolean"
+        },
+        "formal_claim_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Formal Claim Hash"
+        },
+        "needs_review_reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Needs Review Reason"
+        },
         "outcome": {
           "enum": [
             "accepted",
             "clarification",
-            "refused"
+            "refused",
+            "needs_review"
           ],
           "title": "Outcome",
           "type": "string"
@@ -45,6 +80,18 @@
           "default": false,
           "title": "Semantic Match",
           "type": "boolean"
+        },
+        "semantic_profile": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Semantic Profile"
         },
         "syntactically_valid": {
           "default": false,

@@ -1,0 +1,509 @@
+{
+  "$defs": {
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    },
+    "FormalClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "$ref": "#/$defs/FormalClaimFragment"
+        },
+        "canonical_formula": {
+          "title": "Canonical Formula",
+          "type": "string"
+        },
+        "claim_class": {
+          "enum": [
+            "authorization_precondition",
+            "state_precondition",
+            "state_postcondition",
+            "numeric_invariant",
+            "event_state_correspondence",
+            "bounded_temporal",
+            "cross_module_causal_obligation"
+          ],
+          "title": "Claim Class",
+          "type": "string"
+        },
+        "claim_id": {
+          "title": "Claim Id",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "node_map": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Node Map",
+          "type": "object"
+        },
+        "obligations": {
+          "items": {
+            "$ref": "#/$defs/FormalClaimFragment"
+          },
+          "title": "Obligations",
+          "type": "array"
+        },
+        "premises": {
+          "items": {
+            "$ref": "#/$defs/FormalClaimFragment"
+          },
+          "title": "Premises",
+          "type": "array"
+        },
+        "required_evidence": {
+          "items": {
+            "$ref": "#/$defs/EvidenceLevel"
+          },
+          "title": "Required Evidence",
+          "type": "array"
+        },
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "scope": {
+          "items": {
+            "$ref": "#/$defs/FormalClaimFragment"
+          },
+          "title": "Scope",
+          "type": "array"
+        },
+        "semantics_profile": {
+          "title": "Semantics Profile",
+          "type": "string"
+        },
+        "source_ir_hash": {
+          "title": "Source Ir Hash",
+          "type": "string"
+        },
+        "source_ir_version": {
+          "const": "0.2",
+          "title": "Source Ir Version",
+          "type": "string"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "claim_id",
+        "requirement_id",
+        "source_ir_version",
+        "source_ir_hash",
+        "claim_class",
+        "semantics_profile",
+        "action",
+        "canonical_formula"
+      ],
+      "title": "FormalClaim",
+      "type": "object"
+    },
+    "FormalClaimFragment": {
+      "additionalProperties": false,
+      "properties": {
+        "canonical": {
+          "title": "Canonical",
+          "type": "string"
+        },
+        "fragment_id": {
+          "title": "Fragment Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "scope",
+            "predicate",
+            "comparison",
+            "membership",
+            "action",
+            "success",
+            "rejection_order",
+            "post_state",
+            "event_emission",
+            "state_invariant",
+            "causal_transition"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "operands": {
+          "items": {
+            "$ref": "#/$defs/FormalClaimOperand"
+          },
+          "title": "Operands",
+          "type": "array"
+        },
+        "operator": {
+          "anyOf": [
+            {
+              "enum": [
+                "eq",
+                "neq",
+                "lt",
+                "lte",
+                "gt",
+                "gte",
+                "in"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Operator"
+        },
+        "predicate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Predicate"
+        },
+        "role": {
+          "enum": [
+            "scope",
+            "premise",
+            "action",
+            "obligation"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "source_node_id": {
+          "title": "Source Node Id",
+          "type": "string"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        },
+        "temporal_bound": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/FormalClaimTemporalBound"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "fragment_id",
+        "source_node_id",
+        "role",
+        "kind",
+        "canonical"
+      ],
+      "title": "FormalClaimFragment",
+      "type": "object"
+    },
+    "FormalClaimOperand": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "identifier",
+            "number",
+            "string"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "FormalClaimOperand",
+      "type": "object"
+    },
+    "FormalClaimSemanticsRule": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_class": {
+          "anyOf": [
+            {
+              "enum": [
+                "authorization_precondition",
+                "state_precondition",
+                "state_postcondition",
+                "numeric_invariant",
+                "event_state_correspondence",
+                "bounded_temporal",
+                "cross_module_causal_obligation"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Claim Class"
+        },
+        "rule_id": {
+          "title": "Rule Id",
+          "type": "string"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "rule_id",
+        "text"
+      ],
+      "title": "FormalClaimSemanticsRule",
+      "type": "object"
+    },
+    "FormalClaimTemporalBound": {
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "enum": [
+            "second",
+            "minute",
+            "hour",
+            "day",
+            "block"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "title": "FormalClaimTemporalBound",
+      "type": "object"
+    },
+    "FormalClaimUnsupportedFragment": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "next_actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Next Actions",
+          "type": "array"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "node_id",
+        "kind",
+        "reason"
+      ],
+      "title": "FormalClaimUnsupportedFragment",
+      "type": "object"
+    },
+    "SourceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "title": "Document",
+          "type": "string"
+        },
+        "end_char": {
+          "minimum": 0,
+          "title": "End Char",
+          "type": "integer"
+        },
+        "start_char": {
+          "minimum": 0,
+          "title": "Start Char",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "start_char",
+        "end_char",
+        "text"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "formal_claim": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/FormalClaim"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "refusal_code": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Refusal Code"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "lowered",
+        "refused",
+        "needs_review"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "semantics_rules": {
+      "items": {
+        "$ref": "#/$defs/FormalClaimSemanticsRule"
+      },
+      "title": "Semantics Rules",
+      "type": "array"
+    },
+    "source_ir_hash": {
+      "title": "Source Ir Hash",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.formal_claim",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "unsupported_fragments": {
+      "items": {
+        "$ref": "#/$defs/FormalClaimUnsupportedFragment"
+      },
+      "title": "Unsupported Fragments",
+      "type": "array"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "result",
+    "source_ir_hash"
+  ],
+  "title": "FormalClaimLoweringReport",
+  "type": "object"
+}

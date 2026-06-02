@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 TRANSLATION_BENCHMARK_SCHEMA_VERSION = "0.1"
 
 
-TranslationOutcome = Literal["accepted", "clarification", "refused"]
+TranslationOutcome = Literal["accepted", "clarification", "refused", "needs_review"]
 
 
 class RequirementTranslationExpected(BaseModel):
@@ -63,6 +63,11 @@ class RequirementTranslationCaseResult(BaseModel):
     outcome: TranslationOutcome
     syntactically_valid: bool = False
     semantic_match: bool = False
+    ambiguous: bool = False
+    false_acceptance: bool = False
+    needs_review_reason: str | None = None
+    formal_claim_hash: str | None = None
+    semantic_profile: str | None = None
     clarification_questions: list[str] = Field(default_factory=list)
     refusal_code: str | None = None
     runtime_ms: int = Field(default=0, ge=0)
@@ -81,7 +86,16 @@ class RequirementTranslationObservation(BaseModel):
     case_id: str
     expected_outcome: TranslationOutcome
     observed_outcome: TranslationOutcome | None = None
-    status: Literal["matched", "missing", "semantic_mismatch", "clarification_mismatch", "refusal_mismatch", "outcome_mismatch"]
+    status: Literal[
+        "matched",
+        "missing",
+        "semantic_mismatch",
+        "clarification_mismatch",
+        "refusal_mismatch",
+        "review_mismatch",
+        "false_acceptance",
+        "outcome_mismatch",
+    ]
     notes: list[str] = Field(default_factory=list)
 
 
@@ -96,6 +110,9 @@ class RequirementTranslationBenchmarkReport(BaseModel):
     matched_cases: int
     syntactic_validity_rate: float
     semantic_match_rate: float
+    ambiguity_rate: float
+    needs_review_rate: float
+    false_acceptance_rate: float
     clarification_quality: float | None = None
     refusal_correctness: float | None = None
     runtime_ms_total: int
@@ -112,17 +129,23 @@ def build_translation_benchmark_report(
     matched = sum(1 for item in observations if item.status == "matched")
     syntactic = sum(1 for result in result_by_id.values() if result.syntactically_valid)
     semantic = sum(1 for result in result_by_id.values() if result.semantic_match)
+    ambiguous = sum(1 for result in result_by_id.values() if result.ambiguous)
+    needs_review = sum(1 for result in result_by_id.values() if result.outcome == "needs_review")
+    false_acceptance = sum(1 for result in result_by_id.values() if result.false_acceptance)
     clarification_cases = [case for case in corpus.cases if case.expected.outcome == "clarification"]
     refusal_cases = [case for case in corpus.cases if case.expected.outcome == "refused"]
     runtime = sum((result_by_id.get(case.case_id).runtime_ms if result_by_id.get(case.case_id) else 0) for case in corpus.cases)
     return RequirementTranslationBenchmarkReport(
         corpus_id=corpus.corpus_id,
         version=corpus.version,
-        result="passed" if matched == total else "failed",
+        result="passed" if matched == total and false_acceptance == 0 else "failed",
         total_cases=total,
         matched_cases=matched,
         syntactic_validity_rate=_ratio(syntactic, total),
         semantic_match_rate=_ratio(semantic, total),
+        ambiguity_rate=_ratio(ambiguous, total),
+        needs_review_rate=_ratio(needs_review, total),
+        false_acceptance_rate=_ratio(false_acceptance, total),
         clarification_quality=_quality(clarification_cases, result_by_id),
         refusal_correctness=_refusal_correctness(refusal_cases, result_by_id),
         runtime_ms_total=runtime,
@@ -141,7 +164,9 @@ def _observe(
             status="missing",
             notes=["no observed translation result supplied"],
         )
-    if result.outcome != case.expected.outcome:
+    if result.false_acceptance:
+        status = "false_acceptance"
+    elif result.outcome != case.expected.outcome:
         status = "outcome_mismatch"
     elif case.expected.outcome == "accepted" and not result.semantic_match:
         status = "semantic_mismatch"
@@ -149,6 +174,8 @@ def _observe(
         status = "clarification_mismatch"
     elif case.expected.outcome == "refused" and case.expected.expected_refusal_code != result.refusal_code:
         status = "refusal_mismatch"
+    elif case.expected.outcome == "needs_review" and not result.needs_review_reason:
+        status = "review_mismatch"
     else:
         status = "matched"
     return RequirementTranslationObservation(
