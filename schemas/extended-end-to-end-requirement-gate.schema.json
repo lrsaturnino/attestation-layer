@@ -1,0 +1,286 @@
+{
+  "$defs": {
+    "EndToEndGateBlocker": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        },
+        "status": {
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "status",
+        "message"
+      ],
+      "title": "EndToEndGateBlocker",
+      "type": "object"
+    },
+    "ExtendedGateStageResult": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Hash"
+        },
+        "artifact_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Path"
+        },
+        "evidence_level": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Level"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "raw_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Status"
+        },
+        "refusal_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refusal Code"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "refused",
+            "unknown",
+            "missing"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stage",
+        "status",
+        "message"
+      ],
+      "title": "ExtendedGateStageResult",
+      "type": "object"
+    },
+    "SourceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "title": "Document",
+          "type": "string"
+        },
+        "end_char": {
+          "minimum": 0,
+          "title": "End Char",
+          "type": "integer"
+        },
+        "start_char": {
+          "minimum": 0,
+          "title": "Start Char",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "start_char",
+        "end_char",
+        "text"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "artifact_layout_version": {
+      "const": "extended-release-v1",
+      "default": "extended-release-v1",
+      "title": "Artifact Layout Version",
+      "type": "string"
+    },
+    "base_gate_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Base Gate Hash"
+    },
+    "blockers": {
+      "items": {
+        "$ref": "#/$defs/EndToEndGateBlocker"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "decision": {
+      "enum": [
+        "accepted",
+        "refused",
+        "unknown"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "downstream_action": {
+      "title": "Downstream Action",
+      "type": "string"
+    },
+    "downstream_action_allowed": {
+      "title": "Downstream Action Allowed",
+      "type": "boolean"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "missing_stage_count": {
+      "default": 0,
+      "title": "Missing Stage Count",
+      "type": "integer"
+    },
+    "passed_stage_count": {
+      "default": 0,
+      "title": "Passed Stage Count",
+      "type": "integer"
+    },
+    "pipeline_profile": {
+      "const": "extended_conclusion",
+      "default": "extended_conclusion",
+      "title": "Pipeline Profile",
+      "type": "string"
+    },
+    "refusal_summary": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Refusal Summary",
+      "type": "array"
+    },
+    "refused_stage_count": {
+      "default": 0,
+      "title": "Refused Stage Count",
+      "type": "integer"
+    },
+    "required_stage_count": {
+      "default": 0,
+      "title": "Required Stage Count",
+      "type": "integer"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "stages": {
+      "items": {
+        "$ref": "#/$defs/ExtendedGateStageResult"
+      },
+      "title": "Stages",
+      "type": "array"
+    },
+    "tool": {
+      "default": "nlreq.end_to_end_gate",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "unknown_stage_count": {
+      "default": 0,
+      "title": "Unknown Stage Count",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "decision",
+    "downstream_action",
+    "downstream_action_allowed"
+  ],
+  "title": "ExtendedEndToEndRequirementGateReport",
+  "type": "object"
+}

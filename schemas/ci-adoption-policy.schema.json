@@ -1,0 +1,50 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "allow_waivers": {
+      "default": true,
+      "title": "Allow Waivers",
+      "type": "boolean"
+    },
+    "default_mode": {
+      "default": "report_only",
+      "enum": [
+        "report_only",
+        "soft_gate",
+        "hard_gate"
+      ],
+      "title": "Default Mode",
+      "type": "string"
+    },
+    "policy_id": {
+      "default": "extended-release-adoption",
+      "title": "Policy Id",
+      "type": "string"
+    },
+    "require_markdown": {
+      "default": true,
+      "title": "Require Markdown",
+      "type": "boolean"
+    },
+    "require_stable_json": {
+      "default": true,
+      "title": "Require Stable Json",
+      "type": "boolean"
+    },
+    "required_checks": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Checks",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "title": "CiAdoptionPolicy",
+  "type": "object"
+}

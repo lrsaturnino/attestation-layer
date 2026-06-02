@@ -1,0 +1,144 @@
+{
+  "$defs": {
+    "ExtendedBenchmarkDimensionResult": {
+      "additionalProperties": false,
+      "properties": {
+        "dimension": {
+          "title": "Dimension",
+          "type": "string"
+        },
+        "failed_cases": {
+          "default": 0,
+          "title": "Failed Cases",
+          "type": "integer"
+        },
+        "findings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "passed": {
+          "default": true,
+          "title": "Passed",
+          "type": "boolean"
+        },
+        "passed_cases": {
+          "default": 0,
+          "title": "Passed Cases",
+          "type": "integer"
+        },
+        "score": {
+          "default": 0.0,
+          "title": "Score",
+          "type": "number"
+        },
+        "threshold": {
+          "default": 1.0,
+          "title": "Threshold",
+          "type": "number"
+        },
+        "total_cases": {
+          "default": 0,
+          "title": "Total Cases",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "dimension"
+      ],
+      "title": "ExtendedBenchmarkDimensionResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "base_report_hash": {
+      "title": "Base Report Hash",
+      "type": "string"
+    },
+    "corpus_id": {
+      "title": "Corpus Id",
+      "type": "string"
+    },
+    "dimensions": {
+      "items": {
+        "$ref": "#/$defs/ExtendedBenchmarkDimensionResult"
+      },
+      "title": "Dimensions",
+      "type": "array"
+    },
+    "failed_dimensions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Failed Dimensions",
+      "type": "array"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "missing_dimensions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Dimensions",
+      "type": "array"
+    },
+    "release_thresholds": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Release Thresholds",
+      "type": "object"
+    },
+    "required_dimensions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Dimensions",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "failed"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.benchmark_reporting",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "corpus_id",
+    "version",
+    "result",
+    "base_report_hash"
+  ],
+  "title": "ExtendedBenchmarkEvaluationReport",
+  "type": "object"
+}

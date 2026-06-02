@@ -1,0 +1,155 @@
+{
+  "$defs": {
+    "ExtendedReferenceDemoGateRun": {
+      "additionalProperties": false,
+      "properties": {
+        "decision": {
+          "enum": [
+            "accepted",
+            "refused",
+            "unknown"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "failed_stages": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Failed Stages",
+          "type": "array"
+        },
+        "gate_report_hash": {
+          "title": "Gate Report Hash",
+          "type": "string"
+        },
+        "missing_stages": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Missing Stages",
+          "type": "array"
+        },
+        "replay_bundle_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replay Bundle Hash"
+        },
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "decision",
+        "gate_report_hash"
+      ],
+      "title": "ExtendedReferenceDemoGateRun",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "base_demo_hash": {
+      "title": "Base Demo Hash",
+      "type": "string"
+    },
+    "command_count": {
+      "default": 0,
+      "title": "Command Count",
+      "type": "integer"
+    },
+    "decision_mismatches": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Decision Mismatches",
+      "type": "array"
+    },
+    "demo_id": {
+      "title": "Demo Id",
+      "type": "string"
+    },
+    "gate_runs": {
+      "items": {
+        "$ref": "#/$defs/ExtendedReferenceDemoGateRun"
+      },
+      "title": "Gate Runs",
+      "type": "array"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "missing_gate_reports": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Gate Reports",
+      "type": "array"
+    },
+    "missing_replay_bundles": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Replay Bundles",
+      "type": "array"
+    },
+    "required_pipeline_stages": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Pipeline Stages",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "reproducible",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "stage_failures": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Stage Failures",
+      "type": "array"
+    },
+    "tool": {
+      "default": "nlreq.reference_demo",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "demo_id",
+    "result",
+    "base_demo_hash"
+  ],
+  "title": "ExtendedReferenceDemoReport",
+  "type": "object"
+}

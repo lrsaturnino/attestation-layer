@@ -4,14 +4,23 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .benchmark_reporting import BenchmarkEvaluationReport
+from .benchmark_reporting import BenchmarkEvaluationReport, ExtendedBenchmarkEvaluationReport
+from .ci_pr_gate import ExtendedCiPrGateReport
+from .end_to_end_gate import ExtendedEndToEndRequirementGateReport
+from .jsonutil import sha256_json
 from .public_sdk import REQUIRED_PUBLIC_AUDIENCES, PublicDocumentationIndex
-from .reference_demo import ReferenceDemoReport
-from .threat_model import ThreatModelReport, threat_model_release_findings
+from .public_sdk import PublicDocumentationFreezeReport
+from .reference_demo import ExtendedReferenceDemoReport, ReferenceDemoReport
+from .threat_model import (
+    ExtendedTcbReviewReport,
+    ThreatModelReport,
+    threat_model_release_findings,
+)
 
 
 CONCLUSION_CERTIFICATION_SCHEMA_VERSION = "0.1"
 CONCLUSION_CERTIFICATION_TOOL_VERSION = "0.1"
+EXTENDED_CONCLUSION_CERTIFICATION_SCHEMA_VERSION = "0.1"
 
 
 class ConclusionCriterionStatus(BaseModel):
@@ -35,6 +44,23 @@ class ConclusionCertificationReport(BaseModel):
     blocking_findings: list[str] = Field(default_factory=list)
     evidence_level_claims: list[str] = Field(default_factory=list)
     known_limitations: list[str] = Field(default_factory=list)
+    tool: str = "nlreq.conclusion_certification"
+    tool_version: str = CONCLUSION_CERTIFICATION_TOOL_VERSION
+
+
+class ExtendedConclusionCertificationReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1"] = EXTENDED_CONCLUSION_CERTIFICATION_SCHEMA_VERSION
+    release_id: str
+    result: Literal["certified", "blocked"]
+    criteria: list[ConclusionCriterionStatus] = Field(default_factory=list)
+    blocking_findings: list[str] = Field(default_factory=list)
+    release_bundle_hash: str | None = None
+    signed_release_bundle_hash: str | None = None
+    evidence_level_claims: list[str] = Field(default_factory=list)
+    known_limitations: list[str] = Field(default_factory=list)
+    input_hashes: dict[str, str] = Field(default_factory=dict)
     tool: str = "nlreq.conclusion_certification"
     tool_version: str = CONCLUSION_CERTIFICATION_TOOL_VERSION
 
@@ -114,6 +140,128 @@ def build_conclusion_certification_report(
     )
 
 
+def build_extended_conclusion_certification_report(
+    *,
+    release_id: str,
+    gate: ExtendedEndToEndRequirementGateReport,
+    ci: ExtendedCiPrGateReport,
+    benchmark: ExtendedBenchmarkEvaluationReport,
+    demo: ExtendedReferenceDemoReport,
+    docs: PublicDocumentationFreezeReport,
+    tcb_review: ExtendedTcbReviewReport,
+    schemas_frozen: bool,
+    producer_evidence_present: bool,
+    release_bundle_hash: str | None,
+    signed_release_bundle_hash: str | None = None,
+    require_signed_release_bundle: bool = True,
+) -> ExtendedConclusionCertificationReport:
+    criteria = [
+        ConclusionCriterionStatus(
+            criterion_id="extended-requirement-gate",
+            status="failed" if _extended_gate_findings(gate) else "passed",
+            evidence=[gate.base_gate_hash or ""],
+            findings=_extended_gate_findings(gate),
+        ),
+        ConclusionCriterionStatus(
+            criterion_id="ci-adoption",
+            status="failed" if _ci_findings(ci) else "passed",
+            evidence=[ci.stable_json_hash],
+            findings=_ci_findings(ci),
+        ),
+        ConclusionCriterionStatus(
+            criterion_id="extended-benchmark",
+            status="failed" if _extended_benchmark_findings(benchmark) else "passed",
+            evidence=[benchmark.base_report_hash],
+            findings=_extended_benchmark_findings(benchmark),
+        ),
+        ConclusionCriterionStatus(
+            criterion_id="reference-demo",
+            status="failed" if _extended_demo_findings(demo) else "passed",
+            evidence=[demo.base_demo_hash],
+            findings=_extended_demo_findings(demo),
+        ),
+        ConclusionCriterionStatus(
+            criterion_id="public-docs-freeze",
+            status="failed" if docs.findings or docs.result != "passed" else "passed",
+            evidence=[docs.coverage_report_hash],
+            findings=(
+                (["public documentation freeze did not pass"] if docs.result != "passed" else [])
+                + docs.findings
+            ),
+        ),
+        ConclusionCriterionStatus(
+            criterion_id="tcb-review",
+            status="failed" if tcb_review.findings or tcb_review.result != "complete" else "passed",
+            evidence=[tcb_review.threat_model_hash],
+            findings=(
+                (["TCB review is not complete"] if tcb_review.result != "complete" else [])
+                + tcb_review.findings
+            ),
+        ),
+        ConclusionCriterionStatus(
+            criterion_id="schema-freeze",
+            status="passed" if schemas_frozen else "failed",
+            evidence=["schemas/"],
+            findings=[] if schemas_frozen else ["schema freeze evidence was not provided"],
+        ),
+        ConclusionCriterionStatus(
+            criterion_id="producer-evidence",
+            status="passed" if producer_evidence_present else "failed",
+            evidence=["producer-registry"],
+            findings=[] if producer_evidence_present else ["producer evidence validation was not provided"],
+        ),
+        ConclusionCriterionStatus(
+            criterion_id="release-bundle",
+            status="failed" if _release_bundle_findings(
+                release_bundle_hash=release_bundle_hash,
+                signed_release_bundle_hash=signed_release_bundle_hash,
+                require_signed_release_bundle=require_signed_release_bundle,
+            ) else "passed",
+            evidence=[value for value in [release_bundle_hash, signed_release_bundle_hash] if value],
+            findings=_release_bundle_findings(
+                release_bundle_hash=release_bundle_hash,
+                signed_release_bundle_hash=signed_release_bundle_hash,
+                require_signed_release_bundle=require_signed_release_bundle,
+            ),
+        ),
+    ]
+    blocking_findings = [
+        f"{criterion.criterion_id}: {finding}"
+        for criterion in criteria
+        if criterion.required and criterion.status == "failed"
+        for finding in (criterion.findings or ["criterion failed"])
+    ]
+    return ExtendedConclusionCertificationReport(
+        release_id=release_id,
+        result="blocked" if blocking_findings else "certified",
+        criteria=criteria,
+        blocking_findings=blocking_findings,
+        release_bundle_hash=release_bundle_hash,
+        signed_release_bundle_hash=signed_release_bundle_hash,
+        evidence_level_claims=[
+            "Extended conclusion certifies only the declared artifact set.",
+            "BOUNDED_CHECKED remains bounded evidence with recorded limits.",
+            "TRACE_VALIDATED grounds observed behavior and is not an inductive proof.",
+            "PROVEN_INDUCTIVE requires a proof-producing backend artifact.",
+        ],
+        known_limitations=[
+            "Unsupported controlled-language fragments are refused or marked unknown.",
+            "Reference demo coverage does not imply correctness for all brownfield systems.",
+            "CI hard-gate adoption depends on the host platform enforcing machine-readable output.",
+        ],
+        input_hashes={
+            "gate": sha256_json(gate),
+            "ci": sha256_json(ci),
+            "benchmark": sha256_json(benchmark),
+            "demo": sha256_json(demo),
+            "docs": sha256_json(docs),
+            "tcb_review": sha256_json(tcb_review),
+            "release_bundle_hash": sha256_json(release_bundle_hash),
+            "signed_release_bundle_hash": sha256_json(signed_release_bundle_hash),
+        },
+    )
+
+
 def _benchmark_findings(benchmark: BenchmarkEvaluationReport) -> list[str]:
     findings = []
     if benchmark.result != "passed":
@@ -171,4 +319,80 @@ def _public_docs_findings(docs: PublicDocumentationIndex) -> list[str]:
             "public SDK examples lack coverage tags: "
             + ", ".join(examples_without_coverage)
         )
+    return findings
+
+
+def _extended_gate_findings(gate: ExtendedEndToEndRequirementGateReport) -> list[str]:
+    findings = []
+    if gate.decision != "accepted":
+        findings.append(f"extended gate decision is {gate.decision}")
+    if not gate.downstream_action_allowed:
+        findings.append("extended gate does not allow downstream action")
+    if gate.missing_stage_count:
+        findings.append(f"extended gate has {gate.missing_stage_count} missing stages")
+    if gate.refused_stage_count:
+        findings.append(f"extended gate has {gate.refused_stage_count} refused stages")
+    if gate.unknown_stage_count:
+        findings.append(f"extended gate has {gate.unknown_stage_count} unknown stages")
+    return findings
+
+
+def _ci_findings(ci: ExtendedCiPrGateReport) -> list[str]:
+    findings = []
+    if ci.mode != "hard_gate":
+        findings.append("release certification requires hard_gate CI mode")
+    if ci.result != "passed":
+        findings.append(f"CI adoption result is {ci.result}")
+    if ci.enforcement != "blocking":
+        findings.append("CI enforcement is not blocking")
+    findings.extend(f"CI blocked check: {check}" for check in ci.blocked_checks)
+    findings.extend(f"CI missing check: {check}" for check in ci.missing_checks)
+    return findings
+
+
+def _extended_benchmark_findings(benchmark: ExtendedBenchmarkEvaluationReport) -> list[str]:
+    findings = []
+    if benchmark.result != "passed":
+        findings.append("extended benchmark did not pass")
+    if benchmark.missing_dimensions:
+        findings.append(
+            "extended benchmark missing dimensions: "
+            + ", ".join(benchmark.missing_dimensions)
+        )
+    if benchmark.failed_dimensions:
+        findings.append(
+            "extended benchmark failed dimensions: "
+            + ", ".join(benchmark.failed_dimensions)
+        )
+    return findings
+
+
+def _extended_demo_findings(demo: ExtendedReferenceDemoReport) -> list[str]:
+    findings = []
+    if demo.result != "reproducible":
+        findings.append("extended reference demo is not reproducible")
+    if demo.missing_gate_reports:
+        findings.append("demo missing gate reports: " + ", ".join(demo.missing_gate_reports))
+    if demo.missing_replay_bundles:
+        findings.append(
+            "demo missing replay bundles: " + ", ".join(demo.missing_replay_bundles)
+        )
+    if demo.stage_failures:
+        findings.append("demo stage failures: " + ", ".join(demo.stage_failures))
+    if demo.decision_mismatches:
+        findings.append("demo decision mismatches: " + ", ".join(demo.decision_mismatches))
+    return findings
+
+
+def _release_bundle_findings(
+    *,
+    release_bundle_hash: str | None,
+    signed_release_bundle_hash: str | None,
+    require_signed_release_bundle: bool,
+) -> list[str]:
+    findings = []
+    if not release_bundle_hash:
+        findings.append("release bundle hash was not provided")
+    if require_signed_release_bundle and not signed_release_bundle_hash:
+        findings.append("signed release bundle hash was not provided")
     return findings

@@ -4,9 +4,12 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .jsonutil import sha256_json
+
 
 THREAT_MODEL_SCHEMA_VERSION = "0.1"
 THREAT_MODEL_TOOL_VERSION = "0.1"
+EXTENDED_TCB_REVIEW_SCHEMA_VERSION = "0.1"
 TcbCategory = Literal[
     "parser",
     "ir_validator",
@@ -49,6 +52,14 @@ REQUIRED_THREAT_KINDS: tuple[str, ...] = (
     "forged_evidence",
     "malicious_adapter",
 )
+REQUIRED_RELEASE_ARTIFACTS: tuple[str, ...] = (
+    "extended_gate",
+    "ci_gate",
+    "benchmark",
+    "reference_demo",
+    "public_docs",
+    "certification_bundle",
+)
 
 
 class TcbComponent(BaseModel):
@@ -81,6 +92,24 @@ class ThreatModelReport(BaseModel):
     security_checklist: list[str] = Field(default_factory=list)
     release_claims: list[str] = Field(default_factory=list)
     audit_findings: list[str] = Field(default_factory=list)
+    tool: str = "nlreq.threat_model"
+    tool_version: str = THREAT_MODEL_TOOL_VERSION
+
+
+class ExtendedTcbReviewReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1"] = EXTENDED_TCB_REVIEW_SCHEMA_VERSION
+    result: Literal["complete", "needs_review"]
+    threat_model_hash: str
+    tcb_categories: list[str] = Field(default_factory=list)
+    adversarial_assumptions: list[str] = Field(default_factory=list)
+    evidence_attack_scenarios: list[str] = Field(default_factory=list)
+    release_artifact_hashes: dict[str, str] = Field(default_factory=dict)
+    missing_release_artifacts: list[str] = Field(default_factory=list)
+    accepted_residual_risks: list[str] = Field(default_factory=list)
+    findings: list[str] = Field(default_factory=list)
+    input_hashes: dict[str, str] = Field(default_factory=dict)
     tool: str = "nlreq.threat_model"
     tool_version: str = THREAT_MODEL_TOOL_VERSION
 
@@ -122,6 +151,51 @@ def threat_model_release_findings(report: ThreatModelReport) -> list[str]:
     if not report.release_claims:
         findings.append("release claim boundaries are empty")
     return findings
+
+
+def build_extended_tcb_review_report(
+    threat_model: ThreatModelReport,
+    *,
+    release_artifact_hashes: dict[str, str] | None = None,
+    accepted_residual_risks: list[str] | None = None,
+    required_release_artifacts: tuple[str, ...] | list[str] = REQUIRED_RELEASE_ARTIFACTS,
+) -> ExtendedTcbReviewReport:
+    release_artifact_hashes = release_artifact_hashes or {}
+    accepted_residual_risks = accepted_residual_risks or []
+    findings = threat_model_release_findings(threat_model)
+    missing_release_artifacts = sorted(
+        set(required_release_artifacts) - set(release_artifact_hashes)
+    )
+    if missing_release_artifacts:
+        findings.append(
+            "missing release artifact hashes: " + ", ".join(missing_release_artifacts)
+        )
+    residual_risks = [scenario.residual_risk for scenario in threat_model.scenarios]
+    unaccepted_risks = sorted(set(residual_risks) - set(accepted_residual_risks))
+    if unaccepted_risks:
+        findings.append("unaccepted residual risks remain: " + str(len(unaccepted_risks)))
+    return ExtendedTcbReviewReport(
+        result="needs_review" if findings else "complete",
+        threat_model_hash=sha256_json(threat_model),
+        tcb_categories=sorted({component.category for component in threat_model.tcb}),
+        adversarial_assumptions=[
+            component.trust_assumption for component in threat_model.tcb
+        ],
+        evidence_attack_scenarios=[
+            scenario.scenario_id
+            for scenario in threat_model.scenarios
+            if scenario.threat in {"forged_evidence", "tampering", "replay", "malicious_adapter"}
+        ],
+        release_artifact_hashes=release_artifact_hashes,
+        missing_release_artifacts=missing_release_artifacts,
+        accepted_residual_risks=accepted_residual_risks,
+        findings=findings,
+        input_hashes={
+            "threat_model": sha256_json(threat_model),
+            "release_artifact_hashes": sha256_json(release_artifact_hashes),
+            "accepted_residual_risks": sha256_json(accepted_residual_risks),
+        },
+    )
 
 
 def build_default_threat_model() -> ThreatModelReport:

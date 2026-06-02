@@ -1,0 +1,93 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "compatibility_commitments": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Compatibility Commitments",
+      "type": "array"
+    },
+    "coverage_report_hash": {
+      "title": "Coverage Report Hash",
+      "type": "string"
+    },
+    "covered_topics": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Covered Topics",
+      "type": "array"
+    },
+    "findings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "frozen_schema_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Frozen Schema Hashes",
+      "type": "object"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "missing_topics": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Topics",
+      "type": "array"
+    },
+    "required_topics": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Topics",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.public_sdk",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "result",
+    "coverage_report_hash"
+  ],
+  "title": "PublicDocumentationFreezeReport",
+  "type": "object"
+}

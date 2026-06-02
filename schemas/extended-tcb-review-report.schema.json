@@ -1,0 +1,95 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "accepted_residual_risks": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Accepted Residual Risks",
+      "type": "array"
+    },
+    "adversarial_assumptions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Adversarial Assumptions",
+      "type": "array"
+    },
+    "evidence_attack_scenarios": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Evidence Attack Scenarios",
+      "type": "array"
+    },
+    "findings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "missing_release_artifacts": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Release Artifacts",
+      "type": "array"
+    },
+    "release_artifact_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Release Artifact Hashes",
+      "type": "object"
+    },
+    "result": {
+      "enum": [
+        "complete",
+        "needs_review"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tcb_categories": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Tcb Categories",
+      "type": "array"
+    },
+    "threat_model_hash": {
+      "title": "Threat Model Hash",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.threat_model",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "result",
+    "threat_model_hash"
+  ],
+  "title": "ExtendedTcbReviewReport",
+  "type": "object"
+}

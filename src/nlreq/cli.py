@@ -30,8 +30,20 @@ from .asyncapi_adapter import AsyncApiAdapter
 from .asyncapi_package import build_asyncapi_package, validate_asyncapi_package
 from .backend_agreement import build_backend_agreement_report
 from .benchmark_corpus import build_benchmark_run_report
-from .benchmark_reporting import build_benchmark_evaluation_report
-from .ci_pr_gate import build_ci_pr_gate_report, ci_pr_gate_markdown
+from .benchmark_reporting import (
+    BenchmarkEvaluationReport,
+    ExtendedBenchmarkDimensionResult,
+    ExtendedBenchmarkEvaluationReport,
+    build_benchmark_evaluation_report,
+    build_extended_benchmark_evaluation_report,
+)
+from .ci_pr_gate import (
+    ExtendedCiPrGateReport,
+    build_ci_adoption_report,
+    build_ci_pr_gate_report,
+    ci_pr_gate_markdown,
+    extended_ci_pr_gate_markdown,
+)
 from .command_adapter import CommandAdapter, CommandChecksArtifact, load_command_checks
 from .command_package import (
     build_command_package,
@@ -45,7 +57,10 @@ from .conclusion import (
     build_default_gap_checklist,
     check_gap_checklist,
 )
-from .conclusion_certification import build_conclusion_certification_report
+from .conclusion_certification import (
+    build_conclusion_certification_report,
+    build_extended_conclusion_certification_report,
+)
 from .continuous import (
     build_attestation_run,
     continuous_attestation_markdown,
@@ -73,7 +88,12 @@ from .dsl_v2 import DslV2Parser
 from .dsl_v3 import DslV3Parser
 from .evidence_boundary import build_proof_evidence_boundary_report
 from .evidence_producers import validate_real_evidence_producers
-from .end_to_end_gate import run_end_to_end_requirement_gate
+from .end_to_end_gate import (
+    EndToEndRequirementGateReport,
+    ExtendedEndToEndRequirementGateReport,
+    build_extended_requirement_gate_report,
+    run_end_to_end_requirement_gate,
+)
 from .gate import (
     build_hard_gate_report,
     hard_gate_report_markdown,
@@ -121,8 +141,11 @@ from .proof_closure import (
 from .policy_governance import build_waiver_audit_report
 from .production_source_adapters import production_adapter_for_language
 from .public_sdk import (
+    PublicDocumentationCoverageReport,
+    PublicDocumentationFreezeReport,
     PublicDocumentationIndex,
     build_default_public_documentation_index,
+    build_public_documentation_freeze_report,
     validate_public_documentation_index,
 )
 from .provenance import (
@@ -147,7 +170,13 @@ from .semantic_translation import (
     SemanticTranslationReport,
     translate_controlled_requirement_to_formal_claim,
 )
-from .reference_demo import ReferenceDemoManifest, build_reference_demo_report
+from .reference_demo import (
+    ExtendedReferenceDemoReport,
+    ReferenceDemoManifest,
+    ReferenceDemoReport,
+    build_extended_reference_demo_report,
+    build_reference_demo_report,
+)
 from .review_workflow import (
     ApprovalWorkflowArtifact,
     ReviewChecklist,
@@ -183,7 +212,12 @@ from .system_checker import (
     check_solver_backed_system_consistency,
     check_system_consistency,
 )
-from .threat_model import build_default_threat_model
+from .threat_model import (
+    ExtendedTcbReviewReport,
+    ThreatModelReport,
+    build_default_threat_model,
+    build_extended_tcb_review_report,
+)
 from .translator import (
     ControlledDraft,
     approve_controlled_draft,
@@ -1319,6 +1353,85 @@ def main(argv: list[str] | None = None) -> int:
     ci_pr_gate_cmd.add_argument("--mode", choices=["report_only", "soft_gate", "hard_gate"], default="report_only")
     ci_pr_gate_cmd.add_argument("--out", type=Path)
     ci_pr_gate_cmd.add_argument("--markdown-out", type=Path)
+
+    extended_gate_cmd = subcommands.add_parser(
+        "requirement-gate-extended",
+        help="Build the milestone group 9 extended pipeline gate from an end-to-end gate report.",
+    )
+    extended_gate_cmd.add_argument("gate_report", type=Path)
+    extended_gate_cmd.add_argument("--stage-status", action="append", default=[])
+    extended_gate_cmd.add_argument("--artifact-hash", action="append", default=[])
+    extended_gate_cmd.add_argument("--artifact-path", action="append", default=[])
+    extended_gate_cmd.add_argument("--evidence-level", action="append", default=[])
+    extended_gate_cmd.add_argument("--out", type=Path)
+
+    ci_adoption_cmd = subcommands.add_parser(
+        "ci-adoption", help="Build an extended CI adoption report from an extended gate report."
+    )
+    ci_adoption_cmd.add_argument("extended_gate_report", type=Path)
+    ci_adoption_cmd.add_argument("--mode", choices=["report_only", "soft_gate", "hard_gate"])
+    ci_adoption_cmd.add_argument("--waiver-id", action="append", default=[])
+    ci_adoption_cmd.add_argument("--out", type=Path)
+    ci_adoption_cmd.add_argument("--markdown-out", type=Path)
+
+    benchmark_extended_cmd = subcommands.add_parser(
+        "benchmark-extended", help="Build an extended release benchmark report."
+    )
+    benchmark_extended_cmd.add_argument("--base-report", type=Path, required=True)
+    benchmark_extended_cmd.add_argument(
+        "--dimension",
+        action="append",
+        default=[],
+        help="Dimension in name=score,total,passed,failed,threshold form.",
+    )
+    benchmark_extended_cmd.add_argument("--threshold", action="append", default=[])
+    benchmark_extended_cmd.add_argument("--out", type=Path)
+
+    reference_demo_extended_cmd = subcommands.add_parser(
+        "reference-demo-extended",
+        help="Validate the extended reference demo with gate reports and replay bundles.",
+    )
+    reference_demo_extended_cmd.add_argument("--manifest", type=Path, required=True)
+    reference_demo_extended_cmd.add_argument("--base-report", type=Path, required=True)
+    reference_demo_extended_cmd.add_argument("--gate-report", action="append", type=Path, required=True)
+    reference_demo_extended_cmd.add_argument("--replay-bundle-hash", action="append", default=[])
+    reference_demo_extended_cmd.add_argument("--out", type=Path)
+
+    public_docs_freeze_cmd = subcommands.add_parser(
+        "public-docs-freeze", help="Build the public SDK and documentation freeze report."
+    )
+    public_docs_freeze_cmd.add_argument("--index", type=Path, required=True)
+    public_docs_freeze_cmd.add_argument("--coverage-report", type=Path, required=True)
+    public_docs_freeze_cmd.add_argument("--schema-hash", action="append", default=[])
+    public_docs_freeze_cmd.add_argument("--topic", action="append", default=[])
+    public_docs_freeze_cmd.add_argument("--commitment", action="append", default=[])
+    public_docs_freeze_cmd.add_argument("--out", type=Path)
+
+    tcb_review_cmd = subcommands.add_parser(
+        "tcb-review", help="Build the extended TCB review report."
+    )
+    tcb_review_cmd.add_argument("threat_model", type=Path)
+    tcb_review_cmd.add_argument("--release-artifact-hash", action="append", default=[])
+    tcb_review_cmd.add_argument("--accepted-residual-risk", action="append", default=[])
+    tcb_review_cmd.add_argument("--out", type=Path)
+
+    extended_certify_cmd = subcommands.add_parser(
+        "extended-conclusion-certify",
+        help="Build the milestone group 9 extended conclusion certification report.",
+    )
+    extended_certify_cmd.add_argument("--release-id", required=True)
+    extended_certify_cmd.add_argument("--gate-report", type=Path, required=True)
+    extended_certify_cmd.add_argument("--ci-report", type=Path, required=True)
+    extended_certify_cmd.add_argument("--benchmark-report", type=Path, required=True)
+    extended_certify_cmd.add_argument("--reference-demo-report", type=Path, required=True)
+    extended_certify_cmd.add_argument("--docs-freeze-report", type=Path, required=True)
+    extended_certify_cmd.add_argument("--tcb-review-report", type=Path, required=True)
+    extended_certify_cmd.add_argument("--schemas-frozen", action="store_true")
+    extended_certify_cmd.add_argument("--producer-evidence-present", action="store_true")
+    extended_certify_cmd.add_argument("--release-bundle-hash")
+    extended_certify_cmd.add_argument("--signed-release-bundle-hash")
+    extended_certify_cmd.add_argument("--allow-unsigned-release-bundle", action="store_true")
+    extended_certify_cmd.add_argument("--out", type=Path)
 
     reference_demo_cmd = subcommands.add_parser(
         "reference-demo-check", help="Validate reference demo artifact presence."
@@ -2705,6 +2818,20 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(report), end="")
             return 0 if report.result == "passed" else 1
+        if args.command == "benchmark-extended":
+            from .jsonutil import write_json
+
+            report = build_extended_benchmark_evaluation_report(
+                BenchmarkEvaluationReport.model_validate_json(args.base_report.read_text()),
+                [_dimension_result_from_arg(value) for value in args.dimension],
+                release_thresholds=_key_float_map_from_args(args.threshold),
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Extended benchmark evaluation report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "passed" else 1
         if args.command == "benchmark-translation":
             from .jsonutil import write_json
 
@@ -3375,6 +3502,128 @@ def main(argv: list[str] | None = None) -> int:
             if not wrote_output:
                 print(canonical_json(report), end="")
             return 0 if report.result != "blocked" else 1
+        if args.command == "requirement-gate-extended":
+            from .jsonutil import write_json
+
+            report = build_extended_requirement_gate_report(
+                EndToEndRequirementGateReport.model_validate_json(args.gate_report.read_text()),
+                stage_statuses=_key_value_map_from_args(args.stage_status),
+                artifact_hashes=_key_value_map_from_args(args.artifact_hash),
+                artifact_paths=_key_value_map_from_args(args.artifact_path),
+                evidence_levels=_key_value_map_from_args(args.evidence_level),
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Extended requirement gate report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.downstream_action_allowed else 1
+        if args.command == "ci-adoption":
+            from .jsonutil import write_json
+
+            report = build_ci_adoption_report(
+                ExtendedEndToEndRequirementGateReport.model_validate_json(
+                    args.extended_gate_report.read_text()
+                ),
+                mode=args.mode,
+                waiver_ids=args.waiver_id,
+            )
+            wrote_output = False
+            if args.out:
+                write_json(args.out, report)
+                print(f"CI adoption report: {args.out}")
+                wrote_output = True
+            if args.markdown_out:
+                args.markdown_out.parent.mkdir(parents=True, exist_ok=True)
+                args.markdown_out.write_text(extended_ci_pr_gate_markdown(report))
+                print(f"CI adoption markdown: {args.markdown_out}")
+                wrote_output = True
+            if not wrote_output:
+                print(canonical_json(report), end="")
+            return 0 if report.result != "blocked" else 1
+        if args.command == "reference-demo-extended":
+            from .jsonutil import write_json
+
+            report = build_extended_reference_demo_report(
+                ReferenceDemoManifest.model_validate_json(args.manifest.read_text()),
+                ReferenceDemoReport.model_validate_json(args.base_report.read_text()),
+                gate_reports=[
+                    ExtendedEndToEndRequirementGateReport.model_validate_json(path.read_text())
+                    for path in args.gate_report
+                ],
+                replay_bundle_hashes=_key_value_map_from_args(args.replay_bundle_hash),
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Extended reference demo report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "reproducible" else 1
+        if args.command == "public-docs-freeze":
+            from .jsonutil import write_json
+
+            report = build_public_documentation_freeze_report(
+                PublicDocumentationIndex.model_validate_json(args.index.read_text()),
+                PublicDocumentationCoverageReport.model_validate_json(
+                    args.coverage_report.read_text()
+                ),
+                frozen_schema_hashes=_key_value_map_from_args(args.schema_hash),
+                covered_topics=args.topic,
+                compatibility_commitments=args.commitment,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Public docs freeze report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "passed" else 1
+        if args.command == "tcb-review":
+            from .jsonutil import write_json
+
+            report = build_extended_tcb_review_report(
+                ThreatModelReport.model_validate_json(args.threat_model.read_text()),
+                release_artifact_hashes=_key_value_map_from_args(args.release_artifact_hash),
+                accepted_residual_risks=args.accepted_residual_risk,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Extended TCB review report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "complete" else 1
+        if args.command == "extended-conclusion-certify":
+            from .jsonutil import write_json
+
+            report = build_extended_conclusion_certification_report(
+                release_id=args.release_id,
+                gate=ExtendedEndToEndRequirementGateReport.model_validate_json(
+                    args.gate_report.read_text()
+                ),
+                ci=ExtendedCiPrGateReport.model_validate_json(args.ci_report.read_text()),
+                benchmark=ExtendedBenchmarkEvaluationReport.model_validate_json(
+                    args.benchmark_report.read_text()
+                ),
+                demo=ExtendedReferenceDemoReport.model_validate_json(
+                    args.reference_demo_report.read_text()
+                ),
+                docs=PublicDocumentationFreezeReport.model_validate_json(
+                    args.docs_freeze_report.read_text()
+                ),
+                tcb_review=ExtendedTcbReviewReport.model_validate_json(
+                    args.tcb_review_report.read_text()
+                ),
+                schemas_frozen=args.schemas_frozen,
+                producer_evidence_present=args.producer_evidence_present,
+                release_bundle_hash=args.release_bundle_hash,
+                signed_release_bundle_hash=args.signed_release_bundle_hash,
+                require_signed_release_bundle=not args.allow_unsigned_release_bundle,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Extended conclusion certification report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "certified" else 1
         if args.command == "reference-demo-check":
             from .jsonutil import write_json
 
@@ -4084,6 +4333,48 @@ def _secrets_from_args(values: list[str]) -> dict[str, str]:
             raise ValueError("--secret key_id and secret cannot be empty")
         secrets[key_id] = secret
     return secrets
+
+
+def _key_value_map_from_args(values: list[str]) -> dict[str, str]:
+    parsed: dict[str, str] = {}
+    for value in values:
+        if "=" not in value:
+            raise ValueError("values must use key=value")
+        key, item = value.split("=", 1)
+        if not key or not item:
+            raise ValueError("key and value cannot be empty")
+        parsed[key] = item
+    return parsed
+
+
+def _key_float_map_from_args(values: list[str]) -> dict[str, float]:
+    return {
+        key: float(value)
+        for key, value in _key_value_map_from_args(values).items()
+    }
+
+
+def _dimension_result_from_arg(value: str) -> ExtendedBenchmarkDimensionResult:
+    if "=" not in value:
+        raise ValueError("--dimension values must use name=score,total,passed,failed,threshold")
+    name, payload = value.split("=", 1)
+    parts = [part.strip() for part in payload.split(",")]
+    if len(parts) not in {4, 5}:
+        raise ValueError("--dimension requires score,total,passed,failed[,threshold]")
+    score = float(parts[0])
+    total_cases = int(parts[1])
+    passed_cases = int(parts[2])
+    failed_cases = int(parts[3])
+    threshold = float(parts[4]) if len(parts) == 5 else 1.0
+    return ExtendedBenchmarkDimensionResult(
+        dimension=name,
+        total_cases=total_cases,
+        passed_cases=passed_cases,
+        failed_cases=failed_cases,
+        score=score,
+        threshold=threshold,
+        passed=score >= threshold and failed_cases == 0,
+    )
 
 
 def _causal_links_from_args(values: list[str]) -> list[CausalTraceLink]:

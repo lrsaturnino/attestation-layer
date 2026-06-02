@@ -32,14 +32,20 @@ from nlreq.benchmark_corpus import (
     BenchmarkResultsArtifact,
     BenchmarkRunReport,
 )
-from nlreq.benchmark_reporting import BenchmarkEvaluationReport
-from nlreq.ci_pr_gate import CiPrGateReport
+from nlreq.benchmark_reporting import (
+    BenchmarkEvaluationReport,
+    ExtendedBenchmarkEvaluationReport,
+)
+from nlreq.ci_pr_gate import CiAdoptionPolicy, CiPrGateReport, ExtendedCiPrGateReport
 from nlreq.conclusion import (
     ConclusionDefinition,
     ConclusionGapCheckReport,
     ConclusionGapChecklist,
 )
-from nlreq.conclusion_certification import ConclusionCertificationReport
+from nlreq.conclusion_certification import (
+    ConclusionCertificationReport,
+    ExtendedConclusionCertificationReport,
+)
 from nlreq.counterexample_normalization import CounterexampleNormalizationReport
 from nlreq.controlled_semantics import ControlledRequirementSemanticsReference
 from nlreq.cross_language import CrossLanguageProofObject
@@ -68,7 +74,10 @@ from nlreq.translation_benchmark import (
 from nlreq.translation_repair import TranslationRepairReport
 from nlreq.translator_workbench import TranslatorRunArtifact, TranslatorSelectionArtifact
 from nlreq.delta_extractor import DeltaReport
-from nlreq.end_to_end_gate import EndToEndRequirementGateReport
+from nlreq.end_to_end_gate import (
+    EndToEndRequirementGateReport,
+    ExtendedEndToEndRequirementGateReport,
+)
 from nlreq.evidence_producers import EvidenceProducerValidationReport
 from nlreq.formal_backend import FormalBackendRequest, FormalBackendResponse
 from nlreq.formal_claim import FormalClaim, FormalClaimLoweringReport
@@ -84,8 +93,16 @@ from nlreq.proof_closure import (
     ProofObject,
 )
 from nlreq.policy_governance import WaiverAuditReport
-from nlreq.public_sdk import PublicDocumentationCoverageReport, PublicDocumentationIndex
-from nlreq.reference_demo import ReferenceDemoManifest, ReferenceDemoReport
+from nlreq.public_sdk import (
+    PublicDocumentationCoverageReport,
+    PublicDocumentationFreezeReport,
+    PublicDocumentationIndex,
+)
+from nlreq.reference_demo import (
+    ExtendedReferenceDemoReport,
+    ReferenceDemoManifest,
+    ReferenceDemoReport,
+)
 from nlreq.requirement_self_consistency import RequirementSelfConsistencyResult
 from nlreq.routing import AdapterRegistryArtifact, RoutingPolicyArtifact
 from nlreq.runtime_trace_sdk import TraceExtractionResult, TraceProducerRegistry
@@ -106,7 +123,7 @@ from nlreq.spec_freshness import SpecFreshnessLockReport, SpecFreshnessLockfile
 from nlreq.system_composition import SandRCompositionReport
 from nlreq.system_spec import SystemSpecRegistry, SystemSpecRegistryReport
 from nlreq.system_checker import SystemConsistencyResult, RequirementSetConsistencyReport
-from nlreq.threat_model import ThreatModelReport
+from nlreq.threat_model import ExtendedTcbReviewReport, ThreatModelReport
 from nlreq.tla_projection import TlaProjectionReport
 from nlreq.trace_normalization import RawTraceArtifact, TraceNormalizationReport
 from nlreq.trace_validation import TraceValidationResultsArtifact
@@ -142,9 +159,13 @@ SCHEMAS = {
     "benchmark-results.schema.json": BenchmarkResultsArtifact,
     "benchmark-run-report.schema.json": BenchmarkRunReport,
     "benchmark-evaluation-report.schema.json": BenchmarkEvaluationReport,
+    "extended-benchmark-evaluation-report.schema.json": ExtendedBenchmarkEvaluationReport,
+    "ci-adoption-policy.schema.json": CiAdoptionPolicy,
     "ci-pr-gate-report.schema.json": CiPrGateReport,
+    "extended-ci-pr-gate-report.schema.json": ExtendedCiPrGateReport,
     "conclusion-definition.schema.json": ConclusionDefinition,
     "conclusion-certification-report.schema.json": ConclusionCertificationReport,
+    "extended-conclusion-certification-report.schema.json": ExtendedConclusionCertificationReport,
     "conclusion-gap-checklist.schema.json": ConclusionGapChecklist,
     "conclusion-gap-check-report.schema.json": ConclusionGapCheckReport,
     "bindings.schema.json": BindingsArtifact,
@@ -162,6 +183,7 @@ SCHEMAS = {
     "controlled-rewrite-approval.schema.json": ControlledRewriteApproval,
     "delta-report.schema.json": DeltaReport,
     "end-to-end-requirement-gate.schema.json": EndToEndRequirementGateReport,
+    "extended-end-to-end-requirement-gate.schema.json": ExtendedEndToEndRequirementGateReport,
     "translation-agreement-input.schema.json": TranslationAgreementInput,
     "translation-agreement-report.schema.json": TranslationAgreementReport,
     "logical-translation-agreement-report.schema.json": LogicalTranslationAgreementReport,
@@ -197,12 +219,14 @@ SCHEMAS = {
     "producer-key-registry.schema.json": ProducerKeyRegistry,
     "public-documentation-index.schema.json": PublicDocumentationIndex,
     "public-documentation-coverage-report.schema.json": PublicDocumentationCoverageReport,
+    "public-documentation-freeze-report.schema.json": PublicDocumentationFreezeReport,
     "closure-gate-report.schema.json": ClosureGateReport,
     "generated-tests.schema.json": GeneratedTestsArtifact,
     "normalized-traces.schema.json": NormalizedTraceArtifact,
     "review.schema.json": ReviewArtifact,
     "reference-demo-manifest.schema.json": ReferenceDemoManifest,
     "reference-demo-report.schema.json": ReferenceDemoReport,
+    "extended-reference-demo-report.schema.json": ExtendedReferenceDemoReport,
     "replay-bundle-manifest.schema.json": ReplayBundleManifest,
     "routing-policy.schema.json": RoutingPolicyArtifact,
     "source-call-graph.schema.json": SourceCallGraph,
@@ -222,6 +246,7 @@ SCHEMAS = {
     "system-spec-registry-report.schema.json": SystemSpecRegistryReport,
     "system-consistency-result.schema.json": SystemConsistencyResult,
     "threat-model-report.schema.json": ThreatModelReport,
+    "extended-tcb-review-report.schema.json": ExtendedTcbReviewReport,
     "requirement-set-consistency.schema.json": RequirementSetConsistencyReport,
     "requirement-self-consistency.schema.json": RequirementSelfConsistencyResult,
     "lowered-formal-artifact.schema.json": LoweredFormalArtifact,
