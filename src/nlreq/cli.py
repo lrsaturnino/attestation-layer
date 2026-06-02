@@ -120,7 +120,11 @@ from .proof_closure import (
 )
 from .policy_governance import build_waiver_audit_report
 from .production_source_adapters import production_adapter_for_language
-from .public_sdk import build_default_public_documentation_index
+from .public_sdk import (
+    PublicDocumentationIndex,
+    build_default_public_documentation_index,
+    validate_public_documentation_index,
+)
 from .provenance import (
     ClarificationResponse,
     apply_clarification_response,
@@ -278,6 +282,14 @@ def main(argv: list[str] | None = None) -> int:
     )
     public_docs_cmd.add_argument("--version", default="0.1")
     public_docs_cmd.add_argument("--out", type=Path)
+
+    public_docs_check_cmd = subcommands.add_parser(
+        "public-docs-check", help="Validate public documentation index paths and schema references."
+    )
+    public_docs_check_cmd.add_argument("index", type=Path)
+    public_docs_check_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    public_docs_check_cmd.add_argument("--schema-root", type=Path, default=Path("schemas"))
+    public_docs_check_cmd.add_argument("--out", type=Path)
 
     conclusion_certify_cmd = subcommands.add_parser(
         "conclusion-certify", help="Build a conclusion release certification report."
@@ -1483,10 +1495,33 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(index), end="")
             return 0
+        if args.command == "public-docs-check":
+            from .jsonutil import write_json
+
+            index = PublicDocumentationIndex.model_validate_json(args.index.read_text())
+            existing_paths = _existing_public_doc_paths(index, project_root=args.project_root)
+            schema_root = args.schema_root
+            if not schema_root.is_absolute():
+                schema_root = args.project_root / schema_root
+            existing_schemas = {
+                path.name
+                for path in schema_root.glob("*.schema.json")
+                if path.is_file()
+            }
+            report = validate_public_documentation_index(
+                index,
+                existing_paths=existing_paths,
+                existing_schemas=existing_schemas,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Public docs check: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "passed" else 1
         if args.command == "conclusion-certify":
             from .benchmark_reporting import BenchmarkEvaluationReport
             from .jsonutil import write_json
-            from .public_sdk import PublicDocumentationIndex
             from .reference_demo import ReferenceDemoReport
             from .threat_model import ThreatModelReport
 
@@ -3345,6 +3380,10 @@ def main(argv: list[str] | None = None) -> int:
             report = build_reference_demo_report(
                 manifest,
                 existing_paths=_existing_demo_paths(manifest, project_root=args.project_root),
+                actual_decisions_by_requirement=_reference_demo_actual_decisions(
+                    manifest,
+                    project_root=args.project_root,
+                ),
             )
             if args.out:
                 write_json(args.out, report)
@@ -4073,6 +4112,52 @@ def _existing_demo_paths(manifest: ReferenceDemoManifest, *, project_root: Path)
             if item.expected_report_path is not None
         ],
     ]
+    existing: set[str] = set()
+    for path in paths:
+        if (project_root / path).exists():
+            existing.add(path)
+    return existing
+
+
+def _reference_demo_actual_decisions(
+    manifest: ReferenceDemoManifest,
+    *,
+    project_root: Path,
+) -> dict[str, str]:
+    decisions: dict[str, str] = {}
+    for requirement in manifest.requirements:
+        if requirement.expected_report_path is None:
+            continue
+        report_path = project_root / requirement.expected_report_path
+        if not report_path.exists():
+            continue
+        decision = _extract_reference_demo_decision(read_json(report_path))
+        if decision is not None:
+            decisions[requirement.requirement_id] = decision
+    return decisions
+
+
+def _extract_reference_demo_decision(payload: object) -> str | None:
+    if not isinstance(payload, dict):
+        return None
+    decision = payload.get("decision")
+    if decision in {"accepted", "refused", "unknown"}:
+        return decision
+    status = payload.get("status")
+    if status in {"accepted", "refused", "unknown"}:
+        return status
+    result = payload.get("result")
+    if result in {"accepted", "refused", "unknown"}:
+        return result
+    if result in {"certified", "reproducible", "passed"}:
+        return "accepted"
+    if result in {"blocked", "failed"}:
+        return "refused"
+    return None
+
+
+def _existing_public_doc_paths(index: PublicDocumentationIndex, *, project_root: Path) -> set[str]:
+    paths = [*[doc.path for doc in index.docs], *[example.path for example in index.examples]]
     existing: set[str] = set()
     for path in paths:
         if (project_root / path).exists():

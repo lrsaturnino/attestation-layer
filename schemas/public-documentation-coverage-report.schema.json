@@ -1,0 +1,77 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "checked_docs": {
+      "default": 0,
+      "title": "Checked Docs",
+      "type": "integer"
+    },
+    "checked_examples": {
+      "default": 0,
+      "title": "Checked Examples",
+      "type": "integer"
+    },
+    "missing_audiences": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Audiences",
+      "type": "array"
+    },
+    "missing_docs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Docs",
+      "type": "array"
+    },
+    "missing_examples": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Examples",
+      "type": "array"
+    },
+    "missing_schema_refs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Schema Refs",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.public_sdk",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "version",
+    "result"
+  ],
+  "title": "PublicDocumentationCoverageReport",
+  "type": "object"
+}

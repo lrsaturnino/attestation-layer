@@ -94,6 +94,20 @@
   },
   "additionalProperties": false,
   "properties": {
+    "audit_findings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Audit Findings",
+      "type": "array"
+    },
+    "release_claims": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Release Claims",
+      "type": "array"
+    },
     "result": {
       "enum": [
         "complete",

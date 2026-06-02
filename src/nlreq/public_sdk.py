@@ -7,6 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 PUBLIC_SDK_SCHEMA_VERSION = "0.1"
 PUBLIC_SDK_TOOL_VERSION = "0.1"
+REQUIRED_PUBLIC_AUDIENCES: tuple[str, ...] = (
+    "user",
+    "adapter_author",
+    "backend_author",
+    "operator",
+)
 
 
 class PublicDocEntry(BaseModel):
@@ -47,6 +53,65 @@ class PublicDocumentationIndex(BaseModel):
         if len(example_ids) != len(set(example_ids)):
             raise ValueError("example ids must be unique")
         return self
+
+
+class PublicDocumentationCoverageReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1"] = PUBLIC_SDK_SCHEMA_VERSION
+    version: str
+    result: Literal["passed", "blocked"]
+    checked_docs: int = 0
+    checked_examples: int = 0
+    missing_docs: list[str] = Field(default_factory=list)
+    missing_examples: list[str] = Field(default_factory=list)
+    missing_schema_refs: list[str] = Field(default_factory=list)
+    missing_audiences: list[str] = Field(default_factory=list)
+    tool: str = "nlreq.public_sdk"
+    tool_version: str = PUBLIC_SDK_TOOL_VERSION
+
+
+def validate_public_documentation_index(
+    index: PublicDocumentationIndex,
+    *,
+    existing_paths: set[str],
+    existing_schemas: set[str] | None = None,
+    required_audiences: tuple[str, ...] = REQUIRED_PUBLIC_AUDIENCES,
+) -> PublicDocumentationCoverageReport:
+    missing_docs = [doc.path for doc in index.docs if doc.path not in existing_paths]
+    missing_examples = [
+        example.path
+        for example in index.examples
+        if example.path not in existing_paths
+    ]
+    present_audiences = {doc.audience for doc in index.docs}
+    missing_audiences = sorted(set(required_audiences) - present_audiences)
+    missing_schema_refs: list[str] = []
+    if existing_schemas is not None:
+        missing_schema_refs = [
+            f"{doc.doc_id}:{schema_ref}"
+            for doc in index.docs
+            for schema_ref in doc.schema_refs
+            if schema_ref not in existing_schemas
+        ]
+    blocked = bool(
+        missing_docs
+        or missing_examples
+        or missing_schema_refs
+        or missing_audiences
+        or not index.docs
+        or not index.examples
+    )
+    return PublicDocumentationCoverageReport(
+        version=index.version,
+        result="blocked" if blocked else "passed",
+        checked_docs=len(index.docs),
+        checked_examples=len(index.examples),
+        missing_docs=missing_docs,
+        missing_examples=missing_examples,
+        missing_schema_refs=missing_schema_refs,
+        missing_audiences=missing_audiences,
+    )
 
 
 def build_default_public_documentation_index(version: str = "0.1") -> PublicDocumentationIndex:

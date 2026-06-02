@@ -84,7 +84,7 @@ from nlreq.proof_closure import (
     ProofObject,
 )
 from nlreq.policy_governance import WaiverAuditReport
-from nlreq.public_sdk import PublicDocumentationIndex
+from nlreq.public_sdk import PublicDocumentationCoverageReport, PublicDocumentationIndex
 from nlreq.reference_demo import ReferenceDemoManifest, ReferenceDemoReport
 from nlreq.requirement_self_consistency import RequirementSelfConsistencyResult
 from nlreq.routing import AdapterRegistryArtifact, RoutingPolicyArtifact
@@ -196,6 +196,7 @@ SCHEMAS = {
     "proof-object.schema.json": ProofObject,
     "producer-key-registry.schema.json": ProducerKeyRegistry,
     "public-documentation-index.schema.json": PublicDocumentationIndex,
+    "public-documentation-coverage-report.schema.json": PublicDocumentationCoverageReport,
     "closure-gate-report.schema.json": ClosureGateReport,
     "generated-tests.schema.json": GeneratedTestsArtifact,
     "normalized-traces.schema.json": NormalizedTraceArtifact,

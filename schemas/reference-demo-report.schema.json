@@ -1,9 +1,104 @@
 {
+  "$defs": {
+    "ReferenceDemoDecisionCheck": {
+      "additionalProperties": false,
+      "properties": {
+        "actual_decision": {
+          "anyOf": [
+            {
+              "enum": [
+                "accepted",
+                "refused",
+                "unknown"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actual Decision"
+        },
+        "expected_decision": {
+          "enum": [
+            "accepted",
+            "refused",
+            "unknown"
+          ],
+          "title": "Expected Decision",
+          "type": "string"
+        },
+        "report_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Report Path"
+        },
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "matched",
+            "mismatched",
+            "missing_report",
+            "not_checked"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "expected_decision",
+        "status"
+      ],
+      "title": "ReferenceDemoDecisionCheck",
+      "type": "object"
+    }
+  },
   "additionalProperties": false,
   "properties": {
+    "artifact_count": {
+      "default": 0,
+      "title": "Artifact Count",
+      "type": "integer"
+    },
+    "command_count": {
+      "default": 0,
+      "title": "Command Count",
+      "type": "integer"
+    },
+    "decision_checks": {
+      "items": {
+        "$ref": "#/$defs/ReferenceDemoDecisionCheck"
+      },
+      "title": "Decision Checks",
+      "type": "array"
+    },
+    "decision_mismatches": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Decision Mismatches",
+      "type": "array"
+    },
     "demo_id": {
       "title": "Demo Id",
       "type": "string"
+    },
+    "has_accept_and_refuse": {
+      "default": false,
+      "title": "Has Accept And Refuse",
+      "type": "boolean"
     },
     "missing_artifacts": {
       "items": {
@@ -30,6 +125,13 @@
       "default": "0.1",
       "title": "Schema Version",
       "type": "string"
+    },
+    "unchecked_reports": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unchecked Reports",
+      "type": "array"
     }
   },
   "required": [

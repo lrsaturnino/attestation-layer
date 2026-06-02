@@ -295,6 +295,9 @@ def test_benchmark_evaluation_waiver_audit_and_conclusion_certification() -> Non
         demo_id="demo",
         title="Demo",
         source_root="demo",
+        system_specs=["demo/specs/Auth.tla"],
+        trace_artifacts=["demo/traces/auth.json"],
+        commands=[["nlreq", "requirement-gate", "requirements/REQ-A.nlreq3"]],
         requirements=[
             ReferenceDemoRequirementLike("REQ-A", "accepted"),
             ReferenceDemoRequirementLike("REQ-R", "refused"),
@@ -302,7 +305,13 @@ def test_benchmark_evaluation_waiver_audit_and_conclusion_certification() -> Non
     )
     demo = build_reference_demo_report(
         demo_manifest,
-        existing_paths={"demo", "requirements/REQ-A.nlreq3", "requirements/REQ-R.nlreq3"},
+        existing_paths={
+            "demo",
+            "demo/specs/Auth.tla",
+            "demo/traces/auth.json",
+            "requirements/REQ-A.nlreq3",
+            "requirements/REQ-R.nlreq3",
+        },
     )
     docs = build_default_public_documentation_index()
     certification = build_conclusion_certification_report(

@@ -14,6 +14,13 @@
           "title": "Evidence",
           "type": "array"
         },
+        "findings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
         "limitation": {
           "anyOf": [
             {
@@ -25,6 +32,11 @@
           ],
           "default": null,
           "title": "Limitation"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
         },
         "status": {
           "enum": [
@@ -46,6 +58,13 @@
   },
   "additionalProperties": false,
   "properties": {
+    "blocking_findings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blocking Findings",
+      "type": "array"
+    },
     "criteria": {
       "items": {
         "$ref": "#/$defs/ConclusionCriterionStatus"
