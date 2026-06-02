@@ -286,6 +286,7 @@ def test_benchmark_evaluation_waiver_audit_and_conclusion_certification() -> Non
         reviewer="reviewer",
         reason="staged rollout",
         expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+        reviewed_hashes={"gate-report": "sha256:reviewed"},
         linked_issue="ISSUE-1",
     )
     waiver_report = build_waiver_audit_report(policy=policy, waivers=[waiver])

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -50,15 +50,6 @@ def build_waiver_audit_report(
                     reason="waiver is expired",
                 )
             )
-        elif not waiver.may_satisfy_hard_gate:
-            findings.append(
-                WaiverAuditFinding(
-                    waiver_id=waiver.waiver_id,
-                    status="unsafe",
-                    blocking=True,
-                    reason="waiver may not satisfy hard gate",
-                )
-            )
         elif not policy.waivers.allow_waivers:
             findings.append(
                 WaiverAuditFinding(
@@ -66,6 +57,36 @@ def build_waiver_audit_report(
                     status="out_of_policy",
                     blocking=True,
                     reason="policy does not allow waivers",
+                )
+            )
+        elif (
+            policy.waivers.max_duration_days is not None
+            and waiver.expires_at > active_now + timedelta(days=policy.waivers.max_duration_days)
+        ):
+            findings.append(
+                WaiverAuditFinding(
+                    waiver_id=waiver.waiver_id,
+                    status="out_of_policy",
+                    blocking=True,
+                    reason="waiver expiration exceeds policy maximum duration",
+                )
+            )
+        elif policy.waivers.require_reviewed_hashes and not waiver.reviewed_hashes:
+            findings.append(
+                WaiverAuditFinding(
+                    waiver_id=waiver.waiver_id,
+                    status="out_of_policy",
+                    blocking=True,
+                    reason="policy requires reviewed hashes for waivers",
+                )
+            )
+        elif not waiver.may_satisfy_hard_gate:
+            findings.append(
+                WaiverAuditFinding(
+                    waiver_id=waiver.waiver_id,
+                    status="unsafe",
+                    blocking=True,
+                    reason="waiver may not satisfy hard gate",
                 )
             )
         else:
