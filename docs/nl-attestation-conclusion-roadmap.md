@@ -3,7 +3,7 @@
 **Status:** Draft v1
 **Date:** 2026-06-01
 **Starts After:** Phase 45 Public Benchmark Corpus
-**Current ADR Floor:** ADR 0054 Verification Benchmark Corpus
+**Current ADR Floor:** ADR 0091 Conclusion Release Certification
 **Source Context:** `docs/claude-convo.md`, `docs/verification-power-roadmap.md`, implemented phases 0-45
 
 This roadmap closes the remaining gap between the current Attestation Layer and

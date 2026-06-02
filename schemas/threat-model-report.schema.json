@@ -1,0 +1,148 @@
+{
+  "$defs": {
+    "TcbComponent": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "parser",
+            "ir_validator",
+            "translator",
+            "formal_backend",
+            "source_adapter",
+            "trace_producer",
+            "artifact_store",
+            "producer_registry",
+            "ci_gate",
+            "human_review"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "component_id": {
+          "title": "Component Id",
+          "type": "string"
+        },
+        "failure_impact": {
+          "title": "Failure Impact",
+          "type": "string"
+        },
+        "trust_assumption": {
+          "title": "Trust Assumption",
+          "type": "string"
+        }
+      },
+      "required": [
+        "component_id",
+        "category",
+        "trust_assumption",
+        "failure_impact"
+      ],
+      "title": "TcbComponent",
+      "type": "object"
+    },
+    "ThreatScenario": {
+      "additionalProperties": false,
+      "properties": {
+        "affected_components": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Affected Components",
+          "type": "array"
+        },
+        "benchmark_required": {
+          "default": false,
+          "title": "Benchmark Required",
+          "type": "boolean"
+        },
+        "mitigation": {
+          "title": "Mitigation",
+          "type": "string"
+        },
+        "residual_risk": {
+          "title": "Residual Risk",
+          "type": "string"
+        },
+        "scenario_id": {
+          "title": "Scenario Id",
+          "type": "string"
+        },
+        "threat": {
+          "enum": [
+            "spoofing",
+            "tampering",
+            "replay",
+            "prompt_injection",
+            "stale_spec",
+            "forged_evidence",
+            "malicious_adapter"
+          ],
+          "title": "Threat",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scenario_id",
+        "threat",
+        "mitigation",
+        "residual_risk"
+      ],
+      "title": "ThreatScenario",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "result": {
+      "enum": [
+        "complete",
+        "needs_review"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "scenarios": {
+      "items": {
+        "$ref": "#/$defs/ThreatScenario"
+      },
+      "title": "Scenarios",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "security_checklist": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Security Checklist",
+      "type": "array"
+    },
+    "tcb": {
+      "items": {
+        "$ref": "#/$defs/TcbComponent"
+      },
+      "title": "Tcb",
+      "type": "array"
+    },
+    "tool": {
+      "default": "nlreq.threat_model",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "result"
+  ],
+  "title": "ThreatModelReport",
+  "type": "object"
+}

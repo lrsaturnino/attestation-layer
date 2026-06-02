@@ -1,0 +1,38 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "envelope_id": {
+      "title": "Envelope Id",
+      "type": "string"
+    },
+    "reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reasons",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "valid",
+        "invalid",
+        "untrusted_key",
+        "unknown_key"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "envelope_id",
+    "result"
+  ],
+  "title": "SignatureVerificationReport",
+  "type": "object"
+}

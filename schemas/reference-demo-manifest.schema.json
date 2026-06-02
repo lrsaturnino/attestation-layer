@@ -1,0 +1,121 @@
+{
+  "$defs": {
+    "ReferenceDemoRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "controlled_text_path": {
+          "title": "Controlled Text Path",
+          "type": "string"
+        },
+        "expected_decision": {
+          "enum": [
+            "accepted",
+            "refused",
+            "unknown"
+          ],
+          "title": "Expected Decision",
+          "type": "string"
+        },
+        "expected_report_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Report Path"
+        },
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "expected_decision",
+        "controlled_text_path"
+      ],
+      "title": "ReferenceDemoRequirement",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "commands": {
+      "items": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "title": "Commands",
+      "type": "array"
+    },
+    "demo_id": {
+      "title": "Demo Id",
+      "type": "string"
+    },
+    "reproducibility_notes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Reproducibility Notes",
+      "type": "array"
+    },
+    "requirements": {
+      "items": {
+        "$ref": "#/$defs/ReferenceDemoRequirement"
+      },
+      "title": "Requirements",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "source_root": {
+      "title": "Source Root",
+      "type": "string"
+    },
+    "system_specs": {
+      "items": {
+        "type": "string"
+      },
+      "title": "System Specs",
+      "type": "array"
+    },
+    "title": {
+      "title": "Title",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.reference_demo",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "trace_artifacts": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Trace Artifacts",
+      "type": "array"
+    }
+  },
+  "required": [
+    "demo_id",
+    "title",
+    "source_root"
+  ],
+  "title": "ReferenceDemoManifest",
+  "type": "object"
+}

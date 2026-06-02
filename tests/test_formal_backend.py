@@ -91,7 +91,9 @@ def test_existing_formal_boundaries_document_core_smt_and_tla() -> None:
     boundaries = existing_formal_boundaries()
 
     assert {boundary["backend_id"] for boundary in boundaries} == {
+        "apalache",
         "core_smt",
+        "tlc",
         "tla",
         "tla-boundary",
         "tla-runner",

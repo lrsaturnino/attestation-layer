@@ -1,0 +1,71 @@
+{
+  "$defs": {
+    "VerificationCacheRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_hash": {
+          "title": "Artifact Hash",
+          "type": "string"
+        },
+        "cache_key_hash": {
+          "title": "Cache Key Hash",
+          "type": "string"
+        },
+        "hit_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Hit Count",
+          "type": "integer"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cache_key_hash",
+        "artifact_hash",
+        "stage"
+      ],
+      "title": "VerificationCacheRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "cache_key_hash": {
+      "title": "Cache Key Hash",
+      "type": "string"
+    },
+    "record": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/VerificationCacheRecord"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "status": {
+      "enum": [
+        "hit",
+        "miss"
+      ],
+      "title": "Status",
+      "type": "string"
+    }
+  },
+  "required": [
+    "status",
+    "cache_key_hash"
+  ],
+  "title": "VerificationCacheLookup",
+  "type": "object"
+}

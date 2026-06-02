@@ -16,6 +16,7 @@ from .agent_workflow import (
     package_input_refs,
 )
 from .agnostic_wedge import build_agnostic_wedge_report
+from .adapter_certification import certify_adapter_v2
 from .adoption import (
     build_ci_report,
     build_package_index,
@@ -24,10 +25,13 @@ from .adoption import (
     extract_requirement_ids,
     review_checklist_template,
 )
+from .artifact_store import ArtifactStoreManifest, lookup_artifact, put_artifact
 from .asyncapi_adapter import AsyncApiAdapter
 from .asyncapi_package import build_asyncapi_package, validate_asyncapi_package
 from .backend_agreement import build_backend_agreement_report
 from .benchmark_corpus import build_benchmark_run_report
+from .benchmark_v2 import build_benchmark_v2_report
+from .ci_pr_gate import build_ci_pr_gate_report, ci_pr_gate_markdown
 from .command_adapter import CommandAdapter, CommandChecksArtifact, load_command_checks
 from .command_package import (
     build_command_package,
@@ -41,6 +45,7 @@ from .conclusion import (
     build_default_gap_checklist,
     check_gap_checklist,
 )
+from .conclusion_certification import build_conclusion_certification_report
 from .continuous import (
     build_attestation_run,
     continuous_attestation_markdown,
@@ -53,6 +58,8 @@ from .compositional_ir import (
     migrate_requirement_ir_v1_to_v2,
     validate_requirement_ir_json,
 )
+from .counterexample_v2 import normalize_backend_counterexamples_v2
+from .cross_language import CausalTraceLink, build_cross_language_proof_object
 from .formal_backend import (
     FormalBackendBudget,
     FormalBackendExecution,
@@ -62,6 +69,7 @@ from .formal_backend import (
 from .delta_extractor import build_delta_report, delta_report_markdown
 from .dsl_v2 import DslV2Parser
 from .dsl_v3 import DslV3Parser
+from .evidence_boundary import build_proof_evidence_boundary_report
 from .evidence_producers import validate_real_evidence_producers
 from .end_to_end_gate import run_end_to_end_requirement_gate
 from .gate import (
@@ -107,6 +115,9 @@ from .proof_closure import (
     default_evidence_producer_mapping,
     evaluate_closure_gate,
 )
+from .policy_v2 import build_waiver_audit_report
+from .production_source_adapters import production_adapter_for_language
+from .public_sdk import build_default_public_documentation_index
 from .provenance import (
     ClarificationResponse,
     apply_clarification_response,
@@ -119,6 +130,7 @@ from .refusal import (
     build_refusal_report_from_gate,
     refusal_report_markdown,
 )
+from .reference_demo import ReferenceDemoManifest, build_reference_demo_report
 from .review_workflow import (
     ApprovalWorkflowArtifact,
     ReviewChecklistV2,
@@ -141,13 +153,20 @@ from .routing import (
 )
 from .spec_drift import CodeSpecManifest, build_spec_drift_report, mark_stale_specs
 from .spec_extraction import build_spec_extraction_workbench_report
+from .spec_freshness import (
+    SpecFreshnessLockfile,
+    build_spec_freshness_lockfile,
+    validate_spec_freshness_lockfile,
+)
 from .trace_validation import build_trace_validation_report, trace_validation_markdown
+from .trace_normalization_v2 import RawTraceArtifact, normalize_raw_traces_v2
 from .system_spec import build_system_spec_registry_report, load_system_spec_registry
 from .system_checker import (
     check_requirement_set_consistency,
     check_solver_backed_system_consistency,
     check_system_consistency,
 )
+from .threat_model import build_default_threat_model
 from .translator import (
     ControlledDraft,
     approve_controlled_draft,
@@ -155,6 +174,7 @@ from .translator import (
     lower_ir_v2_to_tla,
     parse_approved_draft_ir_v2,
 )
+from .tla_projection_v2 import build_tla_projection_v2_report
 from .translator_agreement import (
     TranslationAgreementInput,
     TranslationAgreementReport,
@@ -162,6 +182,17 @@ from .translator_agreement import (
 )
 from .logical_agreement import build_logical_translation_agreement_report
 from .trace_replay import build_trace_replay_report
+from .runtime_trace_sdk import (
+    TraceExtractionRequest,
+    TraceProducerRegistry,
+    producer_from_registry,
+)
+from .signed_evidence import (
+    ProducerKeyRegistry,
+    SignedEvidenceEnvelope,
+    sign_evidence_payload,
+    verify_signed_evidence,
+)
 from .tla_adapter import TlaAdapter, load_tla_model_config
 from .tla_package import (
     build_tla_package,
@@ -225,6 +256,26 @@ def main(argv: list[str] | None = None) -> int:
     conclusion_gap_check_cmd.add_argument("checklist", type=Path)
     conclusion_gap_check_cmd.add_argument("--out", type=Path)
 
+    threat_model_cmd = subcommands.add_parser("threat-model", help="Emit the default threat model.")
+    threat_model_cmd.add_argument("--out", type=Path)
+
+    public_docs_cmd = subcommands.add_parser(
+        "public-docs-index", help="Emit the public documentation and SDK index."
+    )
+    public_docs_cmd.add_argument("--version", default="0.1")
+    public_docs_cmd.add_argument("--out", type=Path)
+
+    conclusion_certify_cmd = subcommands.add_parser(
+        "conclusion-certify", help="Build a conclusion release certification report."
+    )
+    conclusion_certify_cmd.add_argument("--release-id", required=True)
+    conclusion_certify_cmd.add_argument("--benchmark-v2", type=Path, required=True)
+    conclusion_certify_cmd.add_argument("--threat-model", type=Path, required=True)
+    conclusion_certify_cmd.add_argument("--reference-demo-report", type=Path, required=True)
+    conclusion_certify_cmd.add_argument("--docs-index", type=Path, required=True)
+    conclusion_certify_cmd.add_argument("--schemas-frozen", action="store_true")
+    conclusion_certify_cmd.add_argument("--out", type=Path)
+
     package_cmd = subcommands.add_parser("package", help="Build a Phase 0 requirement package.")
     package_cmd.add_argument("file", type=Path)
     package_cmd.add_argument("--out", type=Path, required=True)
@@ -283,6 +334,36 @@ def main(argv: list[str] | None = None) -> int:
     )
     model_checker_run_cmd.add_argument("--out", type=Path)
     model_checker_run_cmd.add_argument("model_checker_command", nargs=argparse.REMAINDER)
+
+    artifact_put_cmd = subcommands.add_parser("artifact-put", help="Store an artifact by content hash.")
+    artifact_put_cmd.add_argument("file", type=Path)
+    artifact_put_cmd.add_argument("--store-root", type=Path, required=True)
+    artifact_put_cmd.add_argument("--logical-name", required=True)
+    artifact_put_cmd.add_argument("--media-type", default="application/json")
+    artifact_put_cmd.add_argument("--raw", action="store_true")
+    artifact_put_cmd.add_argument("--normalized", action="store_true")
+    artifact_put_cmd.add_argument("--out", type=Path)
+
+    artifact_get_cmd = subcommands.add_parser("artifact-get", help="Resolve an artifact hash from a store manifest.")
+    artifact_get_cmd.add_argument("--store-root", type=Path, required=True)
+    artifact_get_cmd.add_argument("--manifest", type=Path, required=True)
+    artifact_get_cmd.add_argument("--hash", required=True)
+    artifact_get_cmd.add_argument("--out", type=Path)
+
+    sign_evidence_cmd = subcommands.add_parser("sign-evidence", help="Sign a JSON evidence payload.")
+    sign_evidence_cmd.add_argument("payload", type=Path)
+    sign_evidence_cmd.add_argument("--producer-id", required=True)
+    sign_evidence_cmd.add_argument("--key-id", required=True)
+    sign_evidence_cmd.add_argument("--secret", required=True)
+    sign_evidence_cmd.add_argument("--envelope-id", required=True)
+    sign_evidence_cmd.add_argument("--out", type=Path)
+
+    verify_evidence_cmd = subcommands.add_parser("verify-evidence", help="Verify a signed evidence envelope.")
+    verify_evidence_cmd.add_argument("envelope", type=Path)
+    verify_evidence_cmd.add_argument("--registry", type=Path, required=True)
+    verify_evidence_cmd.add_argument("--secret", action="append", default=[])
+    verify_evidence_cmd.add_argument("--high-assurance", action="store_true")
+    verify_evidence_cmd.add_argument("--out", type=Path)
 
     draft_cmd = subcommands.add_parser(
         "draft-controlled", help="Create a controlled-text draft artifact."
@@ -346,6 +427,12 @@ def main(argv: list[str] | None = None) -> int:
     )
     lower_ir_v2_cmd.add_argument("file", type=Path)
     lower_ir_v2_cmd.add_argument("--out", type=Path)
+
+    tla_projection_v2_cmd = subcommands.add_parser(
+        "tla-projection-v2", help="Build the TLA projection semantics v2 report."
+    )
+    tla_projection_v2_cmd.add_argument("file", type=Path)
+    tla_projection_v2_cmd.add_argument("--out", type=Path)
 
     translator_agreement_cmd = subcommands.add_parser(
         "translator-agreement", help="Compare multiple requirement translations structurally."
@@ -592,6 +679,24 @@ def main(argv: list[str] | None = None) -> int:
     spec_drift_cmd.add_argument("--out", type=Path)
     spec_drift_cmd.add_argument("--updated-registry-out", type=Path)
 
+    spec_freshness_lock_cmd = subcommands.add_parser(
+        "spec-freshness-lock", help="Build a spec freshness lockfile."
+    )
+    spec_freshness_lock_cmd.add_argument("--manifest", type=Path, required=True)
+    spec_freshness_lock_cmd.add_argument("--registry", type=Path, required=True)
+    spec_freshness_lock_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    spec_freshness_lock_cmd.add_argument("--lock-id", default="spec-freshness")
+    spec_freshness_lock_cmd.add_argument("--out", type=Path)
+
+    spec_freshness_check_cmd = subcommands.add_parser(
+        "spec-freshness-check", help="Validate a spec freshness lockfile."
+    )
+    spec_freshness_check_cmd.add_argument("--manifest", type=Path, required=True)
+    spec_freshness_check_cmd.add_argument("--registry", type=Path, required=True)
+    spec_freshness_check_cmd.add_argument("--lockfile", type=Path, required=True)
+    spec_freshness_check_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    spec_freshness_check_cmd.add_argument("--out", type=Path)
+
     delta_extract_cmd = subcommands.add_parser(
         "delta-extract", help="Extract actionable deltas from failed verification reports."
     )
@@ -623,6 +728,12 @@ def main(argv: list[str] | None = None) -> int:
     evidence_producers_cmd.add_argument("--producer-mapping", type=Path)
     evidence_producers_cmd.add_argument("--out", type=Path)
 
+    proof_boundary_cmd = subcommands.add_parser(
+        "proof-evidence-boundary", help="Classify bounded vs inductive proof evidence."
+    )
+    proof_boundary_cmd.add_argument("proof_object", type=Path)
+    proof_boundary_cmd.add_argument("--out", type=Path)
+
     backend_agreement_cmd = subcommands.add_parser(
         "backend-agreement",
         help="Compare overlapping backend results and report hidden disagreements.",
@@ -636,6 +747,12 @@ def main(argv: list[str] | None = None) -> int:
         "--policy", choices=["blocking", "report_only"], default="blocking"
     )
     backend_agreement_cmd.add_argument("--out", type=Path)
+
+    counterexample_v2_cmd = subcommands.add_parser(
+        "counterexample-normalize-v2", help="Normalize backend counterexamples into v2 traces."
+    )
+    counterexample_v2_cmd.add_argument("--formal-backend-response", action="append", type=Path, default=[])
+    counterexample_v2_cmd.add_argument("--out", type=Path)
 
     proof_object_cmd = subcommands.add_parser(
         "proof-object", help="Aggregate backend evidence into a proof closure object."
@@ -667,6 +784,16 @@ def main(argv: list[str] | None = None) -> int:
     agnostic_wedge_cmd.add_argument("--requirement-ir", type=Path)
     agnostic_wedge_cmd.add_argument("--out", type=Path)
     agnostic_wedge_cmd.add_argument("--fail-on-blocking", action="store_true")
+
+    cross_language_cmd = subcommands.add_parser(
+        "cross-language-proof", help="Build a cross-language proof object from manifests and traces."
+    )
+    cross_language_cmd.add_argument("--proof-object", type=Path, required=True)
+    cross_language_cmd.add_argument("--source-manifest", action="append", type=Path, default=[])
+    cross_language_cmd.add_argument("--trace-artifact", action="append", type=Path, default=[])
+    cross_language_cmd.add_argument("--causal-link", action="append", default=[])
+    cross_language_cmd.add_argument("--out", type=Path)
+    cross_language_cmd.add_argument("--fail-on-blocking", action="store_true")
 
     requirement_gate_cmd = subcommands.add_parser(
         "requirement-gate",
@@ -709,6 +836,14 @@ def main(argv: list[str] | None = None) -> int:
     benchmark_corpus_cmd.add_argument("--corpus", type=Path, required=True)
     benchmark_corpus_cmd.add_argument("--results", type=Path, required=True)
     benchmark_corpus_cmd.add_argument("--out", type=Path)
+
+    benchmark_v2_cmd = subcommands.add_parser(
+        "benchmark-v2", help="Evaluate benchmark corpus with v2 metrics and budgets."
+    )
+    benchmark_v2_cmd.add_argument("--corpus", type=Path, required=True)
+    benchmark_v2_cmd.add_argument("--results", type=Path, required=True)
+    benchmark_v2_cmd.add_argument("--false-closure-budget", type=float, default=0.0)
+    benchmark_v2_cmd.add_argument("--out", type=Path)
 
     benchmark_translation_cmd = subcommands.add_parser(
         "benchmark-translation",
@@ -1046,6 +1181,13 @@ def main(argv: list[str] | None = None) -> int:
     hard_gate_cmd.add_argument("--markdown-out", type=Path)
     _add_adapter_validation_options(hard_gate_cmd)
 
+    waiver_audit_cmd = subcommands.add_parser(
+        "waiver-audit", help="Audit waiver governance against the gate policy."
+    )
+    waiver_audit_cmd.add_argument("--policy", type=Path, required=True)
+    waiver_audit_cmd.add_argument("--waiver", action="append", type=Path, default=[])
+    waiver_audit_cmd.add_argument("--out", type=Path)
+
     continuous_cmd = subcommands.add_parser(
         "continuous-attestation",
         help="Build a Phase 8 continuous attestation run report.",
@@ -1078,6 +1220,46 @@ def main(argv: list[str] | None = None) -> int:
     trace_validate_cmd.add_argument("--trace-artifact", action="append", type=Path, required=True)
     trace_validate_cmd.add_argument("--out", type=Path)
     trace_validate_cmd.add_argument("--markdown-out", type=Path)
+
+    trace_normalize_v2_cmd = subcommands.add_parser(
+        "trace-normalize-v2", help="Normalize raw trace artifact to normalized trace schema."
+    )
+    trace_normalize_v2_cmd.add_argument("raw", type=Path)
+    trace_normalize_v2_cmd.add_argument("--out", type=Path)
+
+    trace_extract_cmd = subcommands.add_parser(
+        "trace-extract", help="Extract normalized traces through a registered local JSON producer."
+    )
+    trace_extract_cmd.add_argument("--registry", type=Path, required=True)
+    trace_extract_cmd.add_argument("--producer-id", required=True)
+    trace_extract_cmd.add_argument("--trace-source", required=True)
+    trace_extract_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    trace_extract_cmd.add_argument("--requirement-id", action="append", default=[])
+    trace_extract_cmd.add_argument("--out", type=Path)
+
+    adapter_certify_cmd = subcommands.add_parser(
+        "adapter-certify-v2", help="Run adapter certification suite v2 for production adapters."
+    )
+    adapter_certify_cmd.add_argument("--language", choices=["solidity", "go", "typescript", "rust", "java"], required=True)
+    adapter_certify_cmd.add_argument("--manifest", type=Path, required=True)
+    adapter_certify_cmd.add_argument("--symbol", action="append", default=[])
+    adapter_certify_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    adapter_certify_cmd.add_argument("--out", type=Path)
+
+    ci_pr_gate_cmd = subcommands.add_parser(
+        "ci-pr-gate", help="Render a CI/PR gate report from an end-to-end gate report."
+    )
+    ci_pr_gate_cmd.add_argument("gate_report", type=Path)
+    ci_pr_gate_cmd.add_argument("--mode", choices=["report_only", "soft_gate", "hard_gate"], default="report_only")
+    ci_pr_gate_cmd.add_argument("--out", type=Path)
+    ci_pr_gate_cmd.add_argument("--markdown-out", type=Path)
+
+    reference_demo_cmd = subcommands.add_parser(
+        "reference-demo-check", help="Validate reference demo artifact presence."
+    )
+    reference_demo_cmd.add_argument("manifest", type=Path)
+    reference_demo_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    reference_demo_cmd.add_argument("--out", type=Path)
 
     validate_registry_cmd = subcommands.add_parser(
         "validate-adapter-registry", help="Validate an adapter registry JSON artifact."
@@ -1228,6 +1410,47 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(report), end="")
             return 0 if report.result == "passed" else 1
+        if args.command == "threat-model":
+            from .jsonutil import write_json
+
+            report = build_default_threat_model()
+            if args.out:
+                write_json(args.out, report)
+                print(f"Threat model report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0
+        if args.command == "public-docs-index":
+            from .jsonutil import write_json
+
+            index = build_default_public_documentation_index(version=args.version)
+            if args.out:
+                write_json(args.out, index)
+                print(f"Public docs index: {args.out}")
+            else:
+                print(canonical_json(index), end="")
+            return 0
+        if args.command == "conclusion-certify":
+            from .benchmark_v2 import BenchmarkV2Report
+            from .jsonutil import write_json
+            from .public_sdk import PublicDocumentationIndex
+            from .reference_demo import ReferenceDemoReport
+            from .threat_model import ThreatModelReport
+
+            report = build_conclusion_certification_report(
+                release_id=args.release_id,
+                benchmark=BenchmarkV2Report.model_validate_json(args.benchmark_v2.read_text()),
+                threat_model=ThreatModelReport.model_validate_json(args.threat_model.read_text()),
+                demo=ReferenceDemoReport.model_validate_json(args.reference_demo_report.read_text()),
+                docs=PublicDocumentationIndex.model_validate_json(args.docs_index.read_text()),
+                schemas_frozen=args.schemas_frozen,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Conclusion certification report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "certified" else 1
         if args.command == "package":
             build_package(
                 controlled_text=args.file.read_text(),
@@ -1305,6 +1528,69 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(result), end="")
             return 0
+        if args.command == "artifact-put":
+            from .jsonutil import write_json
+
+            record = put_artifact(
+                store_root=args.store_root,
+                source_path=args.file,
+                logical_name=args.logical_name,
+                media_type=args.media_type,
+                raw=args.raw,
+                normalized=args.normalized,
+            )
+            if args.out:
+                write_json(args.out, record)
+                print(f"Artifact record: {args.out}")
+            else:
+                print(canonical_json(record), end="")
+            return 0
+        if args.command == "artifact-get":
+            from .jsonutil import write_json
+
+            manifest = ArtifactStoreManifest.model_validate_json(args.manifest.read_text())
+            result = lookup_artifact(
+                store_root=args.store_root,
+                manifest=manifest,
+                artifact_hash=args.hash,
+            )
+            if args.out:
+                write_json(args.out, result)
+                print(f"Artifact lookup: {args.out}")
+            else:
+                print(canonical_json(result), end="")
+            return 0 if result.status == "found" else 1
+        if args.command == "sign-evidence":
+            from .jsonutil import write_json
+
+            envelope = sign_evidence_payload(
+                payload=read_json(args.payload),
+                producer_id=args.producer_id,
+                key_id=args.key_id,
+                secret=args.secret,
+                envelope_id=args.envelope_id,
+            )
+            if args.out:
+                write_json(args.out, envelope)
+                print(f"Signed evidence envelope: {args.out}")
+            else:
+                print(canonical_json(envelope), end="")
+            return 0
+        if args.command == "verify-evidence":
+            from .jsonutil import write_json
+
+            report = verify_signed_evidence(
+                envelope=SignedEvidenceEnvelope.model_validate_json(args.envelope.read_text()),
+                registry=ProducerKeyRegistry.model_validate_json(args.registry.read_text()),
+                secrets_by_key_id=_secrets_from_args(args.secret),
+                require_high_assurance_trust=args.high_assurance,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Signature verification report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "valid" else 1
         if args.command == "draft-controlled":
             from .jsonutil import write_json
 
@@ -1396,6 +1682,20 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(artifact), end="")
             return 0
+        if args.command == "tla-projection-v2":
+            from .jsonutil import write_json
+            from .models import RequirementIRV2
+
+            ir = validate_requirement_ir_json(args.file.read_text())
+            if not isinstance(ir, RequirementIRV2):
+                raise ValueError("tla-projection-v2 requires ir_version 0.2")
+            report = build_tla_projection_v2_report(ir)
+            if args.out:
+                write_json(args.out, report)
+                print(f"TLA projection v2 report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "projected" else 1
         if args.command == "translator-agreement":
             from .jsonutil import write_json
 
@@ -1852,6 +2152,36 @@ def main(argv: list[str] | None = None) -> int:
                 write_json(args.updated_registry_out, updated)
                 print(f"Updated system spec registry: {args.updated_registry_out}")
             return 0
+        if args.command == "spec-freshness-lock":
+            from .jsonutil import write_json
+
+            lockfile = build_spec_freshness_lockfile(
+                manifest=CodeSpecManifest.model_validate_json(args.manifest.read_text()),
+                registry=load_system_spec_registry(args.registry),
+                project_root=args.project_root,
+                lock_id=args.lock_id,
+            )
+            if args.out:
+                write_json(args.out, lockfile)
+                print(f"Spec freshness lockfile: {args.out}")
+            else:
+                print(canonical_json(lockfile), end="")
+            return 0
+        if args.command == "spec-freshness-check":
+            from .jsonutil import write_json
+
+            report = validate_spec_freshness_lockfile(
+                manifest=CodeSpecManifest.model_validate_json(args.manifest.read_text()),
+                registry=load_system_spec_registry(args.registry),
+                lockfile=SpecFreshnessLockfile.model_validate_json(args.lockfile.read_text()),
+                project_root=args.project_root,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Spec freshness report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "passed" else 1
         if args.command == "delta-extract":
             from .coverage_alignment import SpecCoverageReport
             from .jsonutil import write_json
@@ -1935,6 +2265,19 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(report), end="")
             return 0
+        if args.command == "proof-evidence-boundary":
+            from .jsonutil import write_json
+            from .proof_closure import ProofObject
+
+            report = build_proof_evidence_boundary_report(
+                ProofObject.model_validate_json(args.proof_object.read_text())
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Proof evidence boundary report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "passed" else 1
         if args.command == "backend-agreement":
             from .formal_backend import FormalBackendResponse
             from .jsonutil import write_json
@@ -1957,6 +2300,22 @@ def main(argv: list[str] | None = None) -> int:
             if args.out:
                 write_json(args.out, report)
                 print(f"Backend agreement report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0
+        if args.command == "counterexample-normalize-v2":
+            from .formal_backend import FormalBackendResponse
+            from .jsonutil import write_json
+
+            report = normalize_backend_counterexamples_v2(
+                [
+                    FormalBackendResponse.model_validate_json(path.read_text())
+                    for path in args.formal_backend_response
+                ]
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Counterexample normalization v2 report: {args.out}")
             else:
                 print(canonical_json(report), end="")
             return 0
@@ -2064,6 +2423,32 @@ def main(argv: list[str] | None = None) -> int:
             if args.fail_on_blocking and report.result == "blocked":
                 return 1
             return 0
+        if args.command == "cross-language-proof":
+            from .jsonutil import write_json
+            from .models import NormalizedTraceArtifact
+            from .proof_closure import ProofObject
+            from .source_adapter import SourceManifest
+
+            report = build_cross_language_proof_object(
+                proof=ProofObject.model_validate_json(args.proof_object.read_text()),
+                manifests=[
+                    SourceManifest.model_validate_json(path.read_text())
+                    for path in args.source_manifest
+                ],
+                traces=[
+                    NormalizedTraceArtifact.model_validate_json(path.read_text())
+                    for path in args.trace_artifact
+                ],
+                causal_links=_causal_links_from_args(args.causal_link),
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Cross-language proof object: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            if args.fail_on_blocking and report.result == "blocked":
+                return 1
+            return 0
         if args.command == "requirement-gate":
             from .jsonutil import write_json
 
@@ -2120,6 +2505,21 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(report), end="")
             return 0
+        if args.command == "benchmark-v2":
+            from .benchmark_corpus import BenchmarkCorpus, BenchmarkResultsArtifact
+            from .jsonutil import write_json
+
+            report = build_benchmark_v2_report(
+                BenchmarkCorpus.model_validate_json(args.corpus.read_text()),
+                BenchmarkResultsArtifact.model_validate_json(args.results.read_text()).root,
+                false_closure_budget=args.false_closure_budget,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Benchmark v2 report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "passed" else 1
         if args.command == "benchmark-translation":
             from .jsonutil import write_json
 
@@ -2652,6 +3052,19 @@ def main(argv: list[str] | None = None) -> int:
             if not wrote_output:
                 print(canonical_json(report), end="")
             return 1 if report["result"] == "blocked" else 0
+        if args.command == "waiver-audit":
+            from .jsonutil import write_json
+
+            report = build_waiver_audit_report(
+                policy=load_gate_policy(args.policy),
+                waivers=load_gate_waivers(args.waiver),
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Waiver audit report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "passed" else 1
         if args.command == "continuous-attestation":
             report = build_attestation_run(
                 args.packages_dir,
@@ -2709,6 +3122,88 @@ def main(argv: list[str] | None = None) -> int:
             if not wrote_output:
                 print(canonical_json(report), end="")
             return 0
+        if args.command == "trace-normalize-v2":
+            from .jsonutil import write_json
+
+            report = normalize_raw_traces_v2(
+                RawTraceArtifact.model_validate_json(args.raw.read_text())
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Trace normalization v2 report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0
+        if args.command == "trace-extract":
+            from .jsonutil import write_json
+
+            registry = TraceProducerRegistry.model_validate_json(args.registry.read_text())
+            producer = producer_from_registry(registry, args.producer_id)
+            report = producer.extract(
+                TraceExtractionRequest(
+                    producer_id=args.producer_id,
+                    trace_source=args.trace_source,
+                    requirement_ids=args.requirement_id,
+                ),
+                project_root=args.project_root,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Trace extraction result: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.status == "extracted" else 1
+        if args.command == "adapter-certify-v2":
+            from .jsonutil import write_json
+
+            adapter = production_adapter_for_language(args.language, project_root=args.project_root)
+            manifest = adapter.parse_manifest(args.manifest)
+            report = certify_adapter_v2(
+                adapter,
+                manifest,
+                symbol_refs=[SymbolRef(name=symbol) for symbol in args.symbol],
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Adapter certification report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "certified" else 1
+        if args.command == "ci-pr-gate":
+            from .end_to_end_gate import EndToEndRequirementGateReport
+            from .jsonutil import write_json
+
+            report = build_ci_pr_gate_report(
+                EndToEndRequirementGateReport.model_validate_json(args.gate_report.read_text()),
+                mode=args.mode,
+            )
+            wrote_output = False
+            if args.out:
+                write_json(args.out, report)
+                print(f"CI/PR gate report: {args.out}")
+                wrote_output = True
+            if args.markdown_out:
+                args.markdown_out.parent.mkdir(parents=True, exist_ok=True)
+                args.markdown_out.write_text(ci_pr_gate_markdown(report))
+                print(f"CI/PR gate markdown: {args.markdown_out}")
+                wrote_output = True
+            if not wrote_output:
+                print(canonical_json(report), end="")
+            return 0 if report.result != "blocked" else 1
+        if args.command == "reference-demo-check":
+            from .jsonutil import write_json
+
+            manifest = ReferenceDemoManifest.model_validate_json(args.manifest.read_text())
+            report = build_reference_demo_report(
+                manifest,
+                existing_paths=_existing_demo_paths(manifest, project_root=args.project_root),
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Reference demo report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "reproducible" else 1
         if args.command == "validate-adapter-registry":
             AdapterRegistryArtifact.model_validate_json(args.file.read_text())
             print("Adapter registry: valid")
@@ -3388,6 +3883,53 @@ def _artifact_refs_from_args(values: list[str]):
             raise ValueError("--artifact name cannot be empty")
         refs.append(artifact_ref_from_path(name, Path(raw_path)))
     return refs
+
+
+def _secrets_from_args(values: list[str]) -> dict[str, str]:
+    secrets: dict[str, str] = {}
+    for value in values:
+        if "=" not in value:
+            raise ValueError("--secret values must use key_id=secret")
+        key_id, secret = value.split("=", 1)
+        if not key_id or not secret:
+            raise ValueError("--secret key_id and secret cannot be empty")
+        secrets[key_id] = secret
+    return secrets
+
+
+def _causal_links_from_args(values: list[str]) -> list[CausalTraceLink]:
+    links: list[CausalTraceLink] = []
+    for value in values:
+        if value.startswith("@"):
+            payload = read_json(Path(value[1:]))
+        else:
+            import json
+
+            payload = json.loads(value)
+        if isinstance(payload, list):
+            links.extend(CausalTraceLink.model_validate(item) for item in payload)
+        else:
+            links.append(CausalTraceLink.model_validate(payload))
+    return links
+
+
+def _existing_demo_paths(manifest: ReferenceDemoManifest, *, project_root: Path) -> set[str]:
+    paths = [
+        manifest.source_root,
+        *manifest.system_specs,
+        *manifest.trace_artifacts,
+        *[item.controlled_text_path for item in manifest.requirements],
+        *[
+            item.expected_report_path
+            for item in manifest.requirements
+            if item.expected_report_path is not None
+        ],
+    ]
+    existing: set[str] = set()
+    for path in paths:
+        if (project_root / path).exists():
+            existing.add(path)
+    return existing
 
 
 if __name__ == "__main__":

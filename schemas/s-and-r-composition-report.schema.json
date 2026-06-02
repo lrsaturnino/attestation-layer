@@ -1,0 +1,141 @@
+{
+  "$defs": {
+    "ComposedSystemSpecRef": {
+      "additionalProperties": false,
+      "properties": {
+        "current_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Hash"
+        },
+        "formalism": {
+          "title": "Formalism",
+          "type": "string"
+        },
+        "freshness": {
+          "title": "Freshness",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "recorded_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recorded Hash"
+        },
+        "review_status": {
+          "title": "Review Status",
+          "type": "string"
+        },
+        "spec_id": {
+          "title": "Spec Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spec_id",
+        "path",
+        "formalism",
+        "review_status",
+        "freshness"
+      ],
+      "title": "ComposedSystemSpecRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "backend_result_hash": {
+      "title": "Backend Result Hash",
+      "type": "string"
+    },
+    "composition_id": {
+      "title": "Composition Id",
+      "type": "string"
+    },
+    "impact_hash": {
+      "title": "Impact Hash",
+      "type": "string"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "lowered_hash": {
+      "title": "Lowered Hash",
+      "type": "string"
+    },
+    "requirement_hash": {
+      "title": "Requirement Hash",
+      "type": "string"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "valid",
+        "counterexample",
+        "timeout",
+        "unsupported",
+        "invalid"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "system_specs": {
+      "items": {
+        "$ref": "#/$defs/ComposedSystemSpecRef"
+      },
+      "title": "System Specs",
+      "type": "array"
+    },
+    "tool": {
+      "default": "nlreq.system_composition",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "result",
+    "composition_id",
+    "requirement_hash",
+    "lowered_hash",
+    "impact_hash",
+    "backend_result_hash"
+  ],
+  "title": "SandRCompositionReport",
+  "type": "object"
+}

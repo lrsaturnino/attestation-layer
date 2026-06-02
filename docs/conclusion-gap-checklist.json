@@ -112,6 +112,305 @@
       "owner_phase": 55,
       "required_adr": "ADR 0064",
       "status": "implemented"
+    },
+    {
+      "capability": "Apalache production backend",
+      "capability_id": "G56",
+      "deliverables": [
+        "src/nlreq/formal_backend.py",
+        "docs/phase-56-apalache-backend-production-integration.md"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 56,
+      "required_adr": "ADR 0065",
+      "status": "implemented"
+    },
+    {
+      "capability": "TLC production backend",
+      "capability_id": "G57",
+      "deliverables": [
+        "src/nlreq/formal_backend.py",
+        "docs/phase-57-tlc-backend-production-integration.md"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 57,
+      "required_adr": "ADR 0066",
+      "status": "implemented"
+    },
+    {
+      "capability": "TLA projection semantics v2",
+      "capability_id": "G58",
+      "deliverables": [
+        "src/nlreq/tla_projection_v2.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 58,
+      "required_adr": "ADR 0067",
+      "status": "implemented"
+    },
+    {
+      "capability": "Counterexample normalization v2",
+      "capability_id": "G59",
+      "deliverables": [
+        "src/nlreq/counterexample_v2.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 59,
+      "required_adr": "ADR 0068",
+      "status": "implemented"
+    },
+    {
+      "capability": "Real S and R composition report",
+      "capability_id": "G60",
+      "deliverables": [
+        "src/nlreq/system_composition.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 60,
+      "required_adr": "ADR 0069",
+      "status": "implemented"
+    },
+    {
+      "capability": "Proof-level evidence boundary",
+      "capability_id": "G61",
+      "deliverables": [
+        "src/nlreq/evidence_boundary.py"
+      ],
+      "gap_type": "architecture",
+      "owner_phase": 61,
+      "required_adr": "ADR 0070",
+      "status": "implemented"
+    },
+    {
+      "capability": "Specula-style extraction runner",
+      "capability_id": "G62",
+      "deliverables": [
+        "src/nlreq/spec_extraction.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 62,
+      "required_adr": "ADR 0071",
+      "status": "implemented"
+    },
+    {
+      "capability": "Code-to-spec manifest v2",
+      "capability_id": "G63",
+      "deliverables": [
+        "src/nlreq/spec_drift.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 63,
+      "required_adr": "ADR 0072",
+      "status": "implemented"
+    },
+    {
+      "capability": "Spec freshness lockfile",
+      "capability_id": "G64",
+      "deliverables": [
+        "src/nlreq/spec_freshness.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 64,
+      "required_adr": "ADR 0073",
+      "status": "implemented"
+    },
+    {
+      "capability": "Runtime trace extraction SDK",
+      "capability_id": "G65",
+      "deliverables": [
+        "src/nlreq/runtime_trace_sdk.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 65,
+      "required_adr": "ADR 0074",
+      "status": "implemented"
+    },
+    {
+      "capability": "Trace normalization v2",
+      "capability_id": "G66",
+      "deliverables": [
+        "src/nlreq/trace_normalization_v2.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 66,
+      "required_adr": "ADR 0075",
+      "status": "implemented"
+    },
+    {
+      "capability": "Solidity adapter",
+      "capability_id": "G67",
+      "deliverables": [
+        "src/nlreq/production_source_adapters.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 67,
+      "required_adr": "ADR 0076",
+      "status": "implemented"
+    },
+    {
+      "capability": "Go adapter",
+      "capability_id": "G68",
+      "deliverables": [
+        "src/nlreq/production_source_adapters.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 68,
+      "required_adr": "ADR 0077",
+      "status": "implemented"
+    },
+    {
+      "capability": "TypeScript adapter",
+      "capability_id": "G69",
+      "deliverables": [
+        "src/nlreq/production_source_adapters.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 69,
+      "required_adr": "ADR 0078",
+      "status": "implemented"
+    },
+    {
+      "capability": "Rust or Java adapter",
+      "capability_id": "G70",
+      "deliverables": [
+        "src/nlreq/production_source_adapters.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 70,
+      "required_adr": "ADR 0079",
+      "status": "implemented"
+    },
+    {
+      "capability": "Adapter certification suite v2",
+      "capability_id": "G71",
+      "deliverables": [
+        "src/nlreq/adapter_certification.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 71,
+      "required_adr": "ADR 0080",
+      "status": "implemented"
+    },
+    {
+      "capability": "Cross-language proof object",
+      "capability_id": "G72",
+      "deliverables": [
+        "src/nlreq/cross_language.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 72,
+      "required_adr": "ADR 0081",
+      "status": "implemented"
+    },
+    {
+      "capability": "Evidence artifact store",
+      "capability_id": "G73",
+      "deliverables": [
+        "src/nlreq/artifact_store.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 73,
+      "required_adr": "ADR 0082",
+      "status": "implemented"
+    },
+    {
+      "capability": "Signed evidence and producer attestation",
+      "capability_id": "G74",
+      "deliverables": [
+        "src/nlreq/signed_evidence.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 74,
+      "required_adr": "ADR 0083",
+      "status": "implemented"
+    },
+    {
+      "capability": "CI and PR action gate",
+      "capability_id": "G75",
+      "deliverables": [
+        "src/nlreq/ci_pr_gate.py"
+      ],
+      "gap_type": "adoption",
+      "owner_phase": 75,
+      "required_adr": "ADR 0084",
+      "status": "implemented"
+    },
+    {
+      "capability": "Benchmark corpus v2",
+      "capability_id": "G76",
+      "deliverables": [
+        "src/nlreq/benchmark_v2.py"
+      ],
+      "gap_type": "benchmark",
+      "owner_phase": 76,
+      "required_adr": "ADR 0085",
+      "status": "implemented"
+    },
+    {
+      "capability": "Performance and caching",
+      "capability_id": "G77",
+      "deliverables": [
+        "src/nlreq/verification_cache.py"
+      ],
+      "gap_type": "implementation",
+      "owner_phase": 77,
+      "required_adr": "ADR 0086",
+      "status": "implemented"
+    },
+    {
+      "capability": "Policy and waiver governance v2",
+      "capability_id": "G78",
+      "deliverables": [
+        "src/nlreq/policy_v2.py"
+      ],
+      "gap_type": "product",
+      "owner_phase": 78,
+      "required_adr": "ADR 0087",
+      "status": "implemented"
+    },
+    {
+      "capability": "Threat model and TCB audit",
+      "capability_id": "G79",
+      "deliverables": [
+        "src/nlreq/threat_model.py"
+      ],
+      "gap_type": "architecture",
+      "owner_phase": 79,
+      "required_adr": "ADR 0088",
+      "status": "implemented"
+    },
+    {
+      "capability": "Reference brownfield demo",
+      "capability_id": "G80",
+      "deliverables": [
+        "src/nlreq/reference_demo.py"
+      ],
+      "gap_type": "adoption",
+      "owner_phase": 80,
+      "required_adr": "ADR 0089",
+      "status": "implemented"
+    },
+    {
+      "capability": "Public documentation and SDK",
+      "capability_id": "G81",
+      "deliverables": [
+        "src/nlreq/public_sdk.py"
+      ],
+      "gap_type": "adoption",
+      "owner_phase": 81,
+      "required_adr": "ADR 0090",
+      "status": "implemented"
+    },
+    {
+      "capability": "Conclusion release certification",
+      "capability_id": "G82",
+      "deliverables": [
+        "src/nlreq/conclusion_certification.py"
+      ],
+      "gap_type": "product",
+      "owner_phase": 82,
+      "required_adr": "ADR 0091",
+      "status": "implemented"
     }
   ],
   "phase_max": 82,

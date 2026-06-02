@@ -1,0 +1,41 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "demo_id": {
+      "title": "Demo Id",
+      "type": "string"
+    },
+    "missing_artifacts": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Artifacts",
+      "type": "array"
+    },
+    "requirement_count": {
+      "default": 0,
+      "title": "Requirement Count",
+      "type": "integer"
+    },
+    "result": {
+      "enum": [
+        "reproducible",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "demo_id",
+    "result"
+  ],
+  "title": "ReferenceDemoReport",
+  "type": "object"
+}

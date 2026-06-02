@@ -1,0 +1,64 @@
+{
+  "$defs": {
+    "ProducerKey": {
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "const": "HMAC-SHA256",
+          "default": "HMAC-SHA256",
+          "title": "Algorithm",
+          "type": "string"
+        },
+        "key_id": {
+          "title": "Key Id",
+          "type": "string"
+        },
+        "producer_id": {
+          "title": "Producer Id",
+          "type": "string"
+        },
+        "public_hint": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Public Hint"
+        },
+        "trusted_for_high_assurance": {
+          "default": false,
+          "title": "Trusted For High Assurance",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "key_id",
+        "producer_id"
+      ],
+      "title": "ProducerKey",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "keys": {
+      "items": {
+        "$ref": "#/$defs/ProducerKey"
+      },
+      "title": "Keys",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "title": "ProducerKeyRegistry",
+  "type": "object"
+}

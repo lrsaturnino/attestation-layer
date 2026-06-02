@@ -98,13 +98,13 @@ DSL_V3_CASES = [
 ]
 
 
-def test_conclusion_gap_checklist_covers_group_1_phases(capsys) -> None:
+def test_conclusion_gap_checklist_covers_conclusion_phases(capsys) -> None:
     checklist = build_default_gap_checklist()
     report = check_gap_checklist(checklist)
 
     assert report.result == "passed"
-    assert report.implemented_items == 10
-    assert {item.owner_phase for item in checklist.items} == set(range(46, 56))
+    assert report.implemented_items == 37
+    assert {item.owner_phase for item in checklist.items} == set(range(46, 83))
 
     exit_code = main(["conclusion-gap-checklist"])
     output = json.loads(capsys.readouterr().out)

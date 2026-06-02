@@ -1,0 +1,83 @@
+{
+  "$defs": {
+    "TraceProducerRegistration": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter_id": {
+          "title": "Adapter Id",
+          "type": "string"
+        },
+        "command": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Command",
+          "type": "array"
+        },
+        "language": {
+          "title": "Language",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "producer_id": {
+          "title": "Producer Id",
+          "type": "string"
+        },
+        "produces_normalized_schema": {
+          "const": "0.1",
+          "title": "Produces Normalized Schema",
+          "type": "string"
+        },
+        "real_producer": {
+          "default": true,
+          "title": "Real Producer",
+          "type": "boolean"
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime"
+        }
+      },
+      "required": [
+        "producer_id",
+        "adapter_id",
+        "language",
+        "produces_normalized_schema"
+      ],
+      "title": "TraceProducerRegistration",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "producers": {
+      "items": {
+        "$ref": "#/$defs/TraceProducerRegistration"
+      },
+      "title": "Producers",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "title": "TraceProducerRegistry",
+  "type": "object"
+}

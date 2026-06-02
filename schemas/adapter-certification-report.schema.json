@@ -1,0 +1,137 @@
+{
+  "$defs": {
+    "AdapterCertificationFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "manifest",
+            "symbol_resolution",
+            "call_graph",
+            "trace_extraction"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "blocking"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "subject": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject"
+        }
+      },
+      "required": [
+        "category",
+        "severity",
+        "message"
+      ],
+      "title": "AdapterCertificationFinding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapter_id": {
+      "title": "Adapter Id",
+      "type": "string"
+    },
+    "call_graph_edges": {
+      "default": 0,
+      "title": "Call Graph Edges",
+      "type": "integer"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/AdapterCertificationFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "language": {
+      "title": "Language",
+      "type": "string"
+    },
+    "level": {
+      "enum": [
+        "manifest_only",
+        "static_resolution",
+        "trace_capable",
+        "production_candidate"
+      ],
+      "title": "Level",
+      "type": "string"
+    },
+    "resolved_symbols": {
+      "default": 0,
+      "title": "Resolved Symbols",
+      "type": "integer"
+    },
+    "result": {
+      "enum": [
+        "certified",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.adapter_certification",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "trace_count": {
+      "default": 0,
+      "title": "Trace Count",
+      "type": "integer"
+    },
+    "unresolved_symbols": {
+      "default": 0,
+      "title": "Unresolved Symbols",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "adapter_id",
+    "language",
+    "result",
+    "level"
+  ],
+  "title": "AdapterCertificationReport",
+  "type": "object"
+}

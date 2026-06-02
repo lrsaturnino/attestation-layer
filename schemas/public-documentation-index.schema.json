@@ -1,0 +1,119 @@
+{
+  "$defs": {
+    "PublicDocEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "audience": {
+          "enum": [
+            "user",
+            "adapter_author",
+            "backend_author",
+            "operator"
+          ],
+          "title": "Audience",
+          "type": "string"
+        },
+        "doc_id": {
+          "title": "Doc Id",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "schema_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Schema Refs",
+          "type": "array"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "doc_id",
+        "title",
+        "path",
+        "audience"
+      ],
+      "title": "PublicDocEntry",
+      "type": "object"
+    },
+    "PublicSdkExample": {
+      "additionalProperties": false,
+      "properties": {
+        "covers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Covers",
+          "type": "array"
+        },
+        "example_id": {
+          "title": "Example Id",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "example_id",
+        "title",
+        "path"
+      ],
+      "title": "PublicSdkExample",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "docs": {
+      "items": {
+        "$ref": "#/$defs/PublicDocEntry"
+      },
+      "title": "Docs",
+      "type": "array"
+    },
+    "examples": {
+      "items": {
+        "$ref": "#/$defs/PublicSdkExample"
+      },
+      "title": "Examples",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.public_sdk",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "version"
+  ],
+  "title": "PublicDocumentationIndex",
+  "type": "object"
+}

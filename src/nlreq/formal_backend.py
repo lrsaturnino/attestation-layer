@@ -282,11 +282,152 @@ class TlaRunnerBackend:
         )
 
 
+class ProductionTlaBackend:
+    backend_id = "production-tla"
+    checker_id = "production-tla"
+    target: FormalBackendTarget = "tla"
+
+    def default_command(self, budget: FormalBackendBudget | None) -> list[str]:
+        raise NotImplementedError
+
+    def check(self, request: FormalBackendRequest) -> FormalBackendResponse:
+        if request.backend_id != self.backend_id:
+            raise ValueError(
+                f"backend_id mismatch: request {request.backend_id}, backend {self.backend_id}"
+            )
+        if request.target != self.target:
+            raise ValueError(f"target mismatch: request {request.target}, backend {self.target}")
+
+        lowered = lower_ir_v2_to_tla(request.requirement)
+        if lowered.status != "lowered" or lowered.content is None:
+            unsupported = [
+                UnsupportedConstruct(
+                    node_id=diagnostic.node_id,
+                    kind=diagnostic.kind,
+                    reason=diagnostic.reason,
+                )
+                for diagnostic in lowered.diagnostics
+            ]
+            return FormalBackendResponse(
+                backend_id=self.backend_id,
+                target=self.target,
+                result=BackendResult(
+                    backend=self.backend_id,
+                    status="unsupported",
+                    evidence_level=None,
+                    details={
+                        "entry_node_id": request.entry_node_id,
+                        "execution": "not_run",
+                        "reason": "TLA projection refused the requirement fragment",
+                        "diagnostics": [
+                            item.model_dump(mode="json", exclude_none=True)
+                            for item in lowered.diagnostics
+                        ],
+                    },
+                ),
+                unsupported_constructs=unsupported,
+                lowered_artifact_hash=sha256_json(lowered),
+            )
+
+        execution = request.execution or FormalBackendExecution(checker_id=self.checker_id)
+        artifact_dir = _production_tla_artifact_dir(request, execution, self.backend_id)
+        artifact_dir.mkdir(parents=True, exist_ok=True)
+        module_name = _tla_module_name(lowered)
+        module_path = artifact_dir / f"{module_name}.tla"
+        config_path = artifact_dir / f"{module_name}.cfg"
+        module_path.write_text(lowered.content)
+        config_path.write_text(_tla_config_content())
+
+        command = _production_tla_command(
+            execution.command or self.default_command(request.budget),
+            module_path=module_path,
+            config_path=config_path,
+            module_name=module_name,
+            budget=request.budget,
+        )
+        runner_result = run_model_checker(
+            ModelCheckerCommand(
+                run_id=f"{request.requirement.requirement_id}:{self.backend_id}",
+                checker_id=execution.checker_id,
+                command=command,
+                cwd=artifact_dir.as_posix(),
+                budget=_runner_budget(request.budget),
+                expected_exit_code=execution.expected_exit_code,
+                tool_version=execution.tool_version,
+                tool_version_command=execution.tool_version_command,
+                output_limit_bytes=execution.output_limit_bytes,
+            )
+        )
+        status = _production_backend_status_for_runner(runner_result)
+        evidence_level = (
+            EvidenceLevel.BOUNDED_CHECKED
+            if status in {"valid", "counterexample"}
+            else None
+        )
+        return FormalBackendResponse(
+            backend_id=self.backend_id,
+            target=self.target,
+            result=BackendResult(
+                backend=self.backend_id,
+                status=status,
+                evidence_level=evidence_level,
+                details={
+                    "entry_node_id": request.entry_node_id,
+                    "execution": "run",
+                    "checker_id": execution.checker_id,
+                    "runner_outcome": runner_result.outcome,
+                    "runner_result_hash": sha256_json(runner_result),
+                    "tool_missing": (
+                        runner_result.outcome == "tool_error"
+                        and runner_result.reproducibility.executable_resolved is None
+                    ),
+                    "artifact_dir": artifact_dir.as_posix(),
+                    "module": module_path.name,
+                    "module_hash": _sha256_file(module_path),
+                    "config": config_path.name,
+                    "config_hash": _sha256_file(config_path),
+                    "bounds": _budget_details(request.budget),
+                    "command": command,
+                    "stdout": runner_result.stdout.model_dump(mode="json"),
+                    "stderr": runner_result.stderr.model_dump(mode="json"),
+                    "counterexamples": [
+                        item.model_dump(mode="json", exclude_none=True)
+                        for item in runner_result.counterexamples
+                    ],
+                    "unsupported_markers": runner_result.unsupported_markers,
+                    "tool_error": runner_result.tool_error,
+                },
+            ),
+            lowered_artifact_hash=sha256_json(lowered),
+        )
+
+
+class ApalacheBackend(ProductionTlaBackend):
+    backend_id = "apalache"
+    checker_id = "apalache"
+
+    def default_command(self, budget: FormalBackendBudget | None) -> list[str]:
+        depth = (budget.max_depth if budget is not None and budget.max_depth else 10)
+        return ["apalache-mc", "check", f"--length={depth}", "{module}"]
+
+
+class TlcProductionBackend(ProductionTlaBackend):
+    backend_id = "tlc"
+    checker_id = "tlc"
+
+    def default_command(self, budget: FormalBackendBudget | None) -> list[str]:
+        return ["tlc2.TLC", "-config", "{config}", "{module}"]
+
+
 def formal_backend_for_id(backend_id: str) -> FormalBackend:
     if backend_id == TlaBoundaryBackend.backend_id:
         return TlaBoundaryBackend()
     if backend_id == TlaRunnerBackend.backend_id:
         return TlaRunnerBackend()
+    if backend_id == ApalacheBackend.backend_id:
+        return ApalacheBackend()
+    if backend_id == TlcProductionBackend.backend_id:
+        return TlcProductionBackend()
     raise ValueError(f"unknown formal backend: {backend_id}")
 
 
@@ -332,6 +473,16 @@ def existing_formal_boundaries() -> list[dict[str, str]]:
             "backend_id": TlaRunnerBackend.backend_id,
             "target": TlaRunnerBackend.target,
             "scope": "runnable TLA+ MVP lowering and local model-checker execution",
+        },
+        {
+            "backend_id": ApalacheBackend.backend_id,
+            "target": ApalacheBackend.target,
+            "scope": "production symbolic bounded checking through Apalache command execution",
+        },
+        {
+            "backend_id": TlcProductionBackend.backend_id,
+            "target": TlcProductionBackend.target,
+            "scope": "production explicit-state checking through TLC command execution",
         },
     ]
 
@@ -403,6 +554,57 @@ def _backend_status_for_runner_outcome(outcome: str) -> str:
     if outcome == "tool_error":
         return "invalid"
     return outcome
+
+
+def _production_backend_status_for_runner(runner_result) -> str:
+    if (
+        runner_result.outcome == "tool_error"
+        and runner_result.reproducibility.executable_resolved is None
+    ):
+        return "unsupported"
+    if runner_result.outcome == "tool_error":
+        return "invalid"
+    return runner_result.outcome
+
+
+def _production_tla_artifact_dir(
+    request: FormalBackendRequest,
+    execution: FormalBackendExecution,
+    backend_id: str,
+) -> Path:
+    if execution.artifact_dir is not None:
+        return Path(execution.artifact_dir).resolve(strict=False)
+    return (
+        Path.cwd()
+        / ".nlreq-formal-artifacts"
+        / request.requirement.requirement_id
+        / backend_id
+    ).resolve(strict=False)
+
+
+def _production_tla_command(
+    command: list[str],
+    *,
+    module_path: Path,
+    config_path: Path,
+    module_name: str,
+    budget: FormalBackendBudget | None,
+) -> list[str]:
+    replacements = {
+        "{module}": module_path.name,
+        "{config}": config_path.name,
+        "{module_name}": module_name,
+        "{max_depth}": str(budget.max_depth if budget and budget.max_depth else 10),
+        "{max_states}": str(budget.max_states if budget and budget.max_states else ""),
+    }
+    rendered: list[str] = []
+    for part in command:
+        value = part
+        for token, replacement in replacements.items():
+            value = value.replace(token, replacement)
+        if value:
+            rendered.append(value)
+    return rendered
 
 
 def _sha256_file(path: Path) -> str:

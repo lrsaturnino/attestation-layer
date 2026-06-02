@@ -148,6 +148,33 @@ def build_default_gap_checklist() -> ConclusionGapChecklist:
         ("G53", "Logical translator agreement", "implementation", "implemented", 53, ["schemas/logical-translation-agreement-report.schema.json"]),
         ("G54", "Contradiction taxonomy v2", "implementation", "implemented", 54, ["docs/contradiction-taxonomy-v2.md"]),
         ("G55", "Requirement translation corpus", "benchmark", "implemented", 55, ["benchmarks/requirements-translation/corpus.json"]),
+        ("G56", "Apalache production backend", "implementation", "implemented", 56, ["src/nlreq/formal_backend.py", "docs/phase-56-apalache-backend-production-integration.md"]),
+        ("G57", "TLC production backend", "implementation", "implemented", 57, ["src/nlreq/formal_backend.py", "docs/phase-57-tlc-backend-production-integration.md"]),
+        ("G58", "TLA projection semantics v2", "implementation", "implemented", 58, ["src/nlreq/tla_projection_v2.py"]),
+        ("G59", "Counterexample normalization v2", "implementation", "implemented", 59, ["src/nlreq/counterexample_v2.py"]),
+        ("G60", "Real S and R composition report", "implementation", "implemented", 60, ["src/nlreq/system_composition.py"]),
+        ("G61", "Proof-level evidence boundary", "architecture", "implemented", 61, ["src/nlreq/evidence_boundary.py"]),
+        ("G62", "Specula-style extraction runner", "implementation", "implemented", 62, ["src/nlreq/spec_extraction.py"]),
+        ("G63", "Code-to-spec manifest v2", "implementation", "implemented", 63, ["src/nlreq/spec_drift.py"]),
+        ("G64", "Spec freshness lockfile", "implementation", "implemented", 64, ["src/nlreq/spec_freshness.py"]),
+        ("G65", "Runtime trace extraction SDK", "implementation", "implemented", 65, ["src/nlreq/runtime_trace_sdk.py"]),
+        ("G66", "Trace normalization v2", "implementation", "implemented", 66, ["src/nlreq/trace_normalization_v2.py"]),
+        ("G67", "Solidity adapter", "implementation", "implemented", 67, ["src/nlreq/production_source_adapters.py"]),
+        ("G68", "Go adapter", "implementation", "implemented", 68, ["src/nlreq/production_source_adapters.py"]),
+        ("G69", "TypeScript adapter", "implementation", "implemented", 69, ["src/nlreq/production_source_adapters.py"]),
+        ("G70", "Rust or Java adapter", "implementation", "implemented", 70, ["src/nlreq/production_source_adapters.py"]),
+        ("G71", "Adapter certification suite v2", "implementation", "implemented", 71, ["src/nlreq/adapter_certification.py"]),
+        ("G72", "Cross-language proof object", "implementation", "implemented", 72, ["src/nlreq/cross_language.py"]),
+        ("G73", "Evidence artifact store", "implementation", "implemented", 73, ["src/nlreq/artifact_store.py"]),
+        ("G74", "Signed evidence and producer attestation", "implementation", "implemented", 74, ["src/nlreq/signed_evidence.py"]),
+        ("G75", "CI and PR action gate", "adoption", "implemented", 75, ["src/nlreq/ci_pr_gate.py"]),
+        ("G76", "Benchmark corpus v2", "benchmark", "implemented", 76, ["src/nlreq/benchmark_v2.py"]),
+        ("G77", "Performance and caching", "implementation", "implemented", 77, ["src/nlreq/verification_cache.py"]),
+        ("G78", "Policy and waiver governance v2", "product", "implemented", 78, ["src/nlreq/policy_v2.py"]),
+        ("G79", "Threat model and TCB audit", "architecture", "implemented", 79, ["src/nlreq/threat_model.py"]),
+        ("G80", "Reference brownfield demo", "adoption", "implemented", 80, ["src/nlreq/reference_demo.py"]),
+        ("G81", "Public documentation and SDK", "adoption", "implemented", 81, ["src/nlreq/public_sdk.py"]),
+        ("G82", "Conclusion release certification", "product", "implemented", 82, ["src/nlreq/conclusion_certification.py"]),
     ]
     return ConclusionGapChecklist(
         roadmap="docs/nl-attestation-conclusion-roadmap.md",
@@ -179,7 +206,7 @@ def check_gap_checklist(checklist: ConclusionGapChecklist) -> ConclusionGapCheck
             numbering_errors.append(f"{item.capability_id}: expected {expected}, got {item.required_adr}")
     missing_owner_phases = [
         phase
-        for phase in range(46, 56)
+        for phase in range(checklist.phase_min, checklist.phase_max + 1)
         if phase not in {item.owner_phase for item in checklist.items}
     ]
     failed = bool(unknown_phase_refs or numbering_errors or missing_owner_phases)

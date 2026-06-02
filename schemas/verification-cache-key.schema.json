@@ -1,0 +1,42 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "policy_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Policy Hash"
+    },
+    "stage": {
+      "title": "Stage",
+      "type": "string"
+    },
+    "tool_versions": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Tool Versions",
+      "type": "object"
+    }
+  },
+  "required": [
+    "stage",
+    "input_hashes",
+    "tool_versions"
+  ],
+  "title": "VerificationCacheKey",
+  "type": "object"
+}

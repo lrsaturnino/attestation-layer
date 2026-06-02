@@ -1,0 +1,84 @@
+{
+  "$defs": {
+    "SpecFreshnessLockStatus": {
+      "additionalProperties": false,
+      "properties": {
+        "changed_sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changed Sources",
+          "type": "array"
+        },
+        "changed_specs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changed Specs",
+          "type": "array"
+        },
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "status": {
+          "enum": [
+            "fresh",
+            "stale",
+            "missing_lock",
+            "missing_file"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "module_id",
+        "status"
+      ],
+      "title": "SpecFreshnessLockStatus",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "result": {
+      "enum": [
+        "passed",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "statuses": {
+      "items": {
+        "$ref": "#/$defs/SpecFreshnessLockStatus"
+      },
+      "title": "Statuses",
+      "type": "array"
+    }
+  },
+  "required": [
+    "result"
+  ],
+  "title": "SpecFreshnessLockReport",
+  "type": "object"
+}

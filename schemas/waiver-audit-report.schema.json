@@ -1,0 +1,83 @@
+{
+  "$defs": {
+    "WaiverAuditFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "blocking": {
+          "title": "Blocking",
+          "type": "boolean"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "active",
+            "expired",
+            "unsafe",
+            "out_of_policy"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "waiver_id": {
+          "title": "Waiver Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "waiver_id",
+        "status",
+        "blocking",
+        "reason"
+      ],
+      "title": "WaiverAuditFinding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/WaiverAuditFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "policy_id": {
+      "title": "Policy Id",
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.policy_v2",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "policy_id",
+    "result"
+  ],
+  "title": "WaiverAuditReport",
+  "type": "object"
+}

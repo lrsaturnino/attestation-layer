@@ -19,18 +19,30 @@ from nlreq.models import (
     VerificationTasksArtifact,
 )
 from nlreq.command_adapter import CommandChecksArtifact, CommandResultsArtifact
+from nlreq.adapter_certification import AdapterCertificationReport
 from nlreq.agnostic_wedge import AgnosticWedgeReport
+from nlreq.artifact_store import (
+    ArtifactLookupResult,
+    ArtifactStoreManifest,
+    ReplayBundleManifest,
+)
 from nlreq.backend_agreement import BackendAgreementReport
 from nlreq.benchmark_corpus import (
     BenchmarkCorpus,
     BenchmarkResultsArtifact,
     BenchmarkRunReport,
 )
+from nlreq.benchmark_v2 import BenchmarkV2Report
+from nlreq.ci_pr_gate import CiPrGateReport
 from nlreq.conclusion import (
     ConclusionDefinition,
     ConclusionGapCheckReport,
     ConclusionGapChecklist,
 )
+from nlreq.conclusion_certification import ConclusionCertificationReport
+from nlreq.counterexample_v2 import CounterexampleNormalizationV2Report
+from nlreq.cross_language import CrossLanguageProofObject
+from nlreq.evidence_boundary import ProofEvidenceBoundaryReport
 from nlreq.intake import (
     ControlledRewriteApproval,
     ControlledRewriteProposal,
@@ -66,8 +78,17 @@ from nlreq.proof_closure import (
     ProofDispatchPlan,
     ProofObject,
 )
+from nlreq.policy_v2 import WaiverAuditReport
+from nlreq.public_sdk import PublicDocumentationIndex
+from nlreq.reference_demo import ReferenceDemoManifest, ReferenceDemoReport
 from nlreq.requirement_self_consistency import RequirementSelfConsistencyResult
 from nlreq.routing import AdapterRegistryArtifact, RoutingPolicyArtifact
+from nlreq.runtime_trace_sdk import TraceExtractionResult, TraceProducerRegistry
+from nlreq.signed_evidence import (
+    ProducerKeyRegistry,
+    SignatureVerificationReport,
+    SignedEvidenceEnvelope,
+)
 from nlreq.source_adapter import (
     CodePresentation,
     SourceCallGraph,
@@ -76,8 +97,13 @@ from nlreq.source_adapter import (
 )
 from nlreq.spec_drift import CodeSpecManifest, SpecDriftReport
 from nlreq.spec_extraction import SpecExtractionWorkbenchReport
+from nlreq.spec_freshness import SpecFreshnessLockReport, SpecFreshnessLockfile
+from nlreq.system_composition import SandRCompositionReport
 from nlreq.system_spec import SystemSpecRegistry, SystemSpecRegistryReport
 from nlreq.system_checker import SystemConsistencyResult, RequirementSetConsistencyReport
+from nlreq.threat_model import ThreatModelReport
+from nlreq.tla_projection_v2 import TlaProjectionV2Report
+from nlreq.trace_normalization_v2 import RawTraceArtifact, TraceNormalizationV2Report
 from nlreq.trace_validation import TraceValidationResultsArtifact
 from nlreq.trace_replay import TraceReplayReport
 from nlreq.tla_adapter import TlaModelConfigArtifact, TlaResultsArtifact
@@ -88,6 +114,11 @@ from nlreq.verification_budget import (
     VerificationBudgetReport,
     VerificationBudgetPolicy,
 )
+from nlreq.verification_cache import (
+    VerificationCacheIndex,
+    VerificationCacheKey,
+    VerificationCacheLookup,
+)
 
 
 SCHEMAS = {
@@ -95,20 +126,28 @@ SCHEMAS = {
     "requirement-ir-0.2.schema.json": RequirementIRV2,
     "requirement-ir-migration.schema.json": RequirementIRMigrationRecord,
     "assumptions.schema.json": AssumptionsArtifact,
+    "adapter-certification-report.schema.json": AdapterCertificationReport,
     "adapter-registry.schema.json": AdapterRegistryArtifact,
     "agnostic-wedge-report.schema.json": AgnosticWedgeReport,
+    "artifact-lookup-result.schema.json": ArtifactLookupResult,
+    "artifact-store-manifest.schema.json": ArtifactStoreManifest,
     "backend-agreement-report.schema.json": BackendAgreementReport,
     "backend-results.schema.json": BackendResultsArtifact,
     "benchmark-corpus.schema.json": BenchmarkCorpus,
     "benchmark-results.schema.json": BenchmarkResultsArtifact,
     "benchmark-run-report.schema.json": BenchmarkRunReport,
+    "benchmark-v2-report.schema.json": BenchmarkV2Report,
+    "ci-pr-gate-report.schema.json": CiPrGateReport,
     "conclusion-definition.schema.json": ConclusionDefinition,
+    "conclusion-certification-report.schema.json": ConclusionCertificationReport,
     "conclusion-gap-checklist.schema.json": ConclusionGapChecklist,
     "conclusion-gap-check-report.schema.json": ConclusionGapCheckReport,
     "bindings.schema.json": BindingsArtifact,
     "command-checks.schema.json": CommandChecksArtifact,
     "command-results.schema.json": CommandResultsArtifact,
+    "counterexample-normalization-v2-report.schema.json": CounterexampleNormalizationV2Report,
     "counterexamples.schema.json": CounterexamplesArtifact,
+    "cross-language-proof-object.schema.json": CrossLanguageProofObject,
     "spec-coverage-report.schema.json": SpecCoverageReport,
     "trace-alignment-report.schema.json": TraceAlignmentReport,
     "controlled-draft.schema.json": ControlledDraft,
@@ -135,6 +174,7 @@ SCHEMAS = {
     "requirement-translation-benchmark-report.schema.json": RequirementTranslationBenchmarkReport,
     "evidence.schema.json": EvidenceObject,
     "evidence-producer-validation.schema.json": EvidenceProducerValidationReport,
+    "proof-evidence-boundary-report.schema.json": ProofEvidenceBoundaryReport,
     "formal-backend-request.schema.json": FormalBackendRequest,
     "formal-backend-response.schema.json": FormalBackendResponse,
     "gate-policy.schema.json": GatePolicy,
@@ -143,10 +183,15 @@ SCHEMAS = {
     "evidence-producer-mapping.schema.json": EvidenceProducerMapping,
     "proof-dispatch-plan.schema.json": ProofDispatchPlan,
     "proof-object.schema.json": ProofObject,
+    "producer-key-registry.schema.json": ProducerKeyRegistry,
+    "public-documentation-index.schema.json": PublicDocumentationIndex,
     "closure-gate-report.schema.json": ClosureGateReport,
     "generated-tests.schema.json": GeneratedTestsArtifact,
     "normalized-traces.schema.json": NormalizedTraceArtifact,
     "review.schema.json": ReviewArtifact,
+    "reference-demo-manifest.schema.json": ReferenceDemoManifest,
+    "reference-demo-report.schema.json": ReferenceDemoReport,
+    "replay-bundle-manifest.schema.json": ReplayBundleManifest,
     "routing-policy.schema.json": RoutingPolicyArtifact,
     "source-call-graph.schema.json": SourceCallGraph,
     "source-code-presentation.schema.json": CodePresentation,
@@ -155,24 +200,39 @@ SCHEMAS = {
     "code-spec-manifest.schema.json": CodeSpecManifest,
     "spec-drift-report.schema.json": SpecDriftReport,
     "spec-extraction-workbench.schema.json": SpecExtractionWorkbenchReport,
+    "spec-freshness-lockfile.schema.json": SpecFreshnessLockfile,
+    "spec-freshness-lock-report.schema.json": SpecFreshnessLockReport,
+    "signed-evidence-envelope.schema.json": SignedEvidenceEnvelope,
+    "signature-verification-report.schema.json": SignatureVerificationReport,
+    "s-and-r-composition-report.schema.json": SandRCompositionReport,
     "status-decision.schema.json": StatusDecision,
     "system-spec-registry.schema.json": SystemSpecRegistry,
     "system-spec-registry-report.schema.json": SystemSpecRegistryReport,
     "system-consistency-result.schema.json": SystemConsistencyResult,
+    "threat-model-report.schema.json": ThreatModelReport,
     "requirement-set-consistency.schema.json": RequirementSetConsistencyReport,
     "requirement-self-consistency.schema.json": RequirementSelfConsistencyResult,
     "lowered-formal-artifact.schema.json": LoweredFormalArtifact,
     "model-checker-run.schema.json": ModelCheckerRunResult,
     "model-checker-runs.schema.json": ModelCheckerRunArtifact,
+    "raw-trace-artifact.schema.json": RawTraceArtifact,
+    "trace-normalization-v2-report.schema.json": TraceNormalizationV2Report,
+    "trace-producer-registry.schema.json": TraceProducerRegistry,
+    "trace-extraction-result.schema.json": TraceExtractionResult,
     "trace-validation-results.schema.json": TraceValidationResultsArtifact,
     "trace-replay-report.schema.json": TraceReplayReport,
+    "tla-projection-v2-report.schema.json": TlaProjectionV2Report,
     "tla-model-config.schema.json": TlaModelConfigArtifact,
     "tla-results.schema.json": TlaResultsArtifact,
     "verification-tasks.schema.json": VerificationTasksArtifact,
     "verification-budget-policy.schema.json": VerificationBudgetPolicy,
     "verification-budget-report.schema.json": VerificationBudgetReport,
+    "verification-cache-index.schema.json": VerificationCacheIndex,
+    "verification-cache-key.schema.json": VerificationCacheKey,
+    "verification-cache-lookup.schema.json": VerificationCacheLookup,
     "budgeted-verification-outcome.schema.json": BudgetedVerificationOutcome,
     "waiver.schema.json": GateWaiver,
+    "waiver-audit-report.schema.json": WaiverAuditReport,
 }
 
 

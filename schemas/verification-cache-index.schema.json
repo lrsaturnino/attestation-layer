@@ -1,0 +1,67 @@
+{
+  "$defs": {
+    "VerificationCacheRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_hash": {
+          "title": "Artifact Hash",
+          "type": "string"
+        },
+        "cache_key_hash": {
+          "title": "Cache Key Hash",
+          "type": "string"
+        },
+        "hit_count": {
+          "default": 0,
+          "minimum": 0,
+          "title": "Hit Count",
+          "type": "integer"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "cache_key_hash",
+        "artifact_hash",
+        "stage"
+      ],
+      "title": "VerificationCacheRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "records": {
+      "items": {
+        "$ref": "#/$defs/VerificationCacheRecord"
+      },
+      "title": "Records",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.verification_cache",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "title": "VerificationCacheIndex",
+  "type": "object"
+}

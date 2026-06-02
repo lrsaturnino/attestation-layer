@@ -1,0 +1,86 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "artifact_hashes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Artifact Hashes",
+      "type": "array"
+    },
+    "decision": {
+      "enum": [
+        "accepted",
+        "refused",
+        "unknown"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "downstream_action_allowed": {
+      "title": "Downstream Action Allowed",
+      "type": "boolean"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "mode": {
+      "enum": [
+        "report_only",
+        "soft_gate",
+        "hard_gate"
+      ],
+      "title": "Mode",
+      "type": "string"
+    },
+    "next_actions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Next Actions",
+      "type": "array"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "blocked",
+        "reported"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.ci_pr_gate",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "mode",
+    "result",
+    "requirement_id",
+    "decision",
+    "downstream_action_allowed"
+  ],
+  "title": "CiPrGateReport",
+  "type": "object"
+}

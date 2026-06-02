@@ -1,0 +1,209 @@
+{
+  "$defs": {
+    "CausalTraceLink": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence": {
+          "title": "Evidence",
+          "type": "string"
+        },
+        "from_event_id": {
+          "title": "From Event Id",
+          "type": "string"
+        },
+        "from_trace_id": {
+          "title": "From Trace Id",
+          "type": "string"
+        },
+        "relation": {
+          "enum": [
+            "causes",
+            "follows",
+            "correlates"
+          ],
+          "title": "Relation",
+          "type": "string"
+        },
+        "to_event_id": {
+          "title": "To Event Id",
+          "type": "string"
+        },
+        "to_trace_id": {
+          "title": "To Trace Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "from_trace_id",
+        "from_event_id",
+        "to_trace_id",
+        "to_event_id",
+        "relation",
+        "evidence"
+      ],
+      "title": "CausalTraceLink",
+      "type": "object"
+    },
+    "CrossLanguageEvidenceSlice": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter_id": {
+          "title": "Adapter Id",
+          "type": "string"
+        },
+        "language": {
+          "title": "Language",
+          "type": "string"
+        },
+        "module_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Module Ids",
+          "type": "array"
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime"
+        },
+        "trace_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Trace Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "adapter_id",
+        "language"
+      ],
+      "title": "CrossLanguageEvidenceSlice",
+      "type": "object"
+    },
+    "CrossLanguageProofBlocker": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "proof",
+            "language_diversity",
+            "trace_link"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "subject": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject"
+        }
+      },
+      "required": [
+        "category",
+        "message"
+      ],
+      "title": "CrossLanguageProofBlocker",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "blockers": {
+      "items": {
+        "$ref": "#/$defs/CrossLanguageProofBlocker"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "causal_links": {
+      "items": {
+        "$ref": "#/$defs/CausalTraceLink"
+      },
+      "title": "Causal Links",
+      "type": "array"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "proof_id": {
+      "title": "Proof Id",
+      "type": "string"
+    },
+    "proof_status": {
+      "enum": [
+        "closed",
+        "open",
+        "blocked"
+      ],
+      "title": "Proof Status",
+      "type": "string"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "slices": {
+      "items": {
+        "$ref": "#/$defs/CrossLanguageEvidenceSlice"
+      },
+      "title": "Slices",
+      "type": "array"
+    },
+    "tool": {
+      "default": "nlreq.cross_language",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "proof_id",
+    "requirement_id",
+    "result",
+    "proof_status"
+  ],
+  "title": "CrossLanguageProofObject",
+  "type": "object"
+}
