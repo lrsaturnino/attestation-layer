@@ -1,0 +1,91 @@
+{
+  "$defs": {
+    "SpecFreshnessLockEntryV2": {
+      "additionalProperties": false,
+      "properties": {
+        "dependency_module_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dependency Module Ids",
+          "type": "array"
+        },
+        "manifest_entry_hash": {
+          "title": "Manifest Entry Hash",
+          "type": "string"
+        },
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "source_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Source Hashes",
+          "type": "object"
+        },
+        "spec_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Spec Hashes",
+          "type": "object"
+        },
+        "validated_at": {
+          "title": "Validated At",
+          "type": "string"
+        },
+        "validation_artifact_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Validation Artifact Hashes",
+          "type": "object"
+        }
+      },
+      "required": [
+        "module_id",
+        "manifest_entry_hash",
+        "validated_at"
+      ],
+      "title": "SpecFreshnessLockEntryV2",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/SpecFreshnessLockEntryV2"
+      },
+      "title": "Entries",
+      "type": "array"
+    },
+    "lock_id": {
+      "title": "Lock Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.spec_freshness",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "lock_id"
+  ],
+  "title": "SpecFreshnessLockfileV2",
+  "type": "object"
+}

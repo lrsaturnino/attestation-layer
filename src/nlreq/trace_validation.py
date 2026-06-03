@@ -6,6 +6,7 @@ from typing import Any, Iterable, Literal
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from .adoption import find_package_dirs
+from .coverage_alignment import SpecCoverageReport
 from .jsonutil import sha256_json, sha256_text
 from .models import (
     BackendResult,
@@ -16,10 +17,13 @@ from .models import (
     RequirementIR,
     TraceEvent,
 )
+from .spec_freshness import SpecFreshnessDriftCiReport
+from .trace_replay import TraceReplayReport, build_trace_replay_report
 
 
 TRACE_VALIDATION_VERSION = "0.1"
 TRACE_VALIDATOR_VERSION = "0.1"
+TRACE_VALIDATION_GATE_VERSION = "0.2"
 ACCEPTABLE_REDACTION_STATUSES = {"redacted", "not_required"}
 
 
@@ -30,6 +34,42 @@ class TraceValidationResultsArtifact(BaseModel):
     adapter: Literal["trace"] = "trace"
     results: list[BackendResult] = Field(default_factory=list)
     counterexamples: list[Counterexample] = Field(default_factory=list)
+
+
+class TraceValidationGateOutcome(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    trace_id: str
+    requirement_id: str
+    status: Literal[
+        "satisfied",
+        "violation",
+        "coverage_gap",
+        "lossy",
+        "stale",
+        "unsupported",
+    ]
+    closure_effect: Literal["allow", "block", "review"]
+    evidence_label: Literal["trace_grounding", "none"]
+    event_ids: list[str] = Field(default_factory=list)
+    reason: str | None = None
+    counterexample_id: str | None = None
+    warnings: list[str] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+
+
+class TraceValidationGateReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.2"] = TRACE_VALIDATION_GATE_VERSION
+    requirement_id: str
+    result: Literal["satisfied", "blocked", "needs_review"]
+    closure_effect: Literal["allow", "block", "review"]
+    evidence_label: Literal["trace_grounding", "none"]
+    outcomes: list[TraceValidationGateOutcome] = Field(default_factory=list)
+    counterexamples: list[Counterexample] = Field(default_factory=list)
+    refusal_reasons: list[str] = Field(default_factory=list)
+    replay: TraceReplayReport
 
 
 def build_trace_validation_report(
@@ -148,6 +188,56 @@ def build_trace_validation_report(
     }
 
 
+def build_trace_validation_gate_report(
+    *,
+    requirement,
+    traces: NormalizedTraceArtifact,
+    coverage: SpecCoverageReport,
+    freshness: SpecFreshnessDriftCiReport | None = None,
+    high_assurance: bool = True,
+) -> TraceValidationGateReport:
+    replay = build_trace_replay_report(
+        requirement=requirement,
+        traces=traces,
+        coverage=coverage,
+    )
+    stale_modules = [
+        status.module_id
+        for status in freshness.statuses
+        if status.closure_effect == "block"
+    ] if freshness is not None else []
+    outcomes: list[TraceValidationGateOutcome] = []
+    for observation in replay.observations:
+        counterexample = _counterexample_for_observation(
+            observation.event_ids,
+            replay.counterexamples,
+        )
+        outcome = _gate_outcome_for_observation(
+            observation,
+            coverage=coverage,
+            stale_modules=stale_modules,
+            counterexample=counterexample,
+            high_assurance=high_assurance,
+        )
+        outcomes.append(outcome)
+    closure_effect = _trace_gate_closure(outcomes)
+    refusal_reasons = [
+        outcome.reason or outcome.status
+        for outcome in outcomes
+        if outcome.closure_effect != "allow"
+    ]
+    return TraceValidationGateReport(
+        requirement_id=requirement.requirement_id,
+        result="satisfied" if closure_effect == "allow" else ("blocked" if closure_effect == "block" else "needs_review"),
+        closure_effect=closure_effect,
+        evidence_label="trace_grounding" if closure_effect == "allow" else "none",
+        outcomes=outcomes,
+        counterexamples=replay.counterexamples,
+        refusal_reasons=refusal_reasons,
+        replay=replay,
+    )
+
+
 def trace_validation_markdown(report: dict[str, Any]) -> str:
     summary = report["summary"]
     lines = [
@@ -205,6 +295,29 @@ def trace_validation_markdown(report: dict[str, Any]) -> str:
                     message=_escape_markdown_table(finding["message"]),
                 )
             )
+    return "\n".join(lines) + "\n"
+
+
+def trace_validation_gate_markdown(report: TraceValidationGateReport) -> str:
+    lines = [
+        "# NLReq Trace Validation Gate Report",
+        "",
+        f"Result: `{report.result}`",
+        f"Evidence: `{report.evidence_label}`",
+        "",
+        "| Status | Requirement | Trace | Closure | Reason |",
+        "|---|---|---|---|---|",
+    ]
+    for outcome in report.outcomes:
+        lines.append(
+            "| {status} | {requirement_id} | {trace_id} | {closure} | {reason} |".format(
+                status=outcome.status,
+                requirement_id=outcome.requirement_id,
+                trace_id=outcome.trace_id,
+                closure=outcome.closure_effect,
+                reason=_escape_markdown_table(outcome.reason or "-"),
+            )
+        )
     return "\n".join(lines) + "\n"
 
 
@@ -579,3 +692,88 @@ def _finding(
 
 def _escape_markdown_table(value: str) -> str:
     return value.replace("|", "\\|").replace("\n", " ")
+
+
+def _gate_outcome_for_observation(
+    observation,
+    *,
+    coverage: SpecCoverageReport,
+    stale_modules: list[str],
+    counterexample: Counterexample | None,
+    high_assurance: bool,
+) -> TraceValidationGateOutcome:
+    base = {
+        "trace_id": observation.trace_id,
+        "requirement_id": observation.requirement_id,
+        "event_ids": observation.event_ids,
+        "counterexample_id": counterexample.counterexample_id if counterexample else None,
+        "warnings": observation.warnings,
+    }
+    if stale_modules:
+        return TraceValidationGateOutcome(
+            **base,
+            status="stale",
+            closure_effect="block",
+            evidence_label="none",
+            reason="freshness drift blocks trace grounding",
+            metadata={"stale_modules": ",".join(stale_modules)},
+        )
+    if observation.warnings and high_assurance:
+        return TraceValidationGateOutcome(
+            **base,
+            status="lossy",
+            closure_effect="block",
+            evidence_label="none",
+            reason="lossy trace cannot satisfy high-assurance closure",
+        )
+    if observation.status == "satisfied":
+        return TraceValidationGateOutcome(
+            **base,
+            status="satisfied",
+            closure_effect="allow",
+            evidence_label="trace_grounding",
+            reason=observation.reason,
+        )
+    if observation.status == "violating":
+        return TraceValidationGateOutcome(
+            **base,
+            status="violation",
+            closure_effect="block",
+            evidence_label="none",
+            reason=observation.reason or "trace violates requirement",
+        )
+    if observation.status == "uncovered" or coverage.result != "passed":
+        return TraceValidationGateOutcome(
+            **base,
+            status="coverage_gap",
+            closure_effect="block",
+            evidence_label="none",
+            reason=observation.reason or "trace coverage gap",
+        )
+    return TraceValidationGateOutcome(
+        **base,
+        status="unsupported",
+        closure_effect="review",
+        evidence_label="none",
+        reason=observation.reason or "claim has no supported trace predicate",
+    )
+
+
+def _counterexample_for_observation(
+    event_ids: list[str],
+    counterexamples: list[Counterexample],
+) -> Counterexample | None:
+    for counterexample in counterexamples:
+        if counterexample.metadata.get("event_ids") == event_ids:
+            return counterexample
+    return None
+
+
+def _trace_gate_closure(
+    outcomes: list[TraceValidationGateOutcome],
+) -> Literal["allow", "block", "review"]:
+    if any(outcome.closure_effect == "block" for outcome in outcomes):
+        return "block"
+    if any(outcome.closure_effect == "review" for outcome in outcomes):
+        return "review"
+    return "allow"

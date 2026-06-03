@@ -1,0 +1,345 @@
+{
+  "$defs": {
+    "Counterexample": {
+      "additionalProperties": false,
+      "properties": {
+        "actual": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actual"
+        },
+        "backend": {
+          "title": "Backend",
+          "type": "string"
+        },
+        "claim_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Claim Id"
+        },
+        "counterexample_id": {
+          "title": "Counterexample Id",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "expected": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected"
+        },
+        "inputs": {
+          "additionalProperties": true,
+          "title": "Inputs",
+          "type": "object"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        }
+      },
+      "required": [
+        "counterexample_id",
+        "backend",
+        "description"
+      ],
+      "title": "Counterexample",
+      "type": "object"
+    },
+    "TraceReplayObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "actual": {
+          "additionalProperties": true,
+          "title": "Actual",
+          "type": "object"
+        },
+        "event_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Event Ids",
+          "type": "array"
+        },
+        "expected": {
+          "additionalProperties": true,
+          "title": "Expected",
+          "type": "object"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "satisfied",
+            "violating",
+            "uncovered",
+            "unsupported"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "trace_id": {
+          "title": "Trace Id",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "trace_id",
+        "requirement_id",
+        "status"
+      ],
+      "title": "TraceReplayObservation",
+      "type": "object"
+    },
+    "TraceReplayReport": {
+      "additionalProperties": false,
+      "properties": {
+        "counterexamples": {
+          "items": {
+            "$ref": "#/$defs/Counterexample"
+          },
+          "title": "Counterexamples",
+          "type": "array"
+        },
+        "observations": {
+          "items": {
+            "$ref": "#/$defs/TraceReplayObservation"
+          },
+          "title": "Observations",
+          "type": "array"
+        },
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "result": {
+          "enum": [
+            "passed",
+            "blocked"
+          ],
+          "title": "Result",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "result"
+      ],
+      "title": "TraceReplayReport",
+      "type": "object"
+    },
+    "TraceValidationGateOutcome": {
+      "additionalProperties": false,
+      "properties": {
+        "closure_effect": {
+          "enum": [
+            "allow",
+            "block",
+            "review"
+          ],
+          "title": "Closure Effect",
+          "type": "string"
+        },
+        "counterexample_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Counterexample Id"
+        },
+        "event_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Event Ids",
+          "type": "array"
+        },
+        "evidence_label": {
+          "enum": [
+            "trace_grounding",
+            "none"
+          ],
+          "title": "Evidence Label",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "satisfied",
+            "violation",
+            "coverage_gap",
+            "lossy",
+            "stale",
+            "unsupported"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "trace_id": {
+          "title": "Trace Id",
+          "type": "string"
+        },
+        "warnings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Warnings",
+          "type": "array"
+        }
+      },
+      "required": [
+        "trace_id",
+        "requirement_id",
+        "status",
+        "closure_effect",
+        "evidence_label"
+      ],
+      "title": "TraceValidationGateOutcome",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "closure_effect": {
+      "enum": [
+        "allow",
+        "block",
+        "review"
+      ],
+      "title": "Closure Effect",
+      "type": "string"
+    },
+    "counterexamples": {
+      "items": {
+        "$ref": "#/$defs/Counterexample"
+      },
+      "title": "Counterexamples",
+      "type": "array"
+    },
+    "evidence_label": {
+      "enum": [
+        "trace_grounding",
+        "none"
+      ],
+      "title": "Evidence Label",
+      "type": "string"
+    },
+    "outcomes": {
+      "items": {
+        "$ref": "#/$defs/TraceValidationGateOutcome"
+      },
+      "title": "Outcomes",
+      "type": "array"
+    },
+    "refusal_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Refusal Reasons",
+      "type": "array"
+    },
+    "replay": {
+      "$ref": "#/$defs/TraceReplayReport"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "satisfied",
+        "blocked",
+        "needs_review"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "result",
+    "closure_effect",
+    "evidence_label",
+    "replay"
+  ],
+  "title": "TraceValidationGateReport",
+  "type": "object"
+}

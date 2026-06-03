@@ -1,0 +1,471 @@
+{
+  "$defs": {
+    "ImpactConfidencePolicy": {
+      "additionalProperties": false,
+      "properties": {
+        "minimum_gateable_confidence": {
+          "default": 0.75,
+          "title": "Minimum Gateable Confidence",
+          "type": "number"
+        },
+        "require_resolved_symbols": {
+          "default": true,
+          "title": "Require Resolved Symbols",
+          "type": "boolean"
+        },
+        "semantic_suggestions_gateable": {
+          "default": false,
+          "title": "Semantic Suggestions Gateable",
+          "type": "boolean"
+        },
+        "trace_only_impact_requires_review": {
+          "default": true,
+          "title": "Trace Only Impact Requires Review",
+          "type": "boolean"
+        }
+      },
+      "title": "ImpactConfidencePolicy",
+      "type": "object"
+    },
+    "ImpactDisagreement": {
+      "additionalProperties": false,
+      "properties": {
+        "deterministic": {
+          "title": "Deterministic",
+          "type": "boolean"
+        },
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "semantic_suggestion": {
+          "title": "Semantic Suggestion",
+          "type": "boolean"
+        },
+        "trace_touched": {
+          "title": "Trace Touched",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "module_id",
+        "deterministic",
+        "semantic_suggestion",
+        "trace_touched",
+        "reason"
+      ],
+      "title": "ImpactDisagreement",
+      "type": "object"
+    },
+    "ProductionImpactedModule": {
+      "additionalProperties": false,
+      "properties": {
+        "confidence": {
+          "title": "Confidence",
+          "type": "number"
+        },
+        "gateable": {
+          "title": "Gateable",
+          "type": "boolean"
+        },
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "roles": {
+          "items": {
+            "enum": [
+              "deterministic",
+              "dependency",
+              "trace_touched",
+              "semantic_suggestion"
+            ],
+            "type": "string"
+          },
+          "title": "Roles",
+          "type": "array"
+        }
+      },
+      "required": [
+        "module_id",
+        "roles",
+        "confidence",
+        "gateable"
+      ],
+      "title": "ProductionImpactedModule",
+      "type": "object"
+    },
+    "SemanticImpactSuggestion": {
+      "additionalProperties": false,
+      "properties": {
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "source": {
+          "default": "heuristic",
+          "enum": [
+            "llm",
+            "manual",
+            "heuristic"
+          ],
+          "title": "Source",
+          "type": "string"
+        }
+      },
+      "required": [
+        "module_id",
+        "reason"
+      ],
+      "title": "SemanticImpactSuggestion",
+      "type": "object"
+    },
+    "SourceImpactFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "unresolved_symbol",
+            "ambiguous_symbol",
+            "semantic_suggestion",
+            "trace_disagreement",
+            "low_confidence"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "module_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Module Id"
+        },
+        "severity": {
+          "enum": [
+            "blocking",
+            "review",
+            "info"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "symbol": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Symbol"
+        }
+      },
+      "required": [
+        "severity",
+        "category",
+        "message"
+      ],
+      "title": "SourceImpactFinding",
+      "type": "object"
+    },
+    "SourceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "title": "Document",
+          "type": "string"
+        },
+        "end_char": {
+          "minimum": 0,
+          "title": "End Char",
+          "type": "integer"
+        },
+        "start_char": {
+          "minimum": 0,
+          "title": "Start Char",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "start_char",
+        "end_char",
+        "text"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    },
+    "SourceSymbol": {
+      "additionalProperties": false,
+      "properties": {
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "source_span": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SourceSpan"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "symbol_type": {
+          "default": "unknown",
+          "title": "Symbol Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "module_id",
+        "path"
+      ],
+      "title": "SourceSymbol",
+      "type": "object"
+    },
+    "SourceSymbolResolution": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "ref": {
+          "$ref": "#/$defs/SymbolRef"
+        },
+        "status": {
+          "enum": [
+            "resolved",
+            "unresolved",
+            "ambiguous"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "symbols": {
+          "items": {
+            "$ref": "#/$defs/SourceSymbol"
+          },
+          "title": "Symbols",
+          "type": "array"
+        }
+      },
+      "required": [
+        "ref",
+        "status"
+      ],
+      "title": "SourceSymbolResolution",
+      "type": "object"
+    },
+    "SymbolRef": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Type"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "SymbolRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapter_id": {
+      "title": "Adapter Id",
+      "type": "string"
+    },
+    "affected_modules": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Affected Modules",
+      "type": "array"
+    },
+    "call_graph_edges": {
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Call Graph Edges",
+      "type": "array"
+    },
+    "closure_effect": {
+      "enum": [
+        "allow",
+        "review",
+        "block"
+      ],
+      "title": "Closure Effect",
+      "type": "string"
+    },
+    "confidence_policy": {
+      "$ref": "#/$defs/ImpactConfidencePolicy"
+    },
+    "dependency_modules": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Dependency Modules",
+      "type": "array"
+    },
+    "deterministic_modules": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Deterministic Modules",
+      "type": "array"
+    },
+    "disagreements": {
+      "items": {
+        "$ref": "#/$defs/ImpactDisagreement"
+      },
+      "title": "Disagreements",
+      "type": "array"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/SourceImpactFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "input_symbols": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Input Symbols",
+      "type": "array"
+    },
+    "language": {
+      "title": "Language",
+      "type": "string"
+    },
+    "metadata": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Metadata",
+      "type": "object"
+    },
+    "modules": {
+      "items": {
+        "$ref": "#/$defs/ProductionImpactedModule"
+      },
+      "title": "Modules",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "semantic_suggestions": {
+      "items": {
+        "$ref": "#/$defs/SemanticImpactSuggestion"
+      },
+      "title": "Semantic Suggestions",
+      "type": "array"
+    },
+    "symbol_resolutions": {
+      "items": {
+        "$ref": "#/$defs/SourceSymbolResolution"
+      },
+      "title": "Symbol Resolutions",
+      "type": "array"
+    },
+    "trace_touched_modules": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Trace Touched Modules",
+      "type": "array"
+    }
+  },
+  "required": [
+    "adapter_id",
+    "language",
+    "input_symbols",
+    "affected_modules",
+    "deterministic_modules",
+    "closure_effect"
+  ],
+  "title": "ProductionSourceImpactReport",
+  "type": "object"
+}

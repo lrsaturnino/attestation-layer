@@ -29,6 +29,17 @@
           "title": "Producer Id",
           "type": "string"
         },
+        "producer_kind": {
+          "default": "runtime",
+          "enum": [
+            "runtime",
+            "test_harness",
+            "log_importer",
+            "manual"
+          ],
+          "title": "Producer Kind",
+          "type": "string"
+        },
         "produces_normalized_schema": {
           "const": "0.1",
           "title": "Produces Normalized Schema",
@@ -37,6 +48,11 @@
         "real_producer": {
           "default": true,
           "title": "Real Producer",
+          "type": "boolean"
+        },
+        "retains_replay_inputs": {
+          "default": true,
+          "title": "Retains Replay Inputs",
           "type": "boolean"
         },
         "runtime": {
@@ -50,6 +66,25 @@
           ],
           "default": null,
           "title": "Runtime"
+        },
+        "runtime_metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Runtime Metadata",
+          "type": "object"
+        },
+        "signing_key_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Signing Key Id"
         }
       },
       "required": [

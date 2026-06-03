@@ -1,0 +1,211 @@
+{
+  "$defs": {
+    "CandidateSpecReviewChecklistItem": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "title": "Item Id",
+          "type": "string"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "status": {
+          "enum": [
+            "approved",
+            "rejected"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "status"
+      ],
+      "title": "CandidateSpecReviewChecklistItem",
+      "type": "object"
+    },
+    "SystemSpecEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "formalism": {
+          "enum": [
+            "tla",
+            "smt",
+            "ltl",
+            "alloy",
+            "lean",
+            "other"
+          ],
+          "title": "Formalism",
+          "type": "string"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "fresh",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "module_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Module Ids",
+          "type": "array"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "recorded_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recorded Hash"
+        },
+        "review_status": {
+          "enum": [
+            "draft",
+            "reviewed",
+            "rejected"
+          ],
+          "title": "Review Status",
+          "type": "string"
+        },
+        "spec_id": {
+          "title": "Spec Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spec_id",
+        "module_ids",
+        "formalism",
+        "path",
+        "version",
+        "review_status"
+      ],
+      "title": "SystemSpecEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "approved_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Approved Hash"
+    },
+    "blockers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "candidate_hash": {
+      "title": "Candidate Hash",
+      "type": "string"
+    },
+    "candidate_id": {
+      "title": "Candidate Id",
+      "type": "string"
+    },
+    "checklist": {
+      "items": {
+        "$ref": "#/$defs/CandidateSpecReviewChecklistItem"
+      },
+      "title": "Checklist",
+      "type": "array"
+    },
+    "decision": {
+      "enum": [
+        "promoted",
+        "rejected",
+        "blocked"
+      ],
+      "title": "Decision",
+      "type": "string"
+    },
+    "promoted_spec": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SystemSpecEntry"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "rejection_reasons": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Rejection Reasons",
+      "type": "array"
+    },
+    "reviewed_at": {
+      "title": "Reviewed At",
+      "type": "string"
+    },
+    "reviewer_id": {
+      "title": "Reviewer Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "candidate_id",
+    "decision",
+    "reviewer_id",
+    "reviewed_at",
+    "candidate_hash"
+  ],
+  "title": "CandidateSpecReviewReport",
+  "type": "object"
+}

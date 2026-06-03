@@ -67,7 +67,13 @@ from .continuous import (
     load_attestation_run,
 )
 from .controlled_semantics import build_controlled_requirement_semantics_reference
-from .coverage_alignment import build_spec_coverage_report, build_trace_alignment_report
+from .coverage_alignment import (
+    CodeSpecCoverageManifestV2,
+    build_code_spec_coverage_gate_report_v2,
+    build_spec_coverage_report,
+    build_trace_alignment_report,
+    migrate_code_spec_manifest_to_v2,
+)
 from .compositional_ir import (
     DEFAULT_MIGRATION_TIMESTAMP,
     DEFAULT_MIGRATION_TOOL_VERSION,
@@ -114,7 +120,11 @@ from .gate import (
 from .graphql_adapter import GraphQlAdapter
 from .graphql_package import build_graphql_package, validate_graphql_package
 from .impact import analyze_source_impact
-from .source_impact import SemanticImpactSuggestion, analyze_source_impact_with_context
+from .source_impact import (
+    SemanticImpactSuggestion,
+    analyze_production_source_impact,
+    analyze_source_impact_with_context,
+)
 from .intake import (
     ControlledRewriteApproval,
     ControlledRewriteProposal,
@@ -209,13 +219,29 @@ from .routing import (
     routing_report_markdown,
 )
 from .spec_drift import CodeSpecManifest, build_spec_drift_report, mark_stale_specs
-from .spec_extraction import build_spec_extraction_workbench_report
+from .spec_extraction import (
+    CandidateSpec,
+    CandidateSpecReviewChecklistItem,
+    build_spec_extraction_workbench_report,
+    build_specula_extraction_integration_report,
+    promote_candidate_spec_with_review,
+    reject_candidate_spec,
+)
 from .spec_freshness import (
     SpecFreshnessLockfile,
+    SpecFreshnessLockfileV2,
+    build_spec_drift_ci_report,
     build_spec_freshness_lockfile,
+    build_spec_freshness_lockfile_v2,
     validate_spec_freshness_lockfile,
+    validate_spec_freshness_lockfile_v2,
 )
-from .trace_validation import build_trace_validation_report, trace_validation_markdown
+from .trace_validation import (
+    build_trace_validation_gate_report,
+    build_trace_validation_report,
+    trace_validation_gate_markdown,
+    trace_validation_markdown,
+)
 from .trace_normalization import RawTraceArtifact, normalize_raw_traces
 from .system_spec import build_system_spec_registry_report, load_system_spec_registry
 from .system_composition import build_s_and_r_composition_report
@@ -248,6 +274,7 @@ from .trace_replay import build_trace_replay_report
 from .runtime_trace_sdk import (
     TraceExtractionRequest,
     TraceProducerRegistry,
+    build_trace_producer_evidence_report,
     producer_from_registry,
 )
 from .signed_evidence import (
@@ -664,6 +691,16 @@ def main(argv: list[str] | None = None) -> int:
     python_source_impact_context_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     python_source_impact_context_cmd.add_argument("--out", type=Path)
 
+    python_source_impact_production_cmd = subcommands.add_parser(
+        "python-source-impact-production", help="Run production v2 Python source impact analysis."
+    )
+    python_source_impact_production_cmd.add_argument("--manifest", type=Path, required=True)
+    python_source_impact_production_cmd.add_argument("--symbol", action="append", required=True)
+    python_source_impact_production_cmd.add_argument("--trace-artifact", type=Path)
+    python_source_impact_production_cmd.add_argument("--semantic-suggestion", action="append", default=[])
+    python_source_impact_production_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    python_source_impact_production_cmd.add_argument("--out", type=Path)
+
     javascript_source_impact_cmd = subcommands.add_parser(
         "javascript-source-impact", help="Run deterministic JavaScript source impact analysis."
     )
@@ -772,6 +809,21 @@ def main(argv: list[str] | None = None) -> int:
     spec_coverage_cmd.add_argument("--threshold", type=float, default=1.0)
     spec_coverage_cmd.add_argument("--out", type=Path)
 
+    coverage_manifest_migrate_cmd = subcommands.add_parser(
+        "coverage-manifest-v2-migrate", help="Migrate code/spec manifest v1 to coverage manifest v2."
+    )
+    coverage_manifest_migrate_cmd.add_argument("--manifest", type=Path, required=True)
+    coverage_manifest_migrate_cmd.add_argument("--registry", type=Path, required=True)
+    coverage_manifest_migrate_cmd.add_argument("--out", type=Path)
+
+    coverage_gate_v2_cmd = subcommands.add_parser(
+        "coverage-gate-v2", help="Gate affected modules against coverage manifest v2."
+    )
+    coverage_gate_v2_cmd.add_argument("--impact", type=Path, required=True)
+    coverage_gate_v2_cmd.add_argument("--manifest", type=Path, required=True)
+    coverage_gate_v2_cmd.add_argument("--threshold", type=float, default=1.0)
+    coverage_gate_v2_cmd.add_argument("--out", type=Path)
+
     trace_align_cmd = subcommands.add_parser(
         "trace-align", help="Classify normalized traces against requirement/spec context."
     )
@@ -799,6 +851,30 @@ def main(argv: list[str] | None = None) -> int:
     spec_extract_cmd.add_argument("--trace-replay", type=Path)
     spec_extract_cmd.add_argument("--out", type=Path)
 
+    specula_extract_cmd = subcommands.add_parser(
+        "specula-extract", help="Generate candidate-only specs with structural validation."
+    )
+    specula_extract_cmd.add_argument("--requirement-ir", type=Path, required=True)
+    specula_extract_cmd.add_argument("--impact", type=Path, required=True)
+    specula_extract_cmd.add_argument("--registry", type=Path, required=True)
+    specula_extract_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    specula_extract_cmd.add_argument("--code-presentation", type=Path)
+    specula_extract_cmd.add_argument("--trace-replay", type=Path)
+    specula_extract_cmd.add_argument("--out", type=Path)
+
+    candidate_review_cmd = subcommands.add_parser(
+        "candidate-spec-review", help="Promote or reject a candidate spec with hash-bound review."
+    )
+    candidate_review_cmd.add_argument("candidate", type=Path)
+    candidate_review_cmd.add_argument("--decision", choices=["promote", "reject"], required=True)
+    candidate_review_cmd.add_argument("--reviewer-id", required=True)
+    candidate_review_cmd.add_argument("--reviewed-at", default="2026-06-03T00:00:00Z")
+    candidate_review_cmd.add_argument("--approved-hash")
+    candidate_review_cmd.add_argument("--version", default="1")
+    candidate_review_cmd.add_argument("--rejection-reason", action="append", default=[])
+    candidate_review_cmd.add_argument("--checklist", action="append", default=[])
+    candidate_review_cmd.add_argument("--out", type=Path)
+
     spec_drift_cmd = subcommands.add_parser(
         "spec-drift", help="Detect source/spec drift from a code-to-spec manifest."
     )
@@ -817,6 +893,16 @@ def main(argv: list[str] | None = None) -> int:
     spec_freshness_lock_cmd.add_argument("--lock-id", default="spec-freshness")
     spec_freshness_lock_cmd.add_argument("--out", type=Path)
 
+    spec_freshness_lock_v2_cmd = subcommands.add_parser(
+        "spec-freshness-lock-v2", help="Build a timestamped spec freshness lockfile v2."
+    )
+    spec_freshness_lock_v2_cmd.add_argument("--manifest", type=Path, required=True)
+    spec_freshness_lock_v2_cmd.add_argument("--registry", type=Path, required=True)
+    spec_freshness_lock_v2_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    spec_freshness_lock_v2_cmd.add_argument("--lock-id", default="spec-freshness")
+    spec_freshness_lock_v2_cmd.add_argument("--validated-at", default="2026-06-03T00:00:00Z")
+    spec_freshness_lock_v2_cmd.add_argument("--out", type=Path)
+
     spec_freshness_check_cmd = subcommands.add_parser(
         "spec-freshness-check", help="Validate a spec freshness lockfile."
     )
@@ -825,6 +911,17 @@ def main(argv: list[str] | None = None) -> int:
     spec_freshness_check_cmd.add_argument("--lockfile", type=Path, required=True)
     spec_freshness_check_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     spec_freshness_check_cmd.add_argument("--out", type=Path)
+
+    spec_freshness_ci_cmd = subcommands.add_parser(
+        "spec-freshness-ci", help="Validate freshness lockfile v2 for CI drift gating."
+    )
+    spec_freshness_ci_cmd.add_argument("--manifest", type=Path, required=True)
+    spec_freshness_ci_cmd.add_argument("--registry", type=Path, required=True)
+    spec_freshness_ci_cmd.add_argument("--lockfile", type=Path, required=True)
+    spec_freshness_ci_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    spec_freshness_ci_cmd.add_argument("--now")
+    spec_freshness_ci_cmd.add_argument("--max-validation-age-hours", type=float)
+    spec_freshness_ci_cmd.add_argument("--out", type=Path)
 
     delta_extract_cmd = subcommands.add_parser(
         "delta-extract", help="Extract actionable deltas from failed verification reports."
@@ -1370,6 +1467,17 @@ def main(argv: list[str] | None = None) -> int:
     trace_validate_cmd.add_argument("--out", type=Path)
     trace_validate_cmd.add_argument("--markdown-out", type=Path)
 
+    trace_gate_cmd = subcommands.add_parser(
+        "trace-validation-gate", help="Gate trace grounding against coverage and freshness context."
+    )
+    trace_gate_cmd.add_argument("--requirement-ir", type=Path, required=True)
+    trace_gate_cmd.add_argument("--trace-artifact", type=Path, required=True)
+    trace_gate_cmd.add_argument("--coverage", type=Path, required=True)
+    trace_gate_cmd.add_argument("--freshness", type=Path)
+    trace_gate_cmd.add_argument("--allow-lossy", action="store_true")
+    trace_gate_cmd.add_argument("--out", type=Path)
+    trace_gate_cmd.add_argument("--markdown-out", type=Path)
+
     trace_normalize_cmd = subcommands.add_parser(
         "trace-normalize", help="Normalize raw trace artifact to normalized trace schema."
     )
@@ -1384,7 +1492,19 @@ def main(argv: list[str] | None = None) -> int:
     trace_extract_cmd.add_argument("--trace-source", required=True)
     trace_extract_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     trace_extract_cmd.add_argument("--requirement-id", action="append", default=[])
+    trace_extract_cmd.add_argument("--run-id")
     trace_extract_cmd.add_argument("--out", type=Path)
+
+    trace_producer_evidence_cmd = subcommands.add_parser(
+        "trace-producer-evidence", help="Classify trace producer extraction evidence for closure."
+    )
+    trace_producer_evidence_cmd.add_argument("--registry", type=Path, required=True)
+    trace_producer_evidence_cmd.add_argument("--producer-id", required=True)
+    trace_producer_evidence_cmd.add_argument("--extraction-result", type=Path, required=True)
+    trace_producer_evidence_cmd.add_argument("--high-assurance", action="store_true")
+    trace_producer_evidence_cmd.add_argument("--require-signature", action="store_true")
+    trace_producer_evidence_cmd.add_argument("--allow-missing-replay", action="store_true")
+    trace_producer_evidence_cmd.add_argument("--out", type=Path)
 
     adapter_certify_cmd = subcommands.add_parser(
         "adapter-certify", help="Run adapter certification suite for production adapters."
@@ -2265,6 +2385,32 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(artifact), end="")
             return 0
+        if args.command == "python-source-impact-production":
+            from .jsonutil import write_json
+            from .models import NormalizedTraceArtifact
+
+            adapter = PythonSourceLanguageAdapter(project_root=args.project_root)
+            manifest = adapter.parse_manifest(args.manifest)
+            traces = (
+                NormalizedTraceArtifact.model_validate_json(args.trace_artifact.read_text())
+                if args.trace_artifact
+                else None
+            )
+            report = analyze_production_source_impact(
+                adapter,
+                manifest,
+                symbols=args.symbol,
+                traces=traces,
+                semantic_suggestions=_semantic_suggestions_from_args(
+                    args.semantic_suggestion
+                ),
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Production source impact report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.closure_effect != "block" else 1
         if args.command == "javascript-source-impact":
             from .jsonutil import write_json
 
@@ -2448,6 +2594,43 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(SpecCoverageReport.model_validate(report)), end="")
             return 0
+        if args.command == "coverage-manifest-v2-migrate":
+            from .jsonutil import write_json
+
+            manifest = migrate_code_spec_manifest_to_v2(
+                CodeSpecManifest.model_validate_json(args.manifest.read_text()),
+                registry=load_system_spec_registry(args.registry),
+            )
+            if args.out:
+                write_json(args.out, manifest)
+                print(f"Coverage manifest v2: {args.out}")
+            else:
+                print(canonical_json(manifest), end="")
+            return 0
+        if args.command == "coverage-gate-v2":
+            from .impact import ImpactAnalysisArtifact
+            from .jsonutil import write_json
+            from .source_impact import ProductionSourceImpactReport
+
+            try:
+                impact = ProductionSourceImpactReport.model_validate_json(
+                    args.impact.read_text()
+                )
+            except ValueError:
+                impact = ImpactAnalysisArtifact.model_validate_json(args.impact.read_text())
+            report = build_code_spec_coverage_gate_report_v2(
+                impact=impact,
+                manifest=CodeSpecCoverageManifestV2.model_validate_json(
+                    args.manifest.read_text()
+                ),
+                threshold=args.threshold,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Coverage gate v2 report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "passed" else 1
         if args.command == "trace-align":
             from .coverage_alignment import SpecCoverageReport
             from .jsonutil import write_json
@@ -2516,6 +2699,66 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(report), end="")
             return 0
+        if args.command == "specula-extract":
+            from .impact import ImpactAnalysisArtifact
+            from .jsonutil import write_json
+            from .models import RequirementIRV2
+            from .source_adapter import CodePresentation
+            from .trace_replay import TraceReplayReport
+
+            ir = validate_requirement_ir_json(args.requirement_ir.read_text())
+            if not isinstance(ir, RequirementIRV2):
+                raise ValueError("specula-extract requires ir_version 0.2")
+            report = build_specula_extraction_integration_report(
+                requirement=ir,
+                impact=ImpactAnalysisArtifact.model_validate_json(args.impact.read_text()),
+                registry=load_system_spec_registry(args.registry),
+                project_root=args.project_root,
+                code_presentation=CodePresentation.model_validate_json(
+                    args.code_presentation.read_text()
+                )
+                if args.code_presentation
+                else None,
+                trace_replay=TraceReplayReport.model_validate_json(args.trace_replay.read_text())
+                if args.trace_replay
+                else None,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Specula extraction integration report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result != "blocked" else 1
+        if args.command == "candidate-spec-review":
+            from .jsonutil import write_json
+
+            candidate = CandidateSpec.model_validate_json(args.candidate.read_text())
+            checklist = _candidate_review_checklist_from_args(args.checklist)
+            if args.decision == "promote":
+                if not args.approved_hash:
+                    raise ValueError("candidate-spec-review promote requires --approved-hash")
+                report = promote_candidate_spec_with_review(
+                    candidate,
+                    approved_hash=args.approved_hash,
+                    version=args.version,
+                    reviewer_id=args.reviewer_id,
+                    reviewed_at=args.reviewed_at,
+                    checklist=checklist,
+                )
+            else:
+                report = reject_candidate_spec(
+                    candidate,
+                    reviewer_id=args.reviewer_id,
+                    reviewed_at=args.reviewed_at,
+                    rejection_reasons=args.rejection_reason,
+                    checklist=checklist,
+                )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Candidate spec review report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.decision != "blocked" else 1
         if args.command == "spec-drift":
             from .jsonutil import write_json
 
@@ -2550,6 +2793,22 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(lockfile), end="")
             return 0
+        if args.command == "spec-freshness-lock-v2":
+            from .jsonutil import write_json
+
+            lockfile = build_spec_freshness_lockfile_v2(
+                manifest=CodeSpecManifest.model_validate_json(args.manifest.read_text()),
+                registry=load_system_spec_registry(args.registry),
+                project_root=args.project_root,
+                lock_id=args.lock_id,
+                validated_at=args.validated_at,
+            )
+            if args.out:
+                write_json(args.out, lockfile)
+                print(f"Spec freshness lockfile v2: {args.out}")
+            else:
+                print(canonical_json(lockfile), end="")
+            return 0
         if args.command == "spec-freshness-check":
             from .jsonutil import write_json
 
@@ -2562,6 +2821,25 @@ def main(argv: list[str] | None = None) -> int:
             if args.out:
                 write_json(args.out, report)
                 print(f"Spec freshness report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "passed" else 1
+        if args.command == "spec-freshness-ci":
+            from .jsonutil import write_json
+
+            report = build_spec_drift_ci_report(
+                manifest=CodeSpecManifest.model_validate_json(args.manifest.read_text()),
+                registry=load_system_spec_registry(args.registry),
+                lockfile=SpecFreshnessLockfileV2.model_validate_json(
+                    args.lockfile.read_text()
+                ),
+                project_root=args.project_root,
+                now=args.now,
+                max_validation_age_hours=args.max_validation_age_hours,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Spec freshness CI report: {args.out}")
             else:
                 print(canonical_json(report), end="")
             return 0 if report.result == "passed" else 1
@@ -3572,6 +3850,40 @@ def main(argv: list[str] | None = None) -> int:
             if not wrote_output:
                 print(canonical_json(report), end="")
             return 0
+        if args.command == "trace-validation-gate":
+            from .coverage_alignment import SpecCoverageReport
+            from .jsonutil import write_json
+            from .models import NormalizedTraceArtifact, RequirementIRV2
+            from .spec_freshness import SpecFreshnessDriftCiReport
+
+            ir = validate_requirement_ir_json(args.requirement_ir.read_text())
+            if not isinstance(ir, RequirementIRV2):
+                raise ValueError("trace-validation-gate requires ir_version 0.2")
+            freshness = (
+                SpecFreshnessDriftCiReport.model_validate_json(args.freshness.read_text())
+                if args.freshness
+                else None
+            )
+            report = build_trace_validation_gate_report(
+                requirement=ir,
+                traces=NormalizedTraceArtifact.model_validate_json(args.trace_artifact.read_text()),
+                coverage=SpecCoverageReport.model_validate_json(args.coverage.read_text()),
+                freshness=freshness,
+                high_assurance=not args.allow_lossy,
+            )
+            wrote_output = False
+            if args.out:
+                write_json(args.out, report)
+                print(f"Trace validation gate report: {args.out}")
+                wrote_output = True
+            if args.markdown_out:
+                args.markdown_out.parent.mkdir(parents=True, exist_ok=True)
+                args.markdown_out.write_text(trace_validation_gate_markdown(report))
+                print(f"Trace validation gate markdown: {args.markdown_out}")
+                wrote_output = True
+            if not wrote_output:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "satisfied" else 1
         if args.command == "trace-normalize":
             from .jsonutil import write_json
 
@@ -3594,6 +3906,7 @@ def main(argv: list[str] | None = None) -> int:
                     producer_id=args.producer_id,
                     trace_source=args.trace_source,
                     requirement_ids=args.requirement_id,
+                    run_id=args.run_id,
                 ),
                 project_root=args.project_root,
             )
@@ -3603,6 +3916,36 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(report), end="")
             return 0 if report.status == "extracted" else 1
+        if args.command == "trace-producer-evidence":
+            from .jsonutil import write_json
+            from .runtime_trace_sdk import TraceExtractionResult
+
+            registry = TraceProducerRegistry.model_validate_json(args.registry.read_text())
+            registration = next(
+                (
+                    producer
+                    for producer in registry.producers
+                    if producer.producer_id == args.producer_id
+                ),
+                None,
+            )
+            if registration is None:
+                raise ValueError(f"unknown trace producer: {args.producer_id}")
+            report = build_trace_producer_evidence_report(
+                registration=registration,
+                result=TraceExtractionResult.model_validate_json(
+                    args.extraction_result.read_text()
+                ),
+                high_assurance=args.high_assurance,
+                require_signature=args.require_signature,
+                require_replay=not args.allow_missing_replay,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Trace producer evidence report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "accepted" else 1
         if args.command == "adapter-certify":
             from .jsonutil import write_json
 
@@ -4153,6 +4496,29 @@ def _semantic_suggestions_from_args(entries: list[str]) -> list[SemanticImpactSu
                 )
             )
     return suggestions
+
+
+def _candidate_review_checklist_from_args(
+    entries: list[str],
+) -> list[CandidateSpecReviewChecklistItem] | None:
+    if not entries:
+        return None
+    checklist: list[CandidateSpecReviewChecklistItem] = []
+    for entry in entries:
+        if "=" not in entry:
+            raise ValueError("--checklist values must use item_id=approved|rejected[:notes]")
+        item_id, payload = entry.split("=", 1)
+        status_text, _, notes = payload.partition(":")
+        if status_text not in {"approved", "rejected"}:
+            raise ValueError("checklist status must be approved or rejected")
+        checklist.append(
+            CandidateSpecReviewChecklistItem(
+                item_id=item_id,
+                status=status_text,  # type: ignore[arg-type]
+                notes=notes or None,
+            )
+        )
+    return checklist
 
 
 def _assumptions_from_args(entries: list[str]) -> list[AbstractionAssumption]:

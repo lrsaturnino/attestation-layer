@@ -3,14 +3,16 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from .impact import ImpactAnalysisArtifact
 from .models import NormalizedTraceArtifact, RequirementIRV2, SemanticNode
+from .spec_drift import CodeSpecManifest
 from .system_spec import SystemSpecRegistry, build_system_spec_registry_report
 
 
 COVERAGE_ALIGNMENT_SCHEMA_VERSION = "0.1"
+CODE_SPEC_COVERAGE_V2_SCHEMA_VERSION = "0.2"
 
 
 class ModuleCoverageStatus(BaseModel):
@@ -50,6 +52,75 @@ class TraceAlignmentReport(BaseModel):
     schema_version: Literal["0.1"] = COVERAGE_ALIGNMENT_SCHEMA_VERSION
     result: Literal["passed", "blocked"]
     alignments: list[TraceAlignmentStatus] = Field(default_factory=list)
+
+
+class CodeSpecCoverageManifestEntryV2(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    module_id: str
+    source_paths: list[str] = Field(default_factory=list)
+    spec_ids: list[str] = Field(default_factory=list)
+    review_status: Literal["reviewed", "candidate", "draft", "rejected", "missing"] = "missing"
+    coverage_level: Literal["full", "partial", "none", "unsupported"] = "none"
+    coverage_ratio: float = 0.0
+    freshness: Literal["fresh", "stale", "unknown"] = "unknown"
+    dependency_module_ids: list[str] = Field(default_factory=list)
+    trace_ids: list[str] = Field(default_factory=list)
+    covered_symbols: list[str] = Field(default_factory=list)
+    unsupported_fragments: list[str] = Field(default_factory=list)
+    metadata: dict[str, str] = Field(default_factory=dict)
+
+
+class CodeSpecCoverageManifestV2(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.2"] = CODE_SPEC_COVERAGE_V2_SCHEMA_VERSION
+    entries: list[CodeSpecCoverageManifestEntryV2] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_unique_modules(self) -> CodeSpecCoverageManifestV2:
+        module_ids = [entry.module_id for entry in self.entries]
+        if len(module_ids) != len(set(module_ids)):
+            raise ValueError("coverage manifest module_id values must be unique")
+        return self
+
+
+class CoverageGateModuleStatusV2(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    module_id: str
+    status: Literal[
+        "covered",
+        "missing",
+        "partial",
+        "candidate",
+        "rejected",
+        "unsupported",
+        "stale",
+        "dependency_gap",
+    ]
+    closure_effect: Literal["allow", "block", "review"]
+    spec_ids: list[str] = Field(default_factory=list)
+    dependency_module_ids: list[str] = Field(default_factory=list)
+    gap_dependency_module_ids: list[str] = Field(default_factory=list)
+    trace_ids: list[str] = Field(default_factory=list)
+    review_status: str | None = None
+    freshness: str | None = None
+    coverage_ratio: float = 0.0
+    reason: str | None = None
+
+
+class CodeSpecCoverageGateReportV2(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.2"] = CODE_SPEC_COVERAGE_V2_SCHEMA_VERSION
+    result: Literal["passed", "blocked", "needs_review"]
+    closure_effect: Literal["allow", "block", "review"]
+    threshold: float
+    covered_modules: int
+    total_modules: int
+    coverage_ratio: float
+    modules: list[CoverageGateModuleStatusV2] = Field(default_factory=list)
 
 
 def build_spec_coverage_report(
@@ -105,6 +176,66 @@ def build_spec_coverage_report(
     ratio = covered / total if total else 1.0
     return SpecCoverageReport(
         result="passed" if ratio >= threshold else "blocked",
+        threshold=threshold,
+        covered_modules=covered,
+        total_modules=total,
+        coverage_ratio=ratio,
+        modules=statuses,
+    )
+
+
+def migrate_code_spec_manifest_to_v2(
+    manifest: CodeSpecManifest,
+    *,
+    registry: SystemSpecRegistry,
+) -> CodeSpecCoverageManifestV2:
+    specs_by_id = {spec.spec_id: spec for spec in registry.specs}
+    entries: list[CodeSpecCoverageManifestEntryV2] = []
+    for entry in manifest.entries:
+        specs = [specs_by_id[spec_id] for spec_id in entry.spec_ids if spec_id in specs_by_id]
+        review_status = _merged_review_status([spec.review_status for spec in specs])
+        freshness = _merged_freshness([spec.freshness for spec in specs])
+        coverage_level: Literal["full", "partial", "none", "unsupported"] = "full" if specs else "none"
+        entries.append(
+            CodeSpecCoverageManifestEntryV2(
+                module_id=entry.module_id,
+                source_paths=entry.source_paths,
+                spec_ids=entry.spec_ids,
+                review_status=review_status,
+                coverage_level=coverage_level,
+                coverage_ratio=1.0 if coverage_level == "full" else 0.0,
+                freshness=freshness,
+                dependency_module_ids=entry.dependency_module_ids,
+                metadata={"migrated_from": "code-spec-manifest-0.1"},
+            )
+        )
+    return CodeSpecCoverageManifestV2(entries=entries)
+
+
+def build_code_spec_coverage_gate_report_v2(
+    *,
+    impact,
+    manifest: CodeSpecCoverageManifestV2,
+    threshold: float = 1.0,
+) -> CodeSpecCoverageGateReportV2:
+    entries_by_module = {entry.module_id: entry for entry in manifest.entries}
+    affected_modules = list(getattr(impact, "affected_modules"))
+    statuses = [
+        _coverage_status_for_module(
+            module_id,
+            entries_by_module.get(module_id),
+            threshold=threshold,
+        )
+        for module_id in affected_modules
+    ]
+    statuses = _propagate_coverage_dependency_gaps(statuses)
+    total = len(statuses)
+    covered = sum(1 for status in statuses if status.status == "covered")
+    ratio = covered / total if total else 1.0
+    closure_effect = _coverage_closure_effect(statuses)
+    return CodeSpecCoverageGateReportV2(
+        result="passed" if closure_effect == "allow" else ("blocked" if closure_effect == "block" else "needs_review"),
+        closure_effect=closure_effect,
         threshold=threshold,
         covered_modules=covered,
         total_modules=total,
@@ -170,3 +301,131 @@ def _requirement_action(node: SemanticNode) -> str | None:
             if found:
                 return found
     return None
+
+
+def _coverage_status_for_module(
+    module_id: str,
+    entry: CodeSpecCoverageManifestEntryV2 | None,
+    *,
+    threshold: float,
+) -> CoverageGateModuleStatusV2:
+    if entry is None:
+        return CoverageGateModuleStatusV2(
+            module_id=module_id,
+            status="missing",
+            closure_effect="block",
+            reason="affected module is absent from coverage manifest v2",
+        )
+    base = {
+        "module_id": module_id,
+        "spec_ids": entry.spec_ids,
+        "dependency_module_ids": entry.dependency_module_ids,
+        "trace_ids": entry.trace_ids,
+        "review_status": entry.review_status,
+        "freshness": entry.freshness,
+        "coverage_ratio": entry.coverage_ratio,
+    }
+    if entry.review_status in {"candidate", "draft", "missing"}:
+        return CoverageGateModuleStatusV2(
+            **base,
+            status="candidate" if entry.review_status in {"candidate", "draft"} else "missing",
+            closure_effect="block",
+            reason="coverage is not reviewed",
+        )
+    if entry.review_status == "rejected":
+        return CoverageGateModuleStatusV2(
+            **base,
+            status="rejected",
+            closure_effect="block",
+            reason="coverage entry was rejected",
+        )
+    if entry.freshness == "stale":
+        return CoverageGateModuleStatusV2(
+            **base,
+            status="stale",
+            closure_effect="block",
+            reason="covered spec is stale",
+        )
+    if entry.coverage_level == "unsupported":
+        return CoverageGateModuleStatusV2(
+            **base,
+            status="unsupported",
+            closure_effect="block",
+            reason="coverage manifest declares unsupported requirement fragments",
+        )
+    if entry.coverage_level != "full" or entry.coverage_ratio < threshold:
+        return CoverageGateModuleStatusV2(
+            **base,
+            status="partial",
+            closure_effect="block",
+            reason="coverage ratio is below threshold",
+        )
+    return CoverageGateModuleStatusV2(
+        **base,
+        status="covered",
+        closure_effect="allow",
+    )
+
+
+def _propagate_coverage_dependency_gaps(
+    statuses: list[CoverageGateModuleStatusV2],
+) -> list[CoverageGateModuleStatusV2]:
+    by_module = {status.module_id: status for status in statuses}
+    blocked_modules = {
+        status.module_id for status in statuses if status.closure_effect != "allow"
+    }
+    propagated: list[CoverageGateModuleStatusV2] = []
+    for status in statuses:
+        gap_dependencies = [
+            module_id
+            for module_id in status.dependency_module_ids
+            if module_id in blocked_modules or module_id not in by_module
+        ]
+        if status.closure_effect == "allow" and gap_dependencies:
+            propagated.append(
+                status.model_copy(
+                    update={
+                        "status": "dependency_gap",
+                        "closure_effect": "block",
+                        "gap_dependency_module_ids": gap_dependencies,
+                        "reason": "dependency coverage gap propagates to affected module",
+                    }
+                )
+            )
+        else:
+            propagated.append(status)
+    return propagated
+
+
+def _coverage_closure_effect(
+    statuses: list[CoverageGateModuleStatusV2],
+) -> Literal["allow", "block", "review"]:
+    if any(status.closure_effect == "block" for status in statuses):
+        return "block"
+    if any(status.closure_effect == "review" for status in statuses):
+        return "review"
+    return "allow"
+
+
+def _merged_review_status(
+    statuses: list[str],
+) -> Literal["reviewed", "candidate", "draft", "rejected", "missing"]:
+    if not statuses:
+        return "missing"
+    if "rejected" in statuses:
+        return "rejected"
+    if all(status == "reviewed" for status in statuses):
+        return "reviewed"
+    if "draft" in statuses:
+        return "draft"
+    return "candidate"
+
+
+def _merged_freshness(statuses: list[str]) -> Literal["fresh", "stale", "unknown"]:
+    if not statuses:
+        return "unknown"
+    if "stale" in statuses:
+        return "stale"
+    if all(status == "fresh" for status in statuses):
+        return "fresh"
+    return "unknown"

@@ -1,0 +1,152 @@
+{
+  "$defs": {
+    "TraceLossRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Event Id"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "severity": {
+          "default": "blocking",
+          "enum": [
+            "info",
+            "blocking"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "trace_id": {
+          "title": "Trace Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "trace_id",
+        "field",
+        "reason"
+      ],
+      "title": "TraceLossRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "blockers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "closure_effect": {
+      "enum": [
+        "allow",
+        "block",
+        "review"
+      ],
+      "title": "Closure Effect",
+      "type": "string"
+    },
+    "high_assurance": {
+      "title": "High Assurance",
+      "type": "boolean"
+    },
+    "loss_records": {
+      "items": {
+        "$ref": "#/$defs/TraceLossRecord"
+      },
+      "title": "Loss Records",
+      "type": "array"
+    },
+    "metadata": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Metadata",
+      "type": "object"
+    },
+    "producer_id": {
+      "title": "Producer Id",
+      "type": "string"
+    },
+    "real_producer": {
+      "title": "Real Producer",
+      "type": "boolean"
+    },
+    "replayable": {
+      "title": "Replayable",
+      "type": "boolean"
+    },
+    "result": {
+      "enum": [
+        "accepted",
+        "blocked",
+        "needs_review"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "signature_required": {
+      "title": "Signature Required",
+      "type": "boolean"
+    },
+    "signing_key_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Signing Key Id"
+    },
+    "trace_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Trace Hash"
+    }
+  },
+  "required": [
+    "producer_id",
+    "result",
+    "closure_effect",
+    "high_assurance",
+    "real_producer",
+    "replayable",
+    "signature_required"
+  ],
+  "title": "TraceProducerEvidenceReport",
+  "type": "object"
+}

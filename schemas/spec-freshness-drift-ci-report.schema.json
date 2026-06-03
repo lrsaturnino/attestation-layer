@@ -1,0 +1,141 @@
+{
+  "$defs": {
+    "SpecFreshnessDriftStatusV2": {
+      "additionalProperties": false,
+      "properties": {
+        "changed_sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changed Sources",
+          "type": "array"
+        },
+        "changed_specs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Changed Specs",
+          "type": "array"
+        },
+        "closure_effect": {
+          "enum": [
+            "allow",
+            "block"
+          ],
+          "title": "Closure Effect",
+          "type": "string"
+        },
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "stale_due_to_dependencies": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Stale Due To Dependencies",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "fresh",
+            "stale",
+            "missing_lock",
+            "missing_file",
+            "validation_expired"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "validated_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Validated At"
+        },
+        "validation_age_hours": {
+          "anyOf": [
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Validation Age Hours"
+        }
+      },
+      "required": [
+        "module_id",
+        "status",
+        "closure_effect"
+      ],
+      "title": "SpecFreshnessDriftStatusV2",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "closure_effect": {
+      "enum": [
+        "allow",
+        "block"
+      ],
+      "title": "Closure Effect",
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "stale_metrics": {
+      "additionalProperties": {
+        "type": "integer"
+      },
+      "title": "Stale Metrics",
+      "type": "object"
+    },
+    "statuses": {
+      "items": {
+        "$ref": "#/$defs/SpecFreshnessDriftStatusV2"
+      },
+      "title": "Statuses",
+      "type": "array"
+    }
+  },
+  "required": [
+    "result",
+    "closure_effect"
+  ],
+  "title": "SpecFreshnessDriftCiReport",
+  "type": "object"
+}

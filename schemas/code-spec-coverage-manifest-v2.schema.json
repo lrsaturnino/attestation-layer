@@ -1,0 +1,123 @@
+{
+  "$defs": {
+    "CodeSpecCoverageManifestEntryV2": {
+      "additionalProperties": false,
+      "properties": {
+        "coverage_level": {
+          "default": "none",
+          "enum": [
+            "full",
+            "partial",
+            "none",
+            "unsupported"
+          ],
+          "title": "Coverage Level",
+          "type": "string"
+        },
+        "coverage_ratio": {
+          "default": 0.0,
+          "title": "Coverage Ratio",
+          "type": "number"
+        },
+        "covered_symbols": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Covered Symbols",
+          "type": "array"
+        },
+        "dependency_module_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dependency Module Ids",
+          "type": "array"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "fresh",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "review_status": {
+          "default": "missing",
+          "enum": [
+            "reviewed",
+            "candidate",
+            "draft",
+            "rejected",
+            "missing"
+          ],
+          "title": "Review Status",
+          "type": "string"
+        },
+        "source_paths": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Paths",
+          "type": "array"
+        },
+        "spec_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Spec Ids",
+          "type": "array"
+        },
+        "trace_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Trace Ids",
+          "type": "array"
+        },
+        "unsupported_fragments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unsupported Fragments",
+          "type": "array"
+        }
+      },
+      "required": [
+        "module_id"
+      ],
+      "title": "CodeSpecCoverageManifestEntryV2",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/CodeSpecCoverageManifestEntryV2"
+      },
+      "title": "Entries",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "title": "CodeSpecCoverageManifestV2",
+  "type": "object"
+}

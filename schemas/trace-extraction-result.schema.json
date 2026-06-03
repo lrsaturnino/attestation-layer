@@ -177,10 +177,62 @@
       ],
       "title": "TraceEvent",
       "type": "object"
+    },
+    "TraceLossRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Event Id"
+        },
+        "field": {
+          "title": "Field",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "severity": {
+          "default": "blocking",
+          "enum": [
+            "info",
+            "blocking"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "trace_id": {
+          "title": "Trace Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "trace_id",
+        "field",
+        "reason"
+      ],
+      "title": "TraceLossRecord",
+      "type": "object"
     }
   },
   "additionalProperties": false,
   "properties": {
+    "loss_records": {
+      "items": {
+        "$ref": "#/$defs/TraceLossRecord"
+      },
+      "title": "Loss Records",
+      "type": "array"
+    },
     "metadata": {
       "additionalProperties": {
         "type": "string"
@@ -199,11 +251,37 @@
       "title": "Reasons",
       "type": "array"
     },
+    "replay_input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Replay Input Hashes",
+      "type": "object"
+    },
+    "runtime_metadata": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Runtime Metadata",
+      "type": "object"
+    },
     "schema_version": {
       "const": "0.1",
       "default": "0.1",
       "title": "Schema Version",
       "type": "string"
+    },
+    "signing_key_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Signing Key Id"
     },
     "status": {
       "enum": [

@@ -96,10 +96,15 @@ from nlreq.formal_claim import (
     FormalClaimLoweringReport,
     FormalClaimSemanticsCompletionReference,
 )
-from nlreq.coverage_alignment import SpecCoverageReport, TraceAlignmentReport
+from nlreq.coverage_alignment import (
+    CodeSpecCoverageGateReportV2,
+    CodeSpecCoverageManifestV2,
+    SpecCoverageReport,
+    TraceAlignmentReport,
+)
 from nlreq.gate import GatePolicy, GateWaiver
 from nlreq.impact import ImpactAnalysisArtifact
-from nlreq.source_impact import SourceImpactAnalysisArtifact
+from nlreq.source_impact import ProductionSourceImpactReport, SourceImpactAnalysisArtifact
 from nlreq.model_checker_runner import ModelCheckerRunArtifact, ModelCheckerRunResult
 from nlreq.proof_closure import (
     ClosureGateReport,
@@ -123,7 +128,11 @@ from nlreq.requirement_self_consistency import (
     RequirementSelfConsistencyResult,
 )
 from nlreq.routing import AdapterRegistryArtifact, RoutingPolicyArtifact
-from nlreq.runtime_trace_sdk import TraceExtractionResult, TraceProducerRegistry
+from nlreq.runtime_trace_sdk import (
+    TraceExtractionResult,
+    TraceProducerEvidenceReport,
+    TraceProducerRegistry,
+)
 from nlreq.signed_evidence import (
     ProducerKeyRegistry,
     SignatureVerificationReport,
@@ -136,15 +145,24 @@ from nlreq.source_adapter import (
     SourceSymbolResolution,
 )
 from nlreq.spec_drift import CodeSpecManifest, SpecDriftReport
-from nlreq.spec_extraction import SpecExtractionWorkbenchReport
-from nlreq.spec_freshness import SpecFreshnessLockReport, SpecFreshnessLockfile
+from nlreq.spec_extraction import (
+    CandidateSpecReviewReport,
+    SpecExtractionWorkbenchReport,
+    SpeculaExtractionIntegrationReport,
+)
+from nlreq.spec_freshness import (
+    SpecFreshnessDriftCiReport,
+    SpecFreshnessLockReport,
+    SpecFreshnessLockfile,
+    SpecFreshnessLockfileV2,
+)
 from nlreq.system_composition import SandRCompositionReport
 from nlreq.system_spec import SystemSpecRegistry, SystemSpecRegistryReport
 from nlreq.system_checker import SystemConsistencyResult, RequirementSetConsistencyReport
 from nlreq.threat_model import ExtendedTcbReviewReport, ThreatModelReport
 from nlreq.tla_projection import TlaProjectionReport
 from nlreq.trace_normalization import RawTraceArtifact, TraceNormalizationReport
-from nlreq.trace_validation import TraceValidationResultsArtifact
+from nlreq.trace_validation import TraceValidationGateReport, TraceValidationResultsArtifact
 from nlreq.trace_replay import TraceReplayReport
 from nlreq.tla_adapter import TlaModelConfigArtifact, TlaResultsArtifact
 from nlreq.translator_agreement import TranslationAgreementInput, TranslationAgreementReport
@@ -194,6 +212,8 @@ SCHEMAS = {
     "counterexamples.schema.json": CounterexamplesArtifact,
     "cross-language-proof-object.schema.json": CrossLanguageProofObject,
     "spec-coverage-report.schema.json": SpecCoverageReport,
+    "code-spec-coverage-manifest-v2.schema.json": CodeSpecCoverageManifestV2,
+    "code-spec-coverage-gate-report-v2.schema.json": CodeSpecCoverageGateReportV2,
     "trace-alignment-report.schema.json": TraceAlignmentReport,
     "controlled-draft.schema.json": ControlledDraft,
     "controlled-requirement-semantics.schema.json": ControlledRequirementSemanticsReference,
@@ -241,6 +261,7 @@ SCHEMAS = {
     "gate-policy.schema.json": GatePolicy,
     "impact-analysis.schema.json": ImpactAnalysisArtifact,
     "source-impact-analysis.schema.json": SourceImpactAnalysisArtifact,
+    "production-source-impact-report.schema.json": ProductionSourceImpactReport,
     "evidence-producer-mapping.schema.json": EvidenceProducerMapping,
     "proof-dispatch-plan.schema.json": ProofDispatchPlan,
     "proof-object.schema.json": ProofObject,
@@ -264,8 +285,12 @@ SCHEMAS = {
     "code-spec-manifest.schema.json": CodeSpecManifest,
     "spec-drift-report.schema.json": SpecDriftReport,
     "spec-extraction-workbench.schema.json": SpecExtractionWorkbenchReport,
+    "specula-extraction-integration-report.schema.json": SpeculaExtractionIntegrationReport,
+    "candidate-spec-review-report.schema.json": CandidateSpecReviewReport,
     "spec-freshness-lockfile.schema.json": SpecFreshnessLockfile,
     "spec-freshness-lock-report.schema.json": SpecFreshnessLockReport,
+    "spec-freshness-lockfile-v2.schema.json": SpecFreshnessLockfileV2,
+    "spec-freshness-drift-ci-report.schema.json": SpecFreshnessDriftCiReport,
     "signed-evidence-envelope.schema.json": SignedEvidenceEnvelope,
     "signature-verification-report.schema.json": SignatureVerificationReport,
     "s-and-r-composition-report.schema.json": SandRCompositionReport,
@@ -285,7 +310,9 @@ SCHEMAS = {
     "trace-normalization-report.schema.json": TraceNormalizationReport,
     "trace-producer-registry.schema.json": TraceProducerRegistry,
     "trace-extraction-result.schema.json": TraceExtractionResult,
+    "trace-producer-evidence-report.schema.json": TraceProducerEvidenceReport,
     "trace-validation-results.schema.json": TraceValidationResultsArtifact,
+    "trace-validation-gate-report.schema.json": TraceValidationGateReport,
     "trace-replay-report.schema.json": TraceReplayReport,
     "tla-projection-report.schema.json": TlaProjectionReport,
     "tla-model-config.schema.json": TlaModelConfigArtifact,

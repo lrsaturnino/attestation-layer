@@ -1,0 +1,251 @@
+{
+  "$defs": {
+    "CandidateSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "content": {
+          "title": "Content",
+          "type": "string"
+        },
+        "content_hash": {
+          "title": "Content Hash",
+          "type": "string"
+        },
+        "formalism": {
+          "default": "tla",
+          "enum": [
+            "tla",
+            "smt",
+            "ltl",
+            "alloy",
+            "lean",
+            "other"
+          ],
+          "title": "Formalism",
+          "type": "string"
+        },
+        "freshness": {
+          "const": "unknown",
+          "default": "unknown",
+          "title": "Freshness",
+          "type": "string"
+        },
+        "gaps": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Gaps",
+          "type": "array"
+        },
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "provenance": {
+          "$ref": "#/$defs/CandidateSpecProvenance"
+        },
+        "review_status": {
+          "const": "draft",
+          "default": "draft",
+          "title": "Review Status",
+          "type": "string"
+        },
+        "trace_grounding_status": {
+          "enum": [
+            "passed",
+            "blocked",
+            "missing"
+          ],
+          "title": "Trace Grounding Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "module_id",
+        "path",
+        "content",
+        "content_hash",
+        "trace_grounding_status",
+        "provenance"
+      ],
+      "title": "CandidateSpec",
+      "type": "object"
+    },
+    "CandidateSpecProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "code_presentation_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Code Presentation Hash"
+        },
+        "extraction_tool": {
+          "default": "nlreq.spec_extraction",
+          "title": "Extraction Tool",
+          "type": "string"
+        },
+        "extraction_version": {
+          "default": "0.1",
+          "title": "Extraction Version",
+          "type": "string"
+        },
+        "impact_hash": {
+          "title": "Impact Hash",
+          "type": "string"
+        },
+        "llm_draft_used": {
+          "default": false,
+          "title": "Llm Draft Used",
+          "type": "boolean"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "trace_replay_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Trace Replay Hash"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "impact_hash"
+      ],
+      "title": "CandidateSpecProvenance",
+      "type": "object"
+    },
+    "CandidateSpecStructuralValidation": {
+      "additionalProperties": false,
+      "properties": {
+        "candidate_id": {
+          "title": "Candidate Id",
+          "type": "string"
+        },
+        "checked_invariants": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Checked Invariants",
+          "type": "array"
+        },
+        "issues": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Issues",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "valid",
+            "invalid"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "trace_validation_required": {
+          "default": true,
+          "title": "Trace Validation Required",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "candidate_id",
+        "status"
+      ],
+      "title": "CandidateSpecStructuralValidation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "blockers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "candidates": {
+      "items": {
+        "$ref": "#/$defs/CandidateSpec"
+      },
+      "title": "Candidates",
+      "type": "array"
+    },
+    "requirement_id": {
+      "title": "Requirement Id",
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "candidates",
+        "blocked",
+        "none"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "structural_validations": {
+      "items": {
+        "$ref": "#/$defs/CandidateSpecStructuralValidation"
+      },
+      "title": "Structural Validations",
+      "type": "array"
+    },
+    "trace_validation_required": {
+      "default": true,
+      "title": "Trace Validation Required",
+      "type": "boolean"
+    },
+    "trust_boundary": {
+      "const": "candidate_only",
+      "default": "candidate_only",
+      "title": "Trust Boundary",
+      "type": "string"
+    }
+  },
+  "required": [
+    "requirement_id",
+    "result"
+  ],
+  "title": "SpeculaExtractionIntegrationReport",
+  "type": "object"
+}
