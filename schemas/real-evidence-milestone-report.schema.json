@@ -1,0 +1,311 @@
+{
+  "$defs": {
+    "RealEvidenceArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_hash": {
+          "title": "Artifact Hash",
+          "type": "string"
+        },
+        "artifact_type": {
+          "title": "Artifact Type",
+          "type": "string"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "producer_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Producer Id"
+        },
+        "real_evidence": {
+          "default": true,
+          "title": "Real Evidence",
+          "type": "boolean"
+        },
+        "replayable": {
+          "default": true,
+          "title": "Replayable",
+          "type": "boolean"
+        },
+        "reviewed": {
+          "default": true,
+          "title": "Reviewed",
+          "type": "boolean"
+        },
+        "signed": {
+          "default": false,
+          "title": "Signed",
+          "type": "boolean"
+        },
+        "status": {
+          "default": "accepted",
+          "enum": [
+            "accepted",
+            "blocked",
+            "needs_review"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_type",
+        "artifact_hash"
+      ],
+      "title": "RealEvidenceArtifactRef",
+      "type": "object"
+    },
+    "RealEvidenceCriterion": {
+      "additionalProperties": false,
+      "properties": {
+        "criterion_id": {
+          "title": "Criterion Id",
+          "type": "string"
+        },
+        "evidence_hashes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Evidence Hashes",
+          "type": "array"
+        },
+        "findings": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Findings",
+          "type": "array"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "passed",
+            "failed",
+            "needs_review"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "criterion_id",
+        "status"
+      ],
+      "title": "RealEvidenceCriterion",
+      "type": "object"
+    },
+    "RealEvidencePhaseReport": {
+      "additionalProperties": false,
+      "properties": {
+        "blockers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "criteria": {
+          "items": {
+            "$ref": "#/$defs/RealEvidenceCriterion"
+          },
+          "title": "Criteria",
+          "type": "array"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/RealEvidenceArtifactRef"
+          },
+          "title": "Evidence",
+          "type": "array"
+        },
+        "input_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Input Hashes",
+          "type": "object"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        },
+        "milestone": {
+          "maximum": 20,
+          "minimum": 15,
+          "title": "Milestone",
+          "type": "integer"
+        },
+        "phase": {
+          "maximum": 192,
+          "minimum": 151,
+          "title": "Phase",
+          "type": "integer"
+        },
+        "phase_name": {
+          "title": "Phase Name",
+          "type": "string"
+        },
+        "required_adr": {
+          "maximum": 201,
+          "minimum": 160,
+          "title": "Required Adr",
+          "type": "integer"
+        },
+        "required_artifact_types": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Required Artifact Types",
+          "type": "array"
+        },
+        "result": {
+          "enum": [
+            "passed",
+            "blocked",
+            "needs_review"
+          ],
+          "title": "Result",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "tool": {
+          "default": "nlreq.real_evidence",
+          "title": "Tool",
+          "type": "string"
+        },
+        "tool_version": {
+          "default": "0.1",
+          "title": "Tool Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "phase",
+        "milestone",
+        "phase_name",
+        "required_adr",
+        "result"
+      ],
+      "title": "RealEvidencePhaseReport",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "blocked_phase_count": {
+      "title": "Blocked Phase Count",
+      "type": "integer"
+    },
+    "blockers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "milestone": {
+      "maximum": 20,
+      "minimum": 15,
+      "title": "Milestone",
+      "type": "integer"
+    },
+    "missing_phases": {
+      "items": {
+        "type": "integer"
+      },
+      "title": "Missing Phases",
+      "type": "array"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "needs_review_phase_count": {
+      "title": "Needs Review Phase Count",
+      "type": "integer"
+    },
+    "passed_phase_count": {
+      "title": "Passed Phase Count",
+      "type": "integer"
+    },
+    "phase_count": {
+      "title": "Phase Count",
+      "type": "integer"
+    },
+    "phase_reports": {
+      "items": {
+        "$ref": "#/$defs/RealEvidencePhaseReport"
+      },
+      "title": "Phase Reports",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "blocked",
+        "needs_review"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.real_evidence",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "milestone",
+    "name",
+    "result",
+    "phase_count",
+    "passed_phase_count",
+    "blocked_phase_count",
+    "needs_review_phase_count"
+  ],
+  "title": "RealEvidenceMilestoneReport",
+  "type": "object"
+}

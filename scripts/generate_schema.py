@@ -140,6 +140,12 @@ from nlreq.reference_demo import (
     ReferenceDemoManifest,
     ReferenceDemoReport,
 )
+from nlreq.real_evidence import (
+    ClaudeConvoGapAssessment,
+    RealEvidenceMilestoneReport,
+    RealEvidencePhasePlan,
+    RealEvidencePhaseReport,
+)
 from nlreq.requirement_self_consistency import (
     RequirementContradictionTaxonomy,
     RequirementSelfConsistencyResult,
@@ -312,6 +318,10 @@ SCHEMAS = {
     "extended-reference-demo-report.schema.json": ExtendedReferenceDemoReport,
     "beta-pilot-report.schema.json": BetaPilotReport,
     "reference-brownfield-pilot-report.schema.json": ReferenceBrownfieldPilotReport,
+    "real-evidence-phase-plan.schema.json": RealEvidencePhasePlan,
+    "real-evidence-phase-report.schema.json": RealEvidencePhaseReport,
+    "real-evidence-milestone-report.schema.json": RealEvidenceMilestoneReport,
+    "claude-convo-gap-assessment.schema.json": ClaudeConvoGapAssessment,
     "replay-bundle-manifest.schema.json": ReplayBundleManifest,
     "routing-policy.schema.json": RoutingPolicyArtifact,
     "source-call-graph.schema.json": SourceCallGraph,

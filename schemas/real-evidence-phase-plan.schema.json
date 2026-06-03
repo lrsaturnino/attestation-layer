@@ -1,0 +1,67 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "milestone": {
+      "maximum": 20,
+      "minimum": 15,
+      "title": "Milestone",
+      "type": "integer"
+    },
+    "name": {
+      "title": "Name",
+      "type": "string"
+    },
+    "phase": {
+      "maximum": 192,
+      "minimum": 151,
+      "title": "Phase",
+      "type": "integer"
+    },
+    "primary_gap_closed": {
+      "title": "Primary Gap Closed",
+      "type": "string"
+    },
+    "release_blockers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Release Blockers",
+      "type": "array"
+    },
+    "required_adr": {
+      "maximum": 201,
+      "minimum": 160,
+      "title": "Required Adr",
+      "type": "integer"
+    },
+    "required_artifact_types": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Artifact Types",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "phase",
+    "milestone",
+    "name",
+    "primary_gap_closed",
+    "required_adr"
+  ],
+  "title": "RealEvidencePhasePlan",
+  "type": "object"
+}
