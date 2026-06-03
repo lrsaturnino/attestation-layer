@@ -74,7 +74,10 @@ from .compositional_ir import (
     migrate_requirement_ir_v1_to_v2,
     validate_requirement_ir_json,
 )
-from .counterexample_normalization import normalize_backend_counterexamples
+from .counterexample_normalization import (
+    explain_counterexamples,
+    normalize_backend_counterexamples,
+)
 from .cross_language import CausalTraceLink, build_cross_language_proof_object
 from .formal_backend import (
     FormalBackendBudget,
@@ -82,11 +85,19 @@ from .formal_backend import (
     build_formal_backend_request,
     check_formal_backend,
 )
-from .formal_claim import FormalClaimLoweringReport, build_formal_claim
+from .formal_claim import (
+    FormalClaimLoweringReport,
+    build_formal_claim,
+    build_formal_claim_semantics_completion_reference,
+)
 from .delta_extractor import build_delta_report, delta_report_markdown
 from .dsl_v2 import DslV2Parser
 from .dsl_v3 import DslV3Parser
-from .evidence_boundary import build_proof_evidence_boundary_report
+from .evidence_boundary import (
+    ProofArtifactRef,
+    build_proof_evidence_boundary_report,
+    build_proof_producing_backend_boundary_report,
+)
 from .evidence_producers import validate_real_evidence_producers
 from .end_to_end_gate import (
     EndToEndRequirementGateReport,
@@ -207,6 +218,7 @@ from .spec_freshness import (
 from .trace_validation import build_trace_validation_report, trace_validation_markdown
 from .trace_normalization import RawTraceArtifact, normalize_raw_traces
 from .system_spec import build_system_spec_registry_report, load_system_spec_registry
+from .system_composition import build_s_and_r_composition_report
 from .system_checker import (
     check_requirement_set_consistency,
     check_solver_backed_system_consistency,
@@ -499,6 +511,12 @@ def main(argv: list[str] | None = None) -> int:
     formal_claim_cmd.add_argument("file", type=Path)
     formal_claim_cmd.add_argument("--out", type=Path)
 
+    formal_claim_semantics_cmd = subcommands.add_parser(
+        "formal-claim-semantics",
+        help="Emit the completed formal-claim semantics reference.",
+    )
+    formal_claim_semantics_cmd.add_argument("--out", type=Path)
+
     semantic_translate_cmd = subcommands.add_parser(
         "semantic-translate", help="Translate controlled DSL v3 text to semantic IR and formal claim IR."
     )
@@ -707,6 +725,17 @@ def main(argv: list[str] | None = None) -> int:
     )
     solver_system_cmd.add_argument("--out", type=Path)
 
+    s_and_r_composition_cmd = subcommands.add_parser(
+        "s-and-r-composition", help="Build the hash-bound S-and-R composition report."
+    )
+    s_and_r_composition_cmd.add_argument("--requirement-ir", type=Path, required=True)
+    s_and_r_composition_cmd.add_argument("--lowered", type=Path, required=True)
+    s_and_r_composition_cmd.add_argument("--registry", type=Path, required=True)
+    s_and_r_composition_cmd.add_argument("--impact", type=Path, required=True)
+    s_and_r_composition_cmd.add_argument("--system-consistency", type=Path, required=True)
+    s_and_r_composition_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    s_and_r_composition_cmd.add_argument("--out", type=Path)
+
     req_set_cmd = subcommands.add_parser(
         "requirement-set-consistency", help="Check flat requirement set contradictions."
     )
@@ -834,6 +863,16 @@ def main(argv: list[str] | None = None) -> int:
     proof_boundary_cmd.add_argument("proof_object", type=Path)
     proof_boundary_cmd.add_argument("--out", type=Path)
 
+    proof_backend_boundary_cmd = subcommands.add_parser(
+        "proof-backend-boundary",
+        help="Validate proof-producing backend evidence requirements.",
+    )
+    proof_backend_boundary_cmd.add_argument("--backend-result", type=Path, required=True)
+    proof_backend_boundary_cmd.add_argument("--producer-mapping", type=Path)
+    proof_backend_boundary_cmd.add_argument("--proof-artifact", action="append", default=[])
+    proof_backend_boundary_cmd.add_argument("--checker-command", nargs=argparse.REMAINDER)
+    proof_backend_boundary_cmd.add_argument("--out", type=Path)
+
     backend_agreement_cmd = subcommands.add_parser(
         "backend-agreement",
         help="Compare overlapping backend results and report hidden disagreements.",
@@ -853,6 +892,16 @@ def main(argv: list[str] | None = None) -> int:
     )
     counterexample_cmd.add_argument("--formal-backend-response", action="append", type=Path, default=[])
     counterexample_cmd.add_argument("--out", type=Path)
+
+    counterexample_explain_cmd = subcommands.add_parser(
+        "counterexample-explain",
+        help="Explain normalized counterexamples with formal-claim source mappings.",
+    )
+    counterexample_explain_cmd.add_argument("--normalization", type=Path, required=True)
+    counterexample_explain_cmd.add_argument("--formal-claim", type=Path)
+    counterexample_explain_cmd.add_argument("--formal-backend-response", action="append", type=Path, default=[])
+    counterexample_explain_cmd.add_argument("--out", type=Path)
+    counterexample_explain_cmd.add_argument("--markdown-out", type=Path)
 
     proof_object_cmd = subcommands.add_parser(
         "proof-object", help="Aggregate backend evidence into a proof closure object."
@@ -1908,6 +1957,16 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(report), end="")
             return 0 if report.result == "lowered" else 1
+        if args.command == "formal-claim-semantics":
+            from .jsonutil import write_json
+
+            reference = build_formal_claim_semantics_completion_reference()
+            if args.out:
+                write_json(args.out, reference)
+                print(f"Formal claim semantics reference: {args.out}")
+            else:
+                print(canonical_json(reference), end="")
+            return 0 if reference.result == "complete" else 1
         if args.command == "semantic-translate":
             from .jsonutil import write_json
 
@@ -2310,6 +2369,32 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(result), end="")
             return 0
+        if args.command == "s-and-r-composition":
+            from .impact import ImpactAnalysisArtifact
+            from .jsonutil import write_json
+            from .models import RequirementIRV2
+            from .system_checker import SystemConsistencyResult
+            from .translator import LoweredFormalArtifact
+
+            ir = validate_requirement_ir_json(args.requirement_ir.read_text())
+            if not isinstance(ir, RequirementIRV2):
+                raise ValueError("s-and-r-composition requires ir_version 0.2")
+            report = build_s_and_r_composition_report(
+                requirement=ir,
+                lowered=LoweredFormalArtifact.model_validate_json(args.lowered.read_text()),
+                registry=load_system_spec_registry(args.registry),
+                impact=ImpactAnalysisArtifact.model_validate_json(args.impact.read_text()),
+                project_root=args.project_root,
+                consistency=SystemConsistencyResult.model_validate_json(
+                    args.system_consistency.read_text()
+                ),
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"S-and-R composition report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0
         if args.command == "requirement-set-consistency":
             from .jsonutil import write_json
 
@@ -2576,6 +2661,30 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(report), end="")
             return 0 if report.result == "passed" else 1
+        if args.command == "proof-backend-boundary":
+            from .jsonutil import write_json
+            from .models import BackendResult
+            from .proof_closure import EvidenceProducerMapping
+
+            mapping = (
+                EvidenceProducerMapping.model_validate_json(args.producer_mapping.read_text())
+                if args.producer_mapping
+                else default_evidence_producer_mapping()
+            )
+            report = build_proof_producing_backend_boundary_report(
+                backend_result=BackendResult.model_validate_json(args.backend_result.read_text()),
+                producer_mapping=mapping,
+                proof_artifacts=_proof_artifacts_from_args(args.proof_artifact),
+                checker_command=_normalize_remainder_command(args.checker_command)
+                if args.checker_command
+                else None,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Proof backend boundary report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "accepted" else 1
         if args.command == "backend-agreement":
             from .formal_backend import FormalBackendResponse
             from .jsonutil import write_json
@@ -2616,6 +2725,35 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Counterexample normalization report: {args.out}")
             else:
                 print(canonical_json(report), end="")
+            return 0
+        if args.command == "counterexample-explain":
+            from .counterexample_normalization import CounterexampleNormalizationReport
+            from .formal_backend import FormalBackendResponse
+            from .formal_claim import FormalClaim
+            from .jsonutil import write_json
+
+            report = explain_counterexamples(
+                CounterexampleNormalizationReport.model_validate_json(
+                    args.normalization.read_text()
+                ),
+                formal_claim=FormalClaim.model_validate_json(args.formal_claim.read_text())
+                if args.formal_claim
+                else None,
+                backend_responses=[
+                    FormalBackendResponse.model_validate_json(path.read_text())
+                    for path in args.formal_backend_response
+                ],
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Counterexample explanation report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            if args.markdown_out:
+                args.markdown_out.write_text(
+                    "\n\n".join(item.markdown for item in report.explanations)
+                )
+                print(f"Counterexample explanation markdown: {args.markdown_out}")
             return 0
         if args.command == "proof-object":
             from .coverage_alignment import SpecCoverageReport, TraceAlignmentReport
@@ -4033,6 +4171,27 @@ def _assumptions_from_args(entries: list[str]) -> list[AbstractionAssumption]:
             )
         )
     return assumptions
+
+
+def _proof_artifacts_from_args(entries: list[str]) -> list[ProofArtifactRef]:
+    artifacts: list[ProofArtifactRef] = []
+    for entry in entries:
+        parts = entry.split(":", 2)
+        if len(parts) < 3:
+            raise ValueError("proof artifact must be ID:kind:sha256[@path]")
+        kind = parts[1]
+        if kind not in {"theorem_statement", "proof_script", "checked_proof", "checker_log"}:
+            raise ValueError(f"unsupported proof artifact kind: {kind}")
+        artifact_hash, _, artifact_path = parts[2].partition("@")
+        artifacts.append(
+            ProofArtifactRef(
+                artifact_id=parts[0],
+                kind=kind,  # type: ignore[arg-type]
+                sha256=artifact_hash,
+                path=artifact_path or None,
+            )
+        )
+    return artifacts
 
 
 def _requirement_ids_from_args(args: argparse.Namespace) -> list[str]:

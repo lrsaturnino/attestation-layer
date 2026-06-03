@@ -13,6 +13,16 @@
       "title": "Budget Hash",
       "type": "string"
     },
+    "closure_effect": {
+      "default": "block",
+      "enum": [
+        "allow",
+        "block",
+        "review"
+      ],
+      "title": "Closure Effect",
+      "type": "string"
+    },
     "outcome": {
       "enum": [
         "valid",
@@ -44,6 +54,11 @@
       "const": "0.1",
       "default": "0.1",
       "title": "Schema Version",
+      "type": "string"
+    },
+    "unknown_policy": {
+      "default": "Timeout, invalid, unsupported, and review-bound outcomes cannot approve closure.",
+      "title": "Unknown Policy",
       "type": "string"
     }
   },

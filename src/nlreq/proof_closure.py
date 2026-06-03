@@ -188,6 +188,27 @@ def default_evidence_producer_mapping() -> EvidenceProducerMapping:
                 tool_version="0.1",
             ),
             EvidenceProducer(
+                producer_id="apalache",
+                producer_kind="model_checker",
+                allowed_evidence_levels=[EvidenceLevel.BOUNDED_CHECKED],
+                tool="nlreq.formal_backend.ApalacheBackend",
+                tool_version="0.1",
+            ),
+            EvidenceProducer(
+                producer_id="tlc",
+                producer_kind="model_checker",
+                allowed_evidence_levels=[EvidenceLevel.BOUNDED_CHECKED],
+                tool="nlreq.formal_backend.TlcProductionBackend",
+                tool_version="0.1",
+            ),
+            EvidenceProducer(
+                producer_id="tlaps",
+                producer_kind="proof_assistant",
+                allowed_evidence_levels=[EvidenceLevel.PROVEN_INDUCTIVE],
+                tool="tlapm",
+                tool_version=None,
+            ),
+            EvidenceProducer(
                 producer_id="tla-boundary",
                 producer_kind="formal_boundary",
                 real_producer=False,

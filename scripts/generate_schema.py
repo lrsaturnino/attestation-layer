@@ -46,10 +46,16 @@ from nlreq.conclusion_certification import (
     ConclusionCertificationReport,
     ExtendedConclusionCertificationReport,
 )
-from nlreq.counterexample_normalization import CounterexampleNormalizationReport
+from nlreq.counterexample_normalization import (
+    CounterexampleExplanationReport,
+    CounterexampleNormalizationReport,
+)
 from nlreq.controlled_semantics import ControlledRequirementSemanticsReference
 from nlreq.cross_language import CrossLanguageProofObject
-from nlreq.evidence_boundary import ProofEvidenceBoundaryReport
+from nlreq.evidence_boundary import (
+    ProofEvidenceBoundaryReport,
+    ProofProducingBackendBoundaryReport,
+)
 from nlreq.intake import (
     ControlledRewriteApproval,
     ControlledRewriteProposal,
@@ -85,7 +91,11 @@ from nlreq.end_to_end_gate import (
 )
 from nlreq.evidence_producers import EvidenceProducerValidationReport
 from nlreq.formal_backend import FormalBackendRequest, FormalBackendResponse
-from nlreq.formal_claim import FormalClaim, FormalClaimLoweringReport
+from nlreq.formal_claim import (
+    FormalClaim,
+    FormalClaimLoweringReport,
+    FormalClaimSemanticsCompletionReference,
+)
 from nlreq.coverage_alignment import SpecCoverageReport, TraceAlignmentReport
 from nlreq.gate import GatePolicy, GateWaiver
 from nlreq.impact import ImpactAnalysisArtifact
@@ -179,6 +189,7 @@ SCHEMAS = {
     "bindings.schema.json": BindingsArtifact,
     "command-checks.schema.json": CommandChecksArtifact,
     "command-results.schema.json": CommandResultsArtifact,
+    "counterexample-explanation-report.schema.json": CounterexampleExplanationReport,
     "counterexample-normalization-report.schema.json": CounterexampleNormalizationReport,
     "counterexamples.schema.json": CounterexamplesArtifact,
     "cross-language-proof-object.schema.json": CrossLanguageProofObject,
@@ -221,10 +232,12 @@ SCHEMAS = {
     "evidence.schema.json": EvidenceObject,
     "evidence-producer-validation.schema.json": EvidenceProducerValidationReport,
     "proof-evidence-boundary-report.schema.json": ProofEvidenceBoundaryReport,
+    "proof-producing-backend-boundary-report.schema.json": ProofProducingBackendBoundaryReport,
     "formal-backend-request.schema.json": FormalBackendRequest,
     "formal-backend-response.schema.json": FormalBackendResponse,
     "formal-claim.schema.json": FormalClaim,
     "formal-claim-lowering-report.schema.json": FormalClaimLoweringReport,
+    "formal-claim-semantics-completion.schema.json": FormalClaimSemanticsCompletionReference,
     "gate-policy.schema.json": GatePolicy,
     "impact-analysis.schema.json": ImpactAnalysisArtifact,
     "source-impact-analysis.schema.json": SourceImpactAnalysisArtifact,

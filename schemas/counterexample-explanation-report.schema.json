@@ -1,0 +1,243 @@
+{
+  "$defs": {
+    "CounterexampleExplanation": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "title": "Backend",
+          "type": "string"
+        },
+        "backend_bound": {
+          "additionalProperties": true,
+          "title": "Backend Bound",
+          "type": "object"
+        },
+        "counterexample_id": {
+          "title": "Counterexample Id",
+          "type": "string"
+        },
+        "explanation_id": {
+          "title": "Explanation Id",
+          "type": "string"
+        },
+        "markdown": {
+          "title": "Markdown",
+          "type": "string"
+        },
+        "next_actions": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Next Actions",
+          "type": "array"
+        },
+        "requirement_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Requirement Id"
+        },
+        "shortest_known_trace": {
+          "items": {
+            "$ref": "#/$defs/CounterexampleStep"
+          },
+          "title": "Shortest Known Trace",
+          "type": "array"
+        },
+        "source_mappings": {
+          "items": {
+            "$ref": "#/$defs/CounterexampleSourceMapping"
+          },
+          "title": "Source Mappings",
+          "type": "array"
+        },
+        "summary": {
+          "title": "Summary",
+          "type": "string"
+        },
+        "violated_property": {
+          "title": "Violated Property",
+          "type": "string"
+        }
+      },
+      "required": [
+        "explanation_id",
+        "counterexample_id",
+        "backend",
+        "violated_property",
+        "summary",
+        "markdown"
+      ],
+      "title": "CounterexampleExplanation",
+      "type": "object"
+    },
+    "CounterexampleSourceMapping": {
+      "additionalProperties": false,
+      "properties": {
+        "canonical": {
+          "title": "Canonical",
+          "type": "string"
+        },
+        "claim_fragment_id": {
+          "title": "Claim Fragment Id",
+          "type": "string"
+        },
+        "source_node_id": {
+          "title": "Source Node Id",
+          "type": "string"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "claim_fragment_id",
+        "source_node_id",
+        "canonical"
+      ],
+      "title": "CounterexampleSourceMapping",
+      "type": "object"
+    },
+    "CounterexampleStep": {
+      "additionalProperties": false,
+      "properties": {
+        "event": {
+          "additionalProperties": true,
+          "title": "Event",
+          "type": "object"
+        },
+        "excerpt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Excerpt"
+        },
+        "marker": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Marker"
+        },
+        "source": {
+          "title": "Source",
+          "type": "string"
+        },
+        "state": {
+          "additionalProperties": true,
+          "title": "State",
+          "type": "object"
+        },
+        "step_index": {
+          "minimum": 0,
+          "title": "Step Index",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "step_index",
+        "source"
+      ],
+      "title": "CounterexampleStep",
+      "type": "object"
+    },
+    "SourceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "title": "Document",
+          "type": "string"
+        },
+        "end_char": {
+          "minimum": 0,
+          "title": "End Char",
+          "type": "integer"
+        },
+        "start_char": {
+          "minimum": 0,
+          "title": "Start Char",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "start_char",
+        "end_char",
+        "text"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "explanations": {
+      "items": {
+        "$ref": "#/$defs/CounterexampleExplanation"
+      },
+      "title": "Explanations",
+      "type": "array"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "result": {
+      "enum": [
+        "explained",
+        "none"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.counterexample_normalization",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "result"
+  ],
+  "title": "CounterexampleExplanationReport",
+  "type": "object"
+}

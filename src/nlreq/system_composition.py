@@ -30,6 +30,15 @@ class ComposedSystemSpecRef(BaseModel):
     freshness: str
 
 
+class CompositionArtifactRef(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["tla_module", "tla_config", "backend_result"]
+    path: str | None = None
+    sha256: str
+    backend_checkable: bool = True
+
+
 class SandRCompositionReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -41,7 +50,11 @@ class SandRCompositionReport(BaseModel):
     lowered_hash: str
     impact_hash: str
     system_specs: list[ComposedSystemSpecRef] = Field(default_factory=list)
+    composition_artifacts: list[CompositionArtifactRef] = Field(default_factory=list)
+    preserved_invariants: list[str] = Field(default_factory=list)
+    namespace_policy: list[str] = Field(default_factory=list)
     backend_result_hash: str
+    blockers: list[str] = Field(default_factory=list)
     limitations: list[str] = Field(default_factory=list)
     tool: str = "nlreq.system_composition"
     tool_version: str = SYSTEM_COMPOSITION_TOOL_VERSION
@@ -64,6 +77,8 @@ def build_s_and_r_composition_report(
     lowered_hash = sha256_json(lowered)
     impact_hash = sha256_json(impact)
     backend_hash = sha256_json(consistency.result)
+    artifacts = _composition_artifacts(consistency)
+    blockers = _composition_blockers(spec_refs, consistency)
     return SandRCompositionReport(
         requirement_id=requirement.requirement_id,
         result=consistency.result.status,
@@ -72,7 +87,15 @@ def build_s_and_r_composition_report(
         lowered_hash=lowered_hash,
         impact_hash=impact_hash,
         system_specs=spec_refs,
+        composition_artifacts=artifacts,
+        preserved_invariants=_preserved_invariants(consistency),
+        namespace_policy=[
+            "Requirement projection is wrapped in a requirement-scoped module name.",
+            "Reviewed system spec hashes are retained as composition comments and report fields.",
+            "Requirement operators keep generated names; system spec operators are not rewritten.",
+        ],
         backend_result_hash=backend_hash,
+        blockers=blockers,
         limitations=[
             "Composition is bounded or backend-scoped unless a proof-producing backend says otherwise.",
             "Draft or stale specs cannot satisfy the composition precondition.",
@@ -96,6 +119,67 @@ def _spec_ref(spec, *, project_root: Path) -> ComposedSystemSpecRef:
 
 def _sha256_file(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def _composition_artifacts(consistency: SystemConsistencyResult) -> list[CompositionArtifactRef]:
+    details = consistency.result.details
+    artifacts = [
+        CompositionArtifactRef(kind="backend_result", sha256=sha256_json(consistency.result))
+    ]
+    artifact_dir = details.get("artifact_dir")
+    for kind, name_key, hash_key in [
+        ("tla_module", "module", "module_hash"),
+        ("tla_config", "config", "config_hash"),
+    ]:
+        artifact_hash = details.get(hash_key)
+        if not isinstance(artifact_hash, str):
+            continue
+        name = details.get(name_key)
+        path = None
+        if isinstance(artifact_dir, str) and isinstance(name, str):
+            path = (Path(artifact_dir) / name).as_posix()
+        artifacts.append(
+            CompositionArtifactRef(
+                kind=kind,  # type: ignore[arg-type]
+                path=path,
+                sha256=artifact_hash,
+                backend_checkable=consistency.result.status != "unsupported",
+            )
+        )
+    return artifacts
+
+
+def _preserved_invariants(consistency: SystemConsistencyResult) -> list[str]:
+    details = consistency.result.details
+    raw = details.get("preserved_invariants")
+    if isinstance(raw, list):
+        return [str(item) for item in raw]
+    if details.get("mode") == "solver_backed":
+        return ["SystemAndRequirement", "SystemSpecAssumptions", "RequirementHolds"]
+    return ["RequirementHolds"]
+
+
+def _composition_blockers(
+    spec_refs: list[ComposedSystemSpecRef],
+    consistency: SystemConsistencyResult,
+) -> list[str]:
+    blockers = [
+        f"{spec.spec_id}: spec is {spec.freshness}"
+        for spec in spec_refs
+        if spec.freshness != "fresh"
+    ]
+    blockers.extend(
+        f"{spec.spec_id}: review status is {spec.review_status}"
+        for spec in spec_refs
+        if spec.review_status != "reviewed"
+    )
+    if consistency.result.status in {"timeout", "unsupported", "invalid"}:
+        reason = consistency.result.details.get("reason")
+        if isinstance(reason, str):
+            blockers.append(reason)
+        else:
+            blockers.append(f"backend result status is {consistency.result.status}")
+    return blockers
 
 
 def _short_hash(value: str) -> str:

@@ -57,6 +57,47 @@
       ],
       "title": "ComposedSystemSpecRef",
       "type": "object"
+    },
+    "CompositionArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_checkable": {
+          "default": true,
+          "title": "Backend Checkable",
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "tla_module",
+            "tla_config",
+            "backend_result"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "sha256"
+      ],
+      "title": "CompositionArtifactRef",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -64,6 +105,20 @@
     "backend_result_hash": {
       "title": "Backend Result Hash",
       "type": "string"
+    },
+    "blockers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "composition_artifacts": {
+      "items": {
+        "$ref": "#/$defs/CompositionArtifactRef"
+      },
+      "title": "Composition Artifacts",
+      "type": "array"
     },
     "composition_id": {
       "title": "Composition Id",
@@ -83,6 +138,20 @@
     "lowered_hash": {
       "title": "Lowered Hash",
       "type": "string"
+    },
+    "namespace_policy": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Namespace Policy",
+      "type": "array"
+    },
+    "preserved_invariants": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Preserved Invariants",
+      "type": "array"
     },
     "requirement_hash": {
       "title": "Requirement Hash",

@@ -60,6 +60,8 @@ class BudgetedVerificationOutcome(BaseModel):
     budget_hash: str
     backend_status: str
     approving: bool
+    closure_effect: Literal["allow", "block", "review"] = "block"
+    unknown_policy: str = "Timeout, invalid, unsupported, and review-bound outcomes cannot approve closure."
     reason: str | None = None
 
 
@@ -134,22 +136,27 @@ def classify_budgeted_outcome(
     if backend_result.status == "valid" and budget_report.result == "ready":
         outcome = "valid"
         approving = True
+        closure_effect = "allow"
         reason = None
     elif backend_result.status == "counterexample":
         outcome = "counterexample"
         approving = False
+        closure_effect = "block"
         reason = "backend produced a counterexample"
     elif backend_result.status == "timeout":
         outcome = "timeout"
         approving = False
+        closure_effect = "block"
         reason = "verification budget was exhausted"
     elif backend_result.status in {"unsupported", "needs_review"} or budget_report.result != "ready":
         outcome = "inconclusive"
         approving = False
+        closure_effect = "review"
         reason = "verification is inconclusive under current budget or assumptions"
     else:
         outcome = "unknown"
         approving = False
+        closure_effect = "block"
         reason = "backend status is unknown for budget classification"
     return BudgetedVerificationOutcome(
         requirement_id=requirement_id,
@@ -157,6 +164,7 @@ def classify_budgeted_outcome(
         budget_hash=sha256_json(budget_report),
         backend_status=backend_result.status,
         approving=approving,
+        closure_effect=closure_effect,
         reason=reason,
     )
 

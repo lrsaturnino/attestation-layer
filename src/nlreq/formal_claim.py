@@ -77,6 +77,34 @@ class FormalClaimSemanticsRule(BaseModel):
     text: str
 
 
+class FormalClaimSemanticsCompletionEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    claim_class: ClaimClass
+    supported: bool
+    exact_semantics: str
+    supported_fragment_kinds: list[FormalClaimFragmentKind] = Field(default_factory=list)
+    required_evidence: list[EvidenceLevel] = Field(default_factory=list)
+    backend_projection_obligations: list[str] = Field(default_factory=list)
+    trace_validation_obligations: list[str] = Field(default_factory=list)
+    unsupported_behavior: str
+    limitations: list[str] = Field(default_factory=list)
+
+
+class FormalClaimSemanticsCompletionReference(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1"] = FORMAL_CLAIM_SCHEMA_VERSION
+    result: Literal["complete", "incomplete"]
+    semantics_profile: str
+    claim_classes: list[FormalClaimSemanticsCompletionEntry] = Field(default_factory=list)
+    missing_claim_classes: list[str] = Field(default_factory=list)
+    evidence_matrix_hash: str
+    refusal_rules: list[str] = Field(default_factory=list)
+    tool: str = "nlreq.formal_claim"
+    tool_version: str = FORMAL_CLAIM_TOOL_VERSION
+
+
 class FormalClaim(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -173,6 +201,60 @@ def build_formal_claim(requirement: RequirementIRV2) -> FormalClaimLoweringRepor
     )
 
 
+def build_formal_claim_semantics_completion_reference() -> FormalClaimSemanticsCompletionReference:
+    reference = build_controlled_requirement_semantics_reference()
+    entries = [
+        FormalClaimSemanticsCompletionEntry(
+            claim_class=claim.claim_class,
+            supported=claim.supported,
+            exact_semantics=claim.canonical_rule,
+            supported_fragment_kinds=_supported_fragment_kinds_for_claim_class(claim.claim_class),
+            required_evidence=claim.required_evidence,
+            backend_projection_obligations=_backend_projection_obligations(claim.claim_class),
+            trace_validation_obligations=_trace_validation_obligations(claim.required_evidence),
+            unsupported_behavior=(
+                "Unknown claim classes, unsupported semantic-node kinds, missing temporal "
+                "bounds, and unsupported premise or obligation shapes refuse before backend dispatch."
+            ),
+            limitations=claim.limitations,
+        )
+        for claim in reference.claim_classes
+    ]
+    expected = {
+        "authorization_precondition",
+        "state_precondition",
+        "state_postcondition",
+        "numeric_invariant",
+        "event_state_correspondence",
+        "bounded_temporal",
+        "cross_module_causal_obligation",
+    }
+    present = {entry.claim_class for entry in entries}
+    missing = sorted(expected - present)
+    return FormalClaimSemanticsCompletionReference(
+        result="incomplete" if missing else "complete",
+        semantics_profile="dsl-v3/formal-claim-semantics-0.1",
+        claim_classes=entries,
+        missing_claim_classes=missing,
+        evidence_matrix_hash=sha256_json(
+            [
+                {
+                    "claim_class": entry.claim_class,
+                    "required_evidence": entry.required_evidence,
+                    "fragments": entry.supported_fragment_kinds,
+                }
+                for entry in entries
+            ]
+        ),
+        refusal_rules=[
+            "No partial formal claim is emitted for unsupported semantic fragments.",
+            "Backend projection consumes typed formal fragments, not raw controlled prose.",
+            "Bounded temporal and cross-module semantics require explicit temporal bounds.",
+            "Formal claim lowering names required evidence but never emits backend evidence.",
+        ],
+    )
+
+
 def formal_claim_signature(
     claim: FormalClaim,
     *,
@@ -235,6 +317,42 @@ def _semantics_rules(claim_class: ClaimClass | None) -> list[FormalClaimSemantic
 def _required_evidence_for_claim_class(claim_class: ClaimClass) -> list[EvidenceLevel]:
     reference = build_controlled_requirement_semantics_reference()
     return next(item.required_evidence for item in reference.claim_classes if item.claim_class == claim_class)
+
+
+def _supported_fragment_kinds_for_claim_class(claim_class: ClaimClass) -> list[FormalClaimFragmentKind]:
+    common: list[FormalClaimFragmentKind] = ["scope", "action"]
+    by_claim: dict[str, list[FormalClaimFragmentKind]] = {
+        "authorization_precondition": ["predicate", "rejection_order"],
+        "state_precondition": ["predicate", "success"],
+        "state_postcondition": ["predicate", "comparison", "post_state"],
+        "numeric_invariant": ["predicate", "comparison", "membership", "state_invariant"],
+        "event_state_correspondence": ["predicate", "event_emission"],
+        "bounded_temporal": ["predicate", "comparison", "event_emission"],
+        "cross_module_causal_obligation": ["predicate", "causal_transition"],
+    }
+    return [*common, *by_claim.get(claim_class, [])]
+
+
+def _backend_projection_obligations(claim_class: ClaimClass) -> list[str]:
+    obligations = [
+        "Preserve formal fragment IDs in backend artifacts or diagnostics.",
+        "Record every bounded check as bounded evidence, not inductive proof.",
+        "Return unsupported before execution when a fragment cannot be projected.",
+    ]
+    if claim_class in {"event_state_correspondence", "bounded_temporal", "cross_module_causal_obligation"}:
+        obligations.append("Carry temporal bounds into backend budget metadata.")
+    if claim_class == "cross_module_causal_obligation":
+        obligations.append("Preserve source and target module names for causal trace joins.")
+    return obligations
+
+
+def _trace_validation_obligations(required_evidence: list[EvidenceLevel]) -> list[str]:
+    if EvidenceLevel.TRACE_VALIDATED not in required_evidence:
+        return []
+    return [
+        "Trace validators must map observed events or state changes to formal fragments.",
+        "Lossy or missing trace fields cannot satisfy TRACE_VALIDATED evidence.",
+    ]
 
 
 def _unsupported_fragments(node: SemanticNode) -> list[FormalClaimUnsupportedFragment]:
@@ -546,4 +664,3 @@ def _walk_nodes(node: SemanticNode):
         yield from _walk_nodes(node.left)
     if isinstance(node.right, SemanticNode):
         yield from _walk_nodes(node.right)
-

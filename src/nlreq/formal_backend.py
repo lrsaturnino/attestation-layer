@@ -285,6 +285,7 @@ class TlaRunnerBackend:
 class ProductionTlaBackend:
     backend_id = "production-tla"
     checker_id = "production-tla"
+    evidence_flavor = "bounded_tla"
     target: FormalBackendTarget = "tla"
 
     def default_command(self, budget: FormalBackendBudget | None) -> list[str]:
@@ -375,6 +376,7 @@ class ProductionTlaBackend:
                     "entry_node_id": request.entry_node_id,
                     "execution": "run",
                     "checker_id": execution.checker_id,
+                    "evidence_flavor": self.evidence_flavor,
                     "runner_outcome": runner_result.outcome,
                     "runner_result_hash": sha256_json(runner_result),
                     "tool_missing": (
@@ -405,6 +407,7 @@ class ProductionTlaBackend:
 class ApalacheBackend(ProductionTlaBackend):
     backend_id = "apalache"
     checker_id = "apalache"
+    evidence_flavor = "symbolic_bounded"
 
     def default_command(self, budget: FormalBackendBudget | None) -> list[str]:
         depth = (budget.max_depth if budget is not None and budget.max_depth else 10)
@@ -414,6 +417,7 @@ class ApalacheBackend(ProductionTlaBackend):
 class TlcProductionBackend(ProductionTlaBackend):
     backend_id = "tlc"
     checker_id = "tlc"
+    evidence_flavor = "explicit_state_bounded"
 
     def default_command(self, budget: FormalBackendBudget | None) -> list[str]:
         return ["tlc2.TLC", "-config", "{config}", "{module}"]

@@ -250,6 +250,17 @@ def _classify_output(
     combined = f"{stdout}\n{stderr}"
     lowered = combined.lower()
 
+    for marker in [
+        "timed out",
+        "timeout",
+        "time limit exceeded",
+        "max depth reached",
+        "state space limit",
+        "state limit",
+    ]:
+        if marker in lowered:
+            return "timeout", [], []
+
     unsupported_markers = [
         marker
         for marker in [
@@ -266,7 +277,12 @@ def _classify_output(
     counterexamples: list[ModelCheckerCounterexample] = []
     for marker in [
         "counterexample",
+        "the outcome is: error",
+        "checker has found an error",
+        "violation found",
         "invariant is violated",
+        "is violated",
+        "invariant violation",
         "property is violated",
         "temporal property is violated",
         "assertion failed",
@@ -283,6 +299,9 @@ def _classify_output(
         return "counterexample", counterexamples, []
 
     for marker in [
+        "the outcome is: noerror",
+        "the outcome is: no error",
+        "checker reports no error",
         "no error has been found",
         "model checking completed",
         "verification successful",

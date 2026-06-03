@@ -1,0 +1,168 @@
+{
+  "$defs": {
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    },
+    "FormalClaimSemanticsCompletionEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_projection_obligations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Backend Projection Obligations",
+          "type": "array"
+        },
+        "claim_class": {
+          "enum": [
+            "authorization_precondition",
+            "state_precondition",
+            "state_postcondition",
+            "numeric_invariant",
+            "event_state_correspondence",
+            "bounded_temporal",
+            "cross_module_causal_obligation"
+          ],
+          "title": "Claim Class",
+          "type": "string"
+        },
+        "exact_semantics": {
+          "title": "Exact Semantics",
+          "type": "string"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        },
+        "required_evidence": {
+          "items": {
+            "$ref": "#/$defs/EvidenceLevel"
+          },
+          "title": "Required Evidence",
+          "type": "array"
+        },
+        "supported": {
+          "title": "Supported",
+          "type": "boolean"
+        },
+        "supported_fragment_kinds": {
+          "items": {
+            "enum": [
+              "scope",
+              "predicate",
+              "comparison",
+              "membership",
+              "action",
+              "success",
+              "rejection_order",
+              "post_state",
+              "event_emission",
+              "state_invariant",
+              "causal_transition"
+            ],
+            "type": "string"
+          },
+          "title": "Supported Fragment Kinds",
+          "type": "array"
+        },
+        "trace_validation_obligations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Trace Validation Obligations",
+          "type": "array"
+        },
+        "unsupported_behavior": {
+          "title": "Unsupported Behavior",
+          "type": "string"
+        }
+      },
+      "required": [
+        "claim_class",
+        "supported",
+        "exact_semantics",
+        "unsupported_behavior"
+      ],
+      "title": "FormalClaimSemanticsCompletionEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "claim_classes": {
+      "items": {
+        "$ref": "#/$defs/FormalClaimSemanticsCompletionEntry"
+      },
+      "title": "Claim Classes",
+      "type": "array"
+    },
+    "evidence_matrix_hash": {
+      "title": "Evidence Matrix Hash",
+      "type": "string"
+    },
+    "missing_claim_classes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Claim Classes",
+      "type": "array"
+    },
+    "refusal_rules": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Refusal Rules",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "complete",
+        "incomplete"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "semantics_profile": {
+      "title": "Semantics Profile",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.formal_claim",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "result",
+    "semantics_profile",
+    "evidence_matrix_hash"
+  ],
+  "title": "FormalClaimSemanticsCompletionReference",
+  "type": "object"
+}

@@ -1,0 +1,200 @@
+{
+  "$defs": {
+    "EvidenceBoundaryFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "title": "Backend",
+          "type": "string"
+        },
+        "evidence_level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "blocking"
+          ],
+          "title": "Severity",
+          "type": "string"
+        }
+      },
+      "required": [
+        "backend",
+        "severity",
+        "message"
+      ],
+      "title": "EvidenceBoundaryFinding",
+      "type": "object"
+    },
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    },
+    "ProofArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_id": {
+          "title": "Artifact Id",
+          "type": "string"
+        },
+        "checker": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Checker"
+        },
+        "kind": {
+          "enum": [
+            "theorem_statement",
+            "proof_script",
+            "checked_proof",
+            "checker_log"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_id",
+        "kind",
+        "sha256"
+      ],
+      "title": "ProofArtifactRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "backend": {
+      "title": "Backend",
+      "type": "string"
+    },
+    "checker_command": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Checker Command",
+      "type": "array"
+    },
+    "claimed_evidence_level": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EvidenceLevel"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/EvidenceBoundaryFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "producer_kind": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Producer Kind"
+    },
+    "proof_artifacts": {
+      "items": {
+        "$ref": "#/$defs/ProofArtifactRef"
+      },
+      "title": "Proof Artifacts",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "accepted",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.evidence_boundary",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "backend",
+    "result"
+  ],
+  "title": "ProofProducingBackendBoundaryReport",
+  "type": "object"
+}
