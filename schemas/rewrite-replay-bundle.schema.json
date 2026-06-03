@@ -1,0 +1,421 @@
+{
+  "$defs": {
+    "FreeFormIntakeArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "intake_id": {
+          "title": "Intake Id",
+          "type": "string"
+        },
+        "language": {
+          "default": "en",
+          "title": "Language",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "original_text": {
+          "title": "Original Text",
+          "type": "string"
+        },
+        "original_text_hash": {
+          "title": "Original Text Hash",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "submitted_at": {
+          "title": "Submitted At",
+          "type": "string"
+        },
+        "submitted_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Submitted By"
+        }
+      },
+      "required": [
+        "intake_id",
+        "original_text",
+        "original_text_hash",
+        "submitted_at"
+      ],
+      "title": "FreeFormIntakeArtifact",
+      "type": "object"
+    },
+    "RewriteApprovalReplayRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "approval_id": {
+          "title": "Approval Id",
+          "type": "string"
+        },
+        "approved_at": {
+          "title": "Approved At",
+          "type": "string"
+        },
+        "approved_by": {
+          "title": "Approved By",
+          "type": "string"
+        },
+        "approved_controlled_text_hash": {
+          "title": "Approved Controlled Text Hash",
+          "type": "string"
+        },
+        "approved_diff_hash": {
+          "title": "Approved Diff Hash",
+          "type": "string"
+        },
+        "decision": {
+          "enum": [
+            "approved",
+            "rejected"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "proposal_id": {
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "reviewed_original_text_hash": {
+          "title": "Reviewed Original Text Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "approval_id",
+        "proposal_id",
+        "decision",
+        "reviewed_original_text_hash",
+        "approved_controlled_text_hash",
+        "approved_diff_hash",
+        "approved_by",
+        "approved_at"
+      ],
+      "title": "RewriteApprovalReplayRecord",
+      "type": "object"
+    },
+    "RewriteProducerMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "method": {
+          "default": "manual",
+          "enum": [
+            "manual",
+            "llm",
+            "rule_based"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "prompt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt"
+        },
+        "prompt_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Hash"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "string"
+        },
+        "tool": {
+          "default": "nlreq.intake",
+          "title": "Tool",
+          "type": "string"
+        },
+        "tool_version": {
+          "default": "0.1",
+          "title": "Tool Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "timestamp"
+      ],
+      "title": "RewriteProducerMetadata",
+      "type": "object"
+    },
+    "RewritePromptRegistry": {
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/RewritePromptRegistryEntry"
+          },
+          "title": "Entries",
+          "type": "array"
+        },
+        "registry_id": {
+          "title": "Registry Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "registry_id",
+        "entries"
+      ],
+      "title": "RewritePromptRegistry",
+      "type": "object"
+    },
+    "RewritePromptRegistryEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "created_at": {
+          "title": "Created At",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "prompt": {
+          "title": "Prompt",
+          "type": "string"
+        },
+        "prompt_hash": {
+          "title": "Prompt Hash",
+          "type": "string"
+        },
+        "prompt_id": {
+          "title": "Prompt Id",
+          "type": "string"
+        },
+        "purpose": {
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "prompt_id",
+        "prompt",
+        "prompt_hash",
+        "purpose",
+        "created_at"
+      ],
+      "title": "RewritePromptRegistryEntry",
+      "type": "object"
+    },
+    "RewriteReplayAttempt": {
+      "additionalProperties": false,
+      "properties": {
+        "diff": {
+          "title": "Diff",
+          "type": "string"
+        },
+        "diff_hash": {
+          "title": "Diff Hash",
+          "type": "string"
+        },
+        "intake_id": {
+          "title": "Intake Id",
+          "type": "string"
+        },
+        "original_text_hash": {
+          "title": "Original Text Hash",
+          "type": "string"
+        },
+        "producer": {
+          "$ref": "#/$defs/RewriteProducerMetadata"
+        },
+        "proposal_id": {
+          "title": "Proposal Id",
+          "type": "string"
+        },
+        "proposed_controlled_text": {
+          "title": "Proposed Controlled Text",
+          "type": "string"
+        },
+        "proposed_controlled_text_hash": {
+          "title": "Proposed Controlled Text Hash",
+          "type": "string"
+        },
+        "retained_output_hash": {
+          "title": "Retained Output Hash",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "needs_approval",
+            "approved",
+            "rejected"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "proposal_id",
+        "intake_id",
+        "original_text_hash",
+        "proposed_controlled_text",
+        "proposed_controlled_text_hash",
+        "diff",
+        "diff_hash",
+        "producer",
+        "retained_output_hash",
+        "status"
+      ],
+      "title": "RewriteReplayAttempt",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "approvals": {
+      "items": {
+        "$ref": "#/$defs/RewriteApprovalReplayRecord"
+      },
+      "title": "Approvals",
+      "type": "array"
+    },
+    "attempts": {
+      "items": {
+        "$ref": "#/$defs/RewriteReplayAttempt"
+      },
+      "title": "Attempts",
+      "type": "array"
+    },
+    "bundle_id": {
+      "title": "Bundle Id",
+      "type": "string"
+    },
+    "intake": {
+      "$ref": "#/$defs/FreeFormIntakeArtifact"
+    },
+    "notes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Notes",
+      "type": "array"
+    },
+    "prompt_registry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RewritePromptRegistry"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "replay_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Replay Hashes",
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "selected_controlled_text_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Selected Controlled Text Hash"
+    },
+    "selected_proposal_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Selected Proposal Id"
+    },
+    "tool": {
+      "default": "nlreq.intake",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "bundle_id",
+    "intake",
+    "attempts"
+  ],
+  "title": "RewriteReplayBundle",
+  "type": "object"
+}

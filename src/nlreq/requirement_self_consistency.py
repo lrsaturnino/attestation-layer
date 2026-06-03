@@ -17,6 +17,7 @@ from .models import BackendResult, EvidenceLevel, RequirementIRV2, SemanticNode,
 
 
 REQUIREMENT_SELF_CONSISTENCY_SCHEMA_VERSION = "0.1"
+REQUIREMENT_CONTRADICTION_TAXONOMY_VERSION = "alice-style-0.1"
 
 
 class RequirementSelfContradiction(BaseModel):
@@ -39,6 +40,34 @@ class RequirementSelfContradiction(BaseModel):
     source_spans: list[SourceSpan] = Field(default_factory=list)
 
 
+class RequirementContradictionTaxonomyEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    contradiction_type: str
+    code: str
+    description: str
+    deterministic: bool
+    blocks_closure: bool
+
+
+class RequirementContradictionTaxonomy(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1"] = REQUIREMENT_SELF_CONSISTENCY_SCHEMA_VERSION
+    taxonomy_version: Literal["alice-style-0.1"] = REQUIREMENT_CONTRADICTION_TAXONOMY_VERSION
+    entries: list[RequirementContradictionTaxonomyEntry]
+
+
+class UntrustedContradictionSuggestion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    suggestion_id: str
+    suggested_type: str
+    message: str
+    source_spans: list[SourceSpan] = Field(default_factory=list)
+    producer: str = "untrusted"
+
+
 class RequirementSelfConsistencyResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -46,9 +75,75 @@ class RequirementSelfConsistencyResult(BaseModel):
     requirement_id: str
     status: Literal["valid", "contradiction", "unsupported", "timeout", "tool_error"]
     result: BackendResult
+    taxonomy_version: Literal["alice-style-0.1"] = REQUIREMENT_CONTRADICTION_TAXONOMY_VERSION
+    checked_taxonomy_codes: list[str] = Field(default_factory=list)
     contradictions: list[RequirementSelfContradiction] = Field(default_factory=list)
+    untrusted_suggestions: list[UntrustedContradictionSuggestion] = Field(default_factory=list)
     unsupported_constructs: list[UnsupportedConstruct] = Field(default_factory=list)
     formal_backend_response: FormalBackendResponse | None = None
+
+
+def build_requirement_contradiction_taxonomy() -> RequirementContradictionTaxonomy:
+    return RequirementContradictionTaxonomy(
+        entries=[
+            RequirementContradictionTaxonomyEntry(
+                contradiction_type="direct_opposite_predicates",
+                code="CONTRADICTION_DIRECT_OPPOSITE_PREDICATES",
+                description="A predicate and its direct negation are both required under the same conjunction.",
+                deterministic=True,
+                blocks_closure=True,
+            ),
+            RequirementContradictionTaxonomyEntry(
+                contradiction_type="impossible_comparison",
+                code="CONTRADICTION_IMPOSSIBLE_COMPARISON",
+                description="A literal numeric or equality comparison is unsatisfiable.",
+                deterministic=True,
+                blocks_closure=True,
+            ),
+            RequirementContradictionTaxonomyEntry(
+                contradiction_type="mutually_exclusive_states",
+                code="CONTRADICTION_MUTUALLY_EXCLUSIVE_STATES",
+                description="The same state reference is constrained to incompatible values.",
+                deterministic=True,
+                blocks_closure=True,
+            ),
+            RequirementContradictionTaxonomyEntry(
+                contradiction_type="overlapping_opposite_obligations",
+                code="CONTRADICTION_OVERLAPPING_OPPOSITE_OBLIGATIONS",
+                description="Obligations in the same set require incompatible outcomes.",
+                deterministic=True,
+                blocks_closure=True,
+            ),
+            RequirementContradictionTaxonomyEntry(
+                contradiction_type="temporal_impossibility",
+                code="CONTRADICTION_TEMPORAL_IMPOSSIBILITY",
+                description="A temporal bound cannot be satisfied.",
+                deterministic=True,
+                blocks_closure=True,
+            ),
+            RequirementContradictionTaxonomyEntry(
+                contradiction_type="numeric_bound_conflict",
+                code="CONTRADICTION_NUMERIC_BOUND_CONFLICT",
+                description="Numeric lower and upper bounds have no overlap.",
+                deterministic=True,
+                blocks_closure=True,
+            ),
+            RequirementContradictionTaxonomyEntry(
+                contradiction_type="duplicate_obligation_conflict",
+                code="CONTRADICTION_DUPLICATE_OBLIGATION_CONFLICT",
+                description="A duplicated obligation requires human review because it may hide a modeling error.",
+                deterministic=True,
+                blocks_closure=True,
+            ),
+            RequirementContradictionTaxonomyEntry(
+                contradiction_type="backend_counterexample",
+                code="CONTRADICTION_BACKEND_COUNTEREXAMPLE",
+                description="A formal backend found a counterexample when checking the requirement against itself.",
+                deterministic=False,
+                blocks_closure=True,
+            ),
+        ]
+    )
 
 
 def check_requirement_self_consistency(
@@ -57,8 +152,10 @@ def check_requirement_self_consistency(
     backend_id: str = "tla-runner",
     budget: FormalBackendBudget | None = None,
     execution: FormalBackendExecution | None = None,
+    untrusted_suggestions: list[UntrustedContradictionSuggestion] | None = None,
 ) -> RequirementSelfConsistencyResult:
     contradictions = _deterministic_contradictions(requirement.semantic_ir)
+    checked_codes = _taxonomy_codes()
     if contradictions:
         return RequirementSelfConsistencyResult(
             requirement_id=requirement.requirement_id,
@@ -75,7 +172,9 @@ def check_requirement_self_consistency(
                     ],
                 },
             ),
+            checked_taxonomy_codes=checked_codes,
             contradictions=contradictions,
+            untrusted_suggestions=untrusted_suggestions or [],
         )
 
     response = check_formal_backend(
@@ -102,10 +201,16 @@ def check_requirement_self_consistency(
                 "backend_details": response.result.details,
             },
         ),
+        checked_taxonomy_codes=checked_codes,
         contradictions=backend_counterexamples,
+        untrusted_suggestions=untrusted_suggestions or [],
         unsupported_constructs=response.unsupported_constructs,
         formal_backend_response=response,
     )
+
+
+def _taxonomy_codes() -> list[str]:
+    return [entry.code for entry in build_requirement_contradiction_taxonomy().entries]
 
 
 def _result_status(response: FormalBackendResponse) -> str:

@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .jsonutil import sha256_json, sha256_text
 from .semantic_agreement import SemanticAgreementReport
 from .semantic_translation import SemanticTranslationReport
 from .models import SourceSpan
@@ -43,6 +44,45 @@ class TranslationRepairReport(BaseModel):
     highlights: list[TranslationRepairHighlight] = Field(default_factory=list)
     prompts: list[TranslationRepairPrompt] = Field(default_factory=list)
     next_actions: list[str] = Field(default_factory=list)
+    tool: str = "nlreq.translation_repair"
+    tool_version: str = TRANSLATION_REPAIR_TOOL_VERSION
+
+
+class ControlledFormVersion(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    version_id: str
+    controlled_text: str
+    controlled_text_hash: str
+    status: Literal["drafted", "proposed", "approved", "rejected", "superseded"]
+    created_at: str
+    created_by: str | None = None
+    source_version_id: str | None = None
+    repair_prompt_ids: list[str] = Field(default_factory=list)
+    approval_hash: str | None = None
+
+
+class TranslationRepairResponse(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    response_id: str
+    source_version_id: str
+    prompt_id: str
+    response_text: str
+    proposed_controlled_text: str
+    responded_by: str | None = None
+    responded_at: str
+
+
+class TranslationRepairHistory(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1"] = TRANSLATION_REPAIR_SCHEMA_VERSION
+    requirement_id: str
+    versions: list[ControlledFormVersion]
+    repair_responses: list[TranslationRepairResponse] = Field(default_factory=list)
+    selected_version_id: str | None = None
+    history_hash: str | None = None
     tool: str = "nlreq.translation_repair"
     tool_version: str = TRANSLATION_REPAIR_TOOL_VERSION
 
@@ -154,3 +194,112 @@ def build_translation_repair_report(
         next_actions=next_actions,
     )
 
+
+def create_controlled_form_version(
+    *,
+    version_id: str,
+    controlled_text: str,
+    created_at: str,
+    created_by: str | None = None,
+    status: Literal["drafted", "proposed", "approved", "rejected", "superseded"] = "proposed",
+    source_version_id: str | None = None,
+    repair_prompt_ids: list[str] | None = None,
+    approval_hash: str | None = None,
+) -> ControlledFormVersion:
+    return ControlledFormVersion(
+        version_id=version_id,
+        controlled_text=controlled_text,
+        controlled_text_hash=sha256_text(controlled_text),
+        status=status,
+        created_at=created_at,
+        created_by=created_by,
+        source_version_id=source_version_id,
+        repair_prompt_ids=repair_prompt_ids or [],
+        approval_hash=approval_hash,
+    )
+
+
+def build_translation_repair_history(
+    *,
+    requirement_id: str,
+    initial_version: ControlledFormVersion,
+) -> TranslationRepairHistory:
+    selected_version_id = initial_version.version_id if initial_version.status == "approved" else None
+    history = TranslationRepairHistory(
+        requirement_id=requirement_id,
+        versions=[initial_version],
+        selected_version_id=selected_version_id,
+    )
+    return _with_history_hash(history)
+
+
+def apply_translation_repair_response(
+    history: TranslationRepairHistory,
+    repair_report: TranslationRepairReport,
+    response: TranslationRepairResponse,
+    *,
+    new_version_id: str,
+) -> TranslationRepairHistory:
+    if response.prompt_id not in {prompt.prompt_id for prompt in repair_report.prompts}:
+        raise ValueError("repair response prompt_id is not present in repair report")
+    source = _version_by_id(history, response.source_version_id)
+    new_version = create_controlled_form_version(
+        version_id=new_version_id,
+        controlled_text=response.proposed_controlled_text,
+        created_at=response.responded_at,
+        created_by=response.responded_by,
+        status="proposed",
+        source_version_id=source.version_id,
+        repair_prompt_ids=[response.prompt_id],
+    )
+    updated = history.model_copy(
+        update={
+            "versions": [*history.versions, new_version],
+            "repair_responses": [*history.repair_responses, response],
+        }
+    )
+    return _with_history_hash(updated)
+
+
+def approve_controlled_form_history_version(
+    history: TranslationRepairHistory,
+    *,
+    version_id: str,
+    approval_hash: str,
+) -> TranslationRepairHistory:
+    found = False
+    versions: list[ControlledFormVersion] = []
+    for version in history.versions:
+        if version.version_id == version_id:
+            found = True
+            versions.append(version.model_copy(update={"status": "approved", "approval_hash": approval_hash}))
+        elif version.status == "approved":
+            versions.append(version.model_copy(update={"status": "superseded"}))
+        else:
+            versions.append(version)
+    if not found:
+        raise ValueError("controlled form version not found")
+    return _with_history_hash(
+        history.model_copy(update={"versions": versions, "selected_version_id": version_id})
+    )
+
+
+def selected_controlled_form_text(history: TranslationRepairHistory) -> str:
+    if history.selected_version_id is None:
+        raise ValueError("no approved controlled form version is selected")
+    version = _version_by_id(history, history.selected_version_id)
+    if version.status != "approved":
+        raise ValueError("selected controlled form version is not approved")
+    return version.controlled_text
+
+
+def _version_by_id(history: TranslationRepairHistory, version_id: str) -> ControlledFormVersion:
+    for version in history.versions:
+        if version.version_id == version_id:
+            return version
+    raise ValueError("controlled form version not found")
+
+
+def _with_history_hash(history: TranslationRepairHistory) -> TranslationRepairHistory:
+    payload = history.model_copy(update={"history_hash": None})
+    return history.model_copy(update={"history_hash": sha256_json(payload)})

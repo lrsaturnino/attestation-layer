@@ -1,0 +1,74 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "false_acceptance_budget": {
+      "default": 0,
+      "minimum": 0,
+      "title": "False Acceptance Budget",
+      "type": "integer"
+    },
+    "false_refusal_budget": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "False Refusal Budget"
+    },
+    "min_clarification_quality": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Min Clarification Quality"
+    },
+    "min_refusal_correctness": {
+      "anyOf": [
+        {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "type": "number"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Min Refusal Correctness"
+    },
+    "min_semantic_match_rate": {
+      "default": 1.0,
+      "maximum": 1.0,
+      "minimum": 0.0,
+      "title": "Min Semantic Match Rate",
+      "type": "number"
+    },
+    "required_expected_outcomes": {
+      "items": {
+        "enum": [
+          "accepted",
+          "clarification",
+          "refused",
+          "needs_review"
+        ],
+        "type": "string"
+      },
+      "title": "Required Expected Outcomes",
+      "type": "array"
+    }
+  },
+  "title": "RequirementTranslationReleaseThresholds",
+  "type": "object"
+}

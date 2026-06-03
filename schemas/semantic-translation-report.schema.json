@@ -667,6 +667,108 @@
       "title": "SemanticAmbiguityFinding",
       "type": "object"
     },
+    "SemanticDecompositionNode": {
+      "additionalProperties": false,
+      "properties": {
+        "children": {
+          "items": {
+            "$ref": "#/$defs/SemanticDecompositionNode"
+          },
+          "title": "Children",
+          "type": "array"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "label": {
+          "title": "Label",
+          "type": "string"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "role": {
+          "enum": [
+            "root",
+            "scope",
+            "premise",
+            "action",
+            "obligation",
+            "child"
+          ],
+          "title": "Role",
+          "type": "string"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "node_id",
+        "role",
+        "kind",
+        "label"
+      ],
+      "title": "SemanticDecompositionNode",
+      "type": "object"
+    },
+    "SemanticDecompositionTree": {
+      "additionalProperties": false,
+      "properties": {
+        "input_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Input Hashes",
+          "type": "object"
+        },
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "root": {
+          "$ref": "#/$defs/SemanticDecompositionNode"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_ir_hash": {
+          "title": "Source Ir Hash",
+          "type": "string"
+        },
+        "tool": {
+          "default": "nlreq.semantic_translation",
+          "title": "Tool",
+          "type": "string"
+        },
+        "tool_version": {
+          "default": "0.1",
+          "title": "Tool Version",
+          "type": "string"
+        },
+        "tree_id": {
+          "title": "Tree Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tree_id",
+        "requirement_id",
+        "source_ir_hash",
+        "root"
+      ],
+      "title": "SemanticDecompositionTree",
+      "type": "object"
+    },
     "SemanticNode": {
       "additionalProperties": false,
       "properties": {
@@ -1269,6 +1371,29 @@
       "default": "0.1",
       "title": "Schema Version",
       "type": "string"
+    },
+    "semantic_decomposition": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SemanticDecompositionTree"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "semantic_decomposition_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Semantic Decomposition Hash"
     },
     "semantic_tree_hash": {
       "anyOf": [

@@ -7,11 +7,12 @@ from pydantic import BaseModel, ConfigDict, Field
 from .dsl_v3 import DslV3ParseError, DslV3Parser
 from .formal_claim import FormalClaimLoweringReport, build_formal_claim
 from .jsonutil import sha256_json, sha256_text
-from .models import RequirementIRV2, SourceSpan
+from .models import RequirementIRV2, SemanticNode, SourceSpan
 
 
 SEMANTIC_TRANSLATION_SCHEMA_VERSION = "0.1"
 SEMANTIC_TRANSLATION_TOOL_VERSION = "0.1"
+SEMANTIC_DECOMPOSITION_SCHEMA_VERSION = "0.1"
 
 
 class SemanticTranslationStage(BaseModel):
@@ -32,6 +33,30 @@ class SemanticAmbiguityFinding(BaseModel):
     clarification_question: str
 
 
+class SemanticDecompositionNode(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    node_id: str
+    role: Literal["root", "scope", "premise", "action", "obligation", "child"]
+    kind: str
+    label: str
+    source_spans: list[SourceSpan] = Field(default_factory=list)
+    children: list["SemanticDecompositionNode"] = Field(default_factory=list)
+
+
+class SemanticDecompositionTree(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1"] = SEMANTIC_DECOMPOSITION_SCHEMA_VERSION
+    tree_id: str
+    requirement_id: str
+    source_ir_hash: str
+    root: SemanticDecompositionNode
+    input_hashes: dict[str, str] = Field(default_factory=dict)
+    tool: str = "nlreq.semantic_translation"
+    tool_version: str = SEMANTIC_TRANSLATION_TOOL_VERSION
+
+
 class SemanticTranslationReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -41,9 +66,11 @@ class SemanticTranslationReport(BaseModel):
     result: Literal["accepted", "refused", "needs_review"]
     syntactically_valid: bool
     semantic_tree_hash: str | None = None
+    semantic_decomposition_hash: str | None = None
     formal_claim_hash: str | None = None
     refusal_code: str | None = None
     requirement_ir: RequirementIRV2 | None = None
+    semantic_decomposition: SemanticDecompositionTree | None = None
     formal_claim_report: FormalClaimLoweringReport | None = None
     ambiguity_findings: list[SemanticAmbiguityFinding] = Field(default_factory=list)
     clarification_questions: list[str] = Field(default_factory=list)
@@ -59,9 +86,38 @@ def translate_controlled_requirement_to_formal_claim(
     requirement_id: str,
     title: str,
     translation_id: str | None = None,
+    approved_controlled_text_hash: str | None = None,
+    require_approved_controlled_text: bool = False,
 ) -> SemanticTranslationReport:
     source_hash = sha256_text(controlled_text)
     effective_translation_id = translation_id or f"semantic-translation-{requirement_id}"
+    if require_approved_controlled_text and approved_controlled_text_hash != source_hash:
+        return SemanticTranslationReport(
+            translation_id=effective_translation_id,
+            requirement_id=requirement_id,
+            result="refused",
+            syntactically_valid=False,
+            refusal_code="NLR-UNAPPROVED-CONTROLLED-TEXT",
+            clarification_questions=[
+                "Approve the controlled rewrite and pass its exact controlled text hash before translation."
+            ],
+            stages=[
+                SemanticTranslationStage(
+                    stage="canonicalize",
+                    status="failed",
+                    message="controlled text hash is not bound to an approved rewrite",
+                    artifact_hash=source_hash,
+                )
+            ],
+            input_hashes={
+                "controlled_text": source_hash,
+                **(
+                    {"approved_controlled_text": approved_controlled_text_hash}
+                    if approved_controlled_text_hash is not None
+                    else {}
+                ),
+            },
+        )
     stages = [
         SemanticTranslationStage(
             stage="canonicalize",
@@ -103,12 +159,17 @@ def translate_controlled_requirement_to_formal_claim(
         )
 
     semantic_hash = sha256_json(requirement.semantic_ir)
+    semantic_decomposition = build_semantic_decomposition_tree(
+        requirement,
+        tree_id=f"semantic-decomposition-{requirement.requirement_id}",
+    )
+    decomposition_hash = sha256_json(semantic_decomposition)
     stages.append(
         SemanticTranslationStage(
             stage="parse_semantic_tree",
             status="passed",
-            message="controlled text parsed to semantic IR",
-            artifact_hash=semantic_hash,
+            message="controlled text parsed to explicit semantic decomposition tree",
+            artifact_hash=decomposition_hash,
         )
     )
     formal_claim_report = build_formal_claim(requirement)
@@ -140,17 +201,76 @@ def translate_controlled_requirement_to_formal_claim(
         result=result,
         syntactically_valid=True,
         semantic_tree_hash=semantic_hash,
+        semantic_decomposition_hash=decomposition_hash,
         formal_claim_hash=formal_claim_hash,
         refusal_code=formal_claim_report.refusal_code,
         requirement_ir=requirement,
+        semantic_decomposition=semantic_decomposition,
         formal_claim_report=formal_claim_report,
         stages=stages,
         input_hashes={
             "controlled_text": source_hash,
+            **(
+                {"approved_controlled_text": approved_controlled_text_hash}
+                if approved_controlled_text_hash is not None
+                else {}
+            ),
             "semantic_tree": semantic_hash,
+            "semantic_decomposition": decomposition_hash,
             **({"formal_claim": formal_claim_hash} if formal_claim_hash else {}),
         },
     )
+
+
+def build_semantic_decomposition_tree(
+    requirement: RequirementIRV2,
+    *,
+    tree_id: str | None = None,
+) -> SemanticDecompositionTree:
+    source_ir_hash = sha256_json(requirement)
+    return SemanticDecompositionTree(
+        tree_id=tree_id or f"semantic-decomposition-{requirement.requirement_id}",
+        requirement_id=requirement.requirement_id,
+        source_ir_hash=source_ir_hash,
+        root=_decomposition_node(requirement.semantic_ir, role="root"),
+        input_hashes={"requirement_ir": source_ir_hash},
+    )
+
+
+def _decomposition_node(
+    node: SemanticNode,
+    *,
+    role: Literal["root", "scope", "premise", "action", "obligation", "child"],
+) -> SemanticDecompositionNode:
+    children: list[SemanticDecompositionNode] = []
+    children.extend(_decomposition_node(child, role="scope") for child in node.scope)
+    if node.premise is not None:
+        children.append(_decomposition_node(node.premise, role="premise"))
+    if node.action is not None:
+        children.append(_decomposition_node(node.action, role="action"))
+    if node.must is not None:
+        children.append(_decomposition_node(node.must, role="obligation"))
+    if node.obligation is not None:
+        children.append(_decomposition_node(node.obligation, role="obligation"))
+    children.extend(_decomposition_node(child, role="child") for child in node.children)
+    return SemanticDecompositionNode(
+        node_id=node.node_id,
+        role=role,
+        kind=node.kind,
+        label=_semantic_node_label(node),
+        source_spans=node.source_spans,
+        children=children,
+    )
+
+
+def _semantic_node_label(node: SemanticNode) -> str:
+    if node.name is not None:
+        return node.name
+    if node.kind in {"eq", "neq", "lt", "lte", "gt", "gte"} and len(node.args) >= 2:
+        return f"{node.args[0].kind}:{node.args[0].value} {node.kind} {node.args[1].kind}:{node.args[1].value}"
+    if node.kind == "within" and node.temporal_bound is not None:
+        return f"within {node.temporal_bound.value} {node.temporal_bound.unit}"
+    return node.kind
 
 
 def _parse_repair_question(exc: DslV3ParseError) -> str:
@@ -160,4 +280,3 @@ def _parse_repair_question(exc: DslV3ParseError) -> str:
             "scope, when predicates, then obligations."
         )
     return "Clarify the requirement using supported controlled-language constructs."
-

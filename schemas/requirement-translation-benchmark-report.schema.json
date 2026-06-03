@@ -51,6 +51,7 @@
             "refusal_mismatch",
             "review_mismatch",
             "false_acceptance",
+            "false_refusal",
             "outcome_mismatch"
           ],
           "title": "Status",
@@ -88,8 +89,23 @@
       "title": "Corpus Id",
       "type": "string"
     },
+    "false_acceptance_count": {
+      "default": 0,
+      "title": "False Acceptance Count",
+      "type": "integer"
+    },
     "false_acceptance_rate": {
       "title": "False Acceptance Rate",
+      "type": "number"
+    },
+    "false_refusal_count": {
+      "default": 0,
+      "title": "False Refusal Count",
+      "type": "integer"
+    },
+    "false_refusal_rate": {
+      "default": 0.0,
+      "title": "False Refusal Rate",
       "type": "number"
     },
     "matched_cases": {

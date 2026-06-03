@@ -1,0 +1,65 @@
+{
+  "$defs": {
+    "RequirementContradictionTaxonomyEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "blocks_closure": {
+          "title": "Blocks Closure",
+          "type": "boolean"
+        },
+        "code": {
+          "title": "Code",
+          "type": "string"
+        },
+        "contradiction_type": {
+          "title": "Contradiction Type",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "deterministic": {
+          "title": "Deterministic",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "contradiction_type",
+        "code",
+        "description",
+        "deterministic",
+        "blocks_closure"
+      ],
+      "title": "RequirementContradictionTaxonomyEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "entries": {
+      "items": {
+        "$ref": "#/$defs/RequirementContradictionTaxonomyEntry"
+      },
+      "title": "Entries",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "taxonomy_version": {
+      "const": "alice-style-0.1",
+      "default": "alice-style-0.1",
+      "title": "Taxonomy Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "entries"
+  ],
+  "title": "RequirementContradictionTaxonomy",
+  "type": "object"
+}

@@ -261,10 +261,53 @@
       ],
       "title": "UnsupportedConstruct",
       "type": "object"
+    },
+    "UntrustedContradictionSuggestion": {
+      "additionalProperties": false,
+      "properties": {
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "producer": {
+          "default": "untrusted",
+          "title": "Producer",
+          "type": "string"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        },
+        "suggested_type": {
+          "title": "Suggested Type",
+          "type": "string"
+        },
+        "suggestion_id": {
+          "title": "Suggestion Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "suggestion_id",
+        "suggested_type",
+        "message"
+      ],
+      "title": "UntrustedContradictionSuggestion",
+      "type": "object"
     }
   },
   "additionalProperties": false,
   "properties": {
+    "checked_taxonomy_codes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Checked Taxonomy Codes",
+      "type": "array"
+    },
     "contradictions": {
       "items": {
         "$ref": "#/$defs/RequirementSelfContradiction"
@@ -307,11 +350,24 @@
       "title": "Status",
       "type": "string"
     },
+    "taxonomy_version": {
+      "const": "alice-style-0.1",
+      "default": "alice-style-0.1",
+      "title": "Taxonomy Version",
+      "type": "string"
+    },
     "unsupported_constructs": {
       "items": {
         "$ref": "#/$defs/UnsupportedConstruct"
       },
       "title": "Unsupported Constructs",
+      "type": "array"
+    },
+    "untrusted_suggestions": {
+      "items": {
+        "$ref": "#/$defs/UntrustedContradictionSuggestion"
+      },
+      "title": "Untrusted Suggestions",
       "type": "array"
     }
   },

@@ -1,0 +1,209 @@
+{
+  "$defs": {
+    "FreeFormIntakeArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "intake_id": {
+          "title": "Intake Id",
+          "type": "string"
+        },
+        "language": {
+          "default": "en",
+          "title": "Language",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "original_text": {
+          "title": "Original Text",
+          "type": "string"
+        },
+        "original_text_hash": {
+          "title": "Original Text Hash",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "submitted_at": {
+          "title": "Submitted At",
+          "type": "string"
+        },
+        "submitted_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Submitted By"
+        }
+      },
+      "required": [
+        "intake_id",
+        "original_text",
+        "original_text_hash",
+        "submitted_at"
+      ],
+      "title": "FreeFormIntakeArtifact",
+      "type": "object"
+    },
+    "IntakeStateTransition": {
+      "additionalProperties": false,
+      "properties": {
+        "actor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actor"
+        },
+        "artifact_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Artifact Hashes",
+          "type": "object"
+        },
+        "from_state": {
+          "anyOf": [
+            {
+              "enum": [
+                "drafted",
+                "proposed",
+                "approved",
+                "rejected",
+                "superseded"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "From State"
+        },
+        "occurred_at": {
+          "title": "Occurred At",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "to_state": {
+          "enum": [
+            "drafted",
+            "proposed",
+            "approved",
+            "rejected",
+            "superseded"
+          ],
+          "title": "To State",
+          "type": "string"
+        }
+      },
+      "required": [
+        "to_state",
+        "occurred_at",
+        "reason"
+      ],
+      "title": "IntakeStateTransition",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "intake": {
+      "$ref": "#/$defs/FreeFormIntakeArtifact"
+    },
+    "proposal_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Proposal Ids",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "selected_controlled_text_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Selected Controlled Text Hash"
+    },
+    "selected_proposal_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Selected Proposal Id"
+    },
+    "state": {
+      "enum": [
+        "drafted",
+        "proposed",
+        "approved",
+        "rejected",
+        "superseded"
+      ],
+      "title": "State",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.intake",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "transitions": {
+      "items": {
+        "$ref": "#/$defs/IntakeStateTransition"
+      },
+      "title": "Transitions",
+      "type": "array"
+    }
+  },
+  "required": [
+    "intake",
+    "state"
+  ],
+  "title": "FreeFormIntakeRuntimeRecord",
+  "type": "object"
+}

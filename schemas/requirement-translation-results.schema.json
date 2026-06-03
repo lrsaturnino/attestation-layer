@@ -24,6 +24,11 @@
           "title": "False Acceptance",
           "type": "boolean"
         },
+        "false_refusal": {
+          "default": false,
+          "title": "False Refusal",
+          "type": "boolean"
+        },
         "formal_claim_hash": {
           "anyOf": [
             {

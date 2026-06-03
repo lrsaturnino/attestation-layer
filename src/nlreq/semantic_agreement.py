@@ -61,6 +61,44 @@ class SemanticAgreementReport(BaseModel):
     tool_version: str = SEMANTIC_AGREEMENT_TOOL_VERSION
 
 
+class SemanticAgreementCalibrationCase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    expected_same_meaning: bool
+    report: SemanticAgreementReport
+
+
+class SemanticAgreementCalibrationObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    case_id: str
+    expected_same_meaning: bool
+    acceptance_allowed: bool
+    status: Literal["matched", "false_acceptance", "false_refusal"]
+    agreement_status: Literal["agreed", "disagreed", "needs_review", "resolved_by_review"]
+    profiles: list[str] = Field(default_factory=list)
+    notes: list[str] = Field(default_factory=list)
+
+
+class SemanticAgreementCalibrationReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1"] = SEMANTIC_AGREEMENT_SCHEMA_VERSION
+    result: Literal["passed", "failed"]
+    total_cases: int
+    matched_cases: int
+    semantic_accuracy: float
+    false_acceptance_count: int
+    false_refusal_count: int
+    false_acceptance_budget: int
+    false_refusal_budget: int | None = None
+    blockers: list[str] = Field(default_factory=list)
+    observations: list[SemanticAgreementCalibrationObservation] = Field(default_factory=list)
+    tool: str = "nlreq.semantic_agreement"
+    tool_version: str = SEMANTIC_AGREEMENT_TOOL_VERSION
+
+
 def build_semantic_agreement_report(
     candidates: list[FormalClaimAgreementCandidate],
     *,
@@ -110,6 +148,38 @@ def build_semantic_agreement_report(
     )
 
 
+def build_semantic_agreement_calibration_report(
+    cases: list[SemanticAgreementCalibrationCase],
+    *,
+    false_acceptance_budget: int = 0,
+    false_refusal_budget: int | None = None,
+) -> SemanticAgreementCalibrationReport:
+    observations = [_calibration_observation(case) for case in cases]
+    total = len(observations)
+    matched = sum(1 for item in observations if item.status == "matched")
+    false_acceptance = sum(1 for item in observations if item.status == "false_acceptance")
+    false_refusal = sum(1 for item in observations if item.status == "false_refusal")
+    blockers: list[str] = []
+    if false_acceptance > false_acceptance_budget:
+        blockers.append(
+            f"false semantic acceptance budget exceeded: {false_acceptance} > {false_acceptance_budget}"
+        )
+    if false_refusal_budget is not None and false_refusal > false_refusal_budget:
+        blockers.append(f"false semantic refusal budget exceeded: {false_refusal} > {false_refusal_budget}")
+    return SemanticAgreementCalibrationReport(
+        result="failed" if blockers else "passed",
+        total_cases=total,
+        matched_cases=matched,
+        semantic_accuracy=_ratio(matched, total),
+        false_acceptance_count=false_acceptance,
+        false_refusal_count=false_refusal,
+        false_acceptance_budget=false_acceptance_budget,
+        false_refusal_budget=false_refusal_budget,
+        blockers=blockers,
+        observations=observations,
+    )
+
+
 def _compare(
     left: FormalClaimAgreementCandidate,
     right: FormalClaimAgreementCandidate,
@@ -146,6 +216,36 @@ def _compare(
         message="no supported semantic agreement profile proved equivalence",
         source_spans=[*left_claim.source_spans, *right_claim.source_spans],
     )
+
+
+def _calibration_observation(
+    case: SemanticAgreementCalibrationCase,
+) -> SemanticAgreementCalibrationObservation:
+    acceptance_allowed = case.report.acceptance_allowed
+    if not case.expected_same_meaning and acceptance_allowed:
+        status: Literal["matched", "false_acceptance", "false_refusal"] = "false_acceptance"
+        notes = ["agreement accepted candidates labeled as semantically different"]
+    elif case.expected_same_meaning and not acceptance_allowed:
+        status = "false_refusal"
+        notes = ["agreement blocked candidates labeled as semantically equivalent"]
+    else:
+        status = "matched"
+        notes = []
+    return SemanticAgreementCalibrationObservation(
+        case_id=case.case_id,
+        expected_same_meaning=case.expected_same_meaning,
+        acceptance_allowed=acceptance_allowed,
+        status=status,
+        agreement_status=case.report.status,
+        profiles=[comparison.profile for comparison in case.report.comparisons],
+        notes=notes,
+    )
+
+
+def _ratio(numerator: int, denominator: int) -> float:
+    if denominator == 0:
+        return 0.0
+    return numerator / denominator
 
 
 def _resolution_with_hash(

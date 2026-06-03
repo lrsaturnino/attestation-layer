@@ -54,6 +54,9 @@ from nlreq.intake import (
     ControlledRewriteApproval,
     ControlledRewriteProposal,
     FreeFormIntakeArtifact,
+    FreeFormIntakeRuntimeRecord,
+    RewritePromptRegistry,
+    RewriteReplayBundle,
 )
 from nlreq.logical_agreement import LogicalTranslationAgreementReport
 from nlreq.provenance import (
@@ -64,14 +67,16 @@ from nlreq.provenance import (
 )
 from nlreq.refusal import ProductRefusalReport
 from nlreq.review_workflow import ApprovalWorkflowArtifact, ReviewChecklist, ReviewStatusReport
-from nlreq.semantic_agreement import SemanticAgreementReport
-from nlreq.semantic_translation import SemanticTranslationReport
+from nlreq.semantic_agreement import SemanticAgreementCalibrationReport, SemanticAgreementReport
+from nlreq.semantic_translation import SemanticDecompositionTree, SemanticTranslationReport
 from nlreq.translation_benchmark import (
     RequirementTranslationBenchmarkReport,
     RequirementTranslationCorpus,
+    RequirementTranslationReleaseBarReport,
+    RequirementTranslationReleaseThresholds,
     RequirementTranslationResults,
 )
-from nlreq.translation_repair import TranslationRepairReport
+from nlreq.translation_repair import TranslationRepairHistory, TranslationRepairReport
 from nlreq.translator_workbench import TranslatorRunArtifact, TranslatorSelectionArtifact
 from nlreq.delta_extractor import DeltaReport
 from nlreq.end_to_end_gate import (
@@ -103,7 +108,10 @@ from nlreq.reference_demo import (
     ReferenceDemoManifest,
     ReferenceDemoReport,
 )
-from nlreq.requirement_self_consistency import RequirementSelfConsistencyResult
+from nlreq.requirement_self_consistency import (
+    RequirementContradictionTaxonomy,
+    RequirementSelfConsistencyResult,
+)
 from nlreq.routing import AdapterRegistryArtifact, RoutingPolicyArtifact
 from nlreq.runtime_trace_sdk import TraceExtractionResult, TraceProducerRegistry
 from nlreq.signed_evidence import (
@@ -179,8 +187,11 @@ SCHEMAS = {
     "controlled-draft.schema.json": ControlledDraft,
     "controlled-requirement-semantics.schema.json": ControlledRequirementSemanticsReference,
     "free-form-intake.schema.json": FreeFormIntakeArtifact,
+    "free-form-intake-runtime-record.schema.json": FreeFormIntakeRuntimeRecord,
     "controlled-rewrite-proposal.schema.json": ControlledRewriteProposal,
     "controlled-rewrite-approval.schema.json": ControlledRewriteApproval,
+    "rewrite-prompt-registry.schema.json": RewritePromptRegistry,
+    "rewrite-replay-bundle.schema.json": RewriteReplayBundle,
     "delta-report.schema.json": DeltaReport,
     "end-to-end-requirement-gate.schema.json": EndToEndRequirementGateReport,
     "extended-end-to-end-requirement-gate.schema.json": ExtendedEndToEndRequirementGateReport,
@@ -196,13 +207,17 @@ SCHEMAS = {
     "clarified-controlled-text.schema.json": ClarifiedControlledText,
     "product-refusal-report.schema.json": ProductRefusalReport,
     "semantic-agreement-report.schema.json": SemanticAgreementReport,
+    "semantic-agreement-calibration-report.schema.json": SemanticAgreementCalibrationReport,
     "semantic-translation-report.schema.json": SemanticTranslationReport,
+    "semantic-decomposition-tree.schema.json": SemanticDecompositionTree,
     "approval-workflow.schema.json": ApprovalWorkflowArtifact,
     "review-checklist.schema.json": ReviewChecklist,
     "review-status-report.schema.json": ReviewStatusReport,
     "requirement-translation-corpus.schema.json": RequirementTranslationCorpus,
     "requirement-translation-results.schema.json": RequirementTranslationResults,
     "requirement-translation-benchmark-report.schema.json": RequirementTranslationBenchmarkReport,
+    "requirement-translation-release-thresholds.schema.json": RequirementTranslationReleaseThresholds,
+    "requirement-translation-release-bar-report.schema.json": RequirementTranslationReleaseBarReport,
     "evidence.schema.json": EvidenceObject,
     "evidence-producer-validation.schema.json": EvidenceProducerValidationReport,
     "proof-evidence-boundary-report.schema.json": ProofEvidenceBoundaryReport,
@@ -248,6 +263,7 @@ SCHEMAS = {
     "threat-model-report.schema.json": ThreatModelReport,
     "extended-tcb-review-report.schema.json": ExtendedTcbReviewReport,
     "requirement-set-consistency.schema.json": RequirementSetConsistencyReport,
+    "requirement-contradiction-taxonomy.schema.json": RequirementContradictionTaxonomy,
     "requirement-self-consistency.schema.json": RequirementSelfConsistencyResult,
     "lowered-formal-artifact.schema.json": LoweredFormalArtifact,
     "model-checker-run.schema.json": ModelCheckerRunResult,

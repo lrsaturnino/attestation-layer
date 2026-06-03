@@ -1,0 +1,151 @@
+{
+  "$defs": {
+    "SemanticAgreementCalibrationObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance_allowed": {
+          "title": "Acceptance Allowed",
+          "type": "boolean"
+        },
+        "agreement_status": {
+          "enum": [
+            "agreed",
+            "disagreed",
+            "needs_review",
+            "resolved_by_review"
+          ],
+          "title": "Agreement Status",
+          "type": "string"
+        },
+        "case_id": {
+          "title": "Case Id",
+          "type": "string"
+        },
+        "expected_same_meaning": {
+          "title": "Expected Same Meaning",
+          "type": "boolean"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        },
+        "profiles": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Profiles",
+          "type": "array"
+        },
+        "status": {
+          "enum": [
+            "matched",
+            "false_acceptance",
+            "false_refusal"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case_id",
+        "expected_same_meaning",
+        "acceptance_allowed",
+        "status",
+        "agreement_status"
+      ],
+      "title": "SemanticAgreementCalibrationObservation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "blockers": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Blockers",
+      "type": "array"
+    },
+    "false_acceptance_budget": {
+      "title": "False Acceptance Budget",
+      "type": "integer"
+    },
+    "false_acceptance_count": {
+      "title": "False Acceptance Count",
+      "type": "integer"
+    },
+    "false_refusal_budget": {
+      "anyOf": [
+        {
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "False Refusal Budget"
+    },
+    "false_refusal_count": {
+      "title": "False Refusal Count",
+      "type": "integer"
+    },
+    "matched_cases": {
+      "title": "Matched Cases",
+      "type": "integer"
+    },
+    "observations": {
+      "items": {
+        "$ref": "#/$defs/SemanticAgreementCalibrationObservation"
+      },
+      "title": "Observations",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "failed"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "semantic_accuracy": {
+      "title": "Semantic Accuracy",
+      "type": "number"
+    },
+    "tool": {
+      "default": "nlreq.semantic_agreement",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "total_cases": {
+      "title": "Total Cases",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "result",
+    "total_cases",
+    "matched_cases",
+    "semantic_accuracy",
+    "false_acceptance_count",
+    "false_refusal_count",
+    "false_acceptance_budget"
+  ],
+  "title": "SemanticAgreementCalibrationReport",
+  "type": "object"
+}
