@@ -50,6 +50,29 @@ Adapters must not inflate evidence levels. Report only what was checked:
 Backend results should include enough deterministic detail to detect stale
 evidence, such as task input hashes and source or test paths.
 
+## Capability Rules
+
+Production source adapters must expose a v2 capability contract through
+`capability_contract()`. The contract must:
+
+- list only evidence labels backed by capability claims,
+- describe unsupported ecosystem features as limitations,
+- distinguish static, trace-capable, and production-candidate support,
+- and name trace producers as external where runtime traces are not extracted
+  by the adapter itself.
+
+Use required capabilities during certification to prevent accidental evidence
+inflation:
+
+```bash
+uv run nlreq adapter-certify \
+  --language rust \
+  --manifest source-manifest.json \
+  --symbol redeem \
+  --required-capability static_symbol_resolution \
+  --required-capability call_graph
+```
+
 ## Package Integration
 
 Before adding a new adapter-specific package command:

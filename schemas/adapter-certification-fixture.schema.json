@@ -1,0 +1,167 @@
+{
+  "$defs": {
+    "SourceManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "title": "Adapter",
+          "type": "string"
+        },
+        "language": {
+          "title": "Language",
+          "type": "string"
+        },
+        "modules": {
+          "items": {
+            "$ref": "#/$defs/SourceModule"
+          },
+          "title": "Modules",
+          "type": "array"
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "adapter",
+        "language"
+      ],
+      "title": "SourceManifest",
+      "type": "object"
+    },
+    "SourceModule": {
+      "additionalProperties": false,
+      "properties": {
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "spec_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Spec Refs",
+          "type": "array"
+        },
+        "symbols": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Symbols",
+          "type": "array"
+        },
+        "trace_sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Trace Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "module_id",
+        "path"
+      ],
+      "title": "SourceModule",
+      "type": "object"
+    },
+    "SymbolRef": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Type"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "SymbolRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "expected_minimum_level": {
+      "default": "static_resolution",
+      "enum": [
+        "manifest_only",
+        "static_resolution",
+        "trace_capable",
+        "production_candidate"
+      ],
+      "title": "Expected Minimum Level",
+      "type": "string"
+    },
+    "fixture_id": {
+      "title": "Fixture Id",
+      "type": "string"
+    },
+    "manifest": {
+      "$ref": "#/$defs/SourceManifest"
+    },
+    "required_capabilities": {
+      "items": {
+        "enum": [
+          "manifest",
+          "binding_validation",
+          "static_symbol_resolution",
+          "call_graph",
+          "code_presentation",
+          "source_impact",
+          "coverage_mapping",
+          "normalized_trace",
+          "runtime_trace_extraction",
+          "specula_candidate_extraction"
+        ],
+        "type": "string"
+      },
+      "title": "Required Capabilities",
+      "type": "array"
+    },
+    "required_symbols": {
+      "items": {
+        "$ref": "#/$defs/SymbolRef"
+      },
+      "title": "Required Symbols",
+      "type": "array"
+    }
+  },
+  "required": [
+    "fixture_id",
+    "manifest"
+  ],
+  "title": "AdapterCertificationFixture",
+  "type": "object"
+}

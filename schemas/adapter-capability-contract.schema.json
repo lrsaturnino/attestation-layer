@@ -1,0 +1,251 @@
+{
+  "$defs": {
+    "AdapterCapabilityClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "capability_id": {
+          "enum": [
+            "manifest",
+            "binding_validation",
+            "static_symbol_resolution",
+            "call_graph",
+            "code_presentation",
+            "source_impact",
+            "coverage_mapping",
+            "normalized_trace",
+            "runtime_trace_extraction",
+            "specula_candidate_extraction"
+          ],
+          "title": "Capability Id",
+          "type": "string"
+        },
+        "evidence_labels": {
+          "items": {
+            "$ref": "#/$defs/EvidenceLevel"
+          },
+          "title": "Evidence Labels",
+          "type": "array"
+        },
+        "level": {
+          "enum": [
+            "manifest_only",
+            "static_resolution",
+            "trace_capable",
+            "production_candidate"
+          ],
+          "title": "Level",
+          "type": "string"
+        },
+        "limitation_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitation Ids",
+          "type": "array"
+        },
+        "notes": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Notes"
+        },
+        "requires_external_tool": {
+          "default": false,
+          "title": "Requires External Tool",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "capability_id",
+        "level"
+      ],
+      "title": "AdapterCapabilityClaim",
+      "type": "object"
+    },
+    "AdapterLimitation": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "analysis_depth",
+            "language_feature",
+            "runtime_trace",
+            "tooling",
+            "dynamic_behavior",
+            "coverage_mapping",
+            "specula_integration"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "closure_effect": {
+          "default": "review",
+          "enum": [
+            "unsupported",
+            "review",
+            "block"
+          ],
+          "title": "Closure Effect",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "limitation_id": {
+          "title": "Limitation Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "limitation_id",
+        "category",
+        "description"
+      ],
+      "title": "AdapterLimitation",
+      "type": "object"
+    },
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapter_id": {
+      "title": "Adapter Id",
+      "type": "string"
+    },
+    "capabilities": {
+      "items": {
+        "$ref": "#/$defs/AdapterCapabilityClaim"
+      },
+      "title": "Capabilities",
+      "type": "array"
+    },
+    "capability_level": {
+      "default": "manifest_only",
+      "enum": [
+        "manifest_only",
+        "static_resolution",
+        "trace_capable",
+        "production_candidate"
+      ],
+      "title": "Capability Level",
+      "type": "string"
+    },
+    "ecosystem": {
+      "default": "generic",
+      "enum": [
+        "generic",
+        "transaction_event",
+        "compiled_service",
+        "frontend_service",
+        "compiled_system",
+        "dynamic_scripting"
+      ],
+      "title": "Ecosystem",
+      "type": "string"
+    },
+    "failure_taxonomy": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Failure Taxonomy",
+      "type": "array"
+    },
+    "interface_version": {
+      "const": "2.0",
+      "default": "2.0",
+      "title": "Interface Version",
+      "type": "string"
+    },
+    "language": {
+      "title": "Language",
+      "type": "string"
+    },
+    "limitations": {
+      "items": {
+        "$ref": "#/$defs/AdapterLimitation"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "optional_methods": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Optional Methods",
+      "type": "array"
+    },
+    "required_methods": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Required Methods",
+      "type": "array"
+    },
+    "runtime": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Runtime"
+    },
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "supported_evidence": {
+      "items": {
+        "$ref": "#/$defs/EvidenceLevel"
+      },
+      "title": "Supported Evidence",
+      "type": "array"
+    },
+    "supported_symbol_types": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Supported Symbol Types",
+      "type": "array"
+    },
+    "supported_trace_runtimes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Supported Trace Runtimes",
+      "type": "array"
+    }
+  },
+  "required": [
+    "adapter_id",
+    "language"
+  ],
+  "title": "AdapterCapabilityContract",
+  "type": "object"
+}

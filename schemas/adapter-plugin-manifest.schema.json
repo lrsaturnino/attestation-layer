@@ -191,54 +191,59 @@
       "title": "AdapterCapabilityContract",
       "type": "object"
     },
-    "AdapterCertificationFinding": {
+    "AdapterCertificationFixture": {
       "additionalProperties": false,
       "properties": {
-        "category": {
+        "expected_minimum_level": {
+          "default": "static_resolution",
           "enum": [
-            "manifest",
-            "capability_contract",
-            "symbol_resolution",
-            "binding_validation",
-            "call_graph",
-            "code_presentation",
-            "trace_extraction",
-            "plugin_sdk"
+            "manifest_only",
+            "static_resolution",
+            "trace_capable",
+            "production_candidate"
           ],
-          "title": "Category",
+          "title": "Expected Minimum Level",
           "type": "string"
         },
-        "message": {
-          "title": "Message",
+        "fixture_id": {
+          "title": "Fixture Id",
           "type": "string"
         },
-        "severity": {
-          "enum": [
-            "info",
-            "blocking"
-          ],
-          "title": "Severity",
-          "type": "string"
+        "manifest": {
+          "$ref": "#/$defs/SourceManifest"
         },
-        "subject": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Subject"
+        "required_capabilities": {
+          "items": {
+            "enum": [
+              "manifest",
+              "binding_validation",
+              "static_symbol_resolution",
+              "call_graph",
+              "code_presentation",
+              "source_impact",
+              "coverage_mapping",
+              "normalized_trace",
+              "runtime_trace_extraction",
+              "specula_candidate_extraction"
+            ],
+            "type": "string"
+          },
+          "title": "Required Capabilities",
+          "type": "array"
+        },
+        "required_symbols": {
+          "items": {
+            "$ref": "#/$defs/SymbolRef"
+          },
+          "title": "Required Symbols",
+          "type": "array"
         }
       },
       "required": [
-        "category",
-        "severity",
-        "message"
+        "fixture_id",
+        "manifest"
       ],
-      "title": "AdapterCertificationFinding",
+      "title": "AdapterCertificationFixture",
       "type": "object"
     },
     "AdapterLimitation": {
@@ -298,6 +303,116 @@
       ],
       "title": "EvidenceLevel",
       "type": "string"
+    },
+    "SourceManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "title": "Adapter",
+          "type": "string"
+        },
+        "language": {
+          "title": "Language",
+          "type": "string"
+        },
+        "modules": {
+          "items": {
+            "$ref": "#/$defs/SourceModule"
+          },
+          "title": "Modules",
+          "type": "array"
+        },
+        "runtime": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Runtime"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "adapter",
+        "language"
+      ],
+      "title": "SourceManifest",
+      "type": "object"
+    },
+    "SourceModule": {
+      "additionalProperties": false,
+      "properties": {
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "spec_refs": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Spec Refs",
+          "type": "array"
+        },
+        "symbols": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Symbols",
+          "type": "array"
+        },
+        "trace_sources": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Trace Sources",
+          "type": "array"
+        }
+      },
+      "required": [
+        "module_id",
+        "path"
+      ],
+      "title": "SourceModule",
+      "type": "object"
+    },
+    "SymbolRef": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_type": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Type"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "SymbolRef",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -306,133 +421,59 @@
       "title": "Adapter Id",
       "type": "string"
     },
-    "call_graph_edges": {
-      "default": 0,
-      "title": "Call Graph Edges",
-      "type": "integer"
-    },
     "capability_contract": {
       "$ref": "#/$defs/AdapterCapabilityContract"
     },
-    "findings": {
-      "items": {
-        "$ref": "#/$defs/AdapterCertificationFinding"
-      },
-      "title": "Findings",
-      "type": "array"
-    },
-    "input_hashes": {
-      "additionalProperties": {
-        "type": "string"
-      },
-      "title": "Input Hashes",
-      "type": "object"
-    },
-    "interface_version": {
-      "const": "2.0",
-      "default": "2.0",
-      "title": "Interface Version",
+    "entry_point": {
+      "title": "Entry Point",
       "type": "string"
+    },
+    "fixtures": {
+      "items": {
+        "$ref": "#/$defs/AdapterCertificationFixture"
+      },
+      "title": "Fixtures",
+      "type": "array"
     },
     "language": {
       "title": "Language",
       "type": "string"
     },
-    "level": {
-      "enum": [
-        "manifest_only",
-        "static_resolution",
-        "trace_capable",
-        "production_candidate"
-      ],
-      "title": "Level",
+    "package": {
+      "title": "Package",
       "type": "string"
     },
-    "limitation_ids": {
-      "items": {
-        "type": "string"
-      },
-      "title": "Limitation Ids",
-      "type": "array"
-    },
-    "missing_capabilities": {
-      "items": {
-        "type": "string"
-      },
-      "title": "Missing Capabilities",
-      "type": "array"
-    },
-    "plugin_sdk_compatible": {
-      "default": false,
-      "title": "Plugin Sdk Compatible",
-      "type": "boolean"
-    },
-    "required_capabilities": {
-      "items": {
-        "type": "string"
-      },
-      "title": "Required Capabilities",
-      "type": "array"
-    },
-    "resolved_symbols": {
-      "default": 0,
-      "title": "Resolved Symbols",
-      "type": "integer"
-    },
-    "result": {
-      "enum": [
-        "certified",
-        "blocked"
-      ],
-      "title": "Result",
+    "plugin_id": {
+      "title": "Plugin Id",
       "type": "string"
+    },
+    "runtime": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Runtime"
     },
     "schema_version": {
-      "const": "0.2",
-      "default": "0.2",
+      "const": "0.1",
+      "default": "0.1",
       "title": "Schema Version",
       "type": "string"
-    },
-    "source_presentation_snippets": {
-      "default": 0,
-      "title": "Source Presentation Snippets",
-      "type": "integer"
-    },
-    "supported_evidence": {
-      "items": {
-        "$ref": "#/$defs/EvidenceLevel"
-      },
-      "title": "Supported Evidence",
-      "type": "array"
-    },
-    "tool": {
-      "default": "nlreq.adapter_certification",
-      "title": "Tool",
-      "type": "string"
-    },
-    "tool_version": {
-      "default": "0.2",
-      "title": "Tool Version",
-      "type": "string"
-    },
-    "trace_count": {
-      "default": 0,
-      "title": "Trace Count",
-      "type": "integer"
-    },
-    "unresolved_symbols": {
-      "default": 0,
-      "title": "Unresolved Symbols",
-      "type": "integer"
     }
   },
   "required": [
+    "plugin_id",
+    "package",
+    "entry_point",
     "adapter_id",
     "language",
-    "result",
-    "level",
     "capability_contract"
   ],
-  "title": "AdapterCertificationReport",
+  "title": "AdapterPluginManifest",
   "type": "object"
 }

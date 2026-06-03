@@ -19,7 +19,12 @@ from nlreq.models import (
     VerificationTasksArtifact,
 )
 from nlreq.command_adapter import CommandChecksArtifact, CommandResultsArtifact
-from nlreq.adapter_certification import AdapterCertificationReport
+from nlreq.adapter_certification import (
+    AdapterCertificationFixture,
+    AdapterCertificationReport,
+    AdapterPluginManifest,
+    AdapterPluginValidationReport,
+)
 from nlreq.agnostic_wedge import AgnosticWedgeReport
 from nlreq.artifact_store import (
     ArtifactLookupResult,
@@ -139,6 +144,8 @@ from nlreq.signed_evidence import (
     SignedEvidenceEnvelope,
 )
 from nlreq.source_adapter import (
+    AdapterCapabilityContract,
+    AdapterCapabilityRegistry,
     CodePresentation,
     SourceCallGraph,
     SourceManifest,
@@ -184,7 +191,12 @@ SCHEMAS = {
     "requirement-ir-0.2.schema.json": RequirementIRV2,
     "requirement-ir-migration.schema.json": RequirementIRMigrationRecord,
     "assumptions.schema.json": AssumptionsArtifact,
+    "adapter-capability-contract.schema.json": AdapterCapabilityContract,
+    "adapter-capability-registry.schema.json": AdapterCapabilityRegistry,
+    "adapter-certification-fixture.schema.json": AdapterCertificationFixture,
     "adapter-certification-report.schema.json": AdapterCertificationReport,
+    "adapter-plugin-manifest.schema.json": AdapterPluginManifest,
+    "adapter-plugin-validation-report.schema.json": AdapterPluginValidationReport,
     "adapter-registry.schema.json": AdapterRegistryArtifact,
     "agnostic-wedge-report.schema.json": AgnosticWedgeReport,
     "artifact-lookup-result.schema.json": ArtifactLookupResult,

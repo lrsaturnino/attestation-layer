@@ -1,0 +1,100 @@
+{
+  "$defs": {
+    "AdapterCertificationFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "category": {
+          "enum": [
+            "manifest",
+            "capability_contract",
+            "symbol_resolution",
+            "binding_validation",
+            "call_graph",
+            "code_presentation",
+            "trace_extraction",
+            "plugin_sdk"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "info",
+            "blocking"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "subject": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Subject"
+        }
+      },
+      "required": [
+        "category",
+        "severity",
+        "message"
+      ],
+      "title": "AdapterCertificationFinding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "adapter_id": {
+      "title": "Adapter Id",
+      "type": "string"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/AdapterCertificationFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "plugin_id": {
+      "title": "Plugin Id",
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "accepted",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "plugin_id",
+    "adapter_id",
+    "result"
+  ],
+  "title": "AdapterPluginValidationReport",
+  "type": "object"
+}

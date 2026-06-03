@@ -191,56 +191,6 @@
       "title": "AdapterCapabilityContract",
       "type": "object"
     },
-    "AdapterCertificationFinding": {
-      "additionalProperties": false,
-      "properties": {
-        "category": {
-          "enum": [
-            "manifest",
-            "capability_contract",
-            "symbol_resolution",
-            "binding_validation",
-            "call_graph",
-            "code_presentation",
-            "trace_extraction",
-            "plugin_sdk"
-          ],
-          "title": "Category",
-          "type": "string"
-        },
-        "message": {
-          "title": "Message",
-          "type": "string"
-        },
-        "severity": {
-          "enum": [
-            "info",
-            "blocking"
-          ],
-          "title": "Severity",
-          "type": "string"
-        },
-        "subject": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Subject"
-        }
-      },
-      "required": [
-        "category",
-        "severity",
-        "message"
-      ],
-      "title": "AdapterCertificationFinding",
-      "type": "object"
-    },
     "AdapterLimitation": {
       "additionalProperties": false,
       "properties": {
@@ -302,137 +252,20 @@
   },
   "additionalProperties": false,
   "properties": {
-    "adapter_id": {
-      "title": "Adapter Id",
-      "type": "string"
-    },
-    "call_graph_edges": {
-      "default": 0,
-      "title": "Call Graph Edges",
-      "type": "integer"
-    },
-    "capability_contract": {
-      "$ref": "#/$defs/AdapterCapabilityContract"
-    },
-    "findings": {
+    "adapters": {
       "items": {
-        "$ref": "#/$defs/AdapterCertificationFinding"
+        "$ref": "#/$defs/AdapterCapabilityContract"
       },
-      "title": "Findings",
+      "title": "Adapters",
       "type": "array"
-    },
-    "input_hashes": {
-      "additionalProperties": {
-        "type": "string"
-      },
-      "title": "Input Hashes",
-      "type": "object"
-    },
-    "interface_version": {
-      "const": "2.0",
-      "default": "2.0",
-      "title": "Interface Version",
-      "type": "string"
-    },
-    "language": {
-      "title": "Language",
-      "type": "string"
-    },
-    "level": {
-      "enum": [
-        "manifest_only",
-        "static_resolution",
-        "trace_capable",
-        "production_candidate"
-      ],
-      "title": "Level",
-      "type": "string"
-    },
-    "limitation_ids": {
-      "items": {
-        "type": "string"
-      },
-      "title": "Limitation Ids",
-      "type": "array"
-    },
-    "missing_capabilities": {
-      "items": {
-        "type": "string"
-      },
-      "title": "Missing Capabilities",
-      "type": "array"
-    },
-    "plugin_sdk_compatible": {
-      "default": false,
-      "title": "Plugin Sdk Compatible",
-      "type": "boolean"
-    },
-    "required_capabilities": {
-      "items": {
-        "type": "string"
-      },
-      "title": "Required Capabilities",
-      "type": "array"
-    },
-    "resolved_symbols": {
-      "default": 0,
-      "title": "Resolved Symbols",
-      "type": "integer"
-    },
-    "result": {
-      "enum": [
-        "certified",
-        "blocked"
-      ],
-      "title": "Result",
-      "type": "string"
     },
     "schema_version": {
       "const": "0.2",
       "default": "0.2",
       "title": "Schema Version",
       "type": "string"
-    },
-    "source_presentation_snippets": {
-      "default": 0,
-      "title": "Source Presentation Snippets",
-      "type": "integer"
-    },
-    "supported_evidence": {
-      "items": {
-        "$ref": "#/$defs/EvidenceLevel"
-      },
-      "title": "Supported Evidence",
-      "type": "array"
-    },
-    "tool": {
-      "default": "nlreq.adapter_certification",
-      "title": "Tool",
-      "type": "string"
-    },
-    "tool_version": {
-      "default": "0.2",
-      "title": "Tool Version",
-      "type": "string"
-    },
-    "trace_count": {
-      "default": 0,
-      "title": "Trace Count",
-      "type": "integer"
-    },
-    "unresolved_symbols": {
-      "default": 0,
-      "title": "Unresolved Symbols",
-      "type": "integer"
     }
   },
-  "required": [
-    "adapter_id",
-    "language",
-    "result",
-    "level",
-    "capability_contract"
-  ],
-  "title": "AdapterCertificationReport",
+  "title": "AdapterCapabilityRegistry",
   "type": "object"
 }

@@ -16,7 +16,12 @@ from .agent_workflow import (
     package_input_refs,
 )
 from .agnostic_wedge import build_agnostic_wedge_report
-from .adapter_certification import certify_adapter
+from .adapter_certification import (
+    AdapterCertificationReport,
+    AdapterPluginManifest,
+    certify_adapter,
+    validate_adapter_plugin_manifest,
+)
 from .adoption import (
     build_ci_report,
     build_package_index,
@@ -1509,11 +1514,35 @@ def main(argv: list[str] | None = None) -> int:
     adapter_certify_cmd = subcommands.add_parser(
         "adapter-certify", help="Run adapter certification suite for production adapters."
     )
-    adapter_certify_cmd.add_argument("--language", choices=["solidity", "go", "typescript", "rust", "java"], required=True)
+    adapter_certify_cmd.add_argument(
+        "--language",
+        choices=["solidity", "go", "typescript", "javascript", "rust", "java"],
+        required=True,
+    )
     adapter_certify_cmd.add_argument("--manifest", type=Path, required=True)
     adapter_certify_cmd.add_argument("--symbol", action="append", default=[])
+    adapter_certify_cmd.add_argument("--required-capability", action="append", default=[])
     adapter_certify_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     adapter_certify_cmd.add_argument("--out", type=Path)
+
+    adapter_capabilities_cmd = subcommands.add_parser(
+        "adapter-capabilities", help="Emit a production adapter v2 capability contract."
+    )
+    adapter_capabilities_cmd.add_argument(
+        "--language",
+        choices=["solidity", "go", "typescript", "javascript", "rust", "java"],
+        required=True,
+    )
+    adapter_capabilities_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    adapter_capabilities_cmd.add_argument("--out", type=Path)
+
+    adapter_plugin_validate_cmd = subcommands.add_parser(
+        "adapter-plugin-validate",
+        help="Validate an adapter plugin manifest against a certification report.",
+    )
+    adapter_plugin_validate_cmd.add_argument("--plugin-manifest", type=Path, required=True)
+    adapter_plugin_validate_cmd.add_argument("--certification-report", type=Path, required=True)
+    adapter_plugin_validate_cmd.add_argument("--out", type=Path)
 
     ci_pr_gate_cmd = subcommands.add_parser(
         "ci-pr-gate", help="Render a CI/PR gate report from an end-to-end gate report."
@@ -3955,6 +3984,7 @@ def main(argv: list[str] | None = None) -> int:
                 adapter,
                 manifest,
                 symbol_refs=[SymbolRef(name=symbol) for symbol in args.symbol],
+                required_capabilities=args.required_capability,
             )
             if args.out:
                 write_json(args.out, report)
@@ -3962,6 +3992,32 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(report), end="")
             return 0 if report.result == "certified" else 1
+        if args.command == "adapter-capabilities":
+            from .jsonutil import write_json
+
+            adapter = production_adapter_for_language(args.language, project_root=args.project_root)
+            contract = adapter.capability_contract()
+            if args.out:
+                write_json(args.out, contract)
+                print(f"Adapter capability contract: {args.out}")
+            else:
+                print(canonical_json(contract), end="")
+            return 0
+        if args.command == "adapter-plugin-validate":
+            from .jsonutil import write_json
+
+            report = validate_adapter_plugin_manifest(
+                AdapterPluginManifest.model_validate_json(args.plugin_manifest.read_text()),
+                AdapterCertificationReport.model_validate_json(
+                    args.certification_report.read_text()
+                ),
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Adapter plugin validation report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "accepted" else 1
         if args.command == "ci-pr-gate":
             from .end_to_end_gate import EndToEndRequirementGateReport
             from .jsonutil import write_json
