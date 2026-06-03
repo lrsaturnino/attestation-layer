@@ -1,10 +1,82 @@
 {
   "$defs": {
-    "CausalTraceLink": {
+    "AdapterEvidenceReference": {
       "additionalProperties": false,
       "properties": {
-        "evidence": {
-          "title": "Evidence",
+        "adapter_id": {
+          "title": "Adapter Id",
+          "type": "string"
+        },
+        "artifact_hash": {
+          "title": "Artifact Hash",
+          "type": "string"
+        },
+        "evidence_id": {
+          "title": "Evidence Id",
+          "type": "string"
+        },
+        "evidence_level": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Level"
+        },
+        "producer_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Producer Id"
+        },
+        "replay_bundle_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Replay Bundle Hash"
+        }
+      },
+      "required": [
+        "evidence_id",
+        "adapter_id",
+        "artifact_hash"
+      ],
+      "title": "AdapterEvidenceReference",
+      "type": "object"
+    },
+    "CausalTraceLinkV2": {
+      "additionalProperties": false,
+      "properties": {
+        "evidence_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Evidence Hash"
+        },
+        "from_adapter_id": {
+          "title": "From Adapter Id",
           "type": "string"
         },
         "from_event_id": {
@@ -15,6 +87,10 @@
           "title": "From Trace Id",
           "type": "string"
         },
+        "link_id": {
+          "title": "Link Id",
+          "type": "string"
+        },
         "relation": {
           "enum": [
             "causes",
@@ -22,6 +98,26 @@
             "correlates"
           ],
           "title": "Relation",
+          "type": "string"
+        },
+        "required": {
+          "default": true,
+          "title": "Required",
+          "type": "boolean"
+        },
+        "status": {
+          "default": "unverified",
+          "enum": [
+            "satisfied",
+            "missing_source",
+            "missing_target",
+            "unverified"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "to_adapter_id": {
+          "title": "To Adapter Id",
           "type": "string"
         },
         "to_event_id": {
@@ -34,22 +130,38 @@
         }
       },
       "required": [
+        "link_id",
+        "from_adapter_id",
         "from_trace_id",
         "from_event_id",
+        "to_adapter_id",
         "to_trace_id",
         "to_event_id",
-        "relation",
-        "evidence"
+        "relation"
       ],
-      "title": "CausalTraceLink",
+      "title": "CausalTraceLinkV2",
       "type": "object"
     },
-    "CrossLanguageEvidenceSlice": {
+    "CrossLanguageEvidenceSliceV2": {
       "additionalProperties": false,
       "properties": {
         "adapter_id": {
           "title": "Adapter Id",
           "type": "string"
+        },
+        "blockers": {
+          "items": {
+            "$ref": "#/$defs/CrossLanguageProofBlocker"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "evidence": {
+          "items": {
+            "$ref": "#/$defs/AdapterEvidenceReference"
+          },
+          "title": "Evidence",
+          "type": "array"
         },
         "language": {
           "title": "Language",
@@ -86,7 +198,7 @@
         "adapter_id",
         "language"
       ],
-      "title": "CrossLanguageEvidenceSlice",
+      "title": "CrossLanguageEvidenceSliceV2",
       "type": "object"
     },
     "CrossLanguageProofBlocker": {
@@ -130,6 +242,11 @@
   },
   "additionalProperties": false,
   "properties": {
+    "adapter_count": {
+      "default": 0,
+      "title": "Adapter Count",
+      "type": "integer"
+    },
     "blockers": {
       "items": {
         "$ref": "#/$defs/CrossLanguageProofBlocker"
@@ -139,10 +256,18 @@
     },
     "causal_links": {
       "items": {
-        "$ref": "#/$defs/CausalTraceLink"
+        "$ref": "#/$defs/CausalTraceLinkV2"
       },
       "title": "Causal Links",
       "type": "array"
+    },
+    "closure_status": {
+      "enum": [
+        "closed",
+        "blocked"
+      ],
+      "title": "Closure Status",
+      "type": "string"
     },
     "input_hashes": {
       "additionalProperties": {
@@ -150,6 +275,11 @@
       },
       "title": "Input Hashes",
       "type": "object"
+    },
+    "language_count": {
+      "default": 0,
+      "title": "Language Count",
+      "type": "integer"
     },
     "proof_id": {
       "title": "Proof Id",
@@ -170,21 +300,22 @@
     },
     "result": {
       "enum": [
-        "passed",
-        "blocked"
+        "accepted",
+        "refused",
+        "unknown"
       ],
       "title": "Result",
       "type": "string"
     },
     "schema_version": {
-      "const": "0.1",
-      "default": "0.1",
+      "const": "0.2",
+      "default": "0.2",
       "title": "Schema Version",
       "type": "string"
     },
     "slices": {
       "items": {
-        "$ref": "#/$defs/CrossLanguageEvidenceSlice"
+        "$ref": "#/$defs/CrossLanguageEvidenceSliceV2"
       },
       "title": "Slices",
       "type": "array"
@@ -204,8 +335,9 @@
     "proof_id",
     "requirement_id",
     "result",
+    "closure_status",
     "proof_status"
   ],
-  "title": "CrossLanguageProofObject",
+  "title": "CrossLanguageProofObjectV2",
   "type": "object"
 }

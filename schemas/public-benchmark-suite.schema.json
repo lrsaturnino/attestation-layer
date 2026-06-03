@@ -1,0 +1,71 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "case_ids_by_dimension": {
+      "additionalProperties": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "title": "Case Ids By Dimension",
+      "type": "object"
+    },
+    "dimensions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Dimensions",
+      "type": "array"
+    },
+    "expected_results_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Expected Results Hash"
+    },
+    "release_thresholds": {
+      "additionalProperties": {
+        "type": "number"
+      },
+      "title": "Release Thresholds",
+      "type": "object"
+    },
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "suite_id": {
+      "title": "Suite Id",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.benchmark_reporting",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "suite_id",
+    "version"
+  ],
+  "title": "PublicBenchmarkSuite",
+  "type": "object"
+}

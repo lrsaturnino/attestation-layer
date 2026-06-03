@@ -1,0 +1,60 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "change_id": {
+      "title": "Change Id",
+      "type": "string"
+    },
+    "policy_hash": {
+      "title": "Policy Hash",
+      "type": "string"
+    },
+    "previous_policy_hash": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Previous Policy Hash"
+    },
+    "rationale": {
+      "title": "Rationale",
+      "type": "string"
+    },
+    "reviewed_at": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reviewed At"
+    },
+    "reviewed_by": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Reviewed By"
+    }
+  },
+  "required": [
+    "change_id",
+    "policy_hash",
+    "rationale"
+  ],
+  "title": "PolicyChangeRecord",
+  "type": "object"
+}

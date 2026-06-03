@@ -1,0 +1,155 @@
+{
+  "$defs": {
+    "ParallelDispatchDecision": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Hash"
+        },
+        "cache_key_hash": {
+          "title": "Cache Key Hash",
+          "type": "string"
+        },
+        "cache_status": {
+          "enum": [
+            "hit",
+            "miss",
+            "not_cacheable"
+          ],
+          "title": "Cache Status",
+          "type": "string"
+        },
+        "run_slot": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Run Slot"
+        },
+        "stage": {
+          "title": "Stage",
+          "type": "string"
+        },
+        "task_id": {
+          "title": "Task Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "stage",
+        "cache_key_hash",
+        "cache_status"
+      ],
+      "title": "ParallelDispatchDecision",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "cache_hits": {
+      "default": 0,
+      "title": "Cache Hits",
+      "type": "integer"
+    },
+    "cache_misses": {
+      "default": 0,
+      "title": "Cache Misses",
+      "type": "integer"
+    },
+    "ci_runtime_budget_ms": {
+      "title": "Ci Runtime Budget Ms",
+      "type": "integer"
+    },
+    "decisions": {
+      "items": {
+        "$ref": "#/$defs/ParallelDispatchDecision"
+      },
+      "title": "Decisions",
+      "type": "array"
+    },
+    "estimated_runtime_ms": {
+      "default": 0,
+      "title": "Estimated Runtime Ms",
+      "type": "integer"
+    },
+    "findings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "max_parallelism": {
+      "title": "Max Parallelism",
+      "type": "integer"
+    },
+    "plan_id": {
+      "title": "Plan Id",
+      "type": "string"
+    },
+    "policy_hash": {
+      "title": "Policy Hash",
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "ready",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.verification_cache",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "within_budget": {
+      "default": true,
+      "title": "Within Budget",
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "plan_id",
+    "result",
+    "policy_hash",
+    "max_parallelism",
+    "ci_runtime_budget_ms"
+  ],
+  "title": "ParallelDispatchPlan",
+  "type": "object"
+}

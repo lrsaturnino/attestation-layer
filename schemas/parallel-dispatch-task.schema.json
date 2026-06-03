@@ -1,0 +1,47 @@
+{
+  "additionalProperties": false,
+  "properties": {
+    "estimated_runtime_ms": {
+      "default": 0,
+      "minimum": 0,
+      "title": "Estimated Runtime Ms",
+      "type": "integer"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "stage": {
+      "title": "Stage",
+      "type": "string"
+    },
+    "task_id": {
+      "title": "Task Id",
+      "type": "string"
+    },
+    "timeout_ms": {
+      "default": 60000,
+      "exclusiveMinimum": 0,
+      "title": "Timeout Ms",
+      "type": "integer"
+    },
+    "tool_versions": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Tool Versions",
+      "type": "object"
+    }
+  },
+  "required": [
+    "task_id",
+    "stage",
+    "input_hashes",
+    "tool_versions"
+  ],
+  "title": "ParallelDispatchTask",
+  "type": "object"
+}

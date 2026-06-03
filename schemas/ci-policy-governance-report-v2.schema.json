@@ -1,0 +1,151 @@
+{
+  "$defs": {
+    "PolicyChangeRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "change_id": {
+          "title": "Change Id",
+          "type": "string"
+        },
+        "policy_hash": {
+          "title": "Policy Hash",
+          "type": "string"
+        },
+        "previous_policy_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Previous Policy Hash"
+        },
+        "rationale": {
+          "title": "Rationale",
+          "type": "string"
+        },
+        "reviewed_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewed At"
+        },
+        "reviewed_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reviewed By"
+        }
+      },
+      "required": [
+        "change_id",
+        "policy_hash",
+        "rationale"
+      ],
+      "title": "PolicyChangeRecord",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "branch_protection_required_checks": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Branch Protection Required Checks",
+      "type": "array"
+    },
+    "ci_report_hash": {
+      "title": "Ci Report Hash",
+      "type": "string"
+    },
+    "findings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "governance_id": {
+      "title": "Governance Id",
+      "type": "string"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "policy_changes": {
+      "items": {
+        "$ref": "#/$defs/PolicyChangeRecord"
+      },
+      "title": "Policy Changes",
+      "type": "array"
+    },
+    "required_check_name": {
+      "title": "Required Check Name",
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.policy_governance",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "unreviewed_policy_changes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unreviewed Policy Changes",
+      "type": "array"
+    },
+    "waiver_audit_hash": {
+      "title": "Waiver Audit Hash",
+      "type": "string"
+    }
+  },
+  "required": [
+    "governance_id",
+    "result",
+    "ci_report_hash",
+    "waiver_audit_hash",
+    "required_check_name"
+  ],
+  "title": "CiPolicyGovernanceReportV2",
+  "type": "object"
+}

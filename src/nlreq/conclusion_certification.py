@@ -4,23 +4,36 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .benchmark_reporting import BenchmarkEvaluationReport, ExtendedBenchmarkEvaluationReport
+from .artifact_store import ReplayVerificationReport
+from .benchmark_reporting import (
+    BenchmarkEvaluationReport,
+    ExtendedBenchmarkEvaluationReport,
+    PublicBenchmarkReleaseReport,
+)
 from .ci_pr_gate import ExtendedCiPrGateReport
+from .cross_language import CrossLanguageProofObjectV2
 from .end_to_end_gate import ExtendedEndToEndRequirementGateReport
 from .jsonutil import sha256_json
+from .policy_governance import CiPolicyGovernanceReportV2
 from .public_sdk import REQUIRED_PUBLIC_AUDIENCES, PublicDocumentationIndex
 from .public_sdk import PublicDocumentationFreezeReport
-from .reference_demo import ExtendedReferenceDemoReport, ReferenceDemoReport
+from .reference_demo import (
+    ExtendedReferenceDemoReport,
+    ReferenceBrownfieldPilotReport,
+    ReferenceDemoReport,
+)
 from .threat_model import (
     ExtendedTcbReviewReport,
     ThreatModelReport,
     threat_model_release_findings,
 )
+from .verification_cache import ParallelDispatchPlan
 
 
 CONCLUSION_CERTIFICATION_SCHEMA_VERSION = "0.1"
 CONCLUSION_CERTIFICATION_TOOL_VERSION = "0.1"
 EXTENDED_CONCLUSION_CERTIFICATION_SCHEMA_VERSION = "0.1"
+FINAL_REAL_EVIDENCE_CERTIFICATION_SCHEMA_VERSION = "0.2"
 
 
 class ConclusionCriterionStatus(BaseModel):
@@ -60,6 +73,23 @@ class ExtendedConclusionCertificationReport(BaseModel):
     signed_release_bundle_hash: str | None = None
     evidence_level_claims: list[str] = Field(default_factory=list)
     known_limitations: list[str] = Field(default_factory=list)
+    input_hashes: dict[str, str] = Field(default_factory=dict)
+    tool: str = "nlreq.conclusion_certification"
+    tool_version: str = CONCLUSION_CERTIFICATION_TOOL_VERSION
+
+
+class FinalRealEvidenceConclusionCertificationReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.2"] = FINAL_REAL_EVIDENCE_CERTIFICATION_SCHEMA_VERSION
+    release_id: str
+    result: Literal["certified", "blocked"]
+    criteria: list[ConclusionCriterionStatus] = Field(default_factory=list)
+    blocking_findings: list[str] = Field(default_factory=list)
+    release_bundle_hash: str | None = None
+    signed_release_bundle_hash: str | None = None
+    public_claim: str
+    public_claim_boundaries: list[str] = Field(default_factory=list)
     input_hashes: dict[str, str] = Field(default_factory=dict)
     tool: str = "nlreq.conclusion_certification"
     tool_version: str = CONCLUSION_CERTIFICATION_TOOL_VERSION
@@ -262,6 +292,128 @@ def build_extended_conclusion_certification_report(
     )
 
 
+def build_final_real_evidence_conclusion_certification_report(
+    *,
+    release_id: str,
+    cross_language: CrossLanguageProofObjectV2,
+    replay: ReplayVerificationReport,
+    dispatch: ParallelDispatchPlan,
+    public_benchmark: PublicBenchmarkReleaseReport,
+    reference_demo: ReferenceBrownfieldPilotReport,
+    governance: CiPolicyGovernanceReportV2,
+    schemas_frozen: bool,
+    release_bundle_hash: str | None,
+    signed_release_bundle_hash: str | None,
+    scaffold_evidence_hashes: list[str] | None = None,
+    public_claim: str = "Scoped real-evidence conclusion for supported requirements.",
+) -> FinalRealEvidenceConclusionCertificationReport:
+    scaffold_evidence_hashes = scaffold_evidence_hashes or []
+    criteria = [
+        _final_criterion(
+            "cross-language-causal-proof",
+            cross_language.closure_status == "closed" and cross_language.result == "accepted",
+            [cross_language.proof_id],
+            cross_language.blockers,
+            "cross-language proof did not close",
+        ),
+        _final_criterion(
+            "replay-and-signing",
+            replay.result == "valid",
+            replay.verified_artifact_hashes,
+            replay.findings,
+            "replay verification did not pass",
+        ),
+        _final_criterion(
+            "performance-dispatch",
+            dispatch.result == "ready" and dispatch.within_budget,
+            [dispatch.plan_id],
+            dispatch.findings,
+            "performance dispatch plan is not ready",
+        ),
+        _final_criterion(
+            "public-benchmark",
+            public_benchmark.result == "publishable",
+            [public_benchmark.suite_id],
+            public_benchmark.findings,
+            "public benchmark report is not publishable",
+        ),
+        _final_criterion(
+            "reference-brownfield-demo",
+            reference_demo.result == "accepted",
+            [reference_demo.demo_id],
+            reference_demo.blocking_findings,
+            "reference brownfield demo was not accepted",
+        ),
+        _final_criterion(
+            "ci-policy-governance",
+            governance.result == "passed",
+            [governance.governance_id],
+            governance.findings,
+            "CI policy governance did not pass",
+        ),
+        ConclusionCriterionStatus(
+            criterion_id="schema-freeze",
+            status="passed" if schemas_frozen else "failed",
+            evidence=["schemas/"],
+            findings=[] if schemas_frozen else ["schema freeze evidence was not provided"],
+        ),
+        ConclusionCriterionStatus(
+            criterion_id="signed-release-bundle",
+            status="passed" if release_bundle_hash and signed_release_bundle_hash else "failed",
+            evidence=[value for value in [release_bundle_hash, signed_release_bundle_hash] if value],
+            findings=_release_bundle_findings(
+                release_bundle_hash=release_bundle_hash,
+                signed_release_bundle_hash=signed_release_bundle_hash,
+                require_signed_release_bundle=True,
+            ),
+        ),
+        ConclusionCriterionStatus(
+            criterion_id="no-scaffold-evidence",
+            status="passed" if not scaffold_evidence_hashes else "failed",
+            evidence=scaffold_evidence_hashes,
+            findings=(
+                []
+                if not scaffold_evidence_hashes
+                else ["final certification cannot include scaffold evidence"]
+            ),
+        ),
+    ]
+    blocking_findings = [
+        f"{criterion.criterion_id}: {finding}"
+        for criterion in criteria
+        if criterion.required and criterion.status == "failed"
+        for finding in (criterion.findings or ["criterion failed"])
+    ]
+    return FinalRealEvidenceConclusionCertificationReport(
+        release_id=release_id,
+        result="blocked" if blocking_findings else "certified",
+        criteria=criteria,
+        blocking_findings=blocking_findings,
+        release_bundle_hash=release_bundle_hash,
+        signed_release_bundle_hash=signed_release_bundle_hash,
+        public_claim=public_claim,
+        public_claim_boundaries=[
+            "Only supported controlled requirements are covered.",
+            "Bounded checking remains bounded and is not an inductive proof.",
+            "Runtime traces ground observed behavior and do not prove all executions.",
+            "Adapter certification covers declared capabilities and limitations.",
+            "Generated candidate specs remain untrusted unless reviewed and promoted.",
+        ],
+        input_hashes={
+            "cross_language": sha256_json(cross_language),
+            "replay": sha256_json(replay),
+            "dispatch": sha256_json(dispatch),
+            "public_benchmark": sha256_json(public_benchmark),
+            "reference_demo": sha256_json(reference_demo),
+            "governance": sha256_json(governance),
+            "schemas_frozen": sha256_json(schemas_frozen),
+            "release_bundle_hash": sha256_json(release_bundle_hash),
+            "signed_release_bundle_hash": sha256_json(signed_release_bundle_hash),
+            "scaffold_evidence_hashes": sha256_json(scaffold_evidence_hashes),
+        },
+    )
+
+
 def _benchmark_findings(benchmark: BenchmarkEvaluationReport) -> list[str]:
     findings = []
     if benchmark.result != "passed":
@@ -272,6 +424,42 @@ def _benchmark_findings(benchmark: BenchmarkEvaluationReport) -> list[str]:
     if failed_metrics:
         findings.append(f"benchmark metrics failed: {', '.join(sorted(failed_metrics))}")
     return findings
+
+
+def _final_criterion(
+    criterion_id: str,
+    passed: bool,
+    evidence: list[str],
+    raw_findings: object,
+    default_finding: str,
+) -> ConclusionCriterionStatus:
+    findings = _stringify_findings(raw_findings)
+    if not passed and not findings:
+        findings = [default_finding]
+    return ConclusionCriterionStatus(
+        criterion_id=criterion_id,
+        status="passed" if passed else "failed",
+        evidence=evidence,
+        findings=findings,
+    )
+
+
+def _stringify_findings(raw_findings: object) -> list[str]:
+    if raw_findings is None:
+        return []
+    if isinstance(raw_findings, list):
+        values = raw_findings
+    else:
+        values = [raw_findings]
+    rendered: list[str] = []
+    for value in values:
+        if isinstance(value, str):
+            rendered.append(value)
+        elif hasattr(value, "message"):
+            rendered.append(str(getattr(value, "message")))
+        else:
+            rendered.append(str(value))
+    return rendered
 
 
 def _reference_demo_findings(demo: ReferenceDemoReport) -> list[str]:

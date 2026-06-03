@@ -11,6 +11,7 @@ from .jsonutil import sha256_json
 BENCHMARK_REPORT_SCHEMA_VERSION = "0.1"
 BENCHMARK_REPORT_TOOL_VERSION = "0.1"
 EXTENDED_BENCHMARK_SCHEMA_VERSION = "0.1"
+PUBLIC_BENCHMARK_SCHEMA_VERSION = "0.2"
 
 EXTENDED_BENCHMARK_REQUIRED_DIMENSIONS: tuple[str, ...] = (
     "semantic_translation",
@@ -76,6 +77,51 @@ class ExtendedBenchmarkEvaluationReport(BaseModel):
     missing_dimensions: list[str] = Field(default_factory=list)
     failed_dimensions: list[str] = Field(default_factory=list)
     release_thresholds: dict[str, float] = Field(default_factory=dict)
+    input_hashes: dict[str, str] = Field(default_factory=dict)
+    tool: str = "nlreq.benchmark_reporting"
+    tool_version: str = BENCHMARK_REPORT_TOOL_VERSION
+
+
+class PublicBenchmarkSuite(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.2"] = PUBLIC_BENCHMARK_SCHEMA_VERSION
+    suite_id: str
+    version: str
+    dimensions: list[str] = Field(default_factory=list)
+    case_ids_by_dimension: dict[str, list[str]] = Field(default_factory=dict)
+    release_thresholds: dict[str, float] = Field(default_factory=dict)
+    expected_results_hash: str | None = None
+    tool: str = "nlreq.benchmark_reporting"
+    tool_version: str = BENCHMARK_REPORT_TOOL_VERSION
+
+
+class PublicLeaderboardEntry(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    runner_id: str
+    report_hash: str
+    score: float
+    result: Literal["passed", "failed"]
+    dimension_scores: dict[str, float] = Field(default_factory=dict)
+    submitted_at: str | None = None
+
+
+class PublicBenchmarkReleaseReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.2"] = PUBLIC_BENCHMARK_SCHEMA_VERSION
+    suite_id: str
+    version: str
+    result: Literal["publishable", "blocked"]
+    dimensions: list[str] = Field(default_factory=list)
+    missing_dimensions: list[str] = Field(default_factory=list)
+    failed_dimensions: list[str] = Field(default_factory=list)
+    false_closure_rate: float = 0.0
+    false_refusal_rate: float = 0.0
+    false_closure_budget: float = 0.0
+    leaderboard: list[PublicLeaderboardEntry] = Field(default_factory=list)
+    findings: list[str] = Field(default_factory=list)
     input_hashes: dict[str, str] = Field(default_factory=dict)
     tool: str = "nlreq.benchmark_reporting"
     tool_version: str = BENCHMARK_REPORT_TOOL_VERSION
@@ -165,6 +211,57 @@ def build_extended_benchmark_evaluation_report(
             "dimensions": sha256_json(dimensions),
             "required_dimensions": sha256_json(list(required_dimensions)),
             "release_thresholds": sha256_json(release_thresholds),
+        },
+    )
+
+
+def build_public_benchmark_release_report(
+    *,
+    suite: PublicBenchmarkSuite,
+    base: BenchmarkEvaluationReport,
+    extended: ExtendedBenchmarkEvaluationReport,
+    leaderboard: list[PublicLeaderboardEntry] | None = None,
+    false_closure_budget: float = 0.0,
+) -> PublicBenchmarkReleaseReport:
+    leaderboard = leaderboard or []
+    metric_values = {metric.name: metric.value for metric in base.metrics}
+    false_closure_rate = metric_values.get("false_closure_rate", 0.0)
+    false_refusal_rate = metric_values.get("false_refusal_rate", 0.0)
+    observed_dimensions = {dimension.dimension for dimension in extended.dimensions}
+    missing_dimensions = sorted(set(suite.dimensions) - observed_dimensions)
+    failed_dimensions = sorted(set(extended.failed_dimensions))
+    findings = []
+    if base.result != "passed":
+        findings.append("base benchmark report did not pass")
+    if extended.result != "passed":
+        findings.append("extended benchmark report did not pass")
+    if missing_dimensions:
+        findings.append("public benchmark missing dimensions: " + ", ".join(missing_dimensions))
+    if failed_dimensions:
+        findings.append("public benchmark failed dimensions: " + ", ".join(failed_dimensions))
+    if false_closure_rate > false_closure_budget:
+        findings.append(
+            f"false closure rate {false_closure_rate} exceeds budget {false_closure_budget}"
+        )
+    if not leaderboard:
+        findings.append("public leaderboard has no entries")
+    return PublicBenchmarkReleaseReport(
+        suite_id=suite.suite_id,
+        version=suite.version,
+        result="blocked" if findings else "publishable",
+        dimensions=list(suite.dimensions),
+        missing_dimensions=missing_dimensions,
+        failed_dimensions=failed_dimensions,
+        false_closure_rate=false_closure_rate,
+        false_refusal_rate=false_refusal_rate,
+        false_closure_budget=false_closure_budget,
+        leaderboard=leaderboard,
+        findings=findings,
+        input_hashes={
+            "suite": sha256_json(suite),
+            "base": sha256_json(base),
+            "extended": sha256_json(extended),
+            "leaderboard": sha256_json(leaderboard),
         },
     )
 

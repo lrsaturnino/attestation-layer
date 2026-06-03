@@ -30,6 +30,8 @@ from nlreq.artifact_store import (
     ArtifactLookupResult,
     ArtifactStoreManifest,
     ReplayBundleManifest,
+    ReplayBundleManifestV2,
+    ReplayVerificationReport,
 )
 from nlreq.backend_agreement import BackendAgreementReport
 from nlreq.benchmark_corpus import (
@@ -40,6 +42,9 @@ from nlreq.benchmark_corpus import (
 from nlreq.benchmark_reporting import (
     BenchmarkEvaluationReport,
     ExtendedBenchmarkEvaluationReport,
+    PublicBenchmarkReleaseReport,
+    PublicBenchmarkSuite,
+    PublicLeaderboardEntry,
 )
 from nlreq.ci_pr_gate import CiAdoptionPolicy, CiPrGateReport, ExtendedCiPrGateReport
 from nlreq.conclusion import (
@@ -50,13 +55,14 @@ from nlreq.conclusion import (
 from nlreq.conclusion_certification import (
     ConclusionCertificationReport,
     ExtendedConclusionCertificationReport,
+    FinalRealEvidenceConclusionCertificationReport,
 )
 from nlreq.counterexample_normalization import (
     CounterexampleExplanationReport,
     CounterexampleNormalizationReport,
 )
 from nlreq.controlled_semantics import ControlledRequirementSemanticsReference
-from nlreq.cross_language import CrossLanguageProofObject
+from nlreq.cross_language import CrossLanguageProofObject, CrossLanguageProofObjectV2
 from nlreq.evidence_boundary import (
     ProofEvidenceBoundaryReport,
     ProofProducingBackendBoundaryReport,
@@ -117,14 +123,20 @@ from nlreq.proof_closure import (
     ProofDispatchPlan,
     ProofObject,
 )
-from nlreq.policy_governance import WaiverAuditReport
+from nlreq.policy_governance import (
+    CiPolicyGovernanceReportV2,
+    PolicyChangeRecord,
+    WaiverAuditReport,
+)
 from nlreq.public_sdk import (
     PublicDocumentationCoverageReport,
     PublicDocumentationFreezeReport,
     PublicDocumentationIndex,
 )
 from nlreq.reference_demo import (
+    BetaPilotReport,
     ExtendedReferenceDemoReport,
+    ReferenceBrownfieldPilotReport,
     ReferenceDemoManifest,
     ReferenceDemoReport,
 )
@@ -180,9 +192,12 @@ from nlreq.verification_budget import (
     VerificationBudgetPolicy,
 )
 from nlreq.verification_cache import (
+    ParallelDispatchPlan,
+    ParallelDispatchTask,
     VerificationCacheIndex,
     VerificationCacheKey,
     VerificationCacheLookup,
+    VerificationCachePolicyV2,
 )
 
 
@@ -201,6 +216,8 @@ SCHEMAS = {
     "agnostic-wedge-report.schema.json": AgnosticWedgeReport,
     "artifact-lookup-result.schema.json": ArtifactLookupResult,
     "artifact-store-manifest.schema.json": ArtifactStoreManifest,
+    "replay-bundle-manifest-v2.schema.json": ReplayBundleManifestV2,
+    "replay-verification-report.schema.json": ReplayVerificationReport,
     "backend-agreement-report.schema.json": BackendAgreementReport,
     "backend-results.schema.json": BackendResultsArtifact,
     "benchmark-corpus.schema.json": BenchmarkCorpus,
@@ -208,12 +225,16 @@ SCHEMAS = {
     "benchmark-run-report.schema.json": BenchmarkRunReport,
     "benchmark-evaluation-report.schema.json": BenchmarkEvaluationReport,
     "extended-benchmark-evaluation-report.schema.json": ExtendedBenchmarkEvaluationReport,
+    "public-benchmark-suite.schema.json": PublicBenchmarkSuite,
+    "public-benchmark-release-report.schema.json": PublicBenchmarkReleaseReport,
+    "public-leaderboard-entry.schema.json": PublicLeaderboardEntry,
     "ci-adoption-policy.schema.json": CiAdoptionPolicy,
     "ci-pr-gate-report.schema.json": CiPrGateReport,
     "extended-ci-pr-gate-report.schema.json": ExtendedCiPrGateReport,
     "conclusion-definition.schema.json": ConclusionDefinition,
     "conclusion-certification-report.schema.json": ConclusionCertificationReport,
     "extended-conclusion-certification-report.schema.json": ExtendedConclusionCertificationReport,
+    "final-real-evidence-conclusion-certification-report.schema.json": FinalRealEvidenceConclusionCertificationReport,
     "conclusion-gap-checklist.schema.json": ConclusionGapChecklist,
     "conclusion-gap-check-report.schema.json": ConclusionGapCheckReport,
     "bindings.schema.json": BindingsArtifact,
@@ -223,6 +244,7 @@ SCHEMAS = {
     "counterexample-normalization-report.schema.json": CounterexampleNormalizationReport,
     "counterexamples.schema.json": CounterexamplesArtifact,
     "cross-language-proof-object.schema.json": CrossLanguageProofObject,
+    "cross-language-proof-object-v2.schema.json": CrossLanguageProofObjectV2,
     "spec-coverage-report.schema.json": SpecCoverageReport,
     "code-spec-coverage-manifest-v2.schema.json": CodeSpecCoverageManifestV2,
     "code-spec-coverage-gate-report-v2.schema.json": CodeSpecCoverageGateReportV2,
@@ -288,6 +310,8 @@ SCHEMAS = {
     "reference-demo-manifest.schema.json": ReferenceDemoManifest,
     "reference-demo-report.schema.json": ReferenceDemoReport,
     "extended-reference-demo-report.schema.json": ExtendedReferenceDemoReport,
+    "beta-pilot-report.schema.json": BetaPilotReport,
+    "reference-brownfield-pilot-report.schema.json": ReferenceBrownfieldPilotReport,
     "replay-bundle-manifest.schema.json": ReplayBundleManifest,
     "routing-policy.schema.json": RoutingPolicyArtifact,
     "source-call-graph.schema.json": SourceCallGraph,
@@ -335,9 +359,14 @@ SCHEMAS = {
     "verification-cache-index.schema.json": VerificationCacheIndex,
     "verification-cache-key.schema.json": VerificationCacheKey,
     "verification-cache-lookup.schema.json": VerificationCacheLookup,
+    "verification-cache-policy-v2.schema.json": VerificationCachePolicyV2,
+    "parallel-dispatch-task.schema.json": ParallelDispatchTask,
+    "parallel-dispatch-plan.schema.json": ParallelDispatchPlan,
     "budgeted-verification-outcome.schema.json": BudgetedVerificationOutcome,
     "waiver.schema.json": GateWaiver,
     "waiver-audit-report.schema.json": WaiverAuditReport,
+    "policy-change-record.schema.json": PolicyChangeRecord,
+    "ci-policy-governance-report-v2.schema.json": CiPolicyGovernanceReportV2,
 }
 
 

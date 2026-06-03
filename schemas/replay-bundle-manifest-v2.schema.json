@@ -1,0 +1,221 @@
+{
+  "$defs": {
+    "ArtifactRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_hash": {
+          "title": "Artifact Hash",
+          "type": "string"
+        },
+        "logical_name": {
+          "title": "Logical Name",
+          "type": "string"
+        },
+        "media_type": {
+          "default": "application/json",
+          "title": "Media Type",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "normalized": {
+          "default": false,
+          "title": "Normalized",
+          "type": "boolean"
+        },
+        "raw": {
+          "default": false,
+          "title": "Raw",
+          "type": "boolean"
+        },
+        "retained": {
+          "default": true,
+          "title": "Retained",
+          "type": "boolean"
+        },
+        "size_bytes": {
+          "minimum": 0,
+          "title": "Size Bytes",
+          "type": "integer"
+        },
+        "store_path": {
+          "title": "Store Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact_hash",
+        "logical_name",
+        "store_path",
+        "size_bytes"
+      ],
+      "title": "ArtifactRecord",
+      "type": "object"
+    },
+    "ReplayCommandMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Command",
+          "type": "array"
+        },
+        "environment": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Environment",
+          "type": "object"
+        },
+        "tool_versions": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Tool Versions",
+          "type": "object"
+        },
+        "working_directory": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Working Directory"
+        }
+      },
+      "title": "ReplayCommandMetadata",
+      "type": "object"
+    },
+    "SignedEvidenceEnvelope": {
+      "additionalProperties": false,
+      "properties": {
+        "algorithm": {
+          "const": "HMAC-SHA256",
+          "title": "Algorithm",
+          "type": "string"
+        },
+        "envelope_id": {
+          "title": "Envelope Id",
+          "type": "string"
+        },
+        "key_id": {
+          "title": "Key Id",
+          "type": "string"
+        },
+        "payload": {
+          "additionalProperties": true,
+          "title": "Payload",
+          "type": "object"
+        },
+        "payload_hash": {
+          "title": "Payload Hash",
+          "type": "string"
+        },
+        "producer_id": {
+          "title": "Producer Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "signature": {
+          "title": "Signature",
+          "type": "string"
+        },
+        "tool": {
+          "default": "nlreq.signed_evidence",
+          "title": "Tool",
+          "type": "string"
+        },
+        "tool_version": {
+          "default": "0.1",
+          "title": "Tool Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "envelope_id",
+        "producer_id",
+        "key_id",
+        "algorithm",
+        "payload_hash",
+        "payload",
+        "signature"
+      ],
+      "title": "SignedEvidenceEnvelope",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "bundle_id": {
+      "title": "Bundle Id",
+      "type": "string"
+    },
+    "command": {
+      "$ref": "#/$defs/ReplayCommandMetadata"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "records": {
+      "items": {
+        "$ref": "#/$defs/ArtifactRecord"
+      },
+      "title": "Records",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "signed_envelopes": {
+      "items": {
+        "$ref": "#/$defs/SignedEvidenceEnvelope"
+      },
+      "title": "Signed Envelopes",
+      "type": "array"
+    },
+    "source_store_id": {
+      "title": "Source Store Id",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.artifact_store",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "bundle_id",
+    "source_store_id",
+    "command"
+  ],
+  "title": "ReplayBundleManifestV2",
+  "type": "object"
+}

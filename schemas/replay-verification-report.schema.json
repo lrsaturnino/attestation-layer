@@ -1,0 +1,130 @@
+{
+  "$defs": {
+    "ReplayVerificationFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "artifact_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Artifact Hash"
+        },
+        "blocking": {
+          "default": true,
+          "title": "Blocking",
+          "type": "boolean"
+        },
+        "category": {
+          "enum": [
+            "artifact",
+            "signature",
+            "producer",
+            "command"
+          ],
+          "title": "Category",
+          "type": "string"
+        },
+        "envelope_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Envelope Id"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "category",
+        "message"
+      ],
+      "title": "ReplayVerificationFinding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "bundle_id": {
+      "title": "Bundle Id",
+      "type": "string"
+    },
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/ReplayVerificationFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "missing_artifact_hashes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Artifact Hashes",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "valid",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.artifact_store",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "verified_artifact_hashes": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Verified Artifact Hashes",
+      "type": "array"
+    },
+    "verified_envelope_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Verified Envelope Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "bundle_id",
+    "result"
+  ],
+  "title": "ReplayVerificationReport",
+  "type": "object"
+}

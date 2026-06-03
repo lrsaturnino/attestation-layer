@@ -1,0 +1,95 @@
+{
+  "$defs": {
+    "BetaPilotFinding": {
+      "additionalProperties": false,
+      "properties": {
+        "finding_id": {
+          "title": "Finding Id",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "severity": {
+          "enum": [
+            "blocker",
+            "major",
+            "minor",
+            "note"
+          ],
+          "title": "Severity",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "open",
+            "accepted",
+            "mitigated"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "finding_id",
+        "severity",
+        "status",
+        "message"
+      ],
+      "title": "BetaPilotFinding",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "findings": {
+      "items": {
+        "$ref": "#/$defs/BetaPilotFinding"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "participant": {
+      "title": "Participant",
+      "type": "string"
+    },
+    "pilot_id": {
+      "title": "Pilot Id",
+      "type": "string"
+    },
+    "requirements_exercised": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Requirements Exercised",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "passed",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "workflow": {
+      "title": "Workflow",
+      "type": "string"
+    }
+  },
+  "required": [
+    "pilot_id",
+    "participant",
+    "workflow",
+    "result"
+  ],
+  "title": "BetaPilotReport",
+  "type": "object"
+}

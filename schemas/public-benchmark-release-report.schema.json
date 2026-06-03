@@ -1,0 +1,155 @@
+{
+  "$defs": {
+    "PublicLeaderboardEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "dimension_scores": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "title": "Dimension Scores",
+          "type": "object"
+        },
+        "report_hash": {
+          "title": "Report Hash",
+          "type": "string"
+        },
+        "result": {
+          "enum": [
+            "passed",
+            "failed"
+          ],
+          "title": "Result",
+          "type": "string"
+        },
+        "runner_id": {
+          "title": "Runner Id",
+          "type": "string"
+        },
+        "score": {
+          "title": "Score",
+          "type": "number"
+        },
+        "submitted_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Submitted At"
+        }
+      },
+      "required": [
+        "runner_id",
+        "report_hash",
+        "score",
+        "result"
+      ],
+      "title": "PublicLeaderboardEntry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "dimensions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Dimensions",
+      "type": "array"
+    },
+    "failed_dimensions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Failed Dimensions",
+      "type": "array"
+    },
+    "false_closure_budget": {
+      "default": 0.0,
+      "title": "False Closure Budget",
+      "type": "number"
+    },
+    "false_closure_rate": {
+      "default": 0.0,
+      "title": "False Closure Rate",
+      "type": "number"
+    },
+    "false_refusal_rate": {
+      "default": 0.0,
+      "title": "False Refusal Rate",
+      "type": "number"
+    },
+    "findings": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Findings",
+      "type": "array"
+    },
+    "input_hashes": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Input Hashes",
+      "type": "object"
+    },
+    "leaderboard": {
+      "items": {
+        "$ref": "#/$defs/PublicLeaderboardEntry"
+      },
+      "title": "Leaderboard",
+      "type": "array"
+    },
+    "missing_dimensions": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Missing Dimensions",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "publishable",
+        "blocked"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.2",
+      "default": "0.2",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "suite_id": {
+      "title": "Suite Id",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.benchmark_reporting",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "suite_id",
+    "version",
+    "result"
+  ],
+  "title": "PublicBenchmarkReleaseReport",
+  "type": "object"
+}

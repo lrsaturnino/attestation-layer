@@ -14,6 +14,7 @@ from .jsonutil import sha256_json
 REFERENCE_DEMO_SCHEMA_VERSION = "0.1"
 REFERENCE_DEMO_TOOL_VERSION = "0.1"
 EXTENDED_REFERENCE_DEMO_SCHEMA_VERSION = "0.1"
+REFERENCE_BROWNFIELD_PILOT_SCHEMA_VERSION = "0.2"
 
 
 class ReferenceDemoRequirement(BaseModel):
@@ -99,6 +100,42 @@ class ExtendedReferenceDemoReport(BaseModel):
     stage_failures: list[str] = Field(default_factory=list)
     decision_mismatches: list[str] = Field(default_factory=list)
     command_count: int = 0
+    input_hashes: dict[str, str] = Field(default_factory=dict)
+    tool: str = "nlreq.reference_demo"
+    tool_version: str = REFERENCE_DEMO_TOOL_VERSION
+
+
+class BetaPilotFinding(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    finding_id: str
+    severity: Literal["blocker", "major", "minor", "note"]
+    status: Literal["open", "accepted", "mitigated"]
+    message: str
+
+
+class BetaPilotReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.2"] = REFERENCE_BROWNFIELD_PILOT_SCHEMA_VERSION
+    pilot_id: str
+    participant: str
+    workflow: str
+    result: Literal["passed", "blocked"]
+    requirements_exercised: list[str] = Field(default_factory=list)
+    findings: list[BetaPilotFinding] = Field(default_factory=list)
+
+
+class ReferenceBrownfieldPilotReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.2"] = REFERENCE_BROWNFIELD_PILOT_SCHEMA_VERSION
+    demo_id: str
+    result: Literal["accepted", "blocked"]
+    demo_hash: str
+    beta_pilots: list[BetaPilotReport] = Field(default_factory=list)
+    release_findings: list[str] = Field(default_factory=list)
+    blocking_findings: list[str] = Field(default_factory=list)
     input_hashes: dict[str, str] = Field(default_factory=dict)
     tool: str = "nlreq.reference_demo"
     tool_version: str = REFERENCE_DEMO_TOOL_VERSION
@@ -218,6 +255,44 @@ def build_extended_reference_demo_report(
             "base_report": sha256_json(base_report),
             "gate_reports": sha256_json(gate_reports),
             "replay_bundle_hashes": sha256_json(replay_bundle_hashes),
+        },
+    )
+
+
+def build_reference_brownfield_pilot_report(
+    *,
+    demo: ExtendedReferenceDemoReport,
+    beta_pilots: list[BetaPilotReport],
+    min_pilots: int = 1,
+) -> ReferenceBrownfieldPilotReport:
+    release_findings: list[str] = []
+    blocking_findings: list[str] = []
+    if demo.result != "reproducible":
+        blocking_findings.append("reference brownfield demo is not reproducible")
+    if len(beta_pilots) < min_pilots:
+        blocking_findings.append(f"at least {min_pilots} beta pilot report is required")
+    for pilot in beta_pilots:
+        if pilot.result != "passed":
+            blocking_findings.append(f"beta pilot {pilot.pilot_id} result is {pilot.result}")
+        if not pilot.requirements_exercised:
+            blocking_findings.append(f"beta pilot {pilot.pilot_id} did not exercise requirements")
+        for finding in pilot.findings:
+            release_findings.append(f"{pilot.pilot_id}:{finding.finding_id}:{finding.message}")
+            if finding.severity == "blocker" and finding.status != "mitigated":
+                blocking_findings.append(
+                    f"beta pilot {pilot.pilot_id} has unmitigated blocker {finding.finding_id}"
+                )
+    return ReferenceBrownfieldPilotReport(
+        demo_id=demo.demo_id,
+        result="blocked" if blocking_findings else "accepted",
+        demo_hash=sha256_json(demo),
+        beta_pilots=beta_pilots,
+        release_findings=release_findings,
+        blocking_findings=blocking_findings,
+        input_hashes={
+            "demo": sha256_json(demo),
+            "beta_pilots": sha256_json(beta_pilots),
+            "min_pilots": sha256_json(min_pilots),
         },
     )
 
