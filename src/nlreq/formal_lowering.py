@@ -652,6 +652,43 @@ def _obligation_components(root: SemanticNode) -> tuple[str, str]:
     return (action_name, state_node.name)
 
 
+@dataclass(frozen=True)
+class OutcomePredicate:
+    """The forbidden post-state of an authorization_precondition, as a shared predicate.
+
+    The obligation ``<action> must reject before <state>`` forbids S from *accepting*
+    (executing) the action while the premise holds. ``name`` is ``Pred_<action>`` (e.g.
+    ``Pred_finalize_redemption``) — "the action was accepted/executed" — which a reviewed
+    system spec S must interpret over its own state. ``args`` are the subject identifiers
+    the premise binds (e.g. ``("wallet",)``) so the narrowing invariant
+    ``Premise => ~name(args)`` couples premise and outcome over the same actor. The
+    stateful-S composition (Case B) conjoins this invariant into ``Inv`` over S's real
+    ``Init``/``Next``; it replaces the requirement harness's literal ``NLRState = "accepted"``
+    boundary, which only constrains R's own variable and never S's transitions.
+    """
+
+    name: str
+    args: tuple[str, ...]
+
+
+def derive_outcome_predicate(root: SemanticNode) -> OutcomePredicate:
+    """Derive the forbidden-outcome predicate ``Pred_<action>(subject)`` from the IR.
+
+    The forbidden outcome is the action being accepted/executed — the boundary the
+    requirement harness checks as ``NLRState = "accepted"`` — named after the obligation's
+    action operator. The subject identifiers are the premise predicate arguments, so a
+    reviewed S binds premise and outcome over the same state. Caller must invoke
+    validate_authorization_precondition_shape first; raises on a malformed shape.
+    """
+    action_name, _state_ref = _obligation_components(root)
+    subject: list[str] = []
+    for _name, args in _premise_predicates(root):
+        for arg in args:
+            if arg not in subject:
+                subject.append(arg)
+    return OutcomePredicate(name=_pred_name(action_name), args=tuple(subject))
+
+
 def _scope_identifiers(root: SemanticNode) -> set[str]:
     """Collect identifier names from scope nodes and premise predicate args."""
     identifiers: set[str] = set()
@@ -727,10 +764,9 @@ class SystemSpecContribution:
     defined_operators: list[str] = field(default_factory=list)
     defined_predicates: list[str] = field(default_factory=list)
     # When a reviewed spec carries its own state machine (its own Init/Next), the
-    # composition forms a synchronous product: S and R step together over the union of
-    # their variables (Init == S_init /\ R_Init, Next == S_next /\ R_Next), with R's
-    # operators emitted under an R_ prefix. init_op/next_op name S's transition operators
-    # that the product conjoins — see _compose_synchronous_product.
+    # composition narrows S: S's Init/Next are the sole state machine and R contributes a
+    # state invariant (Premise => ~Pred_<action>) over S's variables. init_op/next_op name
+    # S's transition operators the composition uses — see _compose_system_narrowing.
     init_op: str | None = None
     next_op: str | None = None
 
@@ -743,10 +779,11 @@ class ComposedSandRModule:
     emitting a module that would prove a tautology. refusal_kind is one of
     ``unsupported_requirement_shape``, ``no_system_invariant``,
     ``operator_name_collision``, ``undefined_predicate``, or
-    ``undefined_invariant`` (stateless S, Case A); the stateful-S product (Case B)
+    ``undefined_invariant`` (stateless S, Case A); the stateful-S narrowing (Case B)
     additionally uses ``incomplete_transition_operators``,
-    ``unsupported_spec_constant``, ``variable_name_collision``, and
-    ``undefined_transition_operator``.
+    ``unsupported_spec_constant``, ``variable_name_collision``,
+    ``undefined_transition_operator``, ``missing_outcome_predicate``, and
+    ``undefined_outcome_predicate``.
     """
 
     status: Literal["composed", "refused"]
@@ -795,6 +832,8 @@ def compose_s_and_r_module(
     module_name: str,
     lowered_content: str,
     contributions: list[SystemSpecContribution],
+    *,
+    outcome_predicate: OutcomePredicate | None = None,
 ) -> ComposedSandRModule:
     """Compose the lowered requirement R with reviewed system specs S.
 
@@ -809,14 +848,17 @@ def compose_s_and_r_module(
 
     - Stateless S (Case A): S contributes only predicate interpretations and
       invariant operators; R supplies the single state machine (``Init``/``Next``)
-      and the obligation operator is ``RequirementHolds``.
+      and the obligation operator is ``RequirementHolds``. ``outcome_predicate`` is
+      unused — R's harness models the accepted/rejected outcome itself.
     - Stateful S (Case B): S brings its own ``Init``/``Next`` over its own
-      variables. The composition is a synchronous product — ``Init == S_init /\\
-      R_Init``, ``Next == S_next /\\ R_Next`` over the union of variables — with
-      R's operators emitted under an ``R_`` namespace so S keeps its names. The
-      coupling that makes the product non-vacuous is the shared stateful
-      predicate: S's ``Pred_*`` definitions read S's state, so an S transition
-      can make R's premise fire. See _compose_synchronous_product.
+      variables, and R *narrows* it. The composition uses S's real ``Init``/``Next``
+      as the only state machine and conjoins ``Premise => ~Pred_<action>(subject)``
+      — the requirement obligation as a pure state invariant over S's variables —
+      into ``Inv``. R adds NO transitions and NO variable: a counterexample is a
+      real S behavior reaching the forbidden outcome while the premise holds, not an
+      artifact of R's own harness stepping. ``outcome_predicate`` names the forbidden
+      ``Pred_<action>`` (from the IR via ``derive_outcome_predicate``); S must
+      interpret it or the composition refuses. See _compose_system_narrowing.
     """
     identifier_constants = parse_lowered_identifier_constants(lowered_content)
     abstract_predicates = _parse_module_pred_constants(lowered_content)
@@ -833,19 +875,18 @@ def compose_s_and_r_module(
             ),
         )
 
-    # When any reviewed spec brings its own transition system (init_op/next_op), the
-    # composition is a synchronous product: S and R step together over the union of their
-    # variables, and the conjoined Inv preserves both S's invariants and R's obligation.
-    # Otherwise S is a stateless set of predicate interpretations + invariants and R
-    # supplies the only state machine (the original Case A path below).
+    # When any reviewed spec brings its own transition system (init_op/next_op), R narrows
+    # S: S's own Init/Next are the only state machine and R contributes a state invariant
+    # (Premise => ~Pred_<action>) conjoined into Inv. Otherwise S is a stateless set of
+    # predicate interpretations + invariants and R supplies the only state machine (Case A).
     if any(c.init_op or c.next_op for c in contributions):
-        return _compose_synchronous_product(
+        return _compose_system_narrowing(
             module_name=module_name,
             identifier_constants=identifier_constants,
             abstract_predicates=abstract_predicates,
-            variable_name=variable_name,
             logic_body=logic_body,
             contributions=contributions,
+            outcome_predicate=outcome_predicate,
         )
 
     requirement_operators = set(parse_operator_definition_names(logic_body))
@@ -940,37 +981,46 @@ def compose_s_and_r_module(
     )
 
 
-# Operators the synchronous product emits itself; an inlined spec must not redefine
-# them (S's own transitions are named by init_op/next_op, e.g. SInit/SNext — never the
-# bare Init/Next the product reserves for the combined transition system).
-_PRODUCT_RESERVED_OPERATORS = frozenset({"Init", "Next", "Inv", "ConstInit"})
+# Operators the narrowing composition emits itself; an inlined spec must not redefine
+# them. S's own transitions are named by init_op/next_op (e.g. SInit/SNext) — never the
+# bare Init/Next the composition reserves for S's transition system, nor R_Requirement,
+# the obligation invariant R contributes.
+_NARROWING_RESERVED_OPERATORS = frozenset({"Init", "Next", "Inv", "ConstInit", "R_Requirement"})
 
 
-def _compose_synchronous_product(
+def _compose_system_narrowing(
     *,
     module_name: str,
     identifier_constants: list[str],
     abstract_predicates: list[str],
-    variable_name: str,
     logic_body: str,
     contributions: list[SystemSpecContribution],
+    outcome_predicate: OutcomePredicate | None,
 ) -> ComposedSandRModule:
-    """Compose S ∧ R as a synchronous product when S brings its own transition system.
+    """Compose S ∧ R as a *narrowing* when S brings its own transition system (Case B).
 
-    The composed module steps S and R together: ``Init == <S inits> /\\ R_Init``,
-    ``Next == <S nexts> /\\ R_Next`` over the union of S's variables and R's harness
-    variable, with ``Inv == <S invariants> /\\ R_RequirementHolds``. R's operators are
-    renamed under an ``R_`` prefix so S's operators (named verbatim) cannot shadow them;
-    the shared ``Pred_*`` predicates are NOT renamed — they are the coupling, since S
-    interprets them over S's state, so an S transition can flip R's premise.
+    S's own ``Init``/``Next`` are the sole state machine; R adds no transitions and no
+    variable. R contributes a single state invariant
+    ``R_Requirement == Premise => ~Pred_<action>(subject)`` — the obligation re-expressed
+    over S's state through the shared predicates — conjoined with S's named invariants into
+    ``Inv``. A model checker then verifies ``Spec => []Inv`` against S's *real* transitions,
+    so a counterexample is a genuine S behavior that reaches the forbidden outcome (the
+    action accepted/executed) while the premise holds — not an artifact of a requirement
+    harness stepping its own variable, which the prior synchronous product admitted.
 
-    This is a product (R running parallel to S), NOT the plan's literal "R narrows S's
-    Next" — that would require re-lowering R over S's own state vocabulary (a Pillar A
-    concern). Refuses, rather than emitting a meaningless module, when: a spec declares
-    only one of init_op/next_op; a named transition operator is undefined; a spec brings
-    its own CONSTANTS (the product cannot pin them in ConstInit); an S variable collides
-    with R's variable or another spec's; an S operator shadows a reserved/projected name;
-    a premise predicate is uninterpreted; or no invariant is declared.
+    Soundness note. ``R_Requirement`` is a single-state safety invariant: it forbids any
+    reachable state where the premise holds *and* the forbidden outcome holds. This captures
+    "if the precondition holds, the action must not be executed" soundly precisely when S
+    models the precondition as stable through the forbidden transition — i.e. the step that
+    reaches ``Pred_<action>`` does not in the same step clear the premise. Reviewed specs
+    that gate an outcome on a persisting precondition satisfy this; a future temporal lowering
+    of the event/causal fragments generalises it without the stability assumption.
+
+    Refuses, rather than emitting a meaningless module, when: a spec declares only one of
+    init_op/next_op; a named transition operator is undefined; a spec brings its own CONSTANTS
+    (the composition cannot pin them in ConstInit); two specs declare the same variable; an S
+    operator shadows a reserved name; a premise predicate is uninterpreted; the forbidden
+    outcome predicate was not supplied or is uninterpreted by S; or no invariant is declared.
     """
     incomplete = [
         c.spec_id
@@ -1000,9 +1050,26 @@ def _compose_synchronous_product(
             ),
         )
 
-    requirement_operators = parse_operator_definition_names(logic_body)
-    projected_operators = {f"R_{name}" for name in requirement_operators}
-    prefixed_logic_body = _prefix_requirement_operators(logic_body, "R_")
+    if outcome_predicate is None:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="missing_outcome_predicate",
+            refusal_reason=(
+                "no forbidden-outcome predicate was supplied; narrowing a stateful S needs "
+                "the requirement's Pred_<action> to constrain S's reachable states"
+            ),
+        )
+
+    premise_expr = _parse_premise_expression(logic_body)
+    if not premise_expr:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="unsupported_requirement_shape",
+            refusal_reason=(
+                "lowered requirement module declares no Premise; cannot narrow S with an "
+                "obligation that has no antecedent"
+            ),
+        )
 
     system_blocks: list[str] = []
     system_variables: list[tuple[str, str | None]] = []
@@ -1021,18 +1088,18 @@ def _compose_synchronous_product(
                 refusal_kind="unsupported_spec_constant",
                 refusal_reason=(
                     f"reviewed system spec {contribution.spec_id!r} declares CONSTANTS "
-                    f"{[name for name, _ in constants]}; the product cannot pin them in "
+                    f"{[name for name, _ in constants]}; the composition cannot pin them in "
                     "ConstInit, so it refuses rather than leaving them unconstrained"
                 ),
             )
         for var_name, var_type in variables:
-            if var_name == variable_name or var_name in seen_variables:
+            if var_name in seen_variables:
                 return ComposedSandRModule(
                     status="refused",
                     refusal_kind="variable_name_collision",
                     refusal_reason=(
-                        f"system spec variable {var_name!r} collides with the "
-                        "requirement's variable or another spec's variable"
+                        f"system spec variable {var_name!r} collides with another spec's "
+                        "variable; the composed state would conflate two machines"
                     ),
                 )
             seen_variables.add(var_name)
@@ -1040,11 +1107,7 @@ def _compose_synchronous_product(
         system_blocks.append(body)
         defined_predicates.update(contribution.defined_predicates)
         for operator in contribution.defined_operators:
-            if (
-                operator in _PRODUCT_RESERVED_OPERATORS
-                or operator in projected_operators
-                or operator in owner_of
-            ):
+            if operator in _NARROWING_RESERVED_OPERATORS or operator in owner_of:
                 collisions.add(operator)
             owner_of[operator] = contribution.spec_id
         if contribution.init_op:
@@ -1057,8 +1120,8 @@ def _compose_synchronous_product(
             status="refused",
             refusal_kind="operator_name_collision",
             refusal_reason=(
-                "system spec operators collide with the requirement projection or the "
-                f"product's reserved operators: {sorted(collisions)}"
+                "system spec operators collide with the composition's reserved operators "
+                f"(Init/Next/Inv/ConstInit/R_Requirement) or each other: {sorted(collisions)}"
             ),
         )
 
@@ -1086,6 +1149,17 @@ def _compose_synchronous_product(
             ),
         )
 
+    if outcome_predicate.name not in defined_predicates:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="undefined_outcome_predicate",
+            refusal_reason=(
+                "reviewed system specs do not interpret the forbidden-outcome predicate "
+                f"{outcome_predicate.name!r}; without it the narrowing cannot tell whether "
+                "S reaches the outcome the requirement forbids"
+            ),
+        )
+
     missing_invariants = [name for name in invariants if name not in owner_of]
     if missing_invariants:
         return ComposedSandRModule(
@@ -1099,28 +1173,35 @@ def _compose_synchronous_product(
 
     constant_block = _render_constant_block(identifier_constants)
     system_variable_blocks = _render_system_variable_blocks(system_variables)
-    requirement_variable_block = _render_variable_block(variable_name)
     system_block = "\n\n".join(block for block in system_blocks if block).strip()
-    init_line = "Init == " + " /\\ ".join([*init_ops, "R_Init"])
-    next_line = "Next == " + " /\\ ".join([*next_ops, "R_Next"])
-    inv_line = "Inv == " + " /\\ ".join([*invariants, "R_RequirementHolds"])
+    outcome_call = (
+        f"{outcome_predicate.name}({', '.join(outcome_predicate.args)})"
+        if outcome_predicate.args
+        else outcome_predicate.name
+    )
+    requirement_line = f"R_Requirement == {premise_expr} => ~{outcome_call}"
+    init_line = "Init == " + " /\\ ".join(init_ops)
+    next_line = "Next == " + " /\\ ".join(next_ops)
+    inv_line = "Inv == " + " /\\ ".join([*invariants, "R_Requirement"])
     const_init = _render_const_init(identifier_constants)
-    bound_predicates = sorted(set(abstract_predicates) & defined_predicates)
+    bound_predicates = sorted(
+        (set(abstract_predicates) | {outcome_predicate.name}) & defined_predicates
+    )
 
     module_text = (
         f"---- MODULE {module_name} ----\n"
         f"EXTENDS Naturals, TLC\n\n"
         f"{constant_block}"
         f"{system_variable_blocks}"
-        f"{requirement_variable_block}"
         f"\\* ===== Reviewed system spec S (inlined; operators keep their names) =====\n"
         f"{system_block}\n\n"
-        f"\\* ===== Requirement projection R (under R_ namespace) =====\n"
-        f"{prefixed_logic_body}\n\n"
-        f"\\* ===== Synchronous product S /\\ R: S and R step together over the union of\n"
-        f"\\* their variables; R's obligation and S's invariants are jointly preserved\n"
-        f"\\* (R runs parallel to S, coupled through the shared stateful predicates — this\n"
-        f"\\* is a product, not a narrowing of S's Next) =====\n"
+        f"\\* ===== Requirement R narrows S: a state invariant over S's own variables. R adds\n"
+        f"\\* no transitions and no variable — S's Init/Next are the only state machine. The\n"
+        f"\\* obligation forbids S reaching the accepted/executed outcome ({outcome_predicate.name})\n"
+        f"\\* while the premise holds, so a counterexample is a real S behavior — not an artifact\n"
+        f"\\* of a requirement harness stepping its own state. =====\n"
+        f"{requirement_line}\n\n"
+        f"\\* ===== S ∧ R: S's reachable states must preserve S's invariants and R's obligation =====\n"
         f"{init_line}\n"
         f"{next_line}\n"
         f"{inv_line}\n"
@@ -1130,27 +1211,9 @@ def _compose_synchronous_product(
     return ComposedSandRModule(
         status="composed",
         module_text=module_text,
-        preserved_invariants=[*invariants, "R_RequirementHolds"],
+        preserved_invariants=[*invariants, "R_Requirement"],
         bound_predicates=bound_predicates,
     )
-
-
-def _prefix_requirement_operators(logic_body: str, prefix: str) -> str:
-    """Rename every requirement operator definition (and its references) under ``prefix``.
-
-    Only operator-definition names (``Name ==``) are renamed — the shared ``Pred_*``
-    predicates (referenced, not defined, in R's body), the state variable, and identifier
-    constants are left intact so S's interpretation of the predicates still binds. A
-    single-pass alternation (longest name first) avoids double-prefixing; ``\\b`` plus the
-    ``_`` word character means a prefixed name (``R_Init``) is never re-matched as ``Init``.
-    """
-    import re
-
-    names = sorted(set(parse_operator_definition_names(logic_body)), key=len, reverse=True)
-    if not names:
-        return logic_body
-    pattern = re.compile(r"\b(" + "|".join(re.escape(name) for name in names) + r")\b")
-    return pattern.sub(lambda match: prefix + match.group(1), logic_body)
 
 
 def _split_declarations(
@@ -1266,6 +1329,21 @@ def parse_operator_definition_names(module_text: str) -> list[str]:
     import re
 
     return re.findall(r"^(\w+)\s*(?:\([^)]*\))?\s*==", module_text, re.MULTILINE)
+
+
+def _parse_premise_expression(logic_body: str) -> str | None:
+    """Return the RHS of the lowered requirement's ``Premise == …`` definition.
+
+    The premise is a conjunction of the requirement's abstract ``Pred_*`` predicates over
+    its scope identifiers (e.g. ``Pred_not_authorized(wallet)``). The stateful-S narrowing
+    reuses it verbatim as the antecedent of the obligation invariant — S interprets the
+    same predicates over its own state, so the antecedent fires exactly when S's reachable
+    state satisfies the precondition.
+    """
+    import re
+
+    match = re.search(r"^Premise\s*==\s*(.+?)\s*$", logic_body, re.MULTILINE)
+    return match.group(1).strip() if match else None
 
 
 def _strip_spec_operator_body(spec_text: str) -> str:

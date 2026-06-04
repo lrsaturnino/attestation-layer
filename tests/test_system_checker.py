@@ -8,7 +8,11 @@ import pytest
 from nlreq.cli import main
 from nlreq.dsl_v2 import DslV2Parser
 from nlreq.formal_backend import FormalBackendBudget, FormalBackendExecution
-from nlreq.formal_lowering import build_system_spec_contribution, compose_s_and_r_module
+from nlreq.formal_lowering import (
+    OutcomePredicate,
+    build_system_spec_contribution,
+    compose_s_and_r_module,
+)
 from nlreq.impact import ImpactAnalysisArtifact
 from nlreq.models import RequirementIR
 from nlreq.parser import RequirementParser
@@ -363,10 +367,11 @@ def _stateful_s_registry(tmp_path: Path) -> SystemSpecRegistry:
     )
 
 
-def test_solver_backed_product_path_writes_synchronous_product_module(tmp_path: Path) -> None:
-    """A reviewed S that brings its own transition system composes end-to-end as a
-    synchronous product (Case B) — it is no longer refused. The artifact on disk shows
-    S's transitions conjoined with R's under the R_ namespace, not dropped."""
+def test_solver_backed_narrowing_path_writes_narrowing_module(tmp_path: Path) -> None:
+    """A reviewed S that brings its own transition system composes end-to-end as a NARROWING
+    (Case B) — it is no longer refused. The artifact on disk uses S's own Init/Next as the
+    sole state machine and conjoins R's obligation as a state invariant; R contributes no
+    transitions and no harness variable."""
     ir = _authz_ir()
     result = check_solver_backed_system_consistency(
         requirement=ir,
@@ -386,10 +391,12 @@ def test_solver_backed_product_path_writes_synchronous_product_module(tmp_path: 
     module_path = tmp_path / "artifacts" / "REQ_SYS_AUTHZ_S_AND_R.tla"
     assert module_path.is_file()
     composed = module_path.read_text()
-    # The product conjoins S's own transition operators with R's projected ones.
-    assert "Init == SInit /\\ R_Init" in composed
-    assert "Next == SNext /\\ R_Next" in composed
-    assert "Inv == AuthorizationDefaultsClosed /\\ R_RequirementHolds" in composed
+    # S's own transitions are the only state machine; R adds none and the harness is gone.
+    assert "Init == SInit\n" in composed
+    assert "Next == SNext\n" in composed
+    assert "Inv == AuthorizationDefaultsClosed /\\ R_Requirement\n" in composed
+    assert "R_Requirement == Pred_authorized(wallet) => ~Pred_finalize_redemption(wallet)" in composed
+    assert "NLRState" not in composed
     assert "SystemSpecAssumptions" not in composed
 
 
@@ -402,10 +409,11 @@ def _itf_traces_under(artifact_dir: Path) -> list[dict]:
 
 
 @pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
-def test_solver_backed_product_compatible_requirement_is_valid(tmp_path: Path) -> None:
+def test_solver_backed_narrowing_compatible_requirement_is_valid(tmp_path: Path) -> None:
     """SP2-B (stateful S): a requirement compatible with a reviewed S that has its own
-    transition system yields a real Apalache 'valid'. S's premise predicate stays FALSE,
-    so no product step violates the conjoined invariant."""
+    transition system yields a real Apalache 'valid'. S's premise predicate (Pred_authorized)
+    stays FALSE, so the narrowing obligation Premise => ~Pred_finalize_redemption is
+    vacuously satisfied even though S does reach the 'finalized' outcome."""
     ir = _authz_ir()
     result = check_solver_backed_system_consistency(
         requirement=ir,
@@ -424,17 +432,19 @@ def test_solver_backed_product_compatible_requirement_is_valid(tmp_path: Path) -
     assert result.result.status == "valid", result.result.details
     assert result.result.evidence_level.value == "BOUNDED_CHECKED"
     assert "AuthorizationDefaultsClosed" in result.result.details["preserved_invariants"]
-    assert "R_RequirementHolds" in result.result.details["preserved_invariants"]
+    assert "R_Requirement" in result.result.details["preserved_invariants"]
 
 
 @pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
-def test_solver_backed_product_contradicting_counterexample_shows_system_step(
+def test_solver_backed_narrowing_contradicting_counterexample_shows_system_step(
     tmp_path: Path,
 ) -> None:
     """SP2-B (stateful S): the contradicting sibling yields a real Apalache counterexample
-    whose trace shows S TAKING A TRANSITION (authPhase init→denied). The violation is
-    unreachable at the initial state — it exists only because S moved — proving S's
-    Init/Next are load-bearing, not decorative. Same S as the compatible test."""
+    whose trace shows S TAKING ITS OWN TRANSITIONS to the forbidden outcome — authPhase
+    walks init→denied→finalized, so Pred_finalize_redemption fires while Pred_not_authorized
+    holds. The violation is a real S behavior reachable only because S's Next steps to
+    'finalized'; nothing but S's transition relation produces it. Same S as the compatible
+    test."""
     ir = _negation_ir()
     artifact_dir = tmp_path / "artifacts"
     result = check_solver_backed_system_consistency(
@@ -458,10 +468,46 @@ def test_solver_backed_product_contradicting_counterexample_shows_system_step(
     assert traces, "expected a retained Apalache ITF counterexample trace"
     states = traces[0]["states"]
     phases = [state.get("authPhase") for state in states]
-    # The system variable must change along the trace — the counterexample requires S to
-    # step from "init" to "denied" (which fires R's premise), not sit at the initial state.
+    # The violation is a real S behavior: S must step all the way to "finalized" (where it
+    # executes the action while still unauthorized), not sit at the initial state.
     assert phases[0] == "init"
-    assert "denied" in phases[1:], f"S did not take a transition; authPhase stayed {phases!r}"
+    assert "finalized" in phases[1:], f"S did not reach the forbidden outcome; authPhase was {phases!r}"
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_narrowing_no_spurious_counterexample_when_outcome_unreachable(
+    tmp_path: Path,
+) -> None:
+    """Regression for the product-vs-narrowing bug: a reviewed S that becomes unauthorized
+    but has NO transition that executes the action (Pred_finalize_redemption is never true)
+    yields a real Apalache 'valid'. The premise fires (S steps to 'denied'), yet the
+    obligation holds because S cannot reach the forbidden outcome. The discarded synchronous
+    product reported a SPURIOUS counterexample here, because R's harness reached 'accepted'
+    on its own — independent of S's transitions. The narrowing must not."""
+    ir = _negation_ir()
+    artifact_dir = tmp_path / "artifacts"
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(
+            tmp_path,
+            spec_text=_REGRESSION_SPEC,
+            invariants=("AuthorizationDefaultsClosed",),
+            init_op="SInit",
+            next_op="SNext",
+        ),
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=60, max_depth=6),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=_APALACHE_COMMAND,
+            artifact_dir=artifact_dir.as_posix(),
+        ),
+    )
+
+    assert result.result.status == "valid", result.result.details
+    assert not result.counterexamples
 
 
 def test_solver_backed_runs_checker_over_composed_module(tmp_path: Path) -> None:
@@ -1030,11 +1076,13 @@ _GOLDEN_COMPOSED = (
 )
 
 
-# A reviewed S that brings its OWN transition system (Case B). authPhase starts
-# "init" (Pred_not_authorized FALSE) and a system step can move it to "denied"
-# (Pred_not_authorized TRUE); Pred_authorized stays FALSE. The shared stateful
-# predicate is the coupling: an S transition can make R's premise fire, so the
-# counterexample is only reachable because S moves — not at the initial state.
+# A reviewed S that brings its OWN transition system (Case B). authPhase walks
+# "init" -> "denied" (unauthorized) -> "finalized" (the redemption is executed while
+# still unauthorized — the bug the requirement forbids). Pred_authorized stays FALSE;
+# Pred_not_authorized latches once denied; Pred_finalize_redemption marks the
+# accepted/executed outcome. R narrows S as a state invariant, so a counterexample is
+# only reachable because S actually steps to "finalized" — a real S behavior, never a
+# requirement harness moving its own variable.
 _STATEFUL_SPEC = (
     "---- MODULE RedemptionAuthorization ----\n"
     "EXTENDS Naturals, TLC\n\n"
@@ -1043,7 +1091,35 @@ _STATEFUL_SPEC = (
     "\\* @type: (Str) => Bool;\n"
     "Pred_authorized(a) == FALSE\n"
     "\\* @type: (Str) => Bool;\n"
+    'Pred_not_authorized(a) == authPhase \\in {"denied", "finalized"}\n'
+    "\\* @type: (Str) => Bool;\n"
+    'Pred_finalize_redemption(a) == authPhase = "finalized"\n'
+    "\\* System invariant: authorization defaults closed.\n"
+    'AuthorizationDefaultsClosed == Pred_authorized("wallet") = FALSE\n'
+    'SInit == authPhase = "init"\n'
+    'SNext == \\/ (authPhase = "init" /\\ authPhase\' = "denied")\n'
+    '         \\/ (authPhase = "denied" /\\ authPhase\' = "finalized")\n'
+    '         \\/ UNCHANGED authPhase\n'
+    "====\n"
+)
+
+# A reviewed S that becomes unauthorized but has NO transition that finalizes the
+# redemption (Pred_finalize_redemption is never true). The narrowing yields 'valid':
+# S cannot reach the forbidden outcome, so the obligation holds even though the premise
+# fires. The discarded synchronous product reported a SPURIOUS counterexample here — its
+# requirement harness reached "accepted" on its own, independent of S — which is exactly
+# the product-vs-narrowing bug this fixture pins (see the regression test below).
+_REGRESSION_SPEC = (
+    "---- MODULE RedemptionAuthorization ----\n"
+    "EXTENDS Naturals, TLC\n\n"
+    "\\* @type: Str;\n"
+    "VARIABLE authPhase\n\n"
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_authorized(a) == FALSE\n"
+    "\\* @type: (Str) => Bool;\n"
     'Pred_not_authorized(a) == authPhase = "denied"\n'
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_finalize_redemption(a) == FALSE\n"
     "\\* System invariant: authorization defaults closed.\n"
     'AuthorizationDefaultsClosed == Pred_authorized("wallet") = FALSE\n'
     'SInit == authPhase = "init"\n'
@@ -1051,10 +1127,15 @@ _STATEFUL_SPEC = (
     "====\n"
 )
 
-# Byte-stable Case B composition of _GOLDEN_LOWERED with _STATEFUL_SPEC: S keeps its
-# operator names, R is emitted under R_, and Init/Next/Inv are the synchronous product.
-# Validated against apalache-mc 0.58.0 (NoError on this compatible requirement).
-_GOLDEN_PRODUCT_COMPOSED = (
+# The forbidden-outcome predicate the narrowing conjoins for the authorization_precondition
+# requirements below: Pred_<action>(subject) == Pred_finalize_redemption(wallet).
+_OUTCOME_FINALIZE = OutcomePredicate("Pred_finalize_redemption", ("wallet",))
+
+# Byte-stable Case B *narrowing* of _GOLDEN_LOWERED with _STATEFUL_SPEC: S's own Init/Next
+# are the only state machine and R contributes a single state invariant R_Requirement ==
+# Premise => ~Pred_finalize_redemption(wallet). No R harness variable, no R_Init/R_Next.
+# Validated against apalache-mc 0.58.0.
+_GOLDEN_NARROWING_COMPOSED = (
     "---- MODULE Req_GOLDEN_S_AND_R ----\n"
     "EXTENDS Naturals, TLC\n\n"
     "CONSTANT\n"
@@ -1063,34 +1144,29 @@ _GOLDEN_PRODUCT_COMPOSED = (
     "VARIABLE\n"
     "  \\* @type: Str;\n"
     "  authPhase\n\n"
-    "VARIABLE\n"
-    "  \\* @type: Str;\n"
-    "  NLRState\n\n"
     "\\* ===== Reviewed system spec S (inlined; operators keep their names) =====\n"
     "\\* @type: (Str) => Bool;\n"
     "Pred_authorized(a) == FALSE\n"
     "\\* @type: (Str) => Bool;\n"
-    'Pred_not_authorized(a) == authPhase = "denied"\n'
+    'Pred_not_authorized(a) == authPhase \\in {"denied", "finalized"}\n'
+    "\\* @type: (Str) => Bool;\n"
+    'Pred_finalize_redemption(a) == authPhase = "finalized"\n'
     "\\* System invariant: authorization defaults closed.\n"
     'AuthorizationDefaultsClosed == Pred_authorized("wallet") = FALSE\n'
     'SInit == authPhase = "init"\n'
-    'SNext == (authPhase = "init" /\\ authPhase\' = "denied") \\/ UNCHANGED authPhase\n\n'
-    "\\* ===== Requirement projection R (under R_ namespace) =====\n"
-    'R_Init == NLRState = "idle"\n\n'
-    "R_Step_act ==\n"
-    '  /\\ NLRState = "idle"\n'
-    '  /\\ NLRState\' \\in {"rejected", "accepted"}\n\n'
-    "R_Next == R_Step_act \\/ UNCHANGED NLRState\n\n"
-    "R_Premise == Pred_authorized(wallet)\n\n"
-    'R_Obligation == Pred_authorized(wallet) => NLRState /= "accepted"\n\n'
-    "R_RequirementHolds == R_Premise => R_Obligation\n\n"
-    "\\* ===== Synchronous product S /\\ R: S and R step together over the union of\n"
-    "\\* their variables; R's obligation and S's invariants are jointly preserved\n"
-    "\\* (R runs parallel to S, coupled through the shared stateful predicates — this\n"
-    "\\* is a product, not a narrowing of S's Next) =====\n"
-    "Init == SInit /\\ R_Init\n"
-    "Next == SNext /\\ R_Next\n"
-    "Inv == AuthorizationDefaultsClosed /\\ R_RequirementHolds\n"
+    'SNext == \\/ (authPhase = "init" /\\ authPhase\' = "denied")\n'
+    '         \\/ (authPhase = "denied" /\\ authPhase\' = "finalized")\n'
+    '         \\/ UNCHANGED authPhase\n\n'
+    "\\* ===== Requirement R narrows S: a state invariant over S's own variables. R adds\n"
+    "\\* no transitions and no variable — S's Init/Next are the only state machine. The\n"
+    "\\* obligation forbids S reaching the accepted/executed outcome (Pred_finalize_redemption)\n"
+    "\\* while the premise holds, so a counterexample is a real S behavior — not an artifact\n"
+    "\\* of a requirement harness stepping its own state. =====\n"
+    "R_Requirement == Pred_authorized(wallet) => ~Pred_finalize_redemption(wallet)\n\n"
+    "\\* ===== S ∧ R: S's reachable states must preserve S's invariants and R's obligation =====\n"
+    "Init == SInit\n"
+    "Next == SNext\n"
+    "Inv == AuthorizationDefaultsClosed /\\ R_Requirement\n"
     'ConstInit == wallet = "wallet"\n'
     "====\n"
 )
@@ -1141,53 +1217,66 @@ def test_compose_s_and_r_module_refuses_operator_name_collision() -> None:
     assert composed.refusal_kind == "operator_name_collision"
 
 
-def test_compose_s_and_r_product_module_is_byte_stable() -> None:
-    """A reviewed spec that brings its own transition system (init_op/next_op) composes
-    as a synchronous product: S keeps its operator names, R is emitted under R_, and
-    Init/Next conjoin S's and R's transitions. Byte-stable; not a refusal."""
+def test_compose_s_and_r_narrowing_module_is_byte_stable() -> None:
+    """A reviewed spec that brings its own transition system (init_op/next_op) composes as
+    a NARROWING: S's own Init/Next are the sole state machine and R contributes a single
+    state invariant R_Requirement == Premise => ~Pred_<action>. No R harness variable, no
+    R_Init/R_Next. Byte-stable; not a refusal."""
     contribution = build_system_spec_contribution(
         "spec:sys", _STATEFUL_SPEC, ["AuthorizationDefaultsClosed"],
         init_op="SInit", next_op="SNext",
     )
-    composed = compose_s_and_r_module("Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution])
+    composed = compose_s_and_r_module(
+        "Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution],
+        outcome_predicate=_OUTCOME_FINALIZE,
+    )
 
     assert composed.status == "composed"
-    assert composed.module_text == _GOLDEN_PRODUCT_COMPOSED
-    # The product preserves S's named invariant and the R_-namespaced obligation.
-    assert composed.preserved_invariants == ["AuthorizationDefaultsClosed", "R_RequirementHolds"]
-    assert composed.bound_predicates == ["Pred_authorized"]
-    # S's transition operators are textually present and conjoined, not dropped.
-    assert "Init == SInit /\\ R_Init" in composed.module_text
-    assert "Next == SNext /\\ R_Next" in composed.module_text
+    assert composed.module_text == _GOLDEN_NARROWING_COMPOSED
+    # The narrowing preserves S's named invariant and the obligation invariant.
+    assert composed.preserved_invariants == ["AuthorizationDefaultsClosed", "R_Requirement"]
+    assert composed.bound_predicates == ["Pred_authorized", "Pred_finalize_redemption"]
+    # S's own transitions are the only state machine — R adds none, and the harness is gone.
+    assert "Init == SInit\n" in composed.module_text
+    assert "Next == SNext\n" in composed.module_text
+    assert "NLRState" not in composed.module_text
+    assert "R_Init" not in composed.module_text
+    assert "R_Next" not in composed.module_text
 
 
-def test_compose_s_and_r_product_refuses_incomplete_transition_operators() -> None:
+def test_compose_s_and_r_narrowing_refuses_incomplete_transition_operators() -> None:
     """A spec that declares only one of init_op/next_op has an ill-formed transition
-    system — refuse rather than compose half a state machine."""
+    system — refuse rather than narrow against half a state machine."""
     contribution = build_system_spec_contribution(
         "spec:sys", _STATEFUL_SPEC, ["AuthorizationDefaultsClosed"], next_op="SNext"
     )
-    composed = compose_s_and_r_module("Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution])
+    composed = compose_s_and_r_module(
+        "Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution],
+        outcome_predicate=_OUTCOME_FINALIZE,
+    )
 
     assert composed.status == "refused"
     assert composed.refusal_kind == "incomplete_transition_operators"
 
 
-def test_compose_s_and_r_product_refuses_undefined_transition_operator() -> None:
+def test_compose_s_and_r_narrowing_refuses_undefined_transition_operator() -> None:
     """init_op/next_op naming operators the spec body does not define is refused, so a
     typo'd transition name cannot silently fall back to a vacuous machine."""
     contribution = build_system_spec_contribution(
         "spec:sys", _STATEFUL_SPEC, ["AuthorizationDefaultsClosed"],
         init_op="SInit", next_op="NoSuchNext",
     )
-    composed = compose_s_and_r_module("Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution])
+    composed = compose_s_and_r_module(
+        "Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution],
+        outcome_predicate=_OUTCOME_FINALIZE,
+    )
 
     assert composed.status == "refused"
     assert composed.refusal_kind == "undefined_transition_operator"
 
 
-def test_compose_s_and_r_product_refuses_spec_constant() -> None:
-    """A stateful spec that declares its own CONSTANT is refused: the product cannot pin
+def test_compose_s_and_r_narrowing_refuses_spec_constant() -> None:
+    """A stateful spec that declares its own CONSTANT is refused: the composition cannot pin
     it in ConstInit, so it declines rather than leave it unconstrained."""
     spec_with_constant = (
         "---- MODULE Sys ----\n"
@@ -1198,6 +1287,8 @@ def test_compose_s_and_r_product_refuses_spec_constant() -> None:
         "VARIABLE authPhase\n\n"
         "\\* @type: (Str) => Bool;\n"
         "Pred_authorized(a) == FALSE\n"
+        "\\* @type: (Str) => Bool;\n"
+        'Pred_finalize_redemption(a) == FALSE\n'
         'SystemClosed == Pred_authorized("wallet") = FALSE\n'
         'SInit == authPhase = "init"\n'
         "SNext == UNCHANGED authPhase\n"
@@ -1206,31 +1297,97 @@ def test_compose_s_and_r_product_refuses_spec_constant() -> None:
     contribution = build_system_spec_contribution(
         "spec:sys", spec_with_constant, ["SystemClosed"], init_op="SInit", next_op="SNext"
     )
-    composed = compose_s_and_r_module("Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution])
+    composed = compose_s_and_r_module(
+        "Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution],
+        outcome_predicate=_OUTCOME_FINALIZE,
+    )
 
     assert composed.status == "refused"
     assert composed.refusal_kind == "unsupported_spec_constant"
 
 
-def test_compose_s_and_r_product_refuses_variable_name_collision() -> None:
-    """A stateful spec whose variable shadows R's harness variable (NLRState) is refused,
-    so the product's two state machines cannot be silently merged into one variable."""
-    spec_clash = (
+def test_compose_s_and_r_narrowing_refuses_variable_name_collision() -> None:
+    """Two reviewed specs that declare the SAME variable are refused: the composed state
+    would conflate two machines into one variable. (R no longer contributes a harness
+    variable, so the collision is now strictly between system specs.)"""
+    spec_a = (
+        "---- MODULE SysA ----\n"
+        "EXTENDS Naturals, TLC\n\n"
+        "\\* @type: Str;\n"
+        "VARIABLE sharedPhase\n\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_authorized(a) == FALSE\n"
+        "\\* @type: (Str) => Bool;\n"
+        'Pred_finalize_redemption(a) == FALSE\n'
+        'SystemClosedA == Pred_authorized("wallet") = FALSE\n'
+        'SInitA == sharedPhase = "init"\n'
+        "SNextA == UNCHANGED sharedPhase\n"
+        "====\n"
+    )
+    spec_b = (
+        "---- MODULE SysB ----\n"
+        "EXTENDS Naturals, TLC\n\n"
+        "\\* @type: Str;\n"
+        "VARIABLE sharedPhase\n\n"
+        'SystemClosedB == TRUE\n'
+        'SInitB == sharedPhase = "init"\n'
+        "SNextB == UNCHANGED sharedPhase\n"
+        "====\n"
+    )
+    contributions = [
+        build_system_spec_contribution(
+            "spec:a", spec_a, ["SystemClosedA"], init_op="SInitA", next_op="SNextA"
+        ),
+        build_system_spec_contribution(
+            "spec:b", spec_b, ["SystemClosedB"], init_op="SInitB", next_op="SNextB"
+        ),
+    ]
+    composed = compose_s_and_r_module(
+        "Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, contributions,
+        outcome_predicate=_OUTCOME_FINALIZE,
+    )
+
+    assert composed.status == "refused"
+    assert composed.refusal_kind == "variable_name_collision"
+
+
+def test_compose_s_and_r_narrowing_refuses_undefined_outcome_predicate() -> None:
+    """If the reviewed S does not interpret the forbidden-outcome predicate Pred_<action>,
+    the narrowing cannot tell whether S reaches the outcome the requirement forbids, so it
+    refuses rather than emit a module whose obligation references an undefined operator."""
+    spec_without_outcome = (
         "---- MODULE Sys ----\n"
         "EXTENDS Naturals, TLC\n\n"
         "\\* @type: Str;\n"
-        "VARIABLE NLRState\n\n"
+        "VARIABLE authPhase\n\n"
         "\\* @type: (Str) => Bool;\n"
         "Pred_authorized(a) == FALSE\n"
         'SystemClosed == Pred_authorized("wallet") = FALSE\n'
-        'SInit == NLRState = "init"\n'
-        "SNext == UNCHANGED NLRState\n"
+        'SInit == authPhase = "init"\n'
+        "SNext == UNCHANGED authPhase\n"
         "====\n"
     )
     contribution = build_system_spec_contribution(
-        "spec:sys", spec_clash, ["SystemClosed"], init_op="SInit", next_op="SNext"
+        "spec:sys", spec_without_outcome, ["SystemClosed"], init_op="SInit", next_op="SNext"
+    )
+    composed = compose_s_and_r_module(
+        "Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution],
+        outcome_predicate=_OUTCOME_FINALIZE,
+    )
+
+    assert composed.status == "refused"
+    assert composed.refusal_kind == "undefined_outcome_predicate"
+
+
+def test_compose_s_and_r_narrowing_refuses_missing_outcome_predicate() -> None:
+    """A stateful S narrowing needs the requirement's forbidden-outcome predicate. Without
+    it (the requirement shape did not yield one), the composition refuses rather than emit a
+    module that constrains nothing."""
+    contribution = build_system_spec_contribution(
+        "spec:sys", _STATEFUL_SPEC, ["AuthorizationDefaultsClosed"],
+        init_op="SInit", next_op="SNext",
     )
     composed = compose_s_and_r_module("Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution])
 
     assert composed.status == "refused"
-    assert composed.refusal_kind == "variable_name_collision"
+    assert composed.refusal_kind == "missing_outcome_predicate"

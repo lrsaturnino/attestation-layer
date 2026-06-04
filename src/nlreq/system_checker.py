@@ -7,8 +7,10 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .formal_backend import FormalBackendBudget, FormalBackendExecution
 from .formal_lowering import (
+    OutcomePredicate,
     build_system_spec_contribution,
     compose_s_and_r_module,
+    derive_outcome_predicate,
     obligation_consequent_is_real,
     next_has_steps,
     parse_obligation_predicates,
@@ -210,11 +212,18 @@ def check_solver_backed_system_consistency(
     # conjoins R's obligation with S's named invariants — replacing the prior
     # `SystemSpecAssumptions == TRUE` tautology. A composition that would be vacuous or
     # ill-formed refuses with a named reason instead of running a meaningless check.
+    #
+    # When S brings its own transition system, the composition narrows S: it needs the
+    # requirement's forbidden-outcome predicate (Pred_<action>) to constrain S's reachable
+    # states, derived here from the IR. A malformed/unsupported shape leaves it None, and the
+    # stateful-S narrowing then refuses honestly rather than running a meaningless check.
+    outcome_predicate = _derive_outcome_predicate(requirement)
     module_name = _safe_tla_name(f"{requirement.requirement_id}_S_AND_R")
     composed = compose_s_and_r_module(
         module_name,
         lowered.content,
         _system_spec_contributions(specs, spec_texts),
+        outcome_predicate=outcome_predicate,
     )
     if composed.status == "refused" or composed.module_text is None:
         return _solver_result(
@@ -593,6 +602,19 @@ def _system_spec_contributions(specs, spec_texts: list[tuple[str, str]]):
         for spec in specs
         if spec.spec_id in text_by_id
     ]
+
+
+def _derive_outcome_predicate(requirement: RequirementIRV2) -> OutcomePredicate | None:
+    """Derive the requirement's forbidden-outcome predicate, or None for an unsupported shape.
+
+    The stateful-S narrowing needs ``Pred_<action>`` to constrain S's reachable states.
+    A requirement whose obligation is not a supported authorization_precondition shape has
+    no such predicate; returning None lets the narrowing refuse honestly rather than raise.
+    """
+    try:
+        return derive_outcome_predicate(requirement.semantic_ir)
+    except (ValueError, AttributeError):
+        return None
 
 
 def _solver_checker_command(
