@@ -302,14 +302,20 @@ def not_applicable_system_consistency(
     registry: SystemSpecRegistry,
     impact: ImpactAnalysisArtifact,
 ) -> SystemConsistencyResult:
-    """S ∧ R is not-applicable: no reviewed spec relevant to the impacted modules declares
-    an invariant, so there is no system obligation to discharge.
+    """S ∧ R is not-applicable: no reviewed spec is relevant to the impacted modules, so
+    there is no system spec ``S`` to conjoin and nothing to discharge.
 
     This is decided structurally from the registry — not from the absence of a marker in a
     spec file. The recorded BackendResult uses ``status="unsupported"`` (its status enum has
     no not-applicable value) and carries ``details["mode"] == "not_applicable"``; the gate
     reads that mode as a non-blocking stage, kept distinct from an ``unsupported`` produced
-    because a real S could not be grounded (undefined predicate, stale spec), which blocks.
+    because a real S could not be grounded (undefined predicate, stale spec) or because a
+    relevant S declares no invariant (see
+    :func:`unsupported_system_consistency_without_invariant`), both of which block.
+
+    Distinct from "a relevant spec declares no invariant": a spec governing the impacted
+    modules that asserts nothing checkable is a real S we refuse to silently accept (it
+    blocks), whereas *no relevant spec at all* genuinely leaves S ∧ R with no obligation.
     """
     spec_ids = [spec.spec_id for spec in specs_for_impact(registry, impact)]
     return SystemConsistencyResult(
@@ -322,8 +328,48 @@ def not_applicable_system_consistency(
             details={
                 "mode": "not_applicable",
                 "reason": (
-                    "no reviewed system spec relevant to the impacted modules declares an "
-                    "invariant; S ∧ R has no obligation to discharge"
+                    "no reviewed system spec is relevant to the impacted modules; there is "
+                    "no S to conjoin, so S ∧ R has no obligation to discharge"
+                ),
+                "relevant_spec_ids": spec_ids,
+            },
+        ),
+    )
+
+
+def unsupported_system_consistency_without_invariant(
+    *,
+    requirement: RequirementIRV2,
+    registry: SystemSpecRegistry,
+    impact: ImpactAnalysisArtifact,
+) -> SystemConsistencyResult:
+    """A reviewed spec governs the impacted modules but declares no invariant, so no S ∧ R
+    obligation can be formed from it — the requirement is refused, not silently accepted.
+
+    This BLOCKS (``status="unsupported"``, ``evidence_level=None``). A reviewed spec relevant
+    to the change that asserts nothing checkable cannot be passed: a reviewed S with no
+    declared invariant cannot yield a valid S ∧ R, so a vacuous pass is refused. Carries
+    ``details["mode"] == "relevant_spec_without_invariant"`` so the refusal reason is explicit.
+
+    Kept distinct from :func:`not_applicable_system_consistency` (no reviewed spec is relevant
+    at all — non-blocking) and from an ``unsupported`` produced because a grounded S could not
+    be checked (stale spec, undefined predicate, solver refusal — also blocking, but for a
+    spec that did declare an invariant).
+    """
+    spec_ids = [spec.spec_id for spec in specs_for_impact(registry, impact)]
+    return SystemConsistencyResult(
+        requirement_id=requirement.requirement_id,
+        spec_ids=spec_ids,
+        result=BackendResult(
+            backend="solver_system_checker",
+            status="unsupported",
+            evidence_level=None,
+            details={
+                "mode": "relevant_spec_without_invariant",
+                "reason": (
+                    "a reviewed system spec governs the impacted modules but declares no "
+                    "invariant; S ∧ R has no obligation to form, so the requirement cannot be "
+                    "verified against the system and is refused (not silently accepted)"
                 ),
                 "relevant_spec_ids": spec_ids,
             },

@@ -34,6 +34,7 @@ from .source_adapter import SourceLanguageAdapter, SourceManifest
 from .system_checker import (
     check_solver_backed_system_consistency,
     not_applicable_system_consistency,
+    unsupported_system_consistency_without_invariant,
 )
 from .system_spec import SystemSpecRegistry, specs_for_impact
 from .trace_replay import build_trace_replay_report
@@ -68,10 +69,11 @@ _EXTENDED_STAGE_ACCEPTED_STATUSES: dict[str, set[str]] = {
     "semantic_translation": {"accepted", "agreed", "passed"},
     "formal_claim": {"lowered", "passed"},
     "requirement_self_consistency": {"valid", "passed"},
-    # not_applicable: no reviewed S relevant to the impact declares an invariant, so there
-    # is no S ∧ R obligation to discharge — a passing (non-blocking) outcome, distinct from
-    # "valid" (verified against a real S) and from unsupported/timeout (a real S we could
-    # not determine, which falls through to the unknown set below).
+    # not_applicable: no reviewed S is relevant to the impacted modules, so there is no S to
+    # conjoin and no S ∧ R obligation to discharge — a passing (non-blocking) outcome, distinct
+    # from "valid" (verified against a real S) and from unsupported/timeout (a real S we could
+    # not determine — including a relevant S that declares no invariant — which falls through
+    # to the unknown set below and blocks).
     "s_and_r_composition": {"valid", "not_applicable", "passed"},
     "spec_freshness": {"fresh", "passed"},
     "trace_validation": {"passed", "satisfied"},
@@ -222,8 +224,8 @@ def _system_consistency_floor_baseline(system_status: str) -> BackendResult | No
         details: dict[str, object] = {
             "mode": "not_applicable",
             "reason": (
-                "no reviewed system spec relevant to the impacted modules declares an "
-                "invariant; S ∧ R has no obligation to discharge"
+                "no reviewed system spec is relevant to the impacted modules; there is no S "
+                "to conjoin, so S ∧ R has no obligation to discharge"
             ),
         }
     else:
@@ -433,12 +435,17 @@ def run_end_to_end_requirement_gate(
     # is deliberately NOT reused here, so a self-consistency-only run never triggers S ∧ R.
     #
     # A reviewed spec contributes a checkable S ∧ R obligation only when it declares an
-    # invariant to preserve. No relevant spec — or a relevant spec that asserts nothing —
-    # makes S ∧ R not-applicable: there is nothing to discharge. That is decided from the
-    # registry, not from the absence of a marker, so the stage is recorded as not-applicable
-    # (non-blocking) and kept distinct from "a real S we could not check" (unsupported /
-    # timeout), which blocks.
-    checkable_specs = [spec for spec in specs_for_impact(registry, impact) if spec.invariants]
+    # invariant to preserve. The three outcomes are decided from the registry, not from a
+    # marker in a spec file, and are deliberately NOT collapsed:
+    #   - At least one relevant spec declares an invariant → run the real solver-backed check.
+    #   - A relevant spec governs the impacted modules but none declares an invariant → refuse
+    #     (unsupported, blocks). A reviewed S that asserts nothing checkable cannot be silently
+    #     accepted — that would be a vacuous S ∧ R pass. (Was previously collapsed into
+    #     not_applicable, letting a relevant-but-assertionless spec pass.)
+    #   - No reviewed spec is relevant at all → not-applicable (non-blocking): there is no S to
+    #     conjoin, so there is genuinely no obligation to discharge.
+    relevant_specs = specs_for_impact(registry, impact)
+    checkable_specs = [spec for spec in relevant_specs if spec.invariants]
     if checkable_specs:
         system_consistency = check_solver_backed_system_consistency(
             requirement=requirement,
@@ -448,6 +455,11 @@ def run_end_to_end_requirement_gate(
             project_root=project_root,
             budget=budget,
             execution=solver_execution or FormalBackendExecution(checker_id="z3"),
+        )
+        system_status = system_consistency.result.status
+    elif relevant_specs:
+        system_consistency = unsupported_system_consistency_without_invariant(
+            requirement=requirement, registry=registry, impact=impact
         )
         system_status = system_consistency.result.status
     else:
@@ -727,12 +739,13 @@ def _blockers(
     # System consistency S ∧ R is solver-backed by default (see run_end_to_end_requirement_gate).
     # Its status is load-bearing in both directions:
     # - valid → verified against S; no blocker.
-    # - not_applicable → no reviewed S relevant to the impact declares an invariant; there is
-    #   no obligation to discharge; no blocker.
+    # - not_applicable → no reviewed S is relevant to the impacted modules; there is no S to
+    #   conjoin and no obligation to discharge; no blocker.
     # - counterexample / invalid → definitive refusal; the requirement contradicts S.
-    # - unsupported / timeout / needs_review → a real S that could not be determined; block as
-    #   unknown until a determinate result exists.  Silently ignoring these would let an
-    #   inconclusive run read as acceptance, which conflicts with the honesty discipline.
+    # - unsupported / timeout / needs_review → a real S that could not be determined (including
+    #   a relevant S that declares no invariant); block as unknown until a determinate result
+    #   exists.  Silently ignoring these would let an inconclusive run read as acceptance, which
+    #   conflicts with the honesty discipline.
     if system_status in {"counterexample", "invalid"}:
         blockers.append(
             EndToEndGateBlocker(
@@ -780,13 +793,33 @@ def _append_if_not(
     )
 
 
+# Stages whose blocker is a downstream consequence of an upstream verdict, not an
+# independent finding. proof_object/closure_gate report "refused" whenever the proof did
+# not fully close — which happens for ANY non-acceptance, including the merely-inconclusive
+# case (premises left open because system-consistency was unsupported, so no evidence was
+# supplied). Letting their refusal drive the gate decision would relabel "we could not
+# determine" as "we confirmed a violation". So a refusal from these stages alone never
+# escalates the decision past what the root-cause stages established.
+#
+# This exclusion is sound only while a non-closed proof is always inconclusive: today every
+# undischarged premise is open or blocked because its backend returned "unsupported", never
+# because a backend produced a contradiction. Once a fragment backend can refute a premise,
+# a proof_object refusal may be a genuine confirmed violation; the exclusion will then need
+# to distinguish a blocked-inconclusive proof from a blocked-contradicted one rather than
+# excluding the stage wholesale.
+_CONSEQUENTIAL_DECISION_STAGES = frozenset({"proof_object", "closure_gate"})
+
+
 def _decision(blockers: list[EndToEndGateBlocker]) -> Literal["accepted", "refused", "unknown"]:
     if not blockers:
         return "accepted"
-    # A solver-backed S ∧ R counterexample is definitive evidence of a violation. Refuse
-    # immediately — do not allow unknown stages to mask a confirmed bad result.
+    # A definitive refusal from a root-cause stage — a solver-backed S ∧ R counterexample, a
+    # trace-replay violation, a coverage/alignment gap — is confirmed bad evidence. Refuse
+    # immediately; do NOT let an inconclusive "unknown" elsewhere mask it. The consequential
+    # proof_object/closure_gate refusals are excluded so a downstream block (which always
+    # accompanies a non-acceptance) cannot turn an inconclusive run into a false "refused".
     if any(
-        b.stage == "system_consistency" and b.status == "refused"
+        b.status == "refused" and b.stage not in _CONSEQUENTIAL_DECISION_STAGES
         for b in blockers
     ):
         return "refused"

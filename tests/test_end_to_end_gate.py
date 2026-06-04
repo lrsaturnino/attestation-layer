@@ -10,6 +10,7 @@ from nlreq.jsonutil import read_json
 from nlreq.python_source_adapter import PythonSourceLanguageAdapter
 from nlreq.source_adapter import SourceManifest
 from nlreq.system_spec import SystemSpecRegistry
+from nlreq.translator_agreement import TranslationAgreementInput, TranslationCandidate
 
 FIXTURES = Path(__file__).parent / "fixtures" / "requirements"
 
@@ -22,11 +23,47 @@ DSL = (
 )
 
 
-def test_end_to_end_gate_accepts_closed_requirement(tmp_path: Path) -> None:
-    manifest, registry = _project(tmp_path)
+def test_end_to_end_gate_composes_real_s_and_r_valid(tmp_path: Path) -> None:
+    """A real, solver-backed S ∧ R reaches `valid` end-to-end against a reviewed S.
+
+    This is the genuine successor to the old "accepts closed requirement" test. That test
+    closed the gate via the vacuous not_applicable floor baseline that no longer exists (a
+    reviewed spec that asserts nothing no longer produces a passing S ∧ R). Here a reviewed S
+    pins `Pred_authorized` FALSE and declares a real invariant, and a v3
+    authorization_precondition requirement lowers to a `Pred_authorized` obligation that S
+    discharges — so the Z3-backed composition genuinely returns `valid` (SMT_CHECKED), not a
+    fixture pass. spec_coverage passes (S covers the module) and the FormalClaim lowers.
+
+    What it deliberately does NOT assert is `decision == accepted`. The v3 claim's predicate
+    and rejection_order fragments route to SMT_CHECKED / BOUNDED_CHECKED producers that are
+    not yet wired to discharge from the S ∧ R verdict, so the ProofObject's formal-fragment
+    premises stay blocked and closure does not pass. Closing the gate end-to-end requires
+    model-checker-backed per-premise discharge and real fragment-level checking, which is the
+    next capability slice — not this stage. Until then there is intentionally no end-to-end
+    `accepted` path for a requirement against a covered module; that gap is the honest
+    consequence of refusing to fake high-assurance evidence.
+    """
+    manifest, registry = _project(tmp_path, reviewed_invariant=True)
+    controlled_text = (
+        "requirement authorization_precondition: scope redemption "
+        "when wallet is authorized then finalize_redemption must reject before rejected."
+    )
+    requirement_ir = DslV3Parser().parse_ir(
+        controlled_text, requirement_id="REQ-GATE-001", title="Requirement gate"
+    )
+    # Two agreeing deterministic candidates so the ensemble agrees; a single provided IR is
+    # "needs_review", which would block the translation stage and mask the S ∧ R result.
+    agreement = TranslationAgreementInput(
+        candidates=[
+            TranslationCandidate(translator_id="primary", method="deterministic",
+                                 requirement=requirement_ir, provenance={"source": "test"}),
+            TranslationCandidate(translator_id="replica", method="deterministic",
+                                 requirement=requirement_ir, provenance={"source": "test"}),
+        ]
+    )
 
     report = run_end_to_end_requirement_gate(
-        controlled_text=DSL,
+        controlled_text=controlled_text,
         requirement_id="REQ-GATE-001",
         title="Requirement gate",
         source_adapter=PythonSourceLanguageAdapter(project_root=tmp_path),
@@ -36,11 +73,19 @@ def test_end_to_end_gate_accepts_closed_requirement(tmp_path: Path) -> None:
         project_root=tmp_path,
         artifact_dir=tmp_path / "gate-artifacts",
         execution=_execution(tmp_path),
+        solver_execution=FormalBackendExecution(checker_id="z3"),
+        requirement_ir=requirement_ir,
+        translation_agreement=agreement,
     )
 
-    assert report.decision == "accepted"
-    assert report.downstream_action_allowed is True
-    assert report.statuses["closure_gate"] == "passed"
+    # The real S ∧ R composition verified the requirement against a reviewed S.
+    assert report.statuses["system_consistency"] == "valid", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    assert report.statuses["spec_coverage"] == "passed"
+    assert report.statuses["translation_agreement"] == "agreed"
+    assert report.statuses["formal_claim"] == "lowered"
+    # The full pipeline still ran and recorded every artifact, even though closure is deferred.
     assert {artifact.name for artifact in report.artifacts} >= {
         "requirement_ir",
         "translation_agreement",
@@ -109,10 +154,60 @@ def test_end_to_end_gate_records_formal_claim_artifact(tmp_path: Path) -> None:
 
     assert "formal_claim_artifact" in {artifact.name for artifact in report.artifacts}
     assert "formal_claim" in report.statuses
-    # DSL-v2 text has no requirement_class annotation — formal claim is refused,
-    # gate falls back to default dispatch and remains accepted
+    # DSL-v2 text has no requirement_class annotation — the formal claim is refused and the
+    # gate falls back to the default system-consistency dispatch. The artifact is recorded
+    # regardless, which is what this test guards.
     assert report.statuses["formal_claim"] == "refused"
-    assert report.decision == "accepted"
+    # The overall decision is intentionally NOT asserted accepted here. This fixture's reviewed
+    # spec covers the module but declares no invariant, so the S ∧ R stage is `unsupported` and
+    # the gate blocks (no vacuous floor pass). That blocking is unrelated to formal-claim
+    # recording; the dedicated coverage is
+    # test_end_to_end_gate_blocks_relevant_spec_without_invariant.
+
+
+def test_end_to_end_gate_blocks_relevant_spec_without_invariant(tmp_path: Path) -> None:
+    """A reviewed spec that covers the impacted module but declares no invariant must BLOCK.
+
+    This is the positive guard against a vacuous S ∧ R floor: a reviewed spec relevant to the
+    change that asserts nothing checkable cannot be silently accepted. It is distinct from
+    "no reviewed spec is relevant at all" (genuinely not_applicable, passing).
+    The default _project fixture registers exactly this case — spec:redemption covers the
+    redemption module, is reviewed and fresh, but declares no invariant — so the S ∧ R stage is
+    `unsupported` with mode `relevant_spec_without_invariant`, the gate does not accept, and
+    downstream action is refused.
+    """
+    manifest, registry = _project(tmp_path)
+
+    report = run_end_to_end_requirement_gate(
+        controlled_text=DSL,
+        requirement_id="REQ-GATE-NOINV-001",
+        title="Relevant spec without invariant blocks",
+        source_adapter=PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["finalize_redemption"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-artifacts",
+        execution=_execution(tmp_path),
+    )
+
+    # The S ∧ R stage refuses to form an obligation from an assertionless reviewed spec.
+    assert report.statuses["system_consistency"] == "unsupported"
+    assert report.decision != "accepted"
+    assert report.downstream_action_allowed is False
+    # The refusal is structural (read from the registry), not a marker grep: its recorded mode
+    # names exactly why, and names the relevant spec.
+    sysc_path = Path(next(a.path for a in report.artifacts if a.name == "system_consistency"))
+    details = read_json(sysc_path)["result"]["details"]
+    assert details["mode"] == "relevant_spec_without_invariant"
+    assert "spec:redemption" in details["relevant_spec_ids"]
+    # The block surfaces as a system_consistency blocker (inconclusive — we could not form an
+    # S ∧ R obligation), kept distinct from a definitive counterexample refusal.
+    sysc_blocker = next(
+        (b for b in report.blockers if b.stage == "system_consistency"), None
+    )
+    assert sysc_blocker is not None
+    assert sysc_blocker.status == "unknown"
 
 
 def test_end_to_end_gate_with_v3_requirement_has_formal_claim_fragment_ids(tmp_path: Path) -> None:
@@ -256,7 +351,15 @@ def test_end_to_end_requirement_gate_cli_writes_report(tmp_path: Path, capsys) -
 
     assert exit_code == 0
     assert "Requirement gate report:" in output
-    assert read_json(out)["decision"] == "accepted"
+    # This test guards that the CLI runs the gate and writes a well-formed report. The decision
+    # is not asserted accepted: the fixture's reviewed spec covers the module but declares no
+    # invariant, so S ∧ R is `unsupported` and the gate blocks rather than
+    # passing on a vacuous floor. (Dedicated coverage of that block:
+    # test_end_to_end_gate_blocks_relevant_spec_without_invariant.)
+    report_json = read_json(out)
+    assert report_json["decision"] in {"accepted", "refused", "unknown"}
+    assert report_json["statuses"]["system_consistency"] == "unsupported"
+    assert report_json["artifacts"]
 
 
 def test_gate_single_source_ir_yields_needs_review_not_agreed(tmp_path: Path) -> None:
@@ -992,6 +1095,7 @@ def _project(
     tmp_path: Path,
     *,
     trace_actions: list[str] | None = None,
+    reviewed_invariant: bool = False,
 ) -> tuple[SourceManifest, SystemSpecRegistry]:
     src = tmp_path / "src"
     specs = tmp_path / "specs"
@@ -1003,7 +1107,24 @@ def _project(
         "        return 'redemption_finalized'\n"
         "    return 'rejected'\n"
     )
-    (specs / "Redemption.tla").write_text("---- MODULE Redemption ----\n====\n")
+    if reviewed_invariant:
+        # A reviewed S that pins the authorization predicate FALSE and declares a real system
+        # invariant. A v3 authorization_precondition requirement ("when wallet is authorized")
+        # lowers to a Pred_authorized obligation that this S discharges (premise pinned FALSE →
+        # obligation vacuously satisfied → S ∧ R valid). This is the genuine closed-S ∧ R fixture;
+        # the empty-module spec below cannot close S ∧ R (no invariant → refused).
+        (specs / "Redemption.tla").write_text(
+            "---- MODULE Redemption ----\n"
+            "\\* @type: (Str) => Bool;\n"
+            "Pred_authorized(a) == FALSE\n"
+            "\\* @type: (Str) => Bool;\n"
+            "Pred_not_authorized(a) == TRUE\n"
+            "\\* System invariant: authorization defaults closed.\n"
+            'SystemDefaultsClosed == Pred_authorized("wallet") = FALSE\n'
+            "====\n"
+        )
+    else:
+        (specs / "Redemption.tla").write_text("---- MODULE Redemption ----\n====\n")
     trace_path = tmp_path / "traces.json"
     trace_path.write_text(json.dumps(_trace_payload(trace_actions or [
         "finalize_redemption",
@@ -1025,20 +1146,21 @@ def _project(
             ],
         }
     )
+    spec_entry: dict[str, object] = {
+        "spec_id": "spec:redemption",
+        "module_ids": ["redemption"],
+        "formalism": "tla",
+        "path": "specs/Redemption.tla",
+        "version": "1",
+        "review_status": "reviewed",
+        "freshness": "fresh",
+    }
+    if reviewed_invariant:
+        spec_entry["invariants"] = ["SystemDefaultsClosed"]
     registry = SystemSpecRegistry.model_validate(
         {
             "schema_version": "0.1",
-            "specs": [
-                {
-                    "spec_id": "spec:redemption",
-                    "module_ids": ["redemption"],
-                    "formalism": "tla",
-                    "path": "specs/Redemption.tla",
-                    "version": "1",
-                    "review_status": "reviewed",
-                    "freshness": "fresh",
-                }
-            ],
+            "specs": [spec_entry],
         }
     )
     return manifest, registry
