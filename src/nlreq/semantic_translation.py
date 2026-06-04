@@ -478,7 +478,7 @@ def _check_decomposition_ensemble(
     )
 
     if agreement.status == "disagreed":
-        remapped = _remap_disagreement_spans_to_original(
+        remapped = remap_disagreement_spans_to_original(
             agreement.disagreements, requirement_ir
         )
         return refuse_ambiguous_ensemble(
@@ -521,7 +521,7 @@ def _check_decomposition_ensemble(
     return None
 
 
-def _remap_disagreement_spans_to_original(
+def remap_disagreement_spans_to_original(
     disagreements: list[TranslationDisagreement],
     original_ir: RequirementIRV2,
 ) -> list[TranslationDisagreement]:

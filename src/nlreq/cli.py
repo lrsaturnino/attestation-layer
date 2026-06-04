@@ -2173,9 +2173,9 @@ def main(argv: list[str] | None = None) -> int:
             if args.ensemble_clients:
                 from .decomposition_client import (
                     AnthropicDecompositionClient,
+                    DecompositionResult,
                     RecordedDecompositionClient,
                 )
-                from .models import RequirementIRV2
 
                 decomposition_clients = []
                 for spec in args.ensemble_clients:
@@ -2186,8 +2186,19 @@ def main(argv: list[str] | None = None) -> int:
                         decomposition_clients.append(AnthropicDecompositionClient(model=model_id))
                     elif spec.startswith("recorded:"):
                         fixture_path = Path(spec.removeprefix("recorded:"))
-                        fixture_ir = RequirementIRV2.model_validate_json(fixture_path.read_text())
-                        decomposition_clients.append(RecordedDecompositionClient(fixture=fixture_ir))
+                        fixture_result = DecompositionResult.model_validate_json(
+                            fixture_path.read_text()
+                        )
+                        decomposition_clients.append(
+                            RecordedDecompositionClient(
+                                fixture=fixture_result.requirement,
+                                candidate_id=fixture_result.candidate_id,
+                                approval=fixture_result.approval,
+                                is_audited=fixture_result.is_audited,
+                                model_id=fixture_result.model_id,
+                                prompt_hash=fixture_result.prompt_hash,
+                            )
+                        )
                     else:
                         print(
                             f"nlreq: unknown --ensemble-client spec {spec!r}. "

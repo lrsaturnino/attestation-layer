@@ -3,12 +3,14 @@ translate_controlled_requirement_to_formal_claim.
 """
 from __future__ import annotations
 
+import json
 import types
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from nlreq.cli import main
 from nlreq.decomposition_client import (
     AnthropicDecompositionClient,
     DecompositionClient,
@@ -17,8 +19,12 @@ from nlreq.decomposition_client import (
 )
 from nlreq.dsl_v3 import DslV3Parser
 from nlreq.jsonutil import sha256_text
-from nlreq.models import Approval, RequirementIRV2
-from nlreq.semantic_translation import translate_controlled_requirement_to_formal_claim
+from nlreq.models import Approval, RequirementIRV2, SourceSpan
+from nlreq.semantic_translation import (
+    remap_disagreement_spans_to_original,
+    translate_controlled_requirement_to_formal_claim,
+)
+from nlreq.translator_agreement import TranslationDisagreement
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "requirements"
@@ -509,3 +515,222 @@ def test_refused_ambiguous_source_spans_from_original_ir() -> None:
                 f"span {span_tuple} in ambiguity finding was not found in the original IR spans; "
                 "spans must be remapped to the original controlled text"
             )
+
+
+# ---------------------------------------------------------------------------
+# Direct unit tests for remap_disagreement_spans_to_original
+# ---------------------------------------------------------------------------
+# These tests exercise the remap function with candidate spans that genuinely
+# come from a different synthetic document ("model-output-doc"), matching the
+# production failure mode where LLM re-expression produces spans referencing
+# model-output positions, not the original controlled text.
+
+
+def test_remap_replaces_model_output_spans_with_original_ir_spans() -> None:
+    """remap replaces spans from a model-output document with spans from the original IR.
+
+    Proves the remap actually does work: the input disagreement carries spans
+    referencing 'model-output-doc' at arbitrary positions; after remapping, those
+    spans must be gone and replaced with the original IR's spans for that path.
+    """
+    from nlreq.translator_agreement import spans_for_path
+
+    original_ir = DslV3Parser().parse_ir(
+        _CONTROLLED_TEXT, requirement_id=_REQUIREMENT_ID, title=_TITLE
+    )
+
+    # Guard: verify the chosen path resolves in the original IR and has spans, so
+    # the resolve branch (not fallback) is exercised.
+    path = "semantic_ir.premise"
+    resolved_spans = spans_for_path(original_ir.semantic_ir, path)
+    assert resolved_spans, (
+        f"test precondition: path {path!r} must resolve with non-empty spans in the original IR"
+    )
+
+    model_output_spans = [
+        SourceSpan(document="model-output-doc", start_char=0, end_char=5, text="dummy"),
+        SourceSpan(document="model-output-doc", start_char=10, end_char=20, text="other"),
+    ]
+    disagreement = TranslationDisagreement(
+        left_translator_id="ensemble-decomposition-0",
+        right_translator_id="ensemble-decomposition-1",
+        path=path,
+        reason="predicate mismatch",
+        source_spans=model_output_spans,
+    )
+
+    remapped = remap_disagreement_spans_to_original([disagreement], original_ir)
+
+    assert len(remapped) == 1
+    result = remapped[0]
+    for span in result.source_spans:
+        assert span.document != "model-output-doc", (
+            f"span still references model-output-doc after remap: {span}; "
+            "remap must replace candidate spans with original IR spans"
+        )
+    assert "span-fallback" not in result.reason
+
+
+def test_remap_appends_fallback_note_when_path_absent_from_original_ir() -> None:
+    """remap appends a span-fallback note and preserves spans when the path is absent.
+
+    When the candidate IR diverged structurally and the disagreement path has no
+    counterpart in the original IR, the remapper keeps the candidate spans and
+    appends an explanation to the reason so callers know the fallback was taken.
+    """
+    original_ir = DslV3Parser().parse_ir(
+        _CONTROLLED_TEXT, requirement_id=_REQUIREMENT_ID, title=_TITLE
+    )
+
+    candidate_spans = [
+        SourceSpan(document="model-output-doc", start_char=5, end_char=15, text="candidate"),
+    ]
+    nonexistent_path = "semantic_ir.children[99]"
+    disagreement = TranslationDisagreement(
+        left_translator_id="ensemble-decomposition-0",
+        right_translator_id="ensemble-decomposition-1",
+        path=nonexistent_path,
+        reason="structural divergence",
+        source_spans=candidate_spans,
+    )
+
+    remapped = remap_disagreement_spans_to_original([disagreement], original_ir)
+
+    assert len(remapped) == 1
+    result = remapped[0]
+    assert "span-fallback" in result.reason, (
+        f"expected span-fallback note in reason for absent path {nonexistent_path!r}; "
+        f"got: {result.reason!r}"
+    )
+    assert result.source_spans == candidate_spans, (
+        "candidate spans must be preserved unchanged when the path is absent from the original IR"
+    )
+
+
+# ---------------------------------------------------------------------------
+# CLI-level tests for recorded: fixture format (DecompositionResult)
+# ---------------------------------------------------------------------------
+# These drive the actual argv/dispatch path so that CLI bugs (like parsing a
+# bare RequirementIRV2 and defaulting trust to unapproved/unaudited) are caught
+# at the layer they live, not masked by direct function calls.
+
+
+def _write_decomposition_fixture(
+    path: Path,
+    ir: RequirementIRV2,
+    *,
+    candidate_id: str,
+    approval: Approval | None,
+    is_audited: bool,
+) -> Path:
+    result = DecompositionResult(
+        requirement=ir,
+        candidate_id=candidate_id,
+        source_text_hash=sha256_text(_CONTROLLED_TEXT),
+        approval=approval,
+        is_audited=is_audited,
+        provenance={"source": "test_fixture"},
+    )
+    path.write_text(result.model_dump_json())
+    return path
+
+
+def test_cli_semantic_translate_two_approved_disagreeing_fixtures_refused_ambiguous(
+    tmp_path: Path,
+) -> None:
+    """CLI recorded: path with two approved+audited disagreeing fixtures → NLR-REFUSED-AMBIGUOUS.
+
+    This is the CLI equivalent of test_refused_ambiguous_source_spans_from_original_ir.
+    Exercises the full argv → CLI dispatch → RecordedDecompositionClient path so that
+    broken trust-field handling in the CLI is caught here, not silently in the function.
+    """
+    req_file = tmp_path / "req.nlreq"
+    req_file.write_text(_CONTROLLED_TEXT)
+    approval = _approved_approval()
+    fixture_a = _write_decomposition_fixture(
+        tmp_path / "fixture_a.json",
+        _parse_ir(),
+        candidate_id="candidate-a",
+        approval=approval,
+        is_audited=True,
+    )
+    fixture_b = _write_decomposition_fixture(
+        tmp_path / "fixture_b.json",
+        _parse_ir_variant(),
+        candidate_id="candidate-b",
+        approval=approval,
+        is_audited=True,
+    )
+    out_path = tmp_path / "report.json"
+
+    exit_code = main([
+        "semantic-translate", str(req_file),
+        "--requirement-id", _REQUIREMENT_ID,
+        "--title", _TITLE,
+        "--ensemble-client", f"recorded:{fixture_a}",
+        "--ensemble-client", f"recorded:{fixture_b}",
+        "--out", str(out_path),
+    ])
+
+    assert exit_code == 1, f"expected exit 1 for refused report, got {exit_code}"
+    report = json.loads(out_path.read_text())
+    assert report["refusal_code"] == "NLR-REFUSED-AMBIGUOUS", (
+        f"expected NLR-REFUSED-AMBIGUOUS but got {report.get('refusal_code')!r}"
+    )
+
+
+def test_cli_semantic_translate_two_unaudited_fixtures_returns_needs_review(
+    tmp_path: Path,
+) -> None:
+    """CLI recorded: path with two unaudited fixtures → NLR-UNAUDITED-DECOMPOSITION.
+
+    Verifies the trust check blocks before the signature comparison when the
+    fixture carries default (no approval, is_audited=False) trust metadata.
+    """
+    req_file = tmp_path / "req.nlreq"
+    req_file.write_text(_CONTROLLED_TEXT)
+    fixture_a = _write_decomposition_fixture(
+        tmp_path / "fixture_a.json",
+        _parse_ir(),
+        candidate_id="candidate-a",
+        approval=None,
+        is_audited=False,
+    )
+    fixture_b = _write_decomposition_fixture(
+        tmp_path / "fixture_b.json",
+        _parse_ir_variant(),
+        candidate_id="candidate-b",
+        approval=None,
+        is_audited=False,
+    )
+    out_path = tmp_path / "report.json"
+
+    exit_code = main([
+        "semantic-translate", str(req_file),
+        "--requirement-id", _REQUIREMENT_ID,
+        "--title", _TITLE,
+        "--ensemble-client", f"recorded:{fixture_a}",
+        "--ensemble-client", f"recorded:{fixture_b}",
+        "--out", str(out_path),
+    ])
+
+    assert exit_code == 1, f"expected exit 1 for needs_review report, got {exit_code}"
+    report = json.loads(out_path.read_text())
+    assert report["refusal_code"] == "NLR-UNAUDITED-DECOMPOSITION", (
+        f"expected NLR-UNAUDITED-DECOMPOSITION but got {report.get('refusal_code')!r}"
+    )
+
+
+def test_cli_semantic_translate_unknown_ensemble_spec_exits_2(tmp_path: Path) -> None:
+    """CLI semantic-translate with an unrecognised --ensemble-client spec returns exit code 2."""
+    req_file = tmp_path / "req.nlreq"
+    req_file.write_text(_CONTROLLED_TEXT)
+
+    exit_code = main([
+        "semantic-translate", str(req_file),
+        "--requirement-id", _REQUIREMENT_ID,
+        "--title", _TITLE,
+        "--ensemble-client", "unknown-format-xyz",
+    ])
+
+    assert exit_code == 2, f"expected exit 2 for unknown spec, got {exit_code}"

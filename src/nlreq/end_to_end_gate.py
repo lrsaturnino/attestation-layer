@@ -17,7 +17,7 @@ from .formal_claim import (
 from .formal_claim_smt import smt_check_formal_claim_predicate_fragments
 from .impact import analyze_source_impact
 from .source_impact import analyze_source_impact_with_context
-from .jsonutil import sha256_json, write_json
+from .jsonutil import sha256_json, sha256_text, write_json
 from .models import BackendResult, RequirementIRV2, SourceSpan
 from .proof_closure import (
     BackendAgreementReport,
@@ -35,7 +35,7 @@ from .system_checker import check_system_consistency
 from .system_spec import SystemSpecRegistry
 from .trace_replay import build_trace_replay_report
 from .translator import lower_ir_v2_to_tla
-from .semantic_translation import refuse_ambiguous_ensemble
+from .semantic_translation import refuse_ambiguous_ensemble, remap_disagreement_spans_to_original
 from .translator_agreement import (
     TranslationAgreementInput,
     TranslationCandidate,
@@ -288,9 +288,18 @@ def run_end_to_end_requirement_gate(
     record("translation_agreement", "translation-agreement.json", translation)
 
     if translation.status == "disagreed":
+        gate_input_hashes = {
+            "controlled_text": sha256_text(controlled_text),
+            "requirement_ir": sha256_json(requirement),
+        }
+        remapped_disagreements = remap_disagreement_spans_to_original(
+            translation.disagreements, requirement
+        )
         ambiguous_refusal = refuse_ambiguous_ensemble(
             requirement_id=requirement_id,
-            disagreements=translation.disagreements,
+            disagreements=remapped_disagreements,
+            requirement_ir=requirement,
+            input_hashes=gate_input_hashes,
         )
         record("translation_refusal", "translation-refusal.json", ambiguous_refusal)
 
