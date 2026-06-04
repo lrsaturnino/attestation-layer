@@ -264,7 +264,10 @@ def check_solver_backed_system_consistency(
             budget=_runner_budget(budget),
             expected_exit_code=execution.expected_exit_code,
             tool_version=execution.tool_version,
-            tool_version_command=execution.tool_version_command,
+            tool_version_command=(
+                execution.tool_version_command
+                or _default_version_command(execution.checker_id)
+            ),
             output_limit_bytes=execution.output_limit_bytes,
         )
     )
@@ -285,6 +288,9 @@ def check_solver_backed_system_consistency(
             "config": config_path.name,
             "config_hash": sha256_text(config_path.read_text()),
             "command": command,
+            "reproducibility": runner_result.reproducibility.model_dump(
+                mode="json", exclude_none=True
+            ),
             "bounds": _budget_details(budget),
             "preserved_invariants": composed.preserved_invariants,
             "bound_predicates": composed.bound_predicates,
@@ -615,6 +621,20 @@ def _derive_outcome_predicate(requirement: RequirementIRV2) -> OutcomePredicate 
         return derive_outcome_predicate(requirement.semantic_ir)
     except (ValueError, AttributeError):
         return None
+
+
+# Version commands for the pinned backends (docs/formal-backend-guide.md). The runner
+# executes these to record the resolved tool version in the run's reproducibility metadata,
+# so a bounded result always carries the exact checker it was produced by. Unknown checker
+# ids (e.g. a test stub) get no default — their version stays whatever the caller supplied.
+_DEFAULT_VERSION_COMMANDS: dict[str, list[str]] = {
+    "apalache": ["apalache-mc", "version"],
+}
+
+
+def _default_version_command(checker_id: str) -> list[str] | None:
+    """Return the pinned version command for a known checker, or None for an unknown one."""
+    return _DEFAULT_VERSION_COMMANDS.get(checker_id)
 
 
 def _solver_checker_command(

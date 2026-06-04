@@ -433,6 +433,13 @@ def test_solver_backed_narrowing_compatible_requirement_is_valid(tmp_path: Path)
     assert result.result.evidence_level.value == "BOUNDED_CHECKED"
     assert "AuthorizationDefaultsClosed" in result.result.details["preserved_invariants"]
     assert "R_Requirement" in result.result.details["preserved_invariants"]
+    # PB-3: a bounded result records the resolved checker and its real version. The version
+    # command defaults to the pinned `apalache-mc version` even though the caller did not set
+    # tool_version_command, so reproducibility metadata is never blank for a real run.
+    repro = result.result.details["reproducibility"]
+    assert repro["tool_version_command"] == ["apalache-mc", "version"]
+    assert repro["tool_version"], "expected a non-null resolved Apalache version"
+    assert repro["executable_resolved"], "expected the resolved apalache-mc path"
 
 
 @pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")

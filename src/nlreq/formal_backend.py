@@ -291,6 +291,15 @@ class ProductionTlaBackend:
     def default_command(self, budget: FormalBackendBudget | None) -> list[str]:
         raise NotImplementedError
 
+    def default_version_command(self) -> list[str] | None:
+        """Command that prints the backend's version, recorded with every run.
+
+        Returns None when no verified version command is pinned for the backend; the runner
+        then records whatever ``tool_version`` the caller supplied (or no version). Subclasses
+        override with a pinned command (see docs/formal-backend-guide.md).
+        """
+        return None
+
     def check(self, request: FormalBackendRequest) -> FormalBackendResponse:
         if request.backend_id != self.backend_id:
             raise ValueError(
@@ -355,7 +364,9 @@ class ProductionTlaBackend:
                 budget=_runner_budget(request.budget),
                 expected_exit_code=execution.expected_exit_code,
                 tool_version=execution.tool_version,
-                tool_version_command=execution.tool_version_command,
+                tool_version_command=(
+                    execution.tool_version_command or self.default_version_command()
+                ),
                 output_limit_bytes=execution.output_limit_bytes,
             )
         )
@@ -412,6 +423,11 @@ class ApalacheBackend(ProductionTlaBackend):
     def default_command(self, budget: FormalBackendBudget | None) -> list[str]:
         depth = (budget.max_depth if budget is not None and budget.max_depth else 10)
         return ["apalache-mc", "check", f"--length={depth}", "{module}"]
+
+    def default_version_command(self) -> list[str] | None:
+        # `apalache-mc version` prints the pinned version (see docs/formal-backend-guide.md);
+        # the runner records it in the run's reproducibility metadata.
+        return ["apalache-mc", "version"]
 
 
 class TlcProductionBackend(ProductionTlaBackend):
