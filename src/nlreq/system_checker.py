@@ -55,7 +55,7 @@ class RequirementSetConsistencyReport(BaseModel):
     contradictions: list[RequirementContradiction] = Field(default_factory=list)
 
 
-def check_system_consistency(
+def check_system_consistency_fixture(
     *,
     requirement: RequirementIRV2,
     lowered: LoweredFormalArtifact,
@@ -63,6 +63,15 @@ def check_system_consistency(
     impact: ImpactAnalysisArtifact,
     project_root: Path,
 ) -> SystemConsistencyResult:
+    """Fixture-only S ∧ R check: decides by grepping the spec text for markers.
+
+    This is NOT a real verification. ``valid`` is returned for any fresh, reviewed
+    spec whose text lacks an ``NLREQ_COUNTEREXAMPLE:<id>``/``NLREQ_TIMEOUT`` marker —
+    i.e. by string-absence, not by conjoining S. It exists only for offline tests
+    that must not invoke a solver. The end-to-end gate uses
+    ``check_solver_backed_system_consistency`` instead; do not wire this into any
+    real decision path.
+    """
     specs = specs_for_impact(registry, impact)
     registry_report = build_system_spec_registry_report(
         registry,

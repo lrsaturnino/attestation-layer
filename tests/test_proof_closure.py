@@ -20,7 +20,7 @@ from nlreq.proof_closure import (
     default_evidence_producer_mapping,
     evaluate_closure_gate,
 )
-from nlreq.system_checker import check_system_consistency
+from nlreq.system_checker import check_system_consistency_fixture
 from nlreq.system_spec import SystemSpecRegistry
 from nlreq.translator import lower_ir_v2_to_tla
 
@@ -39,7 +39,7 @@ def test_proof_object_closes_when_all_context_and_premises_are_discharged(
     ir = _ir()
     coverage = _coverage(tmp_path)
     alignment = _alignment(ir, coverage)
-    consistency = check_system_consistency(
+    consistency = check_system_consistency_fixture(
         requirement=ir,
         lowered=lower_ir_v2_to_tla(ir),
         registry=_registry(tmp_path),
@@ -81,7 +81,7 @@ def test_proof_object_blocks_when_coverage_or_trace_alignment_blocks(
         traces=NormalizedTraceArtifact.model_validate([_trace("TRACE-UNCOVERED", ["other_action"])]),
         coverage=coverage,
     )
-    consistency = check_system_consistency(
+    consistency = check_system_consistency_fixture(
         requirement=ir,
         lowered=lower_ir_v2_to_tla(ir),
         registry=_registry(tmp_path),
@@ -151,7 +151,7 @@ def test_proof_object_and_closure_gate_cli(tmp_path: Path, capsys) -> None:
     ir = _ir()
     coverage = _coverage(tmp_path)
     alignment = _alignment(ir, coverage)
-    consistency = check_system_consistency(
+    consistency = check_system_consistency_fixture(
         requirement=ir,
         lowered=lower_ir_v2_to_tla(ir),
         registry=_registry(tmp_path),

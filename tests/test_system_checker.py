@@ -15,7 +15,7 @@ from nlreq.parser import RequirementParser
 from nlreq.system_checker import (
     check_requirement_set_consistency,
     check_solver_backed_system_consistency,
-    check_system_consistency,
+    check_system_consistency_fixture,
 )
 from nlreq.system_spec import SystemSpecRegistry
 from nlreq.translator import LoweredFormalArtifact, lower_ir_v2_to_tla
@@ -32,7 +32,7 @@ DSL = (
 def test_system_consistency_returns_valid_for_fresh_specs_and_lowered_requirement(
     tmp_path: Path,
 ) -> None:
-    result = check_system_consistency(
+    result = check_system_consistency_fixture(
         requirement=_ir(),
         lowered=lower_ir_v2_to_tla(_ir()),
         registry=_registry(tmp_path),
@@ -45,7 +45,7 @@ def test_system_consistency_returns_valid_for_fresh_specs_and_lowered_requiremen
 
 
 def test_system_consistency_returns_counterexample_marker(tmp_path: Path) -> None:
-    result = check_system_consistency(
+    result = check_system_consistency_fixture(
         requirement=_ir(),
         lowered=lower_ir_v2_to_tla(_ir()),
         registry=_registry(tmp_path, marker="\\* NLREQ_COUNTEREXAMPLE:REQ-SYS-001\n"),
@@ -58,7 +58,7 @@ def test_system_consistency_returns_counterexample_marker(tmp_path: Path) -> Non
 
 
 def test_system_consistency_returns_timeout_marker(tmp_path: Path) -> None:
-    result = check_system_consistency(
+    result = check_system_consistency_fixture(
         requirement=_ir(),
         lowered=lower_ir_v2_to_tla(_ir()),
         registry=_registry(tmp_path, marker="\\* NLREQ_TIMEOUT\n"),
@@ -74,7 +74,7 @@ def test_system_consistency_returns_unsupported_for_stale_spec(tmp_path: Path) -
     data = registry.model_dump(mode="json")
     data["specs"][0]["freshness"] = "stale"
 
-    result = check_system_consistency(
+    result = check_system_consistency_fixture(
         requirement=_ir(),
         lowered=lower_ir_v2_to_tla(_ir()),
         registry=SystemSpecRegistry.model_validate(data),
@@ -92,7 +92,7 @@ def test_system_consistency_returns_unsupported_for_refused_lowering(tmp_path: P
         .model_dump(mode="json", exclude_none=True)
     )
 
-    result = check_system_consistency(
+    result = check_system_consistency_fixture(
         requirement=_ir(),
         lowered=refused,
         registry=_registry(tmp_path),

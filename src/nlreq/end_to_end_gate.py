@@ -31,7 +31,7 @@ from .proof_closure import (
 )
 from .requirement_self_consistency import check_requirement_self_consistency
 from .source_adapter import SourceLanguageAdapter, SourceManifest
-from .system_checker import check_system_consistency, check_solver_backed_system_consistency
+from .system_checker import check_system_consistency_fixture, check_solver_backed_system_consistency
 from .system_spec import SystemSpecRegistry
 from .trace_replay import build_trace_replay_report
 from .translator import lower_ir_v2_to_tla
@@ -375,7 +375,7 @@ def run_end_to_end_requirement_gate(
     )
     record("trace_replay", "trace-replay.json", trace_replay)
 
-    system_consistency = check_system_consistency(
+    system_consistency = check_system_consistency_fixture(
         requirement=requirement,
         lowered=lowered,
         registry=registry,

@@ -254,7 +254,7 @@ from .system_composition import build_s_and_r_composition_report
 from .system_checker import (
     check_requirement_set_consistency,
     check_solver_backed_system_consistency,
-    check_system_consistency,
+    check_system_consistency_fixture,
 )
 from .threat_model import (
     ExtendedTcbReviewReport,
@@ -2639,7 +2639,7 @@ def main(argv: list[str] | None = None) -> int:
             ir = validate_requirement_ir_json(args.requirement_ir.read_text())
             if not isinstance(ir, RequirementIRV2):
                 raise ValueError("system-consistency-check requires ir_version 0.2")
-            result = check_system_consistency(
+            result = check_system_consistency_fixture(
                 requirement=ir,
                 lowered=LoweredFormalArtifact.model_validate_json(args.lowered.read_text()),
                 registry=load_system_spec_registry(args.registry),
