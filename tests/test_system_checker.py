@@ -413,7 +413,8 @@ def test_z3_gate_r_plus_s_returns_valid(tmp_path: Path) -> None:
         f"R+S must return 'valid' (UNSAT under conservative S), got {result.result.status!r}"
     )
     assert result.result.backend == "solver_system_checker"
-    assert result.result.evidence_level.value == "BOUNDED_CHECKED"
+    # Z3 in-process is a propositional SMT check, not a bounded model checker.
+    assert result.result.evidence_level.value == "SMT_CHECKED"
     assert result.result.details["checker_id"] == "z3"
     assert result.result.details["z3_outcome"] == "valid"
 

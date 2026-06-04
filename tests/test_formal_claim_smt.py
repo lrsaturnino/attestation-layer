@@ -54,14 +54,14 @@ def _make_membership_fragment() -> FormalClaimFragment:
     )
 
 
-def test_predicate_fragments_produce_real_z3_results_with_covered_ids() -> None:
-    """Predicate fragments must produce a real Z3 BackendResult (status='valid') with covered_fragment_ids.
+def test_predicate_fragments_are_unsupported_with_covered_ids() -> None:
+    """Predicate fragments must produce status='unsupported' with covered_fragment_ids.
 
-    Under conservative system constraint S (predicate = FALSE), the violation query
-    (predicate=TRUE AND reached=TRUE) is Z3-UNSAT — a real SMT result proving the
-    obligation is vacuously satisfied when S applies.  proof_closure maps this to
-    premise status 'discharged'.  Full S∧R composition (actual system semantics)
-    requires Apalache/Pillar B and is handled by system_checker, not this layer.
+    Named uninterpreted predicates have no fragment-level SMT content — a free boolean is
+    trivially SAT regardless of the predicate's meaning. They can only be checked via S∧R
+    composition in system_checker (Apalache/Pillar B). Returning 'unsupported' causes
+    proof_closure to set the premise to 'blocked' with an explicit reason, rather than
+    silently leaving it 'open' or falsely 'discharged'.
     """
     report = build_formal_claim(_auth_ir())
     assert report.formal_claim is not None
@@ -84,12 +84,13 @@ def test_predicate_fragments_produce_real_z3_results_with_covered_ids() -> None:
         f"expected one BackendResult per predicate fragment, got {predicate_results}"
     )
     for r in predicate_results:
-        assert r.status == "valid", (
-            f"predicate fragment BackendResult must have status='valid' (conservative-S Z3 UNSAT), "
-            f"got {r.status!r}"
+        assert r.status == "unsupported", (
+            f"predicate fragment BackendResult must have status='unsupported' "
+            f"(requires Apalache/Pillar B), got {r.status!r}"
         )
-        assert r.evidence_level == EvidenceLevel.SMT_CHECKED, (
-            f"predicate BackendResult must carry SMT_CHECKED evidence level, got {r.evidence_level!r}"
+        assert r.evidence_level is None, (
+            f"predicate BackendResult must have evidence_level=None to avoid spurious "
+            f"producer-mapping blockers, got {r.evidence_level!r}"
         )
         assert "reason" in r.details, (
             f"predicate BackendResult must carry a reason in details: {r.details}"

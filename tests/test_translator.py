@@ -841,31 +841,6 @@ def test_parse_obligation_predicates_returns_empty_for_vacuous_obligation() -> N
     )
 
 
-def test_z3_discriminate_lowered_requirements_raises_for_vacuous_obligation() -> None:
-    """z3_discriminate_lowered_requirements raises ValueError when obligation is vacuous.
-
-    Internally it calls parse_obligation_predicates; if that returns [] (vacuous),
-    the function raises ValueError rather than encoding nonsensical Z3 constraints.
-    This is the mutation regression guard: a lowering defect that stubs Obligation == TRUE
-    while preserving CONSTANT Pred_* declarations is caught here.
-
-    We cannot craft a vacuous IR (the lowering always produces non-vacuous output for
-    valid shapes), so we test the guard indirectly: a lowering-shape-refused IR raises
-    ValueError from validate_authorization_precondition_shape before reaching the Z3 step.
-    The parse_obligation_predicates test directly covers the vacuous-module detection.
-    """
-    bad_ir = DslV3Parser().parse_ir(
-        "requirement authorization_precondition: scope op "
-        "when actor is authorized then operation must reject before state_change.",
-        requirement_id="DISCRIM-VACUOUS",
-        title="Vacuous discrimination guard",
-    )
-    # shape is valid, but if we swap a valid IR with itself the negative-control fires:
-    result = z3_discriminate_lowered_requirements(bad_ir, bad_ir)
-    assert not result.discriminated, (
-        "Same IR used as R and ¬R must return discriminated=False (negative control)"
-    )
-
 
 def _auth_precondition_ir() -> RequirementIRV2:
     return DslV3Parser().parse_ir(

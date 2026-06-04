@@ -31,7 +31,7 @@ from .proof_closure import (
 )
 from .requirement_self_consistency import check_requirement_self_consistency
 from .source_adapter import SourceLanguageAdapter, SourceManifest
-from .system_checker import check_system_consistency
+from .system_checker import check_system_consistency, check_solver_backed_system_consistency
 from .system_spec import SystemSpecRegistry
 from .trace_replay import build_trace_replay_report
 from .translator import lower_ir_v2_to_tla
@@ -208,6 +208,7 @@ def run_end_to_end_requirement_gate(
     self_check_backend: str = "tla-runner",
     budget: FormalBackendBudget | None = None,
     execution: FormalBackendExecution | None = None,
+    solver_execution: FormalBackendExecution | None = None,
     requirement_ir: RequirementIRV2 | None = None,
     translation_agreement: TranslationAgreementInput | None = None,
 ) -> EndToEndRequirementGateReport:
@@ -223,6 +224,12 @@ def run_end_to_end_requirement_gate(
     the resulting report status is "disagreed", the gate records a
     SemanticTranslationReport with refusal_code NLR-REFUSED-AMBIGUOUS and
     adds a blocker so the gate decision is "refused".
+
+    `execution` controls the self-consistency formal backend (TLA runner or custom).
+    `solver_execution` controls the solver-backed S∧R check (e.g. checker_id="z3").
+    When only `execution` is supplied and it has a checker_id, it drives both paths
+    (legacy behaviour). When both are supplied, `solver_execution` is used exclusively
+    for `check_solver_backed_system_consistency`.
     """
     artifact_dir.mkdir(parents=True, exist_ok=True)
     artifacts: list[EndToEndGateArtifactRef] = []
@@ -378,6 +385,28 @@ def run_end_to_end_requirement_gate(
     )
     record("system_consistency", "system-consistency.json", system_consistency)
 
+    # When a solver execution is available, run the solver-backed S∧R check as additional
+    # evidence alongside the marker-based result.  `solver_execution` takes priority; if
+    # not supplied, fall back to `execution` when it carries a checker_id (legacy mode).
+    # A counterexample/invalid from the solver is load-bearing: it blocks the gate even
+    # when the marker check passes (safety direction).
+    _effective_solver_exec = solver_execution or (
+        execution if execution is not None and execution.checker_id else None
+    )
+    solver_system_result: list[BackendResult] = []
+    if _effective_solver_exec is not None:
+        solver_consistency = check_solver_backed_system_consistency(
+            requirement=requirement,
+            lowered=lowered,
+            registry=registry,
+            impact=impact,
+            project_root=project_root,
+            budget=budget,
+            execution=_effective_solver_exec,
+        )
+        record("solver_system_consistency", "solver-system-consistency.json", solver_consistency)
+        solver_system_result = [solver_consistency.result]
+
     delta = build_delta_report(
         self_consistency=self_consistency,
         system_consistency=system_consistency,
@@ -398,7 +427,7 @@ def run_end_to_end_requirement_gate(
         )
     else:
         smt_fragment_results = []
-    all_backend_results = [*system_backend_results, *smt_fragment_results]
+    all_backend_results = [*system_backend_results, *solver_system_result, *smt_fragment_results]
 
     proof, formal_claim_report = build_proof_with_formal_claim_dispatch(
         requirement=requirement,
@@ -426,6 +455,9 @@ def run_end_to_end_requirement_gate(
         "proof_object": proof.status,
         "closure_gate": closure.result,
     }
+    solver_status_for_blocker = (
+        solver_system_result[0].status if solver_system_result else None
+    )
     blockers = _blockers(
         translation_status=translation.status,
         self_consistency_status=self_consistency.status,
@@ -435,6 +467,7 @@ def run_end_to_end_requirement_gate(
         system_status=system_consistency.result.status,
         proof_status=proof.status,
         closure_result=closure.result,
+        solver_system_status=solver_status_for_blocker,
     )
     decision = _decision(blockers)
     return EndToEndRequirementGateReport(
@@ -590,6 +623,7 @@ def _blockers(
     system_status: str,
     proof_status: str,
     closure_result: str,
+    solver_system_status: str | None = None,
 ) -> list[EndToEndGateBlocker]:
     blockers: list[EndToEndGateBlocker] = []
     _append_if_not(
@@ -621,6 +655,21 @@ def _blockers(
         expected="valid",
         unknown_statuses={"unsupported", "timeout", "needs_review"},
     )
+    # Solver-backed S∧R evidence is load-bearing in the hard direction: a counterexample
+    # or invalid result from the solver MUST refuse the gate regardless of the marker check.
+    # Valid/unsupported/timeout/unknown from the solver do not generate blockers —
+    # gate acceptance on the positive path still rests on the marker check and proof closure.
+    if solver_system_status in {"counterexample", "invalid"}:
+        blockers.append(
+            EndToEndGateBlocker(
+                stage="solver_system_consistency",
+                status="refused",
+                message=(
+                    f"solver-backed S∧R check returned {solver_system_status!r}; "
+                    "requirement is inconsistent with system constraints"
+                ),
+            )
+        )
     _append_if_not(blockers, stage="proof_object", status=proof_status, expected="closed")
     _append_if_not(blockers, stage="closure_gate", status=closure_result, expected="passed")
     return blockers
@@ -649,6 +698,13 @@ def _append_if_not(
 def _decision(blockers: list[EndToEndGateBlocker]) -> Literal["accepted", "refused", "unknown"]:
     if not blockers:
         return "accepted"
+    # A solver-backed counterexample is definitive evidence of a violation. Refuse
+    # immediately — do not allow unknown stages to mask a confirmed bad result.
+    if any(
+        b.stage == "solver_system_consistency" and b.status == "refused"
+        for b in blockers
+    ):
+        return "refused"
     if any(blocker.status == "unknown" for blocker in blockers):
         return "unknown"
     return "refused"

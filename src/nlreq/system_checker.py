@@ -169,6 +169,9 @@ def check_solver_backed_system_consistency(
         solver_status: Literal["valid", "counterexample", "timeout", "unsupported", "invalid"] = (
             z3_outcome if z3_outcome in {"valid", "counterexample"} else "unsupported"
         )
+        # In-process Z3 is a propositional SMT check, not a bounded model checker.
+        # Use SMT_CHECKED (not BOUNDED_CHECKED) to reflect the actual verification method.
+        z3_evidence = EvidenceLevel.SMT_CHECKED if solver_status == "valid" else None
         return _solver_result(
             requirement.requirement_id,
             solver_status,
@@ -183,6 +186,7 @@ def check_solver_backed_system_consistency(
                     spec_id: sha256_text(text) for spec_id, text in spec_texts
                 },
             },
+            evidence_level=z3_evidence,
         )
 
     artifact_dir = _solver_artifact_dir(requirement, execution)
@@ -299,7 +303,16 @@ def _solver_result(
     details: dict[str, object],
     *,
     counterexamples: list[Counterexample] | None = None,
+    evidence_level: EvidenceLevel | None = None,
 ) -> SystemConsistencyResult:
+    # Default: BOUNDED_CHECKED for external model-checker runs (Apalache/TLC with depth).
+    # Callers that use an in-process SMT solver (checker_id="z3") should pass
+    # evidence_level=EvidenceLevel.SMT_CHECKED to avoid conflating bounded-MC evidence
+    # with propositional satisfiability evidence.
+    resolved_evidence = (
+        evidence_level if evidence_level is not None
+        else (EvidenceLevel.BOUNDED_CHECKED if status == "valid" else None)
+    )
     return SystemConsistencyResult(
         requirement_id=requirement_id,
         spec_ids=spec_ids,
@@ -307,7 +320,7 @@ def _solver_result(
         result=BackendResult(
             backend="solver_system_checker",
             status=status,
-            evidence_level=EvidenceLevel.BOUNDED_CHECKED if status == "valid" else None,
+            evidence_level=resolved_evidence,
             details=details,
         ),
     )

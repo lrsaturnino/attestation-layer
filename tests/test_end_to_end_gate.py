@@ -162,15 +162,14 @@ def test_end_to_end_gate_with_v3_requirement_has_formal_claim_fragment_ids(tmp_p
         f"Expected formal fragment IDs in ProofObject but found: {premise_ids}"
     )
 
-    # Predicate premises are "discharged": smt_check_formal_claim_predicate_fragments
-    # now runs a real Z3 check — under conservative S (predicate=FALSE), the violation
-    # query is UNSAT — and emits status="valid"/SMT_CHECKED, so proof_closure maps
-    # the result to "discharged".  Full S∧R composition (real system semantics) still
-    # requires Apalache/Pillar B; the conservative-S check provides fragment-level evidence.
+    # Predicate premises are "blocked": uninterpreted predicates have no fragment-level
+    # SMT content and require Apalache/Pillar B model-level checking (S∧R composition).
+    # smt_check_formal_claim_predicate_fragments emits "unsupported"/evidence_level=None,
+    # which proof_closure maps to "blocked" with an explicit reason.
     predicate_premises = [p for p in proof.premises if p.node_kind == "predicate"]
     rejection_order = [p for p in proof.premises if p.node_kind == "rejection_order"]
-    assert all(p.status == "discharged" for p in predicate_premises), (
-        f"Predicate premises must be discharged (conservative-S Z3 UNSAT gives SMT_CHECKED): "
+    assert all(p.status == "blocked" for p in predicate_premises), (
+        f"Predicate premises must be blocked (uninterpreted predicates require Apalache): "
         f"{predicate_premises}"
     )
     assert all(p.status == "blocked" for p in rejection_order), (
@@ -393,6 +392,220 @@ def test_gate_refuses_on_disagreeing_translation_agreement_input(tmp_path: Path)
         assert downstream not in artifact_names, (
             f"Downstream artifact '{downstream}' must not be produced when translation disagreed"
         )
+
+
+def test_gate_z3_neg_r_plus_s_refuses_on_counterexample(tmp_path: Path) -> None:
+    """Z3 gate refusal: ¬R + S(pred=TRUE) → counterexample → gate refused.
+
+    Mirrors test_z3_gate_neg_r_plus_s_returns_counterexample but drives the full
+    run_end_to_end_requirement_gate.  ¬R has Pred_not_authorized; S assigns it TRUE.
+    Z3 returns counterexample → solver_system_consistency blocker → decision 'refused'.
+
+    The translation_agreement supplies two matching candidates so the agreement is
+    'agreed' and the solver refusal is the sole blocker (not masked as 'unknown').
+    """
+    from nlreq.translator_agreement import TranslationAgreementInput, TranslationCandidate
+
+    src = tmp_path / "src"
+    specs = tmp_path / "specs"
+    src.mkdir()
+    specs.mkdir()
+    (src / "redemption.py").write_text(
+        "def finalize_redemption(wallet):\n    return 'rejected'\n"
+    )
+    # S: Pred_not_authorized(a) == TRUE — ¬R's obligation predicate is TRUE, Z3 → counterexample.
+    (specs / "SystemConstraint.tla").write_text(
+        "---- MODULE SystemConstraint ----\n"
+        "CONSTANT a\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_not_authorized(a) == TRUE\n"
+        "====\n"
+    )
+    trace_path = tmp_path / "traces.json"
+    trace_path.write_text(json.dumps([{
+        "trace_id": "T1",
+        "adapter_id": "raw-python",
+        "source_hash": "sha256:x",
+        "events": [
+            {"event_id": "e1", "timestamp": "2026-06-01T00:00:01Z",
+             "action": "finalize_redemption", "post_state": {}},
+        ],
+    }]))
+    manifest = SourceManifest.model_validate({
+        "schema_version": "0.1",
+        "adapter": "python-source",
+        "language": "python",
+        "runtime": "cpython",
+        "modules": [{
+            "module_id": "redemption",
+            "path": "src/redemption.py",
+            "symbols": ["finalize_redemption"],
+            "trace_sources": ["traces.json"],
+        }],
+    })
+    registry = SystemSpecRegistry.model_validate({
+        "schema_version": "0.1",
+        "specs": [{
+            "spec_id": "spec:redemption",
+            "module_ids": ["redemption"],
+            "formalism": "tla",
+            "path": "specs/SystemConstraint.tla",
+            "version": "1",
+            "review_status": "reviewed",
+            "freshness": "fresh",
+        }],
+    })
+    neg_r_ir = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope redemption "
+        "when wallet is not authorized then finalize_redemption must reject before rejected.",
+        requirement_id="GATE-Z3-NEG-001",
+        title="Negation gate Z3 test",
+    )
+    # Two matching candidates so translation_agreement status is 'agreed', not 'needs_review'.
+    agreement = TranslationAgreementInput(
+        candidates=[
+            TranslationCandidate(
+                translator_id="neg-r-primary",
+                method="deterministic",
+                requirement=neg_r_ir,
+                provenance={"source": "test"},
+            ),
+            TranslationCandidate(
+                translator_id="neg-r-reparse",
+                method="deterministic",
+                requirement=neg_r_ir,
+                provenance={"source": "test"},
+            ),
+        ]
+    )
+
+    # execution=None so self-consistency uses the default unsupported path (no TLA binary);
+    # solver_execution="z3" drives the solver-backed S∧R check in-process via Z3.
+    report = run_end_to_end_requirement_gate(
+        controlled_text="when wallet is not authorized then finalize_redemption must reject before rejected.",
+        requirement_id="GATE-Z3-NEG-001",
+        title="Negation gate Z3 test",
+        source_adapter=PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["finalize_redemption"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-z3-neg-artifacts",
+        solver_execution=FormalBackendExecution(checker_id="z3"),
+        requirement_ir=neg_r_ir,
+        translation_agreement=agreement,
+    )
+
+    assert report.decision == "refused", (
+        f"¬R + Z3 S(pred=TRUE) must refuse; got decision={report.decision!r}, "
+        f"blockers={[b.model_dump() for b in report.blockers]}"
+    )
+    solver_blockers = [b for b in report.blockers if b.stage == "solver_system_consistency"]
+    assert solver_blockers, (
+        "Gate refusal must carry a solver_system_consistency blocker"
+    )
+    assert solver_blockers[0].status == "refused"
+
+
+def test_gate_z3_execution_adds_smt_checked_solver_result_to_proof_object(tmp_path: Path) -> None:
+    """Gate with Z3 positive path: solver returns valid/SMT_CHECKED and ProofObject carries it.
+
+    Mirrors test_z3_gate_r_plus_s_returns_valid through the full gate.  The authorization_
+    precondition IR has Pred_authorized; S assigns Pred_authorized(a) == FALSE (conservative
+    constraint).  Z3 returns "valid" → evidence_level=SMT_CHECKED (in-process propositional
+    check, not bounded model checking).  The result must appear in ProofObject.backend_results.
+    """
+    from nlreq.formal_backend import FormalBackendExecution
+    from nlreq.proof_closure import ProofObject
+    from nlreq.models import EvidenceLevel
+    from nlreq.translator_agreement import TranslationAgreementInput, TranslationCandidate
+
+    src = tmp_path / "src"
+    specs = tmp_path / "specs"
+    src.mkdir()
+    specs.mkdir()
+    (src / "operation.py").write_text(
+        "def operation(actor):\n    return 'rejected'\n"
+    )
+    # Fixture: "when actor is not authorized then operation must reject" → predicate is
+    # Pred_not_authorized.  S assigns Pred_not_authorized(a) == FALSE so the obligation
+    # antecedent is never triggered → no violation reachable → Z3 UNSAT → "valid".
+    (specs / "SystemConstraint.tla").write_text(
+        "---- MODULE SystemConstraint ----\n"
+        "CONSTANT a\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_not_authorized(a) == FALSE\n"
+        "====\n"
+    )
+    trace_path = tmp_path / "traces.json"
+    trace_path.write_text(json.dumps([{
+        "trace_id": "T1", "adapter_id": "raw-python", "source_hash": "sha256:x",
+        "events": [{"event_id": "e1", "timestamp": "2026-06-01T00:00:01Z",
+                    "action": "operation", "post_state": {}}],
+    }]))
+    manifest = SourceManifest.model_validate({
+        "schema_version": "0.1", "adapter": "python-source",
+        "language": "python", "runtime": "cpython",
+        "modules": [{"module_id": "redemption", "path": "src/operation.py",
+                     "symbols": ["operation"], "trace_sources": ["traces.json"]}],
+    })
+    registry = SystemSpecRegistry.model_validate({
+        "schema_version": "0.1",
+        "specs": [{"spec_id": "spec:redemption", "module_ids": ["redemption"],
+                   "formalism": "tla", "path": "specs/SystemConstraint.tla",
+                   "version": "1", "review_status": "reviewed", "freshness": "fresh"}],
+    })
+    ir = DslV3Parser().parse_ir(
+        FIXTURES.joinpath("authorization_precondition_v3.nlreq").read_text(),
+        requirement_id="GATE-Z3-POS-001",
+        title="Z3 positive gate test",
+    )
+    agreement = TranslationAgreementInput(
+        candidates=[
+            TranslationCandidate(translator_id="z3-pos-p", method="deterministic",
+                                 requirement=ir, provenance={"source": "test"}),
+            TranslationCandidate(translator_id="z3-pos-r", method="deterministic",
+                                 requirement=ir, provenance={"source": "test"}),
+        ]
+    )
+
+    report = run_end_to_end_requirement_gate(
+        controlled_text=(FIXTURES / "authorization_precondition_v3.nlreq").read_text(),
+        requirement_id="GATE-Z3-POS-001",
+        title="Z3 positive gate test",
+        source_adapter=PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["operation"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-z3-pos-artifacts",
+        solver_execution=FormalBackendExecution(checker_id="z3"),
+        requirement_ir=ir,
+        translation_agreement=agreement,
+    )
+
+    # Solver consistency artifact must be recorded.
+    artifact_names = {a.name for a in report.artifacts}
+    assert "solver_system_consistency" in artifact_names, (
+        "solver_system_consistency artifact must be recorded when solver_execution='z3'"
+    )
+
+    # ProofObject must contain a valid solver_system_checker result with SMT_CHECKED.
+    proof_path = Path(next(a.path for a in report.artifacts if a.name == "proof_object"))
+    proof = ProofObject.model_validate(read_json(proof_path))
+    solver_results = [r for r in proof.backend_results if r.backend == "solver_system_checker"]
+    assert solver_results, (
+        "ProofObject must carry at least one solver_system_checker backend result"
+    )
+    valid_solver = [r for r in solver_results if r.status == "valid"]
+    assert valid_solver, (
+        f"solver_system_checker result must be 'valid' for R + S(pred=FALSE); "
+        f"got {[r.status for r in solver_results]}"
+    )
+    # Z3 in-process is propositional SMT — SMT_CHECKED, not BOUNDED_CHECKED.
+    assert all(r.evidence_level == EvidenceLevel.SMT_CHECKED for r in valid_solver), (
+        f"Valid solver results must carry SMT_CHECKED: {valid_solver}"
+    )
 
 
 def _project(

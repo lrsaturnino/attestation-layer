@@ -163,7 +163,9 @@ def default_evidence_producer_mapping() -> EvidenceProducerMapping:
             EvidenceProducer(
                 producer_id="solver_system_checker",
                 producer_kind="system_checker",
-                allowed_evidence_levels=[EvidenceLevel.BOUNDED_CHECKED],
+                # SMT_CHECKED for checker_id="z3" (in-process propositional Z3);
+                # BOUNDED_CHECKED for external model checkers (Apalache, TLC with depth).
+                allowed_evidence_levels=[EvidenceLevel.SMT_CHECKED, EvidenceLevel.BOUNDED_CHECKED],
                 tool="nlreq.system_checker.check_solver_backed_system_consistency",
                 tool_version="0.1",
             ),
