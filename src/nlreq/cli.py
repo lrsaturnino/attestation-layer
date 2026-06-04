@@ -136,6 +136,7 @@ from .intake import (
     approve_controlled_rewrite,
     create_controlled_rewrite_proposal,
     create_free_form_intake,
+    draft_controlled_rewrite_with_llm,
 )
 from .javascript_source_adapter import JavaScriptSourceLanguageAdapter
 from .jsonschema_adapter import JsonSchemaAdapter
@@ -484,7 +485,11 @@ def main(argv: list[str] | None = None) -> int:
         "intake-draft", help="Create free-form intake and controlled rewrite proposal artifacts."
     )
     intake_draft_cmd.add_argument("original", type=Path)
-    intake_draft_cmd.add_argument("--suggested", type=Path, required=True)
+    intake_draft_cmd.add_argument(
+        "--suggested",
+        type=Path,
+        help="Path to pre-written controlled text (required for --method manual).",
+    )
     intake_draft_cmd.add_argument("--out", type=Path, required=True)
     intake_draft_cmd.add_argument("--intake-out", type=Path)
     intake_draft_cmd.add_argument("--intake-id", required=True)
@@ -495,6 +500,11 @@ def main(argv: list[str] | None = None) -> int:
     intake_draft_cmd.add_argument("--method", choices=["manual", "llm", "rule_based"], default="manual")
     intake_draft_cmd.add_argument("--model")
     intake_draft_cmd.add_argument("--prompt")
+    intake_draft_cmd.add_argument(
+        "--fixture",
+        type=Path,
+        help="Path to a recorded LLM fixture for offline use (--method llm only).",
+    )
 
     intake_approve_cmd = subcommands.add_parser(
         "intake-approve", help="Approve or reject a controlled rewrite proposal."
@@ -2014,15 +2024,36 @@ def main(argv: list[str] | None = None) -> int:
                 submitted_by=args.submitted_by,
                 submitted_at=args.submitted_at,
             )
-            proposal = create_controlled_rewrite_proposal(
-                intake=intake,
-                proposal_id=args.proposal_id,
-                proposed_controlled_text=args.suggested.read_text(),
-                timestamp=args.timestamp,
-                method=args.method,
-                model=args.model,
-                prompt=args.prompt,
-            )
+            if args.method == "llm":
+                from .llm_client import RecordedLlmClient, UnavailableLlmClient
+
+                if args.fixture is not None:
+                    client = RecordedLlmClient(args.fixture.read_text())
+                else:
+                    client = UnavailableLlmClient()
+                proposal = draft_controlled_rewrite_with_llm(
+                    intake=intake,
+                    client=client,
+                    proposal_id=args.proposal_id,
+                    timestamp=args.timestamp,
+                    model=args.model,
+                )
+            else:
+                if args.suggested is None:
+                    print(
+                        "error: --suggested is required for --method manual (or rule_based)",
+                        file=sys.stderr,
+                    )
+                    return 1
+                proposal = create_controlled_rewrite_proposal(
+                    intake=intake,
+                    proposal_id=args.proposal_id,
+                    proposed_controlled_text=args.suggested.read_text(),
+                    timestamp=args.timestamp,
+                    method=args.method,
+                    model=args.model,
+                    prompt=args.prompt,
+                )
             if args.intake_out:
                 write_json(args.intake_out, intake)
                 print(f"Free-form intake: {args.intake_out}")

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
 import difflib
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .jsonutil import sha256_json, sha256_text
+
+if TYPE_CHECKING:
+    from .llm_client import LlmClient
 
 
 INTAKE_SCHEMA_VERSION = "0.1"
@@ -485,6 +488,106 @@ def build_rewrite_replay_bundle(
         selected_controlled_text_hash=selected_hash,
         replay_hashes=replay_hashes,
         notes=notes or [],
+    )
+
+
+def build_dsl_grammar_summary() -> str:
+    """Return a compact DSL v3 grammar description for LLM prompts.
+
+    The string is deterministic and version-pinned so prompt_hash is stable
+    across runs.  It is intentionally concise — just enough for the LLM to
+    produce parseable output, not a full spec.
+    """
+    return (
+        "Controlled-requirement DSL v3 grammar (produce exactly one requirement block):\n"
+        "\n"
+        "requirement CLAIM_CLASS:\n"
+        "  scope SCOPE_NAME\n"
+        "  when PREMISE\n"
+        "  then OBLIGATION\n"
+        "\n"
+        "CLAIM_CLASS (choose one):\n"
+        "  authorization_precondition | state_precondition | state_postcondition\n"
+        "  | numeric_invariant | event_state_correspondence\n"
+        "  | bounded_temporal | cross_module_causal_obligation\n"
+        "\n"
+        "PREMISE examples:\n"
+        "  actor is authorized | actor is not authorized\n"
+        "  actor is approved | actor is not approved\n"
+        "  value > 10 | value <= 100\n"
+        "\n"
+        "OBLIGATION examples:\n"
+        "  action must succeed\n"
+        "  action must reject before state_name\n"
+        "  state name must be value\n"
+        "  emit EVENT_NAME within N UNIT   (UNIT: seconds | minutes | hours | days)\n"
+        "  keep name > value | keep name <= value\n"
+        "\n"
+        "Rules:\n"
+        "  - Use only the vocabulary above; do not invent new keywords.\n"
+        "  - Every identifier must match [a-z][a-z0-9_]* (snake_case, lowercase).\n"
+        "  - Produce exactly one requirement block, nothing else.\n"
+    )
+
+
+def build_rewrite_prompt(prose: str, grammar_summary: str) -> str:
+    """Build the prompt string sent to the LLM for a controlled rewrite.
+
+    Deterministic — same inputs always produce the same output — so
+    prompt_hash is stable and goldens remain reproducible.
+    """
+    return (
+        "You are a precise technical writer converting free-form requirement prose "
+        "into a controlled DSL v3 requirement.\n\n"
+        "GRAMMAR:\n"
+        + grammar_summary
+        + "\nPROSE:\n"
+        + prose.strip()
+        + "\n\nProduce ONLY the controlled DSL v3 text, no explanation or commentary."
+    )
+
+
+def draft_controlled_rewrite_with_llm(
+    *,
+    intake: FreeFormIntakeArtifact,
+    client: LlmClient,
+    proposal_id: str,
+    timestamp: str,
+    model: str | None = None,
+) -> ControlledRewriteProposal:
+    """Produce a controlled rewrite proposal by calling an LlmClient.
+
+    The LLM output is UNTRUSTED.  The returned proposal has status
+    ``needs_approval``; callers must gate it through the human
+    approval/hash-binding step before passing to the parser.
+
+    PA-4.T2 TODO: wire a real anthropic.Anthropic() client here once the
+    'anthropic' package is added to pyproject.toml dependencies.  Until then,
+    supply a RecordedLlmClient for offline use or UnavailableLlmClient for
+    graceful failure.
+
+    Args:
+        intake: The free-form intake artifact the proposal is linked to.
+        client: An LlmClient-compatible object; use RecordedLlmClient for
+            offline/golden tests.
+        proposal_id: Unique identifier for the proposal artifact.
+        timestamp: ISO-8601 timestamp string for provenance.
+        model: Model identifier recorded in provenance (optional).
+
+    Returns:
+        A ControlledRewriteProposal with status ``needs_approval``.
+    """
+    grammar_summary = build_dsl_grammar_summary()
+    prompt = build_rewrite_prompt(intake.original_text, grammar_summary)
+    proposed_text = client.propose_controlled_rewrite(intake.original_text, grammar_summary)
+    return create_controlled_rewrite_proposal(
+        intake=intake,
+        proposal_id=proposal_id,
+        proposed_controlled_text=proposed_text,
+        timestamp=timestamp,
+        method="llm",
+        model=model,
+        prompt=prompt,
     )
 
 
