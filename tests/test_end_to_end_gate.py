@@ -608,6 +608,272 @@ def test_gate_z3_execution_adds_smt_checked_solver_result_to_proof_object(tmp_pa
     )
 
 
+def test_solver_status_recorded_in_gate_statuses(tmp_path: Path) -> None:
+    """Solver status is recorded in report.statuses['solver_system_consistency'].
+
+    When solver_execution is supplied, the base gate must record the solver result
+    status in its statuses dict so extended-gate and callers can read it directly.
+    Previously solver_system_consistency was recorded only as an artifact file but
+    was absent from the statuses dict, causing _extended_gate_default_statuses to
+    fall back to the marker check regardless of the solver result.
+    """
+    from nlreq.dsl_v3 import DslV3Parser
+    from nlreq.translator_agreement import TranslationAgreementInput, TranslationCandidate
+
+    src = tmp_path / "src"
+    specs = tmp_path / "specs"
+    src.mkdir()
+    specs.mkdir()
+    (src / "operation.py").write_text("def operation(actor):\n    return 'rejected'\n")
+    (specs / "SystemConstraint.tla").write_text(
+        "---- MODULE SystemConstraint ----\n"
+        "CONSTANT a\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_authorized(a) == FALSE\n"
+        "====\n"
+    )
+    trace_path = tmp_path / "traces.json"
+    trace_path.write_text(json.dumps([{
+        "trace_id": "T1", "adapter_id": "raw-python", "source_hash": "sha256:x",
+        "events": [{"event_id": "e1", "timestamp": "2026-06-01T00:00:01Z",
+                    "action": "operation", "post_state": {}}],
+    }]))
+    manifest = SourceManifest.model_validate({
+        "schema_version": "0.1", "adapter": "python-source",
+        "language": "python", "runtime": "cpython",
+        "modules": [{"module_id": "redemption", "path": "src/operation.py",
+                     "symbols": ["operation"], "trace_sources": ["traces.json"]}],
+    })
+    registry = SystemSpecRegistry.model_validate({
+        "schema_version": "0.1",
+        "specs": [{"spec_id": "spec:redemption", "module_ids": ["redemption"],
+                   "formalism": "tla", "path": "specs/SystemConstraint.tla",
+                   "version": "1", "review_status": "reviewed", "freshness": "fresh"}],
+    })
+    ir = DslV3Parser().parse_ir(
+        FIXTURES.joinpath("authorization_precondition_v3.nlreq").read_text(),
+        requirement_id="GATE-STATUS-001",
+        title="Solver status recording test",
+    )
+    agreement = TranslationAgreementInput(
+        candidates=[
+            TranslationCandidate(translator_id="p", method="deterministic",
+                                 requirement=ir, provenance={"source": "test"}),
+            TranslationCandidate(translator_id="r", method="deterministic",
+                                 requirement=ir, provenance={"source": "test"}),
+        ]
+    )
+
+    report = run_end_to_end_requirement_gate(
+        controlled_text=FIXTURES.joinpath("authorization_precondition_v3.nlreq").read_text(),
+        requirement_id="GATE-STATUS-001",
+        title="Solver status recording test",
+        source_adapter=__import__("nlreq.python_source_adapter", fromlist=["PythonSourceLanguageAdapter"]).PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["operation"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-status-artifacts",
+        solver_execution=FormalBackendExecution(checker_id="z3"),
+        requirement_ir=ir,
+        translation_agreement=agreement,
+    )
+
+    assert "solver_system_consistency" in report.statuses, (
+        "report.statuses must contain 'solver_system_consistency' when solver_execution is supplied"
+    )
+    assert report.statuses["solver_system_consistency"] in {"valid", "counterexample", "unsupported", "timeout"}, (
+        f"solver_system_consistency must be a recognized solver outcome, "
+        f"got {report.statuses['solver_system_consistency']!r}"
+    )
+
+
+def test_extended_gate_s_and_r_composition_prefers_solver_result(tmp_path: Path) -> None:
+    """_extended_gate_default_statuses maps s_and_r_composition to solver result when present.
+
+    When solver_system_consistency is in the base gate's statuses, the extended gate
+    must use it for s_and_r_composition rather than the marker-based system_consistency.
+    This makes the solver result the primary evidence for S∧R composition in the
+    extended gate, not an optional supplement.
+    """
+    from nlreq.end_to_end_gate import (
+        EndToEndRequirementGateReport,
+        build_extended_requirement_gate_report,
+        _extended_gate_default_statuses,
+    )
+
+    # Simulate a base gate report where marker says "valid" but solver says "counterexample".
+    gate_with_solver = EndToEndRequirementGateReport(
+        requirement_id="TEST-PREF",
+        decision="refused",
+        downstream_action="merge",
+        downstream_action_allowed=False,
+        proof_status="blocked",
+        closure_result="blocked",
+        statuses={
+            "system_consistency": "valid",          # marker says OK
+            "solver_system_consistency": "counterexample",  # solver disagrees
+            "translation_agreement": "agreed",
+            "requirement_self_consistency": "valid",
+            "spec_coverage": "passed",
+            "trace_alignment": "passed",
+            "trace_replay": "passed",
+            "formal_claim": "lowered",
+            "proof_object": "blocked",
+            "closure_gate": "blocked",
+        },
+    )
+    stage_statuses = _extended_gate_default_statuses(gate_with_solver)
+    assert stage_statuses["s_and_r_composition"] == "counterexample", (
+        f"s_and_r_composition must use solver result ('counterexample') when present, "
+        f"not marker result ('valid'). Got: {stage_statuses['s_and_r_composition']!r}"
+    )
+
+    # Simulate: solver ran but returned unsupported (tried, couldn't tell).
+    gate_solver_unknown = EndToEndRequirementGateReport(
+        requirement_id="TEST-UNK",
+        decision="unknown",
+        downstream_action="merge",
+        downstream_action_allowed=False,
+        proof_status="blocked",
+        closure_result="blocked",
+        statuses={
+            "system_consistency": "valid",
+            "solver_system_consistency": "unsupported",
+            "translation_agreement": "agreed",
+            "requirement_self_consistency": "valid",
+        },
+    )
+    stage_statuses_unknown = _extended_gate_default_statuses(gate_solver_unknown)
+    assert stage_statuses_unknown["s_and_r_composition"] == "unsupported", (
+        f"s_and_r_composition must use solver's 'unsupported' when present, "
+        f"falling back to marker 'valid' would silently hide a non-result. "
+        f"Got: {stage_statuses_unknown['s_and_r_composition']!r}"
+    )
+
+    # Simulate: no solver (solver_system_consistency absent) → falls back to marker.
+    gate_no_solver = EndToEndRequirementGateReport(
+        requirement_id="TEST-NOSOL",
+        decision="accepted",
+        downstream_action="merge",
+        downstream_action_allowed=True,
+        proof_status="closed",
+        closure_result="passed",
+        statuses={
+            "system_consistency": "valid",
+            "translation_agreement": "agreed",
+            "requirement_self_consistency": "valid",
+        },
+    )
+    stage_statuses_no_solver = _extended_gate_default_statuses(gate_no_solver)
+    assert stage_statuses_no_solver["s_and_r_composition"] == "valid", (
+        f"Without solver result, s_and_r_composition must fall back to marker 'valid'. "
+        f"Got: {stage_statuses_no_solver['s_and_r_composition']!r}"
+    )
+
+
+def test_solver_result_carries_covered_fragment_ids_and_predicates_stay_blocked(tmp_path: Path) -> None:
+    """Solver S∧R result carries covered_fragment_ids; predicate routes stay blocked.
+
+    The solver result (backend='solver_system_checker') must carry the fragment IDs of
+    all formal claim fragments as traceability metadata.  Crucially, predicate and
+    rejection_order fragment routes must remain blocked — adding covered_fragment_ids
+    to the solver result must NOT discharge those routes (wrong backend + wrong evidence
+    level vs the core_smt/apalache routes that formal_claim routing requires).
+    """
+    from nlreq.dsl_v3 import DslV3Parser
+    from nlreq.proof_closure import ProofObject
+    from nlreq.jsonutil import read_json
+    from nlreq.translator_agreement import TranslationAgreementInput, TranslationCandidate
+    from nlreq.python_source_adapter import PythonSourceLanguageAdapter
+
+    src = tmp_path / "src"
+    specs = tmp_path / "specs"
+    src.mkdir()
+    specs.mkdir()
+    (src / "operation.py").write_text("def operation(actor):\n    return 'rejected'\n")
+    (specs / "SystemConstraint.tla").write_text(
+        "---- MODULE SystemConstraint ----\n"
+        "CONSTANT a\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_authorized(a) == FALSE\n"
+        "====\n"
+    )
+    trace_path = tmp_path / "traces.json"
+    trace_path.write_text(json.dumps([{
+        "trace_id": "T1", "adapter_id": "raw-python", "source_hash": "sha256:x",
+        "events": [{"event_id": "e1", "timestamp": "2026-06-01T00:00:01Z",
+                    "action": "operation", "post_state": {}}],
+    }]))
+    manifest = SourceManifest.model_validate({
+        "schema_version": "0.1", "adapter": "python-source",
+        "language": "python", "runtime": "cpython",
+        "modules": [{"module_id": "redemption", "path": "src/operation.py",
+                     "symbols": ["operation"], "trace_sources": ["traces.json"]}],
+    })
+    registry = SystemSpecRegistry.model_validate({
+        "schema_version": "0.1",
+        "specs": [{"spec_id": "spec:redemption", "module_ids": ["redemption"],
+                   "formalism": "tla", "path": "specs/SystemConstraint.tla",
+                   "version": "1", "review_status": "reviewed", "freshness": "fresh"}],
+    })
+    ir = DslV3Parser().parse_ir(
+        FIXTURES.joinpath("authorization_precondition_v3.nlreq").read_text(),
+        requirement_id="GATE-FRAG-001",
+        title="Fragment binding test",
+    )
+    agreement = TranslationAgreementInput(
+        candidates=[
+            TranslationCandidate(translator_id="p", method="deterministic",
+                                 requirement=ir, provenance={"source": "test"}),
+            TranslationCandidate(translator_id="r", method="deterministic",
+                                 requirement=ir, provenance={"source": "test"}),
+        ]
+    )
+
+    report = run_end_to_end_requirement_gate(
+        controlled_text=FIXTURES.joinpath("authorization_precondition_v3.nlreq").read_text(),
+        requirement_id="GATE-FRAG-001",
+        title="Fragment binding test",
+        source_adapter=PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["operation"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-frag-artifacts",
+        solver_execution=FormalBackendExecution(checker_id="z3"),
+        requirement_ir=ir,
+        translation_agreement=agreement,
+    )
+
+    proof_path = Path(next(a.path for a in report.artifacts if a.name == "proof_object"))
+    proof = ProofObject.model_validate(read_json(proof_path))
+
+    # Solver result must carry covered_fragment_ids (provenance traceability).
+    solver_results = [r for r in proof.backend_results if r.backend == "solver_system_checker"]
+    assert solver_results, "ProofObject must carry solver_system_checker backend result"
+    solver_with_ids = [r for r in solver_results if "covered_fragment_ids" in r.details]
+    assert solver_with_ids, (
+        "Solver result must carry covered_fragment_ids for provenance traceability"
+    )
+    fragment_ids_in_solver = solver_with_ids[0].details["covered_fragment_ids"]
+    assert len(fragment_ids_in_solver) > 0, "covered_fragment_ids must be non-empty"
+
+    # Predicate and rejection_order premises must stay blocked — not discharged by the solver.
+    # formal_claim routes require an exact backend match (core_smt/apalache) so
+    # solver_system_checker results cannot discharge them.
+    predicate_premises = [
+        p for p in proof.premises
+        if p.node_kind in {"predicate", "rejection_order"}
+    ]
+    for premise in predicate_premises:
+        assert premise.status == "blocked", (
+            f"Predicate/rejection_order premise {premise.premise_id!r} must stay 'blocked' "
+            f"even with solver result present; got {premise.status!r}. "
+            "Solver results must not discharge formal_claim-routed premises via covered_fragment_ids."
+        )
+
+
 def _project(
     tmp_path: Path,
     *,

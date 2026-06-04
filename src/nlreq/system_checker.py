@@ -189,6 +189,31 @@ def check_solver_backed_system_consistency(
             evidence_level=z3_evidence,
         )
 
+    # External-checker path: real S∧R composition requires removing CONSTANT declarations
+    # from the lowered module and inlining concrete operator definitions for S.  This cannot
+    # be done by simple string substitution without risking arity/name mismatches across the
+    # module body.  Until PB-4 implements proper composition, refuse when S assignments exist
+    # rather than running with SystemSpecAssumptions == TRUE (a tautology that proves nothing).
+    if pred_assignments:
+        return _solver_result(
+            requirement.requirement_id,
+            "unsupported",
+            spec_ids,
+            {
+                "mode": "solver_backed",
+                "checker_id": execution.checker_id,
+                "reason": (
+                    "S predicate assignments from spec files cannot be inlined into the "
+                    "composed TLA+ module without removing CONSTANT declarations; "
+                    "real S∧R composition is pending PB-4"
+                ),
+                "s_pred_count": len(pred_assignments),
+                "spec_hashes": {
+                    spec_id: sha256_text(text) for spec_id, text in spec_texts
+                },
+            },
+        )
+
     artifact_dir = _solver_artifact_dir(requirement, execution)
     artifact_dir.mkdir(parents=True, exist_ok=True)
     module_name = _safe_tla_name(f"{requirement.requirement_id}_S_AND_R")
@@ -360,6 +385,36 @@ def _extract_pred_assignments_from_specs(
     return assignments
 
 
+def _obligation_consequent_is_real(module_text: str) -> bool:
+    """True if the Obligation definition has a non-vacuous state constraint consequent.
+
+    Catches regressions where the obligation consequent is changed to TRUE while
+    the Pred_* name is preserved, e.g. Obligation == Pred_foo(a) => TRUE.
+    The expected form from lower_authorization_precondition_tla is:
+      Obligation == Pred_foo(a) => NLRState /= "accepted"
+    Returns False for vacuous consequents (=> TRUE) or missing Obligation lines.
+    """
+    import re
+    match = re.search(r"^Obligation == (.*)$", module_text, re.MULTILINE)
+    if not match:
+        return False
+    body = match.group(1)
+    return "NLRState" in body and "/=" in body
+
+
+def _next_has_steps(module_text: str) -> bool:
+    """True if the Next definition includes at least one Step_* action.
+
+    Catches regressions where Next == UNCHANGED NLRState (no real transitions),
+    which would make the obligation trivially true regardless of the S assignment.
+    """
+    import re
+    match = re.search(r"^Next == (.+)$", module_text, re.MULTILINE)
+    if not match:
+        return False
+    return "Step_" in match.group(1)
+
+
 def _z3_check_obligation_under_s(
     lowered_content: str,
     pred_assignments: dict[str, bool],
@@ -369,6 +424,12 @@ def _z3_check_obligation_under_s(
     S is given by pred_assignments (Pred_name → bool).  The obligation predicates are
     parsed from the Obligation == line of the lowered module — not from CONSTANT declarations
     — so a regression that replaces Obligation with TRUE is caught (returns "unknown").
+
+    Also validates structural integrity of the lowered module before encoding Z3 constraints:
+      - Obligation must have a real state consequent (NLRState /=), not a vacuous => TRUE.
+      - Next must include at least one Step_* action (not just UNCHANGED NLRState).
+    Both checks return "unknown" on failure so no false-positive "valid" is emitted for
+    a structurally defective module.
 
     Under S (pred = FALSE for R):
       Violation query: pred=TRUE AND reached=TRUE.
@@ -380,12 +441,20 @@ def _z3_check_obligation_under_s(
 
     Returns "unknown" when:
       - The Obligation line is absent or vacuous (Obligation == TRUE regression).
+      - The obligation consequent is vacuous (=> TRUE mutation).
+      - Next has no Step_* transitions (UNCHANGED-only regression).
       - Not all obligation predicates have assignments in pred_assignments.
     """
     from z3 import Bool, BoolVal, Solver, sat, unsat
 
     obligation_preds = parse_obligation_predicates(lowered_content)
     if not obligation_preds:
+        return "unknown"
+
+    if not _obligation_consequent_is_real(lowered_content):
+        return "unknown"
+
+    if not _next_has_steps(lowered_content):
         return "unknown"
 
     if not all(name in pred_assignments for name in obligation_preds):

@@ -510,3 +510,156 @@ def test_z3_gate_obligation_vacuous_breaks_discrimination(tmp_path: Path) -> Non
         f"Vacuous obligation must return 'unsupported' (unknown Z3 outcome), "
         f"got {result.result.status!r}"
     )
+
+
+def test_z3_gate_vacuous_consequent_returns_unsupported(tmp_path: Path) -> None:
+    """Mutation: Obligation == Pred_foo(a) => TRUE (vacuous consequent).
+
+    The check must return 'unsupported' (unknown Z3 outcome), NOT 'counterexample'.
+    _obligation_consequent_is_real detects the absent NLRState /= constraint and
+    returns unknown before encoding any Z3 formulas — anchoring the check to the
+    actual obligation consequent, not just the predicate name.
+    """
+    import re
+    from nlreq.translator import LoweredFormalArtifact as LFA
+    from nlreq.jsonutil import sha256_text
+
+    ir = _negation_ir()
+    normal_lowered = lower_ir_v2_to_tla(ir)
+    assert normal_lowered.status == "lowered"
+
+    # Mutate: replace real consequent with => TRUE (vacuous, obligation never fires)
+    vacuous_content = re.sub(
+        r"(^Obligation == .* => )NLRState /= \"accepted\"",
+        r"\1TRUE",
+        normal_lowered.content,
+        flags=re.MULTILINE,
+    )
+    assert "=> TRUE" in vacuous_content, "Mutation must insert => TRUE consequent"
+    vacuous_lowered = LFA.model_validate(
+        normal_lowered.model_copy(
+            update={"content": vacuous_content, "content_hash": sha256_text(vacuous_content)}
+        ).model_dump(mode="json", exclude_none=True)
+    )
+
+    s_spec = (
+        "---- MODULE SystemConstraint ----\n"
+        "CONSTANT a\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_not_authorized(a) == TRUE\n"
+        "====\n"
+    )
+    registry = _z3_registry(tmp_path, spec_content=s_spec)
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=vacuous_lowered,
+        registry=registry,
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        execution=FormalBackendExecution(checker_id="z3"),
+    )
+
+    assert result.result.status == "unsupported", (
+        f"Vacuous consequent (=> TRUE) must return 'unsupported', "
+        f"got {result.result.status!r}"
+    )
+
+
+def test_z3_gate_no_step_transitions_returns_unsupported(tmp_path: Path) -> None:
+    """Mutation: Next == UNCHANGED NLRState (no real transitions).
+
+    When the Next definition has no Step_* actions, the obligation is trivially
+    satisfied because NLRState never changes from 'idle'. The check must return
+    'unsupported' so this structural defect does not produce a false 'valid'.
+    _next_has_steps detects the absent Step_* references before encoding Z3.
+    """
+    import re
+    from nlreq.translator import LoweredFormalArtifact as LFA
+    from nlreq.jsonutil import sha256_text
+
+    ir = _authz_ir()
+    normal_lowered = lower_ir_v2_to_tla(ir)
+    assert normal_lowered.status == "lowered"
+
+    # Mutate: remove all Step_* references from Next, leaving only UNCHANGED
+    stub_content = re.sub(
+        r"^Next == .*$",
+        "Next == UNCHANGED NLRState",
+        normal_lowered.content,
+        flags=re.MULTILINE,
+    )
+    assert "UNCHANGED NLRState" in stub_content
+    stub_lowered = LFA.model_validate(
+        normal_lowered.model_copy(
+            update={"content": stub_content, "content_hash": sha256_text(stub_content)}
+        ).model_dump(mode="json", exclude_none=True)
+    )
+
+    s_spec = (
+        "---- MODULE SystemConstraint ----\n"
+        "CONSTANT a\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_authorized(a) == FALSE\n"
+        "====\n"
+    )
+    registry = _z3_registry(tmp_path, spec_content=s_spec)
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=stub_lowered,
+        registry=registry,
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        execution=FormalBackendExecution(checker_id="z3"),
+    )
+
+    assert result.result.status == "unsupported", (
+        f"No-step Next definition must return 'unsupported', got {result.result.status!r}"
+    )
+
+
+def test_external_solver_with_s_pred_assignments_returns_unsupported(tmp_path: Path) -> None:
+    """External solver path refuses as unsupported when S predicate assignments exist.
+
+    When spec files define Pred_*(...) == TRUE/FALSE and a non-Z3 external checker is
+    requested, real S∧R composition would require stripping CONSTANT declarations from
+    the lowered module and inlining concrete operator definitions — not implemented until
+    PB-4.  The check must refuse rather than run with SystemSpecAssumptions == TRUE
+    (a tautology that proves nothing about the real S∧R relationship).
+    """
+    ir = _authz_ir()
+    lowered = lower_ir_v2_to_tla(ir)
+    assert lowered.status == "lowered"
+
+    # S has Pred_authorized assignments — this triggers the PB-4 guard.
+    s_spec = (
+        "---- MODULE SystemConstraint ----\n"
+        "CONSTANT a\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_authorized(a) == FALSE\n"
+        "====\n"
+    )
+    registry = _z3_registry(tmp_path, spec_content=s_spec)
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lowered,
+        registry=registry,
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        execution=FormalBackendExecution(
+            checker_id="custom",
+            command=[sys.executable, "-c", "print('verification successful')"],
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.status == "unsupported", (
+        f"External solver with S pred assignments must return 'unsupported' (PB-4 guard), "
+        f"got {result.result.status!r}"
+    )
+    assert "PB-4" in result.result.details.get("reason", ""), (
+        "Unsupported reason must reference PB-4"
+    )
+    # External checker must NOT have been invoked (no artifact directory created).
+    assert not (tmp_path / "artifacts").exists(), (
+        "Artifact directory must not be created when returning unsupported before execution"
+    )

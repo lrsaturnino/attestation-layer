@@ -425,6 +425,24 @@ def run_end_to_end_requirement_gate(
         smt_fragment_results = smt_check_formal_claim_predicate_fragments(
             formal_claim_preview.formal_claim
         )
+        # Enrich solver result with covered_fragment_ids for provenance traceability.
+        # The solver's S∧R check operates at requirement level and covers all predicate/
+        # obligation fragments — recording the IDs makes the scope explicit in the ProofObject.
+        # This does NOT change route matching: predicate fragments route to core_smt/apalache
+        # (formal_claim mode requires an exact backend match), so they remain blocked until
+        # a real Apalache run discharges them.
+        if solver_system_result and formal_claim_preview.formal_claim is not None:
+            all_fragment_ids = [
+                f.fragment_id
+                for f in [
+                    *formal_claim_preview.formal_claim.premises,
+                    *formal_claim_preview.formal_claim.obligations,
+                ]
+            ]
+            solver_system_result = [
+                r.model_copy(update={"details": {**r.details, "covered_fragment_ids": all_fragment_ids}})
+                for r in solver_system_result
+            ]
     else:
         smt_fragment_results = []
     all_backend_results = [*system_backend_results, *solver_system_result, *smt_fragment_results]
@@ -455,9 +473,10 @@ def run_end_to_end_requirement_gate(
         "proof_object": proof.status,
         "closure_gate": closure.result,
     }
-    solver_status_for_blocker = (
-        solver_system_result[0].status if solver_system_result else None
-    )
+    solver_status_for_blocker: str | None = None
+    if solver_system_result:
+        solver_status_for_blocker = solver_system_result[0].status
+        statuses["solver_system_consistency"] = solver_status_for_blocker
     blockers = _blockers(
         translation_status=translation.status,
         self_consistency_status=self_consistency.status,
@@ -554,13 +573,21 @@ def _extended_gate_default_statuses(gate: EndToEndRequirementGateReport) -> dict
     trace_status = "passed"
     if statuses.get("trace_alignment") != "passed" or statuses.get("trace_replay") != "passed":
         trace_status = statuses.get("trace_replay") or statuses.get("trace_alignment") or "missing"
+    # s_and_r_composition prefers the solver-backed result when available: the solver ran and
+    # its status (valid/counterexample/unsupported/timeout) is more informative than the marker
+    # check.  Solver "unsupported"/"timeout" maps to "unknown" in the extended gate, correctly
+    # distinguishing "tried but couldn't determine" from "marker says valid" (no solver run).
+    s_and_r_status = (
+        statuses.get("solver_system_consistency")
+        or statuses.get("system_consistency", "missing")
+    )
     return {
         "semantic_translation": statuses.get("semantic_agreement")
         or statuses.get("translation_agreement", "missing"),
         "requirement_self_consistency": statuses.get(
             "requirement_self_consistency", "missing"
         ),
-        "s_and_r_composition": statuses.get("system_consistency", "missing"),
+        "s_and_r_composition": s_and_r_status,
         "trace_validation": trace_status,
         "proof_closure": statuses.get("proof_object", "missing"),
         "release_action_gate": statuses.get("closure_gate", "missing"),
