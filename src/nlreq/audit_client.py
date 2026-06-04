@@ -15,7 +15,10 @@ from __future__ import annotations
 
 from typing import Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic.types import StrictBool
+
+from .jsonutil import sha256_text
 
 
 _DEFAULT_AUDIT_MODEL = "claude-haiku-4-5-20251001"
@@ -54,7 +57,7 @@ class AuditVerdict(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    covers_all_clauses: bool
+    covers_all_clauses: StrictBool
     invented_premises: list[str] = Field(default_factory=list)
     verdict: Literal["passed", "failed"]
     audit_prompt_version: str = _AUDIT_PROMPT_VERSION
@@ -101,22 +104,58 @@ class AuditClient(Protocol):
 class RecordedAuditClient:
     """Replays a pre-recorded fixture verdict; never contacts a real model.
 
-    Use for offline/golden tests and CI.  The fixture verdict is returned verbatim
-    regardless of the controlled_text or ir_summary inputs.
+    Use for offline/golden tests and CI.
 
-    To test invented-premise rejection: supply a fixture with verdict="failed"
-    and a non-empty invented_premises list.
-    To test clean decomposition: supply a fixture with verdict="passed".
+    Without hash constraints, the fixture verdict is returned verbatim regardless
+    of the controlled_text or ir_summary inputs (suitable for truly generic tests).
+
+    When expected_controlled_text_hash or expected_ir_summary_hash is supplied,
+    the corresponding input is hashed and compared against the expected value.  A
+    mismatch returns a conservative failed verdict so a passing fixture cannot be
+    replayed against a different decomposition and bless it.
+
+    The ir_summary hash should be computed from the exact output of
+    summarize_ir_for_audit(requirement) — that is the string apply_audit passes.
     """
 
-    def __init__(self, fixture: AuditVerdict) -> None:
+    def __init__(
+        self,
+        fixture: AuditVerdict,
+        *,
+        expected_controlled_text_hash: str | None = None,
+        expected_ir_summary_hash: str | None = None,
+    ) -> None:
         self._fixture = fixture
+        self._expected_controlled_text_hash = expected_controlled_text_hash
+        self._expected_ir_summary_hash = expected_ir_summary_hash
 
     def audit_decomposition(
         self,
         controlled_text: str,
         ir_summary: str,
     ) -> AuditVerdict:
+        if self._expected_controlled_text_hash is not None:
+            actual = sha256_text(controlled_text)
+            if actual != self._expected_controlled_text_hash:
+                return AuditVerdict(
+                    covers_all_clauses=False,
+                    invented_premises=[
+                        f"[audit-fixture-mismatch: controlled_text hash {actual!r} "
+                        f"does not match expected {self._expected_controlled_text_hash!r}]"
+                    ],
+                    verdict="failed",
+                )
+        if self._expected_ir_summary_hash is not None:
+            actual = sha256_text(ir_summary)
+            if actual != self._expected_ir_summary_hash:
+                return AuditVerdict(
+                    covers_all_clauses=False,
+                    invented_premises=[
+                        f"[audit-fixture-mismatch: ir_summary hash {actual!r} "
+                        f"does not match expected {self._expected_ir_summary_hash!r}]"
+                    ],
+                    verdict="failed",
+                )
         return self._fixture
 
 
@@ -167,17 +206,23 @@ class AnthropicAuditClient:
 
         try:
             data = json.loads(raw)
+            # Do NOT coerce covers_all_clauses with bool() before passing to Pydantic.
+            # StrictBool rejects non-bool values (e.g. the string "false") and raises
+            # ValidationError, caught below as a conservative failure.  list[str] already
+            # rejects non-list invented_premises without a coercion wrapper.
             return AuditVerdict(
-                covers_all_clauses=bool(data["covers_all_clauses"]),
+                covers_all_clauses=data["covers_all_clauses"],
                 invented_premises=list(data.get("invented_premises", [])),
                 verdict=str(data["verdict"]),
                 model_id=self._model,
             )
-        except (json.JSONDecodeError, KeyError, TypeError):
-            # Conservative failure: an unreadable verdict does not pass as audit.
+        except (json.JSONDecodeError, KeyError, TypeError, ValidationError):
+            # Conservative failure: an unreadable or schema-invalid verdict does not pass.
             return AuditVerdict(
                 covers_all_clauses=False,
-                invented_premises=["[audit-parse-error: model response was not valid JSON]"],
+                invented_premises=[
+                    "[audit-parse-error: model response was not valid JSON or failed schema validation]"
+                ],
                 verdict="failed",
                 model_id=self._model,
             )

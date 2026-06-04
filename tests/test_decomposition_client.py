@@ -1453,3 +1453,173 @@ def test_cli_audit_client_recorded_unlocks_unaudited_candidates(tmp_path: Path) 
     for av in audit_verdicts:
         assert av["verdict"] == "passed"
         assert av["covers_all_clauses"] is True
+
+
+# ---------------------------------------------------------------------------
+# AuditVerdict strict-bool validation (PA-6 live audit parsing hardening)
+# ---------------------------------------------------------------------------
+
+
+def test_audit_verdict_rejects_string_false_covers_all_clauses() -> None:
+    """AuditVerdict rejects a string 'false' for covers_all_clauses (StrictBool enforced).
+
+    Guards the live audit parsing trust boundary: a model response like
+    {"covers_all_clauses": "false"} must not be silently treated as True.
+    Python's bool("false") returns True, so the Pydantic StrictBool annotation
+    on covers_all_clauses is the enforcement point.  A ValidationError here means
+    the AnthropicAuditClient catches it and returns a conservative failed verdict.
+    """
+    from pydantic import ValidationError as PydanticValidationError
+
+    with pytest.raises(PydanticValidationError):
+        AuditVerdict(covers_all_clauses="false", invented_premises=[], verdict="failed")
+
+
+def test_audit_verdict_rejects_string_true_covers_all_clauses() -> None:
+    """AuditVerdict rejects the string 'true' for covers_all_clauses (StrictBool enforced)."""
+    from pydantic import ValidationError as PydanticValidationError
+
+    with pytest.raises(PydanticValidationError):
+        AuditVerdict(covers_all_clauses="true", invented_premises=[], verdict="passed")
+
+
+def test_audit_verdict_rejects_int_covers_all_clauses() -> None:
+    """AuditVerdict rejects integers (1/0) for covers_all_clauses (StrictBool enforced).
+
+    Model responses like {"covers_all_clauses": 1} must fail, not silently coerce
+    to True.  StrictBool accepts only literal Python bools.
+    """
+    from pydantic import ValidationError as PydanticValidationError
+
+    with pytest.raises(PydanticValidationError):
+        AuditVerdict(covers_all_clauses=1, invented_premises=[], verdict="passed")
+
+    with pytest.raises(PydanticValidationError):
+        AuditVerdict(covers_all_clauses=0, invented_premises=[], verdict="failed")
+
+
+def test_audit_verdict_rejects_invalid_verdict_string() -> None:
+    """AuditVerdict rejects a verdict string that is not 'passed' or 'failed'.
+
+    A model response like {"verdict": "maybe"} must fail the Literal["passed","failed"]
+    constraint, be caught in the live client, and return a conservative failure.
+    The model_validator coerces the verdict to 'failed' if structural fields disagree,
+    so a badly-formatted verdict from the model also fails at the Literal level first.
+    """
+    from pydantic import ValidationError as PydanticValidationError
+
+    with pytest.raises(PydanticValidationError):
+        AuditVerdict(covers_all_clauses=True, invented_premises=[], verdict="maybe")
+
+
+def test_audit_verdict_rejects_non_list_invented_premises() -> None:
+    """AuditVerdict rejects a non-list value for invented_premises.
+
+    A model response like {"invented_premises": "some string"} must fail the
+    list[str] constraint and be caught by the conservative-failure handler.
+    """
+    from pydantic import ValidationError as PydanticValidationError
+
+    with pytest.raises(PydanticValidationError):
+        AuditVerdict(covers_all_clauses=True, invented_premises="invented premise as string", verdict="passed")
+
+
+def test_audit_verdict_accepts_actual_bools() -> None:
+    """AuditVerdict accepts actual Python booleans (the only valid values)."""
+    v_pass = AuditVerdict(covers_all_clauses=True, invented_premises=[], verdict="passed")
+    assert v_pass.covers_all_clauses is True
+    assert v_pass.verdict == "passed"
+
+    v_fail = AuditVerdict(covers_all_clauses=False, invented_premises=[], verdict="failed")
+    assert v_fail.covers_all_clauses is False
+    assert v_fail.verdict == "failed"
+
+
+# ---------------------------------------------------------------------------
+# RecordedAuditClient hash binding (PA-6 replay binding)
+# ---------------------------------------------------------------------------
+
+
+def test_recorded_audit_client_without_hash_constraints_returns_fixture() -> None:
+    """RecordedAuditClient without hash constraints returns the fixture regardless of inputs.
+
+    This is the original behaviour preserved for callers that do not need hash binding
+    (generic tests, broad offline fixtures).
+    """
+    verdict = AuditVerdict(covers_all_clauses=True, invented_premises=[], verdict="passed")
+    client = RecordedAuditClient(fixture=verdict)
+
+    result_a = client.audit_decomposition("any controlled text", "any IR summary")
+    result_b = client.audit_decomposition("completely different text", "different IR")
+
+    assert result_a is verdict
+    assert result_b is verdict
+
+
+def test_recorded_audit_client_controlled_text_hash_match_returns_fixture() -> None:
+    """RecordedAuditClient with expected_controlled_text_hash returns fixture on hash match."""
+    controlled_text = "requirement authorization_precondition: scope payment when actor is authorized then payment must reject before finalized."
+    expected_hash = sha256_text(controlled_text)
+
+    verdict = AuditVerdict(covers_all_clauses=True, invented_premises=[], verdict="passed")
+    client = RecordedAuditClient(
+        fixture=verdict,
+        expected_controlled_text_hash=expected_hash,
+    )
+
+    result = client.audit_decomposition(controlled_text=controlled_text, ir_summary="any IR")
+    assert result is verdict, "Hash matched: fixture must be returned"
+
+
+def test_recorded_audit_client_controlled_text_hash_mismatch_returns_failure() -> None:
+    """RecordedAuditClient with expected_controlled_text_hash returns conservative failure on mismatch.
+
+    This prevents a passing audit fixture being replayed against a different controlled text
+    and blessing a decomposition it was never audited for.
+    """
+    original_text = "requirement authorization_precondition: scope payment when actor is authorized then payment must reject before finalized."
+    different_text = "requirement authorization_precondition: scope payment when actor is not authorized then payment must reject before finalized."
+    expected_hash = sha256_text(original_text)
+
+    verdict = AuditVerdict(covers_all_clauses=True, invented_premises=[], verdict="passed")
+    client = RecordedAuditClient(
+        fixture=verdict,
+        expected_controlled_text_hash=expected_hash,
+    )
+
+    result = client.audit_decomposition(controlled_text=different_text, ir_summary="any IR")
+    assert result is not verdict, "Hash mismatched: fixture must NOT be returned"
+    assert result.verdict == "failed"
+    assert result.covers_all_clauses is False
+    assert any("audit-fixture-mismatch" in p for p in result.invented_premises), (
+        f"Failure must explain the mismatch, got: {result.invented_premises}"
+    )
+
+
+def test_recorded_audit_client_ir_summary_hash_mismatch_returns_failure() -> None:
+    """RecordedAuditClient with expected_ir_summary_hash returns conservative failure on mismatch.
+
+    The ir_summary_hash binding prevents a fixture from blessing a decomposition whose
+    IR summary differs from what the fixture was created for.
+    """
+    from nlreq.audit_client import summarize_ir_for_audit
+
+    ir = _parse_ir()
+    expected_ir_summary = summarize_ir_for_audit(ir)
+    expected_hash = sha256_text(expected_ir_summary)
+
+    verdict = AuditVerdict(covers_all_clauses=True, invented_premises=[], verdict="passed")
+    client = RecordedAuditClient(
+        fixture=verdict,
+        expected_ir_summary_hash=expected_hash,
+    )
+
+    # Correct summary → fixture returned.
+    result_match = client.audit_decomposition(controlled_text="any", ir_summary=expected_ir_summary)
+    assert result_match is verdict
+
+    # Different summary → conservative failure.
+    result_mismatch = client.audit_decomposition(controlled_text="any", ir_summary="completely different IR summary")
+    assert result_mismatch.verdict == "failed"
+    assert result_mismatch.covers_all_clauses is False
+    assert any("audit-fixture-mismatch" in p for p in result_mismatch.invented_premises)

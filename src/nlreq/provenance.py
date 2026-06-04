@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -8,6 +8,9 @@ from .jsonutil import sha256_text
 from .models import RequirementIRV2, SemanticNode, SourceSpan
 from .translator import LoweredFormalArtifact
 from .translator_agreement import TranslationAgreementReport
+
+if TYPE_CHECKING:
+    from .audit_client import AuditVerdict
 
 
 PROVENANCE_SCHEMA_VERSION = "0.1"
@@ -17,7 +20,7 @@ class ProvenanceNode(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     node_id: str
-    kind: Literal["text_span", "ir_node", "formal_fragment", "refusal_reason"]
+    kind: Literal["text_span", "ir_node", "formal_fragment", "refusal_reason", "llm_draft", "audit_verdict"]
     label: str
     source_span: SourceSpan | None = None
     artifact_hash: str | None = None
@@ -28,7 +31,7 @@ class ProvenanceEdge(BaseModel):
 
     from_node: str
     to_node: str
-    relation: Literal["parsed_to", "lowered_to", "explains", "refuses"]
+    relation: Literal["parsed_to", "lowered_to", "explains", "refuses", "generated_by_llm", "audited_by"]
 
 
 class ProvenanceGraph(BaseModel):
@@ -81,7 +84,20 @@ def build_provenance_graph(
     requirement: RequirementIRV2,
     *,
     lowered: LoweredFormalArtifact | None = None,
+    llm_source_label: str | None = None,
+    audit_verdict: "AuditVerdict | None" = None,
 ) -> ProvenanceGraph:
+    """Build a provenance graph for a RequirementIRV2.
+
+    llm_source_label: when the IR was produced by an LLM decomposition (PA-4/PA-5),
+        supply the model identifier or draft label.  An llm_draft node is added and
+        connected to the IR root via a generated_by_llm edge.
+
+    audit_verdict: when the LLM decomposition was audited (PA-6), supply the verdict.
+        An audit_verdict node is added and connected to the formal fragment (when
+        lowered is also supplied) or to the IR root (when lowered is absent) via an
+        audited_by edge.
+    """
     nodes: list[ProvenanceNode] = []
     edges: list[ProvenanceEdge] = []
     for node in _walk_nodes(requirement.semantic_ir):
@@ -98,6 +114,12 @@ def build_provenance_graph(
                 )
             )
             edges.append(ProvenanceEdge(from_node=text_node_id, to_node=ir_node_id, relation="parsed_to"))
+    if llm_source_label is not None:
+        llm_node_id = "llm:draft"
+        nodes.append(ProvenanceNode(node_id=llm_node_id, kind="llm_draft", label=llm_source_label))
+        edges.append(
+            ProvenanceEdge(from_node=llm_node_id, to_node="ir:rule.root", relation="generated_by_llm")
+        )
     if lowered is not None:
         formal_id = "formal:lowered"
         nodes.append(
@@ -113,6 +135,13 @@ def build_provenance_graph(
             refusal_id = f"refusal:{diagnostic.node_id}"
             nodes.append(ProvenanceNode(node_id=refusal_id, kind="refusal_reason", label=diagnostic.reason))
             edges.append(ProvenanceEdge(from_node=f"ir:{diagnostic.node_id}", to_node=refusal_id, relation="refuses"))
+    if audit_verdict is not None:
+        audit_node_id = "audit:verdict"
+        audit_label = f"audit:{audit_verdict.verdict}"
+        nodes.append(ProvenanceNode(node_id=audit_node_id, kind="audit_verdict", label=audit_label))
+        # Connect the audit verdict to the formal fragment when lowered, else to IR root.
+        audit_anchor = "formal:lowered" if lowered is not None else "ir:rule.root"
+        edges.append(ProvenanceEdge(from_node=audit_anchor, to_node=audit_node_id, relation="audited_by"))
     return ProvenanceGraph(requirement_id=requirement.requirement_id, nodes=nodes, edges=edges)
 
 

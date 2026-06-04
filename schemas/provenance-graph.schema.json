@@ -12,7 +12,9 @@
             "parsed_to",
             "lowered_to",
             "explains",
-            "refuses"
+            "refuses",
+            "generated_by_llm",
+            "audited_by"
           ],
           "title": "Relation",
           "type": "string"
@@ -50,7 +52,9 @@
             "text_span",
             "ir_node",
             "formal_fragment",
-            "refusal_reason"
+            "refusal_reason",
+            "llm_draft",
+            "audit_verdict"
           ],
           "title": "Kind",
           "type": "string"

@@ -634,3 +634,89 @@ def test_translation_benchmark_scores_semantics_clarification_and_refusal() -> N
     assert report.semantic_match_rate == pytest.approx(1 / 3)
     assert report.clarification_quality == 1.0
     assert report.refusal_correctness == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Provenance graph extensions: llm_draft and audit_verdict node kinds (PA-6)
+# ---------------------------------------------------------------------------
+
+
+def test_build_provenance_graph_with_llm_source_label_adds_llm_draft_node() -> None:
+    """build_provenance_graph with llm_source_label adds a llm_draft node and generated_by_llm edge.
+
+    When the IR was produced by an LLM decomposition, the provenance graph records
+    the LLM source so downstream consumers can distinguish LLM-derived fragments
+    from deterministically-parsed ones.
+    """
+    controlled = DSL_V3_CASES[1][1]
+    ir = DslV3Parser().parse_ir(controlled, requirement_id="REQ-PROV-LLM", title="LLM Prov")
+
+    graph = build_provenance_graph(ir, llm_source_label="test-model-v1")
+
+    llm_nodes = [n for n in graph.nodes if n.kind == "llm_draft"]
+    assert len(llm_nodes) == 1, f"Expected 1 llm_draft node, got {len(llm_nodes)}"
+    assert llm_nodes[0].label == "test-model-v1"
+
+    llm_edges = [e for e in graph.edges if e.relation == "generated_by_llm"]
+    assert len(llm_edges) == 1, f"Expected 1 generated_by_llm edge, got {len(llm_edges)}"
+    assert llm_edges[0].from_node == "llm:draft"
+    assert llm_edges[0].to_node == "ir:rule.root"
+
+
+def test_build_provenance_graph_without_llm_source_label_has_no_llm_node() -> None:
+    """build_provenance_graph without llm_source_label adds no llm_draft node (backward compat)."""
+    controlled = DSL_V3_CASES[1][1]
+    ir = DslV3Parser().parse_ir(controlled, requirement_id="REQ-PROV-NOLLM", title="No LLM")
+
+    graph = build_provenance_graph(ir)
+
+    assert not any(n.kind == "llm_draft" for n in graph.nodes)
+    assert not any(e.relation == "generated_by_llm" for e in graph.edges)
+
+
+def test_build_provenance_graph_with_audit_verdict_adds_audit_node() -> None:
+    """build_provenance_graph with audit_verdict adds an audit_verdict node and audited_by edge.
+
+    When the LLM decomposition was audited (PA-6), the provenance graph records the
+    audit verdict so the package/report layer can surface which fragments were blessed
+    by a second-model audit and what the verdict was.
+    """
+    from nlreq.audit_client import AuditVerdict
+
+    controlled = DSL_V3_CASES[1][1]
+    ir = DslV3Parser().parse_ir(controlled, requirement_id="REQ-PROV-AUDIT", title="Audit Prov")
+    verdict = AuditVerdict(covers_all_clauses=True, invented_premises=[], verdict="passed")
+
+    graph = build_provenance_graph(ir, audit_verdict=verdict)
+
+    audit_nodes = [n for n in graph.nodes if n.kind == "audit_verdict"]
+    assert len(audit_nodes) == 1, f"Expected 1 audit_verdict node, got {len(audit_nodes)}"
+    assert "passed" in audit_nodes[0].label
+
+    audited_edges = [e for e in graph.edges if e.relation == "audited_by"]
+    assert len(audited_edges) == 1
+    assert audited_edges[0].to_node == "audit:verdict"
+    # Without a lowered artifact, the anchor is ir:rule.root.
+    assert audited_edges[0].from_node == "ir:rule.root"
+
+
+def test_build_provenance_graph_audit_verdict_anchors_to_formal_fragment_when_lowered() -> None:
+    """When lowered is also provided, audit_verdict connects to formal:lowered, not ir:rule.root."""
+    from nlreq.audit_client import AuditVerdict
+    from nlreq.translator import lower_ir_v2_to_tla
+
+    controlled = DSL_V3_CASES[1][1]
+    ir = DslV3Parser().parse_ir(controlled, requirement_id="REQ-PROV-AUDITLOW", title="Audit+Lowered")
+    lowered = lower_ir_v2_to_tla(ir)
+    verdict = AuditVerdict(covers_all_clauses=False, invented_premises=["extra_cond"], verdict="failed")
+
+    graph = build_provenance_graph(ir, lowered=lowered, audit_verdict=verdict)
+
+    audited_edges = [e for e in graph.edges if e.relation == "audited_by"]
+    assert len(audited_edges) == 1
+    assert audited_edges[0].from_node == "formal:lowered"
+    assert audited_edges[0].to_node == "audit:verdict"
+
+    audit_nodes = [n for n in graph.nodes if n.kind == "audit_verdict"]
+    assert len(audit_nodes) == 1
+    assert "failed" in audit_nodes[0].label
