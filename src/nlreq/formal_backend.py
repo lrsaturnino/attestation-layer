@@ -514,7 +514,10 @@ def _tla_module_name(lowered: LoweredFormalArtifact) -> str:
 
 
 def _tla_config_content() -> str:
-    return "INIT Init\nNEXT Next\nPROPERTY RequirementHolds\n"
+    # INVARIANT checks RequirementHolds at every reachable state.
+    # PROPERTY on a bare boolean formula only checks the initial state in TLC,
+    # which is trivially true (NLRState = "idle") and vacuous.
+    return "INIT Init\nNEXT Next\nINVARIANT RequirementHolds\n"
 
 
 def _tla_checker_command(

@@ -127,7 +127,7 @@ def test_tla_runner_lowers_writes_artifacts_and_maps_valid_result(tmp_path: Path
     assert response.result.details["bounds"]["max_depth"] == 10
     assert (tmp_path / "Req_REQ_DSL_V2_001.tla").is_file()
     assert (tmp_path / "Req_REQ_DSL_V2_001.cfg").read_text() == (
-        "INIT Init\nNEXT Next\nPROPERTY RequirementHolds\n"
+        "INIT Init\nNEXT Next\nINVARIANT RequirementHolds\n"
     )
 
 

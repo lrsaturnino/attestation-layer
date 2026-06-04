@@ -160,11 +160,13 @@ def test_end_to_end_gate_with_v3_requirement_has_formal_claim_fragment_ids(tmp_p
         f"Expected formal fragment IDs in ProofObject but found: {premise_ids}"
     )
 
-    # Predicate premises discharged via core_smt; rejection_order obligations open
+    # Predicate premises remain open — named uninterpreted predicates require
+    # model-level checking (Pillar B/system_checker), not SMT well-formedness.
+    # rejection_order obligations remain open — no Apalache binary available.
     predicate_premises = [p for p in proof.premises if p.node_kind == "predicate"]
     rejection_order = [p for p in proof.premises if p.node_kind == "rejection_order"]
-    assert all(p.status == "discharged" for p in predicate_premises), (
-        f"Predicate premises should be discharged via core_smt: {predicate_premises}"
+    assert all(p.status == "open" for p in predicate_premises), (
+        f"Predicate premises should be open pending Pillar B: {predicate_premises}"
     )
     assert all(p.status == "open" for p in rejection_order), (
         f"rejection_order premises should be open without Apalache: {rejection_order}"

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from z3 import Bool, Int, Real, Solver, unsat
+from z3 import Bool, Int, Solver, unsat
 
 from .formal_claim import FormalClaim, FormalClaimFragment
 from .models import BackendResult, EvidenceLevel
@@ -10,35 +10,41 @@ FORMAL_CLAIM_SMT_VERSION = "0.1"
 
 
 def smt_check_formal_claim_predicate_fragments(claim: FormalClaim) -> list[BackendResult]:
-    """SMT-check predicate, comparison, and membership FormalClaim fragments with Z3.
+    """SMT-check ground (concrete-number) comparison FormalClaim fragments.
 
-    Returns one BackendResult per checkable fragment with covered_fragment_ids set to
-    [fragment.fragment_id] so proof_closure can match by fragment ID rather than by
-    backend alone. FormalClaim routes (routing_mode="formal_claim") require this
-    explicit coverage to be discharged.
+    Evidence honesty contract:
+      - Predicate fragments: excluded. Named uninterpreted predicates require
+        model-level checking (Pillar B/system_checker), not SMT well-formedness.
+        Their routes remain open pending that evidence.
+      - Comparison fragments, both operands concrete numbers: evaluates ground
+        truth and emits SMT_CHECKED. This is a real check.
+      - Comparison fragments, at least one symbolic operand: satisfiability-in-
+        isolation of a symbolic constraint proves nothing (x > rhs is always SAT).
+        Emits CONSISTENCY_CHECKED with needs_review so the route stays open.
+      - Membership fragments: not implemented; emits CONSISTENCY_CHECKED /
+        needs_review so routes stay open.
 
-    Evidence level is SMT_CHECKED for all results, matching the evidence level required
-    by predicate/comparison/membership routes in formal_claim._evidence_for_fragment_kind.
+    covered_fragment_ids is set on every result so proof_closure can match
+    formal_claim-routed premises by fragment ID.
     """
     return [
         _check_fragment(fragment)
         for fragment in [*claim.premises, *claim.obligations]
-        if fragment.kind in {"predicate", "comparison", "membership"}
+        if fragment.kind in {"comparison", "membership"}
     ]
 
 
 def _check_fragment(fragment: FormalClaimFragment) -> BackendResult:
-    if fragment.kind == "predicate":
-        status = _check_predicate(fragment)
-    elif fragment.kind in {"comparison", "membership"}:
-        status = _check_comparison(fragment)
+    if fragment.kind == "comparison":
+        status, evidence = _check_comparison(fragment)
     else:
-        status = "needs_review"
+        # membership — encode not yet implemented
+        status, evidence = "needs_review", EvidenceLevel.CONSISTENCY_CHECKED
 
     return BackendResult(
         backend="core_smt",
         status=status,
-        evidence_level=EvidenceLevel.SMT_CHECKED,
+        evidence_level=evidence,
         details={
             "covered_fragment_ids": [fragment.fragment_id],
             "check": f"fragment_satisfiability:{fragment.kind}",
@@ -47,29 +53,20 @@ def _check_fragment(fragment: FormalClaimFragment) -> BackendResult:
     )
 
 
-def _check_predicate(fragment: FormalClaimFragment) -> str:
-    # Uninterpreted boolean predicate — satisfiable iff a name is present (non-vacuous).
-    # A missing predicate name means the fragment is malformed, not a logical property.
-    if not fragment.predicate:
-        return "needs_review"
-    s = Solver()
-    var = Bool(f"pred_{fragment.fragment_id}")
-    s.add(var)
-    return "valid" if s.check() != unsat else "invalid"
-
-
-def _check_comparison(fragment: FormalClaimFragment) -> str:
+def _check_comparison(fragment: FormalClaimFragment) -> tuple[str, EvidenceLevel]:
     if fragment.operator is None or len(fragment.operands) < 2:
-        return "needs_review"
+        return "needs_review", EvidenceLevel.CONSISTENCY_CHECKED
+
     lhs = fragment.operands[0]
     rhs = fragment.operands[1]
-    # Both operands are concrete numbers — evaluate directly without Z3.
+
+    # Ground evaluation — both operands are concrete numbers: real SMT_CHECKED result.
     if lhs.kind == "number" and rhs.kind == "number":
         try:
             lv = float(lhs.value)
             rv = float(rhs.value)
         except (TypeError, ValueError):
-            return "needs_review"
+            return "needs_review", EvidenceLevel.CONSISTENCY_CHECKED
         ops: dict[str, bool] = {
             "lt": lv < rv,
             "lte": lv <= rv,
@@ -77,22 +74,13 @@ def _check_comparison(fragment: FormalClaimFragment) -> str:
             "gte": lv >= rv,
             "eq": lv == rv,
             "neq": lv != rv,
-            "in": False,  # in-membership requires a set; handled separately
         }
-        return "valid" if ops.get(fragment.operator, False) else "invalid"
-    # At least one symbolic operand — check satisfiability via Z3 arithmetic.
-    s = Solver()
-    lhs_z3 = Int(str(lhs.value)) if lhs.kind == "identifier" else int(float(str(lhs.value)))
-    rhs_z3 = Int(str(rhs.value)) if rhs.kind == "identifier" else int(float(str(rhs.value)))
-    op_exprs = {
-        "lt": lhs_z3 < rhs_z3,
-        "lte": lhs_z3 <= rhs_z3,
-        "gt": lhs_z3 > rhs_z3,
-        "gte": lhs_z3 >= rhs_z3,
-        "eq": lhs_z3 == rhs_z3,
-        "neq": lhs_z3 != rhs_z3,
-    }
-    if fragment.operator not in op_exprs:
-        return "needs_review"
-    s.add(op_exprs[fragment.operator])
-    return "valid" if s.check() != unsat else "invalid"
+        if fragment.operator not in ops:
+            return "needs_review", EvidenceLevel.CONSISTENCY_CHECKED
+        result = "valid" if ops[fragment.operator] else "invalid"
+        return result, EvidenceLevel.SMT_CHECKED
+
+    # Symbolic operand — satisfiability-in-isolation is trivially true for most
+    # operators and proves nothing meaningful about the fragment's semantics.
+    # Return needs_review so the route stays open pending a real encoding.
+    return "needs_review", EvidenceLevel.CONSISTENCY_CHECKED

@@ -49,6 +49,16 @@ def validate_authorization_precondition_shape(
                     "authorization_precondition premise predicate requires a name",
                     node,
                 ))
+            elif not any(arg.kind == "identifier" for arg in node.args):
+                problems.append((
+                    "empty_predicate_args",
+                    (
+                        f"authorization_precondition premise predicate '{node.name}' must have "
+                        f"at least one identifier argument — the TLA+ declaration requires it "
+                        f"(e.g. 'when actor is authorized', not 'when is_authorized')"
+                    ),
+                    node,
+                ))
 
     if root.obligation is None:
         problems.append(("missing_obligation", "authorization_precondition requires an obligation clause (must ...)", None))
@@ -79,12 +89,36 @@ def validate_authorization_precondition_shape(
                     "authorization_precondition 'before' clause requires a rejects(action) child and a state_ref child",
                     must,
                 ))
-            elif not must.children[1].name:
-                problems.append((
-                    "nameless_state_ref",
-                    "authorization_precondition 'before' state_ref child must have a name",
-                    must.children[1],
-                ))
+            else:
+                reject_child = must.children[0]
+                state_child = must.children[1]
+                # DSL v3 parser emits: children[0] = predicate("rejects", args=[action]),
+                # children[1] = state_ref(name=<state>).
+                if reject_child.kind != "predicate" or reject_child.name != "rejects":
+                    problems.append((
+                        "invalid_reject_child",
+                        (
+                            f"authorization_precondition 'before' first child must be a "
+                            f"predicate node with name 'rejects', got kind='{reject_child.kind}' "
+                            f"name='{reject_child.name}'"
+                        ),
+                        reject_child,
+                    ))
+                if state_child.kind != "state_ref":
+                    problems.append((
+                        "invalid_state_ref_kind",
+                        (
+                            f"authorization_precondition 'before' second child must have "
+                            f"kind 'state_ref', got '{state_child.kind}'"
+                        ),
+                        state_child,
+                    ))
+                elif not state_child.name:
+                    problems.append((
+                        "nameless_state_ref",
+                        "authorization_precondition 'before' state_ref child must have a name",
+                        state_child,
+                    ))
 
     return problems
 
@@ -120,15 +154,18 @@ def lower_authorization_precondition_tla(
     # Apalache @type annotations (https://apalache-mc.org/docs/adr/002adr-types.html).
     # These are consumed by Apalache's type-checker; TLC ignores them.
     # Identifiers: abstract Str (safe default — Apalache treats unknown args as uninterpreted).
-    # Predicates: (Str) => Bool — one argument, uninterpreted boolean relation.
+    # Predicates: arity is inferred from the identifier arg list so the CONSTANT declaration
+    # and the invocation expression always have the same arity.
     pred_decls = "\n".join(
-        f"\\* @type: (Str) => Bool;\nCONSTANT {_pred_name(name)}(_)"
-        for name, _ in predicates
+        f"\\* @type: {_pred_type_annotation(args)};\nCONSTANT {_pred_name(name)}({', '.join('_' for _ in args)})"
+        for name, args in predicates
+        if args  # validation must have refused empty-arg predicates before reaching here
     )
 
     premise_parts = [
-        f"{_pred_name(name)}({', '.join(args)})" if args else _pred_name(name)
+        f"{_pred_name(name)}({', '.join(args)})"
         for name, args in predicates
+        if args
     ]
     premise_expr = " /\\ ".join(premise_parts) if premise_parts else "TRUE"
 
@@ -289,6 +326,12 @@ def _scope_identifiers(root: SemanticNode) -> set[str]:
 
 def _pred_name(name: str) -> str:
     return "Pred_" + _safe_name(name)
+
+
+def _pred_type_annotation(args: list[str]) -> str:
+    """Return the Apalache @type annotation for a predicate with the given argument list."""
+    types = ", ".join("Str" for _ in args)
+    return f"({types}) => Bool"
 
 
 def _safe_name(value: str) -> str:

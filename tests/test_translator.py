@@ -458,6 +458,97 @@ def test_validate_authorization_precondition_shape_catches_nameless_state_ref_ch
     assert "nameless_state_ref" in kinds
 
 
+def test_validate_authorization_precondition_shape_catches_empty_predicate_args() -> None:
+    """Predicate nodes with no identifier args must refuse — TLA+ arity would be inconsistent."""
+    ir = _auth_precondition_ir()
+    root = ir.semantic_ir
+    # Strip the identifier args from the first premise predicate
+    argless_pred = root.premise.children[0].model_copy(update={"args": []})
+    bad_premise = root.premise.model_copy(update={"children": [argless_pred]})
+    bad_root = root.model_copy(update={"premise": bad_premise})
+
+    problems = validate_authorization_precondition_shape(bad_root)
+
+    kinds = {k for k, _, _ in problems}
+    assert "empty_predicate_args" in kinds
+
+
+def test_validate_authorization_precondition_shape_catches_invalid_reject_child_kind() -> None:
+    """'before' first child must be a predicate node named 'rejects'."""
+    ir = _auth_precondition_ir()
+    root = ir.semantic_ir
+    # Replace the first child with a wrong kind
+    wrong_reject = root.obligation.must.children[0].model_copy(update={"kind": "action"})
+    bad_must = root.obligation.must.model_copy(
+        update={"children": [wrong_reject, root.obligation.must.children[1]]}
+    )
+    bad_obl = root.obligation.model_copy(update={"must": bad_must})
+    bad_root = root.model_copy(update={"obligation": bad_obl})
+
+    problems = validate_authorization_precondition_shape(bad_root)
+
+    kinds = {k for k, _, _ in problems}
+    assert "invalid_reject_child" in kinds
+
+
+def test_validate_authorization_precondition_shape_catches_invalid_state_ref_kind() -> None:
+    """'before' second child must have kind 'state_ref'."""
+    ir = _auth_precondition_ir()
+    root = ir.semantic_ir
+    # Replace second child with a non-state_ref node
+    wrong_state = root.obligation.must.children[1].model_copy(update={"kind": "action", "name": "some_state"})
+    bad_must = root.obligation.must.model_copy(
+        update={"children": [root.obligation.must.children[0], wrong_state]}
+    )
+    bad_obl = root.obligation.model_copy(update={"must": bad_must})
+    bad_root = root.model_copy(update={"obligation": bad_obl})
+
+    problems = validate_authorization_precondition_shape(bad_root)
+
+    kinds = {k for k, _, _ in problems}
+    assert "invalid_state_ref_kind" in kinds
+
+
+def test_lowering_tla_predicate_arity_matches_declaration() -> None:
+    """Generated TLA+ CONSTANT declaration arity must match the invocation arity.
+
+    A 1-arg predicate must produce 'CONSTANT Pred_name(_)' and 'Pred_name(arg)'
+    with the same arity — a mismatch causes Apalache type errors.
+    """
+    ir = _auth_precondition_ir()
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "lowered"
+    lines = artifact.content.splitlines()
+    # Find CONSTANT declarations for predicates
+    const_lines = [l for l in lines if l.startswith("CONSTANT Pred_")]
+    assert const_lines, "no CONSTANT Pred_ declarations found"
+    for const_line in const_lines:
+        # Extract the predicate operator name and arity from declaration
+        # e.g. "CONSTANT Pred_not_authorized(_)" → arity 1
+        pred_part = const_line[len("CONSTANT "):]
+        if "(" in pred_part:
+            decl_params = pred_part.split("(", 1)[1].rstrip(")")
+            decl_arity = len(decl_params.split(",")) if decl_params.strip() else 0
+        else:
+            decl_arity = 0
+        pred_name = pred_part.split("(")[0]
+        # Find the invocation of this predicate in premise_parts
+        premise_lines = [l for l in lines if l.startswith("Premise ==")]
+        assert premise_lines, "no Premise == line found"
+        premise_expr = premise_lines[0][len("Premise == "):]
+        if pred_name in premise_expr:
+            if "(" + pred_name + "(" in premise_expr or premise_expr.startswith(pred_name + "("):
+                # Count commas in the invocation args
+                inv_start = premise_expr.index(pred_name + "(") + len(pred_name) + 1
+                inv_end = premise_expr.index(")", inv_start)
+                inv_args = premise_expr[inv_start:inv_end]
+                inv_arity = len(inv_args.split(",")) if inv_args.strip() else 0
+                assert decl_arity == inv_arity, (
+                    f"{pred_name}: declaration arity {decl_arity} != invocation arity {inv_arity}"
+                )
+
+
 def test_lower_authorization_precondition_obligation_checks_accepted_not_state_changed() -> None:
     """rejects_before: the violation is reaching 'accepted', not state_changed.
 
