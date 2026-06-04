@@ -307,6 +307,7 @@ def formal_claim_to_proof_premise_routes(claim: FormalClaim) -> list[ProofPremis
                 backend_id=backend,
                 required_evidence=evidence,
                 reason=f"formal claim fragment {fragment.kind} routed to {backend}",
+                routing_mode="formal_claim",
             )
         )
     return routes

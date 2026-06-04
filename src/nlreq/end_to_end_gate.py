@@ -14,6 +14,7 @@ from .formal_claim import (
     build_formal_claim,
     build_proof_dispatch_plan_from_formal_claim,
 )
+from .formal_claim_smt import smt_check_formal_claim_predicate_fragments
 from .impact import analyze_source_impact
 from .source_impact import analyze_source_impact_with_context
 from .jsonutil import sha256_json, write_json
@@ -206,7 +207,15 @@ def run_end_to_end_requirement_gate(
     self_check_backend: str = "tla-runner",
     budget: FormalBackendBudget | None = None,
     execution: FormalBackendExecution | None = None,
+    requirement_ir: RequirementIRV2 | None = None,
 ) -> EndToEndRequirementGateReport:
+    """Run the full end-to-end requirement gate.
+
+    When requirement_ir is provided, the gate skips the DslV2Parser parse step and
+    uses the supplied IR directly. This enables callers holding a DSL v3 or
+    otherwise pre-parsed RequirementIRV2 to exercise the full gate including
+    FormalClaim dispatch without re-encoding through the v2 DSL parser.
+    """
     artifact_dir.mkdir(parents=True, exist_ok=True)
     artifacts: list[EndToEndGateArtifactRef] = []
 
@@ -221,27 +230,46 @@ def run_end_to_end_requirement_gate(
             )
         )
 
-    parser = DslV2Parser()
-    requirement = parser.parse_ir(controlled_text, requirement_id=requirement_id, title=title)
+    if requirement_ir is not None:
+        requirement = requirement_ir
+        # Two identical candidates — agreement is trivially satisfied for pre-parsed IR.
+        translation_input = TranslationAgreementInput(
+            candidates=[
+                TranslationCandidate(
+                    translator_id="provided-ir-primary",
+                    method="deterministic",
+                    requirement=requirement,
+                    provenance={"source": "caller_provided_ir"},
+                ),
+                TranslationCandidate(
+                    translator_id="provided-ir-verify",
+                    method="deterministic",
+                    requirement=requirement,
+                    provenance={"source": "caller_provided_ir"},
+                ),
+            ]
+        )
+    else:
+        parser = DslV2Parser()
+        requirement = parser.parse_ir(controlled_text, requirement_id=requirement_id, title=title)
+        reparsed = parser.parse_ir(controlled_text, requirement_id=requirement_id, title=title)
+        translation_input = TranslationAgreementInput(
+            candidates=[
+                TranslationCandidate(
+                    translator_id="dsl-v2-primary",
+                    method="deterministic",
+                    requirement=requirement,
+                    provenance={"source": "end_to_end_gate"},
+                ),
+                TranslationCandidate(
+                    translator_id="dsl-v2-reparse",
+                    method="deterministic",
+                    requirement=reparsed,
+                    provenance={"source": "end_to_end_gate"},
+                ),
+            ]
+        )
     record("requirement_ir", "requirement.ir.json", requirement)
-
-    reparsed = parser.parse_ir(controlled_text, requirement_id=requirement_id, title=title)
-    translation_input = TranslationAgreementInput(
-        candidates=[
-            TranslationCandidate(
-                translator_id="dsl-v2-primary",
-                method="deterministic",
-                requirement=requirement,
-                provenance={"source": "end_to_end_gate"},
-            ),
-            TranslationCandidate(
-                translator_id="dsl-v2-reparse",
-                method="deterministic",
-                requirement=reparsed,
-                provenance={"source": "end_to_end_gate"},
-            ),
-        ]
-    )
     record("translation_agreement_input", "translation-agreement-input.json", translation_input)
     translation = build_translation_agreement_report(translation_input)
     record("translation_agreement", "translation-agreement.json", translation)
@@ -309,9 +337,23 @@ def run_end_to_end_requirement_gate(
     )
     record("delta_report", "delta-report.json", delta)
 
+    system_backend_results = backend_results_from_system_consistency(system_consistency)
+    # When the FormalClaim report is lowered, also SMT-check predicate/comparison
+    # fragments. These produce core_smt BackendResults with covered_fragment_ids so
+    # formal_claim-routed premises can be discharged without relying on the system-
+    # consistency result (which only covers system_checker routes).
+    formal_claim_preview = build_formal_claim(requirement)
+    if formal_claim_preview.result == "lowered" and formal_claim_preview.formal_claim is not None:
+        smt_fragment_results = smt_check_formal_claim_predicate_fragments(
+            formal_claim_preview.formal_claim
+        )
+    else:
+        smt_fragment_results = []
+    all_backend_results = [*system_backend_results, *smt_fragment_results]
+
     proof, formal_claim_report = build_proof_with_formal_claim_dispatch(
         requirement=requirement,
-        backend_results=backend_results_from_system_consistency(system_consistency),
+        backend_results=all_backend_results,
         coverage=coverage,
         trace_alignment=trace_alignment,
     )

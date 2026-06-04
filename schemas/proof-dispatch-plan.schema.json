@@ -48,6 +48,15 @@
           ],
           "title": "Role",
           "type": "string"
+        },
+        "routing_mode": {
+          "default": "semantic_node",
+          "enum": [
+            "formal_claim",
+            "semantic_node"
+          ],
+          "title": "Routing Mode",
+          "type": "string"
         }
       },
       "required": [

@@ -115,6 +115,62 @@ def test_end_to_end_gate_records_formal_claim_artifact(tmp_path: Path) -> None:
     assert report.decision == "accepted"
 
 
+def test_end_to_end_gate_with_v3_requirement_has_formal_claim_fragment_ids(tmp_path: Path) -> None:
+    """Full gate with a DSL v3 requirement carries FormalClaim fragment IDs into the ProofObject.
+
+    This exercises the production code path: run_end_to_end_requirement_gate → FormalClaim
+    dispatch → ProofObject. It is NOT the helper-only path from
+    test_build_proof_with_formal_claim_dispatch_uses_fragment_ids_for_classed_ir.
+
+    Predicate premises are discharged via the SMT check (core_smt with covered_fragment_ids).
+    rejection_order obligations remain open — no Apalache binary available.
+    """
+    manifest, registry = _project(tmp_path)
+    ir = DslV3Parser().parse_ir(
+        FIXTURES.joinpath("authorization_precondition_v3.nlreq").read_text(),
+        requirement_id="AUTH-GATE-V3-001",
+        title="Authorization precondition (v3 gate test)",
+    )
+
+    report = run_end_to_end_requirement_gate(
+        controlled_text="when actor is not authorized then operation must reject before state_change.",
+        requirement_id="AUTH-GATE-V3-001",
+        title="Authorization precondition (v3 gate test)",
+        source_adapter=PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["operation"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-artifacts-v3",
+        execution=_execution(tmp_path),
+        requirement_ir=ir,
+    )
+
+    assert "formal_claim_artifact" in {artifact.name for artifact in report.artifacts}
+    assert report.statuses["formal_claim"] == "lowered"
+
+    # ProofObject must contain FormalClaim fragment IDs from the normal gate flow
+    proof_path = Path(next(a.path for a in report.artifacts if a.name == "proof_object"))
+    from nlreq.proof_closure import ProofObject
+    from nlreq.jsonutil import read_json
+    proof = ProofObject.model_validate(read_json(proof_path))
+    premise_ids = {p.premise_id for p in proof.premises}
+    # All premise IDs must be formal fragment IDs (start with "formal.")
+    assert all(pid.startswith("formal.") for pid in premise_ids), (
+        f"Expected formal fragment IDs in ProofObject but found: {premise_ids}"
+    )
+
+    # Predicate premises discharged via core_smt; rejection_order obligations open
+    predicate_premises = [p for p in proof.premises if p.node_kind == "predicate"]
+    rejection_order = [p for p in proof.premises if p.node_kind == "rejection_order"]
+    assert all(p.status == "discharged" for p in predicate_premises), (
+        f"Predicate premises should be discharged via core_smt: {predicate_premises}"
+    )
+    assert all(p.status == "open" for p in rejection_order), (
+        f"rejection_order premises should be open without Apalache: {rejection_order}"
+    )
+
+
 def test_end_to_end_gate_refuses_trace_replay_violation(tmp_path: Path) -> None:
     manifest, registry = _project(tmp_path, trace_actions=["finalize_redemption"])
 

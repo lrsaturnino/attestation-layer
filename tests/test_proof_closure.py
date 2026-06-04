@@ -344,6 +344,84 @@ def test_fragment_binding_result_without_covered_ids_discharges_all_backend_rout
     assert premise_by_id["fragment.B"].status == "discharged"
 
 
+def test_formal_claim_route_requires_covered_fragment_ids() -> None:
+    """formal_claim routes stay open unless the result explicitly names the fragment ID.
+
+    A BackendResult without covered_fragment_ids cannot discharge a formal_claim route —
+    only results that carry covered_fragment_ids=[route.premise_id] match. This prevents
+    a legacy system-consistency result from accidentally discharging a FormalClaim premise.
+    """
+    ir = _ir()
+    route_fc = ProofPremiseRoute(
+        premise_id="FC-fragment.PRED",
+        node_id="n1",
+        node_kind="predicate",
+        role="premise",
+        backend_id="core_smt",
+        required_evidence=EvidenceLevel.SMT_CHECKED,
+        reason="formal claim predicate",
+        routing_mode="formal_claim",
+    )
+    dispatch = ProofDispatchPlan(policy_id="test-formal-claim-routing", routes=[route_fc])
+
+    # Result without covered_fragment_ids — must NOT discharge a formal_claim route
+    result_no_ids = BackendResult(
+        backend="core_smt",
+        status="valid",
+        evidence_level=EvidenceLevel.SMT_CHECKED,
+        details={},
+    )
+    proof_no_ids = build_proof_object(
+        requirement=ir,
+        backend_results=[result_no_ids],
+        dispatch=dispatch,
+    )
+    assert proof_no_ids.premises[0].status == "open"
+
+    # Result with covered_fragment_ids that matches — must discharge the route
+    result_with_ids = BackendResult(
+        backend="core_smt",
+        status="valid",
+        evidence_level=EvidenceLevel.SMT_CHECKED,
+        details={"covered_fragment_ids": ["FC-fragment.PRED"]},
+    )
+    proof_with_ids = build_proof_object(
+        requirement=ir,
+        backend_results=[result_with_ids],
+        dispatch=dispatch,
+    )
+    assert proof_with_ids.premises[0].status == "discharged"
+
+
+def test_semantic_node_route_still_discharges_without_covered_ids() -> None:
+    """semantic_node routes retain backward-compatible matching (no covered_fragment_ids needed)."""
+    ir = _ir()
+    route_sn = ProofPremiseRoute(
+        premise_id="sn-premise",
+        node_id="n1",
+        node_kind="predicate",
+        role="premise",
+        backend_id="core_smt",
+        required_evidence=EvidenceLevel.SMT_CHECKED,
+        reason="semantic node route",
+        routing_mode="semantic_node",
+    )
+    dispatch = ProofDispatchPlan(policy_id="test-semantic-node-routing", routes=[route_sn])
+
+    result_no_ids = BackendResult(
+        backend="core_smt",
+        status="valid",
+        evidence_level=EvidenceLevel.SMT_CHECKED,
+        details={},
+    )
+    proof = build_proof_object(
+        requirement=ir,
+        backend_results=[result_no_ids],
+        dispatch=dispatch,
+    )
+    assert proof.premises[0].status == "discharged"
+
+
 def _trace(trace_id: str, actions: list[str]) -> dict[str, object]:
     return {
         "trace_id": trace_id,

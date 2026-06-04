@@ -6,7 +6,10 @@ import pytest
 from nlreq.cli import main
 from nlreq.dsl_v2 import DslV2Parser
 from nlreq.dsl_v3 import DslV3Parser
-from nlreq.formal_lowering import validate_authorization_precondition_shape
+from nlreq.formal_lowering import (
+    generate_minimal_discriminating_s_module,
+    validate_authorization_precondition_shape,
+)
 from nlreq.models import RequirementIRV2
 from nlreq.translator import (
     ControlledDraft,
@@ -263,11 +266,12 @@ def test_lower_authorization_precondition_refuses_non_before_obligation() -> Non
 
 
 def test_lower_authorization_precondition_two_step_state_machine() -> None:
-    """Non-vacuous lowering produces a two-step state machine with state_changed boundary.
+    """Non-vacuous lowering produces a two-step state machine with accepted as the violation boundary.
 
-    The obligation is reachable-state safety: state_changed is only reachable via
-    accepted, which requires the premise to be false. When the premise holds,
-    state_changed is unreachable — the obligation models rejects_before semantics.
+    rejects_before semantics: when the premise holds (actor NOT authorized), the action
+    must be rejected — reaching "accepted" is the violation, not the subsequent
+    state_changed. Checking at "accepted" directly encodes "the action must be rejected
+    before any state transition can occur."
     """
     ir = _auth_precondition_ir()
 
@@ -281,12 +285,12 @@ def test_lower_authorization_precondition_two_step_state_machine() -> None:
     assert "Step_state_change ==" in content
     # State machine covers both step kinds and unchanged
     assert "Next == Step_operation \\/ Step_state_change \\/ UNCHANGED NLRState" in content
-    # Obligation uses state_changed (not accepted) — semantics: state boundary unreachable
+    # Obligation checks "accepted" directly — the first violation boundary.
     obligation_line = next(
         (line for line in content.splitlines() if line.startswith("Obligation ==")), ""
     )
-    assert "state_changed" in obligation_line
-    assert "accepted" not in obligation_line
+    assert "accepted" in obligation_line
+    assert "state_changed" not in obligation_line
 
 
 def test_validate_authorization_precondition_shape_catches_all_errors() -> None:
@@ -421,6 +425,123 @@ def test_lowering_diagnostic_carries_offending_node_span() -> None:
     assert comp_diag is not None
     # The offending node is the 'gte' premise child, not the root rule node
     assert comp_diag.node_id != ir.semantic_ir.node_id
+
+
+def test_validate_authorization_precondition_shape_catches_nameless_predicate() -> None:
+    """Predicate nodes without a name must refuse — _premise_predicates would silently skip them."""
+    ir = _auth_precondition_ir()
+    root = ir.semantic_ir
+    nameless_pred = root.premise.children[0].model_copy(update={"name": None})
+    bad_premise = root.premise.model_copy(update={"children": [nameless_pred]})
+    bad_root = root.model_copy(update={"premise": bad_premise})
+
+    problems = validate_authorization_precondition_shape(bad_root)
+
+    kinds = {k for k, _, _ in problems}
+    assert "nameless_predicate" in kinds
+
+
+def test_validate_authorization_precondition_shape_catches_nameless_state_ref_child() -> None:
+    """'before' second child without a name must refuse — _obligation_components would raise."""
+    ir = _auth_precondition_ir()
+    root = ir.semantic_ir
+    nameless_state = root.obligation.must.children[1].model_copy(update={"name": None})
+    bad_must = root.obligation.must.model_copy(
+        update={"children": [root.obligation.must.children[0], nameless_state]}
+    )
+    bad_obl = root.obligation.model_copy(update={"must": bad_must})
+    bad_root = root.model_copy(update={"obligation": bad_obl})
+
+    problems = validate_authorization_precondition_shape(bad_root)
+
+    kinds = {k for k, _, _ in problems}
+    assert "nameless_state_ref" in kinds
+
+
+def test_lower_authorization_precondition_obligation_checks_accepted_not_state_changed() -> None:
+    """rejects_before: the violation is reaching 'accepted', not state_changed.
+
+    Checking at 'accepted' directly encodes the obligation — once the action reaches
+    accepted the state_changed transition is inevitable. state_changed is unreachable
+    as a consequence, not as the primary invariant.
+    """
+    ir = _auth_precondition_ir()
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "lowered"
+    obligation_line = next(
+        (line for line in artifact.content.splitlines() if line.startswith("Obligation ==")), ""
+    )
+    assert "accepted" in obligation_line
+    assert "state_changed" not in obligation_line
+
+
+def test_lower_authorization_precondition_discrimination_with_s_module() -> None:
+    """Modules R and ¬R are checker-distinguishable against an explicit system constraint S.
+
+    S is produced by generate_minimal_discriminating_s_module. Under S:
+      R (not-authorized premise): obligation premise = FALSE under S → vacuously true (no CE).
+      ¬R (authorized premise): obligation premise = TRUE under S AND the unconstrained
+          Step_action can reach "accepted" → counterexample exists.
+
+    This test verifies the by-construction reduction — the obligation predicate names match
+    what S assigns FALSE (R) and TRUE (¬R) respectively, and the step is unconstrained so
+    the counterexample trace exists when the obligation fires.
+
+    NOTE: This is NOT real-run evidence. PA-1 discrimination evidence requires:
+      1. Apalache binary (not available in this environment)
+      2. PB-4 S∧R composition to wire S as a constraint module alongside R
+    The by-construction S module is a documentation + structural-check artifact only.
+    """
+    ir_pos = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope op "
+        "when actor is not authorized then operation must reject before state_change.",
+        requirement_id="DISCRIM-POS",
+        title="Not authorized",
+    )
+    ir_neg = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope op "
+        "when actor is authorized then operation must reject before state_change.",
+        requirement_id="DISCRIM-NEG",
+        title="Authorized",
+    )
+
+    art_pos = lower_ir_v2_to_tla(ir_pos)
+    art_neg = lower_ir_v2_to_tla(ir_neg)
+
+    assert art_pos.status == "lowered"
+    assert art_neg.status == "lowered"
+    assert art_pos.content != art_neg.content
+
+    pos_obligation = next(
+        (line for line in art_pos.content.splitlines() if line.startswith("Obligation ==")), ""
+    )
+    neg_obligation = next(
+        (line for line in art_neg.content.splitlines() if line.startswith("Obligation ==")), ""
+    )
+
+    # Each module has its own premise predicate — the obligations differ in polarity
+    assert "Pred_not_authorized" in pos_obligation
+    assert "Pred_authorized" in neg_obligation
+    assert "Pred_not_authorized" not in neg_obligation
+
+    # The step is unconstrained — checker can reach "accepted" for any predicate assignment
+    for line in art_pos.content.splitlines():
+        if line.startswith("Step_") or line.startswith("Next =="):
+            assert "Pred_" not in line, f"predicate in step: {line!r}"
+
+    # S module: Pred_not_authorized = FALSE, Pred_authorized = TRUE
+    s_module = generate_minimal_discriminating_s_module(
+        requirement_pred_name="not_authorized",
+        negation_pred_name="authorized",
+    )
+    # S makes Pred_not_authorized = FALSE: R obligation = FALSE => ... = TRUE (vacuous, no CE)
+    assert "Pred_not_authorized(a) == FALSE" in s_module
+    # S makes Pred_authorized = TRUE: ¬R obligation = TRUE => NLRState /= "accepted"
+    assert "Pred_authorized(a) == TRUE" in s_module
+    # S names the discrimination explicitly — the checker would find no CE for R+S, CE for ¬R+S
+    assert "no counterexample" in s_module
+    assert "counterexample exists" in s_module
 
 
 def _auth_precondition_ir() -> RequirementIRV2:

@@ -43,6 +43,12 @@ def validate_authorization_precondition_shape(
                     ),
                     node,
                 ))
+            elif not node.name:
+                problems.append((
+                    "nameless_predicate",
+                    "authorization_precondition premise predicate requires a name",
+                    node,
+                ))
 
     if root.obligation is None:
         problems.append(("missing_obligation", "authorization_precondition requires an obligation clause (must ...)", None))
@@ -72,6 +78,12 @@ def validate_authorization_precondition_shape(
                     "missing_state_ref",
                     "authorization_precondition 'before' clause requires a rejects(action) child and a state_ref child",
                     must,
+                ))
+            elif not must.children[1].name:
+                problems.append((
+                    "nameless_state_ref",
+                    "authorization_precondition 'before' state_ref child must have a name",
+                    must.children[1],
                 ))
 
     return problems
@@ -130,10 +142,13 @@ def lower_authorization_precondition_tla(
     safe_action = _safe_name(action_name)
     safe_state = _safe_name(state_ref_name)
 
-    # Safety obligation: when premise holds, NLRState must never reach "accepted"
-    # or "state_changed". The obligation is defined without the premise predicate
-    # appearing in the transition relation, so the checker is not self-satisfied.
-    obligation_expr = f"{premise_expr} => NLRState /= \"state_changed\""
+    # Safety obligation: when premise holds, NLRState must never reach "accepted".
+    # "accepted" is the first violation boundary — once the action is accepted,
+    # state_changed follows automatically. Checking at "accepted" directly encodes
+    # "the action must be rejected, not accepted" for rejects_before semantics.
+    # The obligation is defined without the premise predicate in the transition
+    # relation, so the checker is not self-satisfied.
+    obligation_expr = f"{premise_expr} => NLRState /= \"accepted\""
 
     return (
         f"---- MODULE {module_name} ----\n"
@@ -163,15 +178,60 @@ def lower_authorization_precondition_tla(
     )
 
 
+def generate_minimal_discriminating_s_module(
+    requirement_pred_name: str,
+    negation_pred_name: str,
+) -> str:
+    """Return a minimal TLA+ system-constraint module that discriminates R from ¬R.
+
+    S assigns requirement_pred_name = FALSE and negation_pred_name = TRUE.
+    Under S:
+      R (obligation premise = requirement_pred_name): FALSE => ... = TRUE (vacuous, no CE).
+      ¬R (obligation premise = negation_pred_name): TRUE => NLRState /= "accepted"
+          and Step_{action} can reach "accepted" (unconstrained) → counterexample exists.
+
+    This S cannot be used directly by TlaRunnerBackend until PB-4 wires S∧R composition.
+    It is provided as a documentation artifact showing what system model discriminates
+    the two requirement variants — the real-run evidence requires the Apalache binary.
+    """
+    r_pred = _pred_name(requirement_pred_name)
+    n_pred = _pred_name(negation_pred_name)
+    return (
+        f"---- MODULE MinimalSystemConstraint ----\n"
+        f"\\* Minimal system constraint S for authorization_precondition discrimination.\n"
+        f"\\* Under S: {r_pred}(actor) = FALSE, {n_pred}(actor) = TRUE\n"
+        f"\\* R + S: obligation premise is FALSE → obligation is vacuously true → no counterexample.\n"
+        f"\\* ¬R + S: obligation premise is TRUE → obligation fires; Step_action can reach\n"
+        f"\\*          'accepted' (unconstrained) → counterexample exists.\n"
+        f"\\* Checker-distinguishable: against S, R holds and ¬R fails.\n"
+        f"\\* Real-run evidence requires Apalache binary + PB-4 S∧R composition.\n"
+        f"CONSTANT actor\n\n"
+        f"\\* @type: (Str) => Bool;\n"
+        f"{r_pred}(a) == FALSE\n\n"
+        f"\\* @type: (Str) => Bool;\n"
+        f"{n_pred}(a) == TRUE\n"
+        f"====\n"
+    )
+
+
 def _premise_predicates(root: SemanticNode) -> list[tuple[str, list[str]]]:
-    """Return (predicate_name, [identifier_arg_names]) from the premise node."""
+    """Return (predicate_name, [identifier_arg_names]) from the premise node.
+
+    Caller must invoke validate_authorization_precondition_shape first; this function
+    assumes every predicate node has a non-empty name and raises otherwise.
+    """
     if root.premise is None:
         return []
     premise = root.premise
     nodes = premise.children if premise.kind == "and" else [premise]
     result: list[tuple[str, list[str]]] = []
     for node in nodes:
-        if node.kind == "predicate" and node.name:
+        if node.kind == "predicate":
+            if not node.name:
+                raise ValueError(
+                    "_premise_predicates: predicate node has no name — "
+                    "validate_authorization_precondition_shape must be called first"
+                )
             args = [str(arg.value) for arg in node.args if arg.kind == "identifier"]
             result.append((node.name, args))
     return result
@@ -181,18 +241,34 @@ def _obligation_components(root: SemanticNode) -> tuple[str, str]:
     """Return (action_name, state_ref_name) from the action_obligation node.
 
     Caller must invoke validate_authorization_precondition_shape first; this function
-    assumes a validated shape and has no silent fallbacks for action name or state ref.
+    assumes a validated shape and raises on any missing/nameless node rather than
+    silently falling back to placeholder strings.
     """
     if root.obligation is None:
-        return ("action", "state_change")
+        raise ValueError(
+            "_obligation_components: no obligation node — "
+            "validate_authorization_precondition_shape must be called first"
+        )
     action_node = root.obligation.action
-    action_name = action_node.name if action_node is not None else "action"
+    if action_node is None or not action_node.name:
+        raise ValueError(
+            "_obligation_components: action node is missing or nameless — "
+            "validate_authorization_precondition_shape must be called first"
+        )
+    action_name = action_node.name
     must = root.obligation.must
     if must is None or must.kind != "before" or len(must.children) < 2:
-        return (action_name, "state_change")
+        raise ValueError(
+            "_obligation_components: 'before' obligation is missing or malformed — "
+            "validate_authorization_precondition_shape must be called first"
+        )
     state_node = must.children[1]
-    state_ref_name = state_node.name if state_node.name else "state_change"
-    return (action_name, state_ref_name)
+    if not state_node.name:
+        raise ValueError(
+            "_obligation_components: state_ref child has no name — "
+            "validate_authorization_precondition_shape must be called first"
+        )
+    return (action_name, state_node.name)
 
 
 def _scope_identifiers(root: SemanticNode) -> set[str]:
