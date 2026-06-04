@@ -769,7 +769,12 @@ def main(argv: list[str] | None = None) -> int:
     system_spec_cmd.add_argument("--out", type=Path)
 
     system_consistency_cmd = subcommands.add_parser(
-        "system-consistency-check", help="Run deterministic S-and-R consistency check."
+        "system-consistency-check-fixture",
+        help=(
+            "Offline FIXTURE S-and-R check: decides from NLREQ_* markers in the spec text, "
+            "not a real solver. For tests only — use solver-system-consistency-check for "
+            "the real check."
+        ),
     )
     system_consistency_cmd.add_argument("--requirement-ir", type=Path, required=True)
     system_consistency_cmd.add_argument("--lowered", type=Path, required=True)
@@ -2630,7 +2635,7 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(report), end="")
             return 0
-        if args.command == "system-consistency-check":
+        if args.command == "system-consistency-check-fixture":
             from .impact import ImpactAnalysisArtifact
             from .jsonutil import write_json
             from .models import RequirementIRV2
@@ -2638,7 +2643,7 @@ def main(argv: list[str] | None = None) -> int:
 
             ir = validate_requirement_ir_json(args.requirement_ir.read_text())
             if not isinstance(ir, RequirementIRV2):
-                raise ValueError("system-consistency-check requires ir_version 0.2")
+                raise ValueError("system-consistency-check-fixture requires ir_version 0.2")
             result = check_system_consistency_fixture(
                 requirement=ir,
                 lowered=LoweredFormalArtifact.model_validate_json(args.lowered.read_text()),

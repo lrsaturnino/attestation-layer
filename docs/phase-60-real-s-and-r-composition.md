@@ -14,7 +14,7 @@ Represent the checked conjunction of reviewed system specs `S` and requirement
 
 - `nlreq.system_composition`
 - `schemas/s-and-r-composition-report.schema.json`
-- Existing `system-consistency-check`
+- Existing `system-consistency-check-fixture` (offline marker check)
 - Existing `solver-system-consistency-check`
 
 The composition report records requirement hash, lowered artifact hash, impact

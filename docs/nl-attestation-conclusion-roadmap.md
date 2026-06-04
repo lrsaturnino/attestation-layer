@@ -763,7 +763,7 @@ Scope:
 Deliverables:
 
 - composition artifact schema;
-- `system-consistency-check`;
+- `system-consistency-check-fixture`;
 - combined TLA generator;
 - invariant selection policy;
 - fixtures for compatible and incompatible requirements.

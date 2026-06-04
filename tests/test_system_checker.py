@@ -541,7 +541,7 @@ def test_solver_backed_system_consistency_blocks_stale_specs_before_execution(
     assert not artifact_dir.exists()
 
 
-def test_system_consistency_cli(tmp_path: Path, capsys) -> None:
+def test_system_consistency_fixture_cli(tmp_path: Path, capsys) -> None:
     ir = _ir()
     lowered = lower_ir_v2_to_tla(ir)
     registry = _registry(tmp_path)
@@ -558,7 +558,7 @@ def test_system_consistency_cli(tmp_path: Path, capsys) -> None:
 
     exit_code = main(
         [
-            "system-consistency-check",
+            "system-consistency-check-fixture",
             "--requirement-ir",
             str(ir_path),
             "--lowered",
