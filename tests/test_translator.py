@@ -1002,3 +1002,92 @@ def _dsl_v2_ir() -> RequirementIRV2:
 
 def _original_text() -> str:
     return "Redemptions should finalize within six hours and keep collateral above the floor.\n"
+
+
+# ---------------------------------------------------------------------------
+# Z3 structural template check — scope characterization
+# ---------------------------------------------------------------------------
+
+
+def test_z3_structural_template_check_scope() -> None:
+    """_z3_check_obligation_under_s is a structural template check, NOT PA-1 evidence.
+
+    This test characterises what the Z3 path DOES and DOES NOT discriminate:
+
+    DOES discriminate:
+      Pred_* assignment changes — when S assigns pred=FALSE (R) vs pred=TRUE (¬R),
+      the Z3 violation query goes UNSAT vs SAT.
+
+    DOES NOT discriminate:
+      Action name changes — renaming the Step_* action in Next does not change the
+      Z3 encoding (which only reasons over Pred_* booleans and a reachability variable).
+      The path returns "unknown" for any module missing expected structural guards.
+
+    Full PA-1 evidence (RequirementHolds, real action/state semantics, composed S∧R)
+    requires an Apalache run on the lowered TLA+ module (PB-4).
+
+    This test anchors that documented limitation so future regressions or misleading
+    citations of this path as PA-1 evidence are immediately flagged.
+    """
+    import re
+    from nlreq.formal_lowering import lower_authorization_precondition_tla
+    from nlreq.system_checker import _z3_check_obligation_under_s
+
+    ir = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope op "
+        "when actor is not authorized then operation must reject before state_change.",
+        requirement_id="Z3-SCOPE-CHAR",
+        title="Z3 scope characterization",
+    )
+    module_text = lower_authorization_precondition_tla(ir)
+    preds = parse_obligation_predicates(module_text)
+    assert preds, "Module must have at least one Pred_* obligation predicate"
+
+    pred_name = preds[0]  # e.g. "Pred_not_authorized"
+
+    # DOES discriminate: with the right S assignment, R holds (UNSAT → "valid").
+    # Under S: pred = FALSE for R (the action is unauthorized → obligation satisfied).
+    result_r_holds = _z3_check_obligation_under_s(
+        module_text, {pred_name: False}
+    )
+    assert result_r_holds == "valid", (
+        f"Z3 must return 'valid' when S assigns {pred_name}=FALSE (R obligation satisfied). "
+        f"Got {result_r_holds!r}. Scope note: this is Pred_* boolean encoding, not PA-1 evidence."
+    )
+
+    # DOES discriminate: with S=TRUE, the violation query is SAT → "counterexample".
+    result_neg_r = _z3_check_obligation_under_s(
+        module_text, {pred_name: True}
+    )
+    assert result_neg_r == "counterexample", (
+        f"Z3 must return 'counterexample' when S assigns {pred_name}=TRUE (¬R). "
+        f"Got {result_neg_r!r}."
+    )
+
+    # DOES NOT discriminate: a mutation that renames the Step_* action in Next.
+    # The Z3 encoding does not check action names — renaming Step_ does not change
+    # the Pred_* boolean reasoning.  This is NOT caught here, and is NOT PA-1 evidence.
+    renamed_step_module = re.sub(
+        r"\bStep_\w+\b",
+        "Step_renamed",
+        module_text,
+    )
+    # The Pred_* assignment encoding is unchanged — Z3 still returns the same result.
+    result_renamed = _z3_check_obligation_under_s(
+        renamed_step_module, {pred_name: False}
+    )
+    assert result_renamed == "valid", (
+        "Action name changes must NOT be caught by the Z3 Pred_* path — "
+        "this is the documented limitation: action semantics require Apalache (PB-4). "
+        f"Got {result_renamed!r} (expected 'valid' since Pred_* encoding is unchanged)."
+    )
+
+    # DOES NOT discriminate: missing Pred_* assignment → "unknown" (not a false "valid").
+    result_missing_s = _z3_check_obligation_under_s(
+        module_text, {}  # empty S — no assignments
+    )
+    assert result_missing_s == "unknown", (
+        "When S has no assignments for the obligation predicates, Z3 must return 'unknown' "
+        "rather than a false 'valid'. This guards against over-claiming coverage. "
+        f"Got {result_missing_s!r}."
+    )

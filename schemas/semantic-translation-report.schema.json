@@ -48,6 +48,54 @@
       "title": "Approval",
       "type": "object"
     },
+    "AuditVerdict": {
+      "additionalProperties": false,
+      "description": "Structured verdict from a PA-6 audit of a decomposition result.\n\nFields:\n  covers_all_clauses: True if every clause in the controlled text is present in the IR.\n  invented_premises: List of IR premises or obligations not in the controlled text.\n  verdict: \"passed\" only when covers_all_clauses is True and invented_premises is empty.\n  audit_prompt_version: Version of the audit prompt used.\n  model_id: Model that produced the verdict (None for recorded fixtures).",
+      "properties": {
+        "audit_prompt_version": {
+          "default": "0.1",
+          "title": "Audit Prompt Version",
+          "type": "string"
+        },
+        "covers_all_clauses": {
+          "title": "Covers All Clauses",
+          "type": "boolean"
+        },
+        "invented_premises": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Invented Premises",
+          "type": "array"
+        },
+        "model_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Id"
+        },
+        "verdict": {
+          "enum": [
+            "passed",
+            "failed"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "covers_all_clauses",
+        "verdict"
+      ],
+      "title": "AuditVerdict",
+      "type": "object"
+    },
     "EvidenceLevel": {
       "enum": [
         "TYPE_CHECKED",
@@ -1298,6 +1346,20 @@
         "type": "string"
       },
       "title": "Clarification Questions",
+      "type": "array"
+    },
+    "ensemble_candidate_audit_verdicts": {
+      "items": {
+        "anyOf": [
+          {
+            "$ref": "#/$defs/AuditVerdict"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "title": "Ensemble Candidate Audit Verdicts",
       "type": "array"
     },
     "ensemble_candidate_provenances": {

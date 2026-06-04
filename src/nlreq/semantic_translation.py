@@ -4,6 +4,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .audit_client import AuditVerdict
 from .dsl_v3 import DslV3ParseError, DslV3Parser
 from .formal_claim import FormalClaimLoweringReport, build_formal_claim
 from .jsonutil import sha256_json, sha256_text
@@ -11,6 +12,7 @@ from .models import RequirementIRV2, SemanticNode, SourceSpan
 from .translator_agreement import TranslationDisagreement, spans_for_path
 
 if TYPE_CHECKING:
+    from .audit_client import AuditClient
     from .decomposition_client import DecompositionClient, DecompositionResult
 
 
@@ -85,6 +87,10 @@ class SemanticTranslationReport(BaseModel):
     # Each entry mirrors the provenance dict from the corresponding DecompositionResult
     # so callers can verify fixture provenance flowed through the CLI path.
     ensemble_candidate_provenances: list[dict[str, str]] = Field(default_factory=list)
+    # Per-candidate PA-6 audit verdicts, parallel to ensemble_candidate_provenances.
+    # None for candidates that were already audited before the audit_client was applied
+    # (e.g. recorded fixtures with is_audited=True) or when no audit_client was supplied.
+    ensemble_candidate_audit_verdicts: list[AuditVerdict | None] = Field(default_factory=list)
     tool: str = "nlreq.semantic_translation"
     tool_version: str = SEMANTIC_TRANSLATION_TOOL_VERSION
 
@@ -98,6 +104,7 @@ def translate_controlled_requirement_to_formal_claim(
     approved_controlled_text_hash: str | None = None,
     require_approved_controlled_text: bool = False,
     decomposition_clients: "list[DecompositionClient] | None" = None,
+    audit_client: "AuditClient | None" = None,
 ) -> SemanticTranslationReport:
     source_hash = sha256_text(controlled_text)
     effective_translation_id = translation_id or f"semantic-translation-{requirement_id}"
@@ -183,24 +190,28 @@ def translate_controlled_requirement_to_formal_claim(
         )
     )
 
-    # PA-5 ensemble check: when ≥2 independent decomposition clients are supplied,
-    # run each, compare FormalClaim signatures, and refuse on divergence.  This
-    # catches ambiguity in the controlled text before the claim reaches a backend.
+    # PA-5/PA-6 ensemble check: when ≥2 independent decomposition clients are supplied,
+    # optionally audit each via audit_client (PA-6), then compare FormalClaim signatures
+    # (PA-5) and refuse on divergence. Catches ambiguity before the claim reaches a backend.
     ensemble_candidate_provenances: list[dict[str, str]] = []
+    ensemble_candidate_audit_verdicts: list[AuditVerdict | None] = []
     if decomposition_clients is not None and len(decomposition_clients) >= 2:
-        ensemble_result, ensemble_candidate_provenances = _check_decomposition_ensemble(
-            controlled_text=controlled_text,
-            requirement_id=requirement_id,
-            title=title,
-            translation_id=effective_translation_id,
-            clients=decomposition_clients,
-            prior_stages=stages,
-            source_hash=source_hash,
-            approved_controlled_text_hash=approved_controlled_text_hash,
-            semantic_hash=semantic_hash,
-            decomposition_hash=decomposition_hash,
-            requirement_ir=requirement,
-            semantic_decomposition=semantic_decomposition,
+        ensemble_result, ensemble_candidate_provenances, ensemble_candidate_audit_verdicts = (
+            _check_decomposition_ensemble(
+                controlled_text=controlled_text,
+                requirement_id=requirement_id,
+                title=title,
+                translation_id=effective_translation_id,
+                clients=decomposition_clients,
+                prior_stages=stages,
+                source_hash=source_hash,
+                approved_controlled_text_hash=approved_controlled_text_hash,
+                semantic_hash=semantic_hash,
+                decomposition_hash=decomposition_hash,
+                requirement_ir=requirement,
+                semantic_decomposition=semantic_decomposition,
+                audit_client=audit_client,
+            )
         )
         if ensemble_result is not None:
             return ensemble_result
@@ -253,6 +264,7 @@ def translate_controlled_requirement_to_formal_claim(
             **({"formal_claim": formal_claim_hash} if formal_claim_hash else {}),
         },
         ensemble_candidate_provenances=ensemble_candidate_provenances,
+        ensemble_candidate_audit_verdicts=ensemble_candidate_audit_verdicts,
     )
 
 
@@ -319,6 +331,7 @@ def refuse_ambiguous_ensemble(
     requirement_ir: RequirementIRV2 | None = None,
     semantic_decomposition: "SemanticDecompositionTree | None" = None,
     ensemble_candidate_provenances: list[dict[str, str]] | None = None,
+    ensemble_candidate_audit_verdicts: list[AuditVerdict | None] | None = None,
 ) -> SemanticTranslationReport:
     """Return a REFUSED_AMBIGUOUS report for ensemble signature disagreement.
 
@@ -372,6 +385,7 @@ def refuse_ambiguous_ensemble(
         stages=all_stages,
         input_hashes=input_hashes or {},
         ensemble_candidate_provenances=ensemble_candidate_provenances or [],
+        ensemble_candidate_audit_verdicts=ensemble_candidate_audit_verdicts or [],
     )
 
 
@@ -389,19 +403,22 @@ def _check_decomposition_ensemble(
     decomposition_hash: str,
     requirement_ir: RequirementIRV2,
     semantic_decomposition: "SemanticDecompositionTree",
-) -> tuple[SemanticTranslationReport | None, list[dict[str, str]]]:
+    audit_client: "AuditClient | None" = None,
+) -> tuple[SemanticTranslationReport | None, list[dict[str, str]], list[AuditVerdict | None]]:
     """Run ≥2 independent decomposition clients and compare their FormalClaim signatures.
 
-    Returns (report, candidate_provenances). report is None when all candidates agree and
-    the caller may continue to claim lowering; candidate_provenances is always populated
-    so the caller can attach it to the agreed-path report.
+    Returns (report, candidate_provenances, candidate_audit_verdicts). report is None when
+    all candidates agree and the caller may continue to claim lowering; the other two lists
+    are always populated so the caller can attach them to the agreed-path report.
 
     Trust-boundary rules enforced here:
-    1. Any candidate that is not both approved and audited (is_audited=True) causes the
-       ensemble to return needs_review — the unaudited result is a process blocker, not
-       a semantic finding.  This reflects that PA-6 audit is required before a
-       decomposition candidate can drive an ambiguity refusal.
-    2. Only after all candidates pass the trust check do we run the FormalClaim-signature
+    1. When audit_client is supplied (PA-6), it is applied to any candidate that is not
+       yet audited (is_audited=False) before the trust check.  audit_client uses the
+       original approved controlled_text, never a candidate's re-expressed text.
+    2. Any candidate that is not both approved and audited (is_audited=True) after the
+       optional audit causes the ensemble to return needs_review — the unaudited result
+       is a process blocker, not a semantic finding.
+    3. Only after all candidates pass the trust check do we run the FormalClaim-signature
        comparison.  Disagreement then produces NLR-REFUSED-AMBIGUOUS with full provenance.
 
     Approvals are never synthesised here — they must be carried in each DecompositionResult.
@@ -429,10 +446,21 @@ def _check_decomposition_ensemble(
         for client in clients
     ]
 
-    # Collect per-candidate provenance so the report carries the full chain regardless
-    # of whether the ensemble agreed, refused, or blocked on audit. This lets callers
-    # (and tests) assert that fixture provenance flowed through the CLI path.
+    # PA-6 audit gate: apply the audit client to any candidate not yet audited.
+    # Uses the original approved controlled_text (authoritative), never the candidate's
+    # re-expressed text.  Leaves already-audited candidates (e.g. recorded fixtures
+    # with is_audited=True) unchanged so existing tests are not broken.
+    if audit_client is not None:
+        from .audit_client import apply_audit
+        results = [
+            apply_audit(r, audit_client, controlled_text) if not r.is_audited else r
+            for r in results
+        ]
+
+    # Collect per-candidate provenance and audit verdicts so the report carries the full
+    # chain regardless of whether the ensemble agreed, refused, or blocked on audit.
     candidate_provenances: list[dict[str, str]] = [r.provenance for r in results]
+    candidate_audit_verdicts: list[AuditVerdict | None] = [r.audit_verdict for r in results]
 
     # Trust check: any unaudited or unapproved candidate blocks as needs_review.
     unaudited = [
@@ -470,7 +498,8 @@ def _check_decomposition_ensemble(
             ],
             input_hashes=full_input_hashes,
             ensemble_candidate_provenances=candidate_provenances,
-        ), candidate_provenances
+            ensemble_candidate_audit_verdicts=candidate_audit_verdicts,
+        ), candidate_provenances, candidate_audit_verdicts
 
     # All candidates are approved and audited: build TranslationCandidates from
     # actual DecompositionResult approval — never synthesise an Approval here.
@@ -510,7 +539,8 @@ def _check_decomposition_ensemble(
             requirement_ir=requirement_ir,
             semantic_decomposition=semantic_decomposition,
             ensemble_candidate_provenances=candidate_provenances,
-        ), candidate_provenances
+            ensemble_candidate_audit_verdicts=candidate_audit_verdicts,
+        ), candidate_provenances, candidate_audit_verdicts
 
     if agreement.status == "needs_review":
         return SemanticTranslationReport(
@@ -536,9 +566,10 @@ def _check_decomposition_ensemble(
             ],
             input_hashes=full_input_hashes,
             ensemble_candidate_provenances=candidate_provenances,
-        ), candidate_provenances
+            ensemble_candidate_audit_verdicts=candidate_audit_verdicts,
+        ), candidate_provenances, candidate_audit_verdicts
 
-    return None, candidate_provenances
+    return None, candidate_provenances, candidate_audit_verdicts
 
 
 def remap_disagreement_spans_to_original(

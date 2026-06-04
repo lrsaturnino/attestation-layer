@@ -580,6 +580,18 @@ def main(argv: list[str] | None = None) -> int:
             "'recorded:<path>' (RecordedDecompositionClient replaying a DecompositionResult JSON fixture)."
         ),
     )
+    semantic_translate_cmd.add_argument(
+        "--audit-client",
+        dest="audit_client",
+        default=None,
+        metavar="AUDIT_CLIENT",
+        help=(
+            "PA-6 audit client applied to LLM-produced ensemble candidates before the trust check. "
+            "Formats: 'live' (AnthropicAuditClient with default model), "
+            "'live:<model-id>' (AnthropicAuditClient with given model), "
+            "'recorded:<path>' (RecordedAuditClient replaying an AuditVerdict JSON fixture)."
+        ),
+    )
 
     semantic_agreement_cmd = subcommands.add_parser(
         "semantic-agreement", help="Compare formal claim candidates with semantic equivalence profiles."
@@ -2210,6 +2222,29 @@ def main(argv: list[str] | None = None) -> int:
                         )
                         return 2
 
+            audit_client = None
+            if args.audit_client:
+                from .audit_client import AnthropicAuditClient, AuditVerdict, RecordedAuditClient
+                audit_spec = args.audit_client
+                if audit_spec == "live":
+                    audit_client = AnthropicAuditClient()
+                elif audit_spec.startswith("live:"):
+                    audit_model_id = audit_spec.removeprefix("live:")
+                    audit_client = AnthropicAuditClient(model=audit_model_id)
+                elif audit_spec.startswith("recorded:"):
+                    audit_fixture_path = Path(audit_spec.removeprefix("recorded:"))
+                    audit_fixture = AuditVerdict.model_validate_json(
+                        audit_fixture_path.read_text()
+                    )
+                    audit_client = RecordedAuditClient(fixture=audit_fixture)
+                else:
+                    print(
+                        f"nlreq: unknown --audit-client spec {audit_spec!r}. "
+                        "Use 'live', 'live:<model-id>', or 'recorded:<fixture-path>'.",
+                        file=sys.stderr,
+                    )
+                    return 2
+
             try:
                 report = translate_controlled_requirement_to_formal_claim(
                     controlled_text=args.file.read_text(),
@@ -2217,6 +2252,7 @@ def main(argv: list[str] | None = None) -> int:
                     title=args.title,
                     translation_id=args.translation_id,
                     decomposition_clients=decomposition_clients,
+                    audit_client=audit_client,
                 )
             except ValueError as exc:
                 print(f"nlreq: translation error: {exc}", file=sys.stderr)

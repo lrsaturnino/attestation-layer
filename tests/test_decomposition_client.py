@@ -1141,3 +1141,315 @@ def test_decomposition_result_audit_verdict_defaults_to_none() -> None:
 
     assert decomp.audit_verdict is None
     assert decomp.is_audited is False
+
+
+# ---------------------------------------------------------------------------
+# AuditVerdict hardening (PA-6 rec: harden verdict consistency)
+# ---------------------------------------------------------------------------
+
+
+def test_audit_verdict_inconsistent_passed_with_invented_premises_is_coerced() -> None:
+    """AuditVerdict with verdict='passed' but non-empty invented_premises is coerced to 'failed'.
+
+    A model that returns verdict='passed' while simultaneously listing invented_premises
+    would bypass the gate if trusted literally.  The model_validator must coerce the
+    verdict to 'failed' whenever the structural fields indicate failure.
+    """
+    verdict = AuditVerdict(
+        covers_all_clauses=True,
+        invented_premises=["extra_condition_not_in_controlled_text"],
+        verdict="passed",  # inconsistent — will be coerced
+    )
+
+    assert verdict.verdict == "failed", (
+        "verdict must be coerced to 'failed' when invented_premises is non-empty, "
+        f"got {verdict.verdict!r}"
+    )
+    # The structural fields are preserved unchanged by the coercion.
+    assert verdict.covers_all_clauses is True
+    assert verdict.invented_premises == ["extra_condition_not_in_controlled_text"]
+
+
+def test_audit_verdict_inconsistent_passed_with_missing_clauses_is_coerced() -> None:
+    """AuditVerdict with verdict='passed' but covers_all_clauses=False is coerced to 'failed'."""
+    verdict = AuditVerdict(
+        covers_all_clauses=False,
+        invented_premises=[],
+        verdict="passed",  # inconsistent — will be coerced
+    )
+
+    assert verdict.verdict == "failed", (
+        "verdict must be coerced to 'failed' when covers_all_clauses is False, "
+        f"got {verdict.verdict!r}"
+    )
+
+
+def test_apply_audit_inconsistent_verdict_blocks_is_audited() -> None:
+    """apply_audit derives gate from structural fields; an inconsistent model response does not pass.
+
+    Even if the AuditVerdict's verdict field were somehow 'passed' after validator coercion,
+    apply_audit uses covers_all_clauses and invented_premises directly.
+    Here we verify end-to-end: an inconsistent response (passed + invented_premises)
+    leaves is_audited=False.
+    """
+    # Build an inconsistent verdict — the validator coerces it to "failed",
+    # then apply_audit reads the structural fields → is_audited=False.
+    inconsistent_verdict = AuditVerdict(
+        covers_all_clauses=True,
+        invented_premises=["invented_condition"],
+        verdict="passed",  # coerced to "failed" by model_validator
+    )
+    assert inconsistent_verdict.verdict == "failed", "Precondition: coercion happened"
+
+    audit_client = RecordedAuditClient(fixture=inconsistent_verdict)
+    base_result = RecordedDecompositionClient(fixture=_parse_ir()).decompose_controlled_to_ir(
+        _CONTROLLED_TEXT, _REQUIREMENT_ID, _TITLE
+    )
+
+    gated = apply_audit(base_result, audit_client, _CONTROLLED_TEXT)
+
+    assert gated.is_audited is False, (
+        "apply_audit must leave is_audited=False when invented_premises is non-empty"
+    )
+    assert gated.audit_verdict is not None
+    assert gated.audit_verdict.invented_premises == ["invented_condition"]
+
+
+# ---------------------------------------------------------------------------
+# PA-6 wired into translate_controlled_requirement_to_formal_claim
+# ---------------------------------------------------------------------------
+
+
+def _build_approved_unaudited_client(ir: RequirementIRV2 | None = None) -> RecordedDecompositionClient:
+    """Return a client whose results start approved but not yet audited.
+
+    This is the canonical state of a live LLM decomposition before PA-6 audit:
+    approval has been obtained (human gate), but is_audited is False because
+    apply_audit has not yet been called.
+    """
+    return RecordedDecompositionClient(
+        fixture=ir or _parse_ir(),
+        approval=_approved_approval(),
+        is_audited=False,  # not yet audited — PA-6 must set this
+        model_id="test-model",
+        prompt_hash="test-hash",
+        fixture_provenance={"source": "test_pa6_wiring"},
+    )
+
+
+def test_translate_audit_client_unlocks_approved_unaudited_candidates() -> None:
+    """translate_controlled_requirement_to_formal_claim wires audit_client into the ensemble.
+
+    When candidates start approved but unaudited (is_audited=False) and a passing
+    audit_client is supplied, apply_audit sets is_audited=True before the trust check.
+    Both candidates then pass the trust check, agree on the same IR, and the translation
+    proceeds to accepted.  This is the PA-6 acceptance criterion: live LLM decomposition
+    can become audited through the normal translate path.
+    """
+    passing_verdict = AuditVerdict(
+        covers_all_clauses=True,
+        invented_premises=[],
+        verdict="passed",
+    )
+    audit_client = RecordedAuditClient(fixture=passing_verdict)
+    client_a = _build_approved_unaudited_client()
+    client_b = _build_approved_unaudited_client()
+
+    report = translate_controlled_requirement_to_formal_claim(
+        controlled_text=_CONTROLLED_TEXT,
+        requirement_id=_REQUIREMENT_ID,
+        title=_TITLE,
+        decomposition_clients=[client_a, client_b],
+        audit_client=audit_client,
+    )
+
+    assert report.result == "accepted", (
+        f"Passing audit must unlock the ensemble and produce 'accepted', got {report.result!r}. "
+        f"refusal_code={report.refusal_code!r}"
+    )
+    # Audit verdicts appear in the report.
+    assert len(report.ensemble_candidate_audit_verdicts) == 2, (
+        f"Expected 2 audit verdicts in report, got {len(report.ensemble_candidate_audit_verdicts)}"
+    )
+    for i, av in enumerate(report.ensemble_candidate_audit_verdicts):
+        assert av is not None, f"audit_verdict[{i}] must not be None after audit was applied"
+        assert av.verdict == "passed", f"audit_verdict[{i}].verdict must be 'passed'"
+        assert av.covers_all_clauses is True
+        assert av.invented_premises == []
+
+
+def test_translate_failing_audit_client_keeps_candidates_unaudited() -> None:
+    """A failing audit_client leaves is_audited=False; ensemble returns NLR-UNAUDITED-DECOMPOSITION.
+
+    This is the negative path: even when approval is present, a failing audit verdict
+    (invented_premises or missing clauses) keeps is_audited=False so the trust check
+    blocks with needs_review rather than letting an untrustworthy decomposition drive
+    a formal-claim comparison.
+    """
+    failing_verdict = AuditVerdict(
+        covers_all_clauses=True,
+        invented_premises=["invented_premise_should_block"],
+        verdict="failed",
+    )
+    audit_client = RecordedAuditClient(fixture=failing_verdict)
+    client_a = _build_approved_unaudited_client()
+    client_b = _build_approved_unaudited_client()
+
+    report = translate_controlled_requirement_to_formal_claim(
+        controlled_text=_CONTROLLED_TEXT,
+        requirement_id=_REQUIREMENT_ID,
+        title=_TITLE,
+        decomposition_clients=[client_a, client_b],
+        audit_client=audit_client,
+    )
+
+    assert report.result == "needs_review", (
+        f"Failing audit must block with needs_review, got {report.result!r}"
+    )
+    assert report.refusal_code == "NLR-UNAUDITED-DECOMPOSITION", (
+        f"Expected NLR-UNAUDITED-DECOMPOSITION, got {report.refusal_code!r}"
+    )
+    # Audit verdicts ARE present — they show WHY the candidates are blocked.
+    assert len(report.ensemble_candidate_audit_verdicts) == 2
+    for av in report.ensemble_candidate_audit_verdicts:
+        assert av is not None
+        assert av.verdict == "failed"
+        assert "invented_premise_should_block" in av.invented_premises
+
+
+def test_translate_no_audit_client_preserves_existing_behaviour() -> None:
+    """Without audit_client, behaviour is unchanged: already-audited fixtures proceed normally.
+
+    Regression guard: adding audit_client as an optional parameter must not break
+    existing call sites that pass is_audited=True fixtures and no audit_client.
+    """
+    client_a = RecordedDecompositionClient(
+        fixture=_parse_ir(),
+        approval=_approved_approval(),
+        is_audited=True,  # already audited by caller
+    )
+    client_b = RecordedDecompositionClient(
+        fixture=_parse_ir(),
+        approval=_approved_approval(),
+        is_audited=True,
+    )
+
+    report = translate_controlled_requirement_to_formal_claim(
+        controlled_text=_CONTROLLED_TEXT,
+        requirement_id=_REQUIREMENT_ID,
+        title=_TITLE,
+        decomposition_clients=[client_a, client_b],
+        audit_client=None,  # explicit None — existing callers omit this
+    )
+
+    assert report.result == "accepted", (
+        f"Pre-audited fixtures without audit_client must still produce 'accepted', "
+        f"got {report.result!r}"
+    )
+    # No audit verdicts are emitted when no audit_client was supplied and candidates
+    # were already audited (audit_verdict=None from RecordedDecompositionClient).
+    for av in report.ensemble_candidate_audit_verdicts:
+        assert av is None, (
+            "No audit_client supplied and RecordedDecompositionClient sets no audit_verdict"
+        )
+
+
+def test_translate_audit_verdicts_present_even_on_ambiguous_refusal() -> None:
+    """ensemble_candidate_audit_verdicts is populated even when the ensemble disagrees.
+
+    When two audited candidates produce different FormalClaim signatures, the report
+    carries NLR-REFUSED-AMBIGUOUS.  The audit verdicts must still appear in the report
+    so the caller can distinguish 'audit failed' from 'audit passed but semantics diverged'.
+    """
+    passing_verdict = AuditVerdict(
+        covers_all_clauses=True,
+        invented_premises=[],
+        verdict="passed",
+    )
+    audit_client = RecordedAuditClient(fixture=passing_verdict)
+    # Two clients with different IRs → different FormalClaim signatures → disagreement.
+    client_a = _build_approved_unaudited_client(ir=_parse_ir())
+    client_b = _build_approved_unaudited_client(ir=_parse_ir_variant())
+
+    report = translate_controlled_requirement_to_formal_claim(
+        controlled_text=_CONTROLLED_TEXT,
+        requirement_id=_REQUIREMENT_ID,
+        title=_TITLE,
+        decomposition_clients=[client_a, client_b],
+        audit_client=audit_client,
+    )
+
+    assert report.result == "refused", (
+        f"Differing IR signatures must produce 'refused', got {report.result!r}"
+    )
+    assert report.refusal_code == "NLR-REFUSED-AMBIGUOUS"
+    assert len(report.ensemble_candidate_audit_verdicts) == 2
+    for av in report.ensemble_candidate_audit_verdicts:
+        assert av is not None
+        assert av.verdict == "passed", (
+            "Audit passed for both candidates; refusal is due to signature disagreement, not audit failure"
+        )
+
+
+# ---------------------------------------------------------------------------
+# CLI --audit-client integration
+# ---------------------------------------------------------------------------
+
+
+def test_cli_audit_client_recorded_unlocks_unaudited_candidates(tmp_path: Path) -> None:
+    """CLI --audit-client recorded:<path> applies the fixture verdict to unaudited candidates.
+
+    Ensures the CLI path constructs a RecordedAuditClient from a fixture file and passes
+    it to translate_controlled_requirement_to_formal_claim, unlocking approved-but-unaudited
+    candidates and producing an accepted report.
+    """
+    req_file = tmp_path / "req.nlreq"
+    req_file.write_text(_CONTROLLED_TEXT)
+
+    # Write a passing AuditVerdict fixture.
+    audit_verdict = AuditVerdict(
+        covers_all_clauses=True,
+        invented_premises=[],
+        verdict="passed",
+    )
+    audit_fixture_path = tmp_path / "audit.json"
+    audit_fixture_path.write_text(audit_verdict.model_dump_json())
+
+    # Write two approved-but-unaudited DecompositionResult fixtures (same IR → agree).
+    decomp_result = DecompositionResult(
+        requirement=_parse_ir(),
+        candidate_id="cli-audit-candidate",
+        source_text_hash=sha256_text(_CONTROLLED_TEXT),
+        approval=_approved_approval(),
+        is_audited=False,  # CLI --audit-client must set this
+    )
+    fixture_a = tmp_path / "fixture_a.json"
+    fixture_b = tmp_path / "fixture_b.json"
+    fixture_a.write_text(decomp_result.model_dump_json())
+    fixture_b.write_text(decomp_result.model_dump_json())
+
+    out_path = tmp_path / "report.json"
+    exit_code = main([
+        "semantic-translate", str(req_file),
+        "--requirement-id", _REQUIREMENT_ID,
+        "--title", _TITLE,
+        "--ensemble-client", f"recorded:{fixture_a}",
+        "--ensemble-client", f"recorded:{fixture_b}",
+        "--audit-client", f"recorded:{audit_fixture_path}",
+        "--out", str(out_path),
+    ])
+
+    assert exit_code == 0, (
+        f"CLI must exit 0 (accepted) when audit unlocks approved-unaudited candidates, "
+        f"got exit_code={exit_code}. Report: {out_path.read_text()[:500]}"
+    )
+    report = json.loads(out_path.read_text())
+    assert report["result"] == "accepted"
+    # Audit verdicts must appear in the serialised report.
+    audit_verdicts = report.get("ensemble_candidate_audit_verdicts", [])
+    assert len(audit_verdicts) == 2, (
+        f"Expected 2 audit verdicts in serialised report, got {len(audit_verdicts)}"
+    )
+    for av in audit_verdicts:
+        assert av["verdict"] == "passed"
+        assert av["covers_all_clauses"] is True

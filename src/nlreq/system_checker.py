@@ -403,6 +403,15 @@ def _z3_check_obligation_under_s(
 ) -> Literal["valid", "counterexample", "unknown"]:
     """Z3 in-process S∧R check: does the lowered obligation hold under system constraint S?
 
+    SCOPE (structural template check — NOT PA-1 evidence):
+    This function encodes Pred_* boolean assignments from S and checks whether the
+    violation query (pred=TRUE AND reached_accepted=TRUE) is SAT under those assignments.
+    It does NOT evaluate RequirementHolds, real action/state targets, or the full
+    composed TLA+ transition system.  It is a structural discriminator useful for
+    regression-catching on Pred_* assignments only.  Full PA-1 evidence requires an
+    Apalache run on the composed S∧R module (PB-4); this path is complementary, not
+    a substitute.
+
     S is given by pred_assignments (Pred_name → bool).  The obligation predicates are
     parsed from the Obligation == line of the lowered module — not from CONSTANT declarations
     — so a regression that replaces Obligation with TRUE is caught (returns "unknown").

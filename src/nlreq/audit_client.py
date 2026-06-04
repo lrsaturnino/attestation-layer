@@ -13,9 +13,9 @@ a deterministic check would miss, but its verdict is not a formal proof.
 """
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 _DEFAULT_AUDIT_MODEL = "claude-haiku-4-5-20251001"
@@ -56,9 +56,16 @@ class AuditVerdict(BaseModel):
 
     covers_all_clauses: bool
     invented_premises: list[str] = Field(default_factory=list)
-    verdict: str
+    verdict: Literal["passed", "failed"]
     audit_prompt_version: str = _AUDIT_PROMPT_VERSION
     model_id: str | None = None
+
+    @model_validator(mode="after")
+    def _normalize_verdict_from_fields(self) -> "AuditVerdict":
+        # Derive verdict from structural fields so the stored value always matches the gate.
+        # The model's verdict string is advisory — we never trust it over the field values.
+        self.verdict = "passed" if (self.covers_all_clauses and not self.invented_premises) else "failed"
+        return self
 
 
 @runtime_checkable
@@ -233,5 +240,8 @@ def apply_audit(
         controlled_text=controlled_text,
         ir_summary=ir_summary,
     )
-    passed = verdict.verdict == "passed"
+    # Derive gate from structural fields directly — treat verdict string as advisory.
+    # The model_validator already coerced inconsistent verdicts, but we gate on fields
+    # rather than trusting the string to be consistent with what the validator saw.
+    passed = verdict.covers_all_clauses and not verdict.invented_premises
     return result.model_copy(update={"audit_verdict": verdict, "is_audited": passed})
