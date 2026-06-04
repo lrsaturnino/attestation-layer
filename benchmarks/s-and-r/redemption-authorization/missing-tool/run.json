@@ -1,0 +1,27 @@
+{
+  "bounds": {
+    "max_depth": 6,
+    "solver_options": {},
+    "timeout_seconds": 60
+  },
+  "checker_id": "apalache",
+  "command": [
+    "apalache-mc-not-installed",
+    "check",
+    "REQ_SYS_AUTHZ_NEG_S_AND_R.tla"
+  ],
+  "evidence_level": null,
+  "preserved_invariants": [
+    "AuthorizationDefaultsClosed",
+    "R_Requirement"
+  ],
+  "requirement_id": "REQ-SYS-AUTHZ-NEG",
+  "runner_outcome": "tool_error",
+  "status": "invalid",
+  "tool_error": "[Errno 2] No such file or directory: 'apalache-mc-not-installed'",
+  "tool_version": "0.58.0",
+  "tool_version_command": [
+    "apalache-mc",
+    "version"
+  ]
+}

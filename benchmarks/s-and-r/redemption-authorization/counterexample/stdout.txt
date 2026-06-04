@@ -1,0 +1,43 @@
+                                  I@20:24:03.989
+  > Normalizer                                                    I@20:24:03.990
+  > SetMembershipSimplifier                                       I@20:24:03.991
+  > Keramelizer                                                   I@20:24:03.991
+  > After preprocessing: UniqueRenamer                            I@20:24:03.992
+PASS #10: TransitionFinderPass                                    I@20:24:03.994
+  > Found 1 initializing transitions                              I@20:24:04.004
+  > Found 3 transitions                                           I@20:24:04.006
+  > Found constant initializer ConstInit                          I@20:24:04.006
+  > Applying unique renaming                                      I@20:24:04.008
+PASS #11: OptimizationPass                                        I@20:24:04.008
+ > Applying optimizations:                                        I@20:24:04.012
+  > ConstSimplifier                                               I@20:24:04.012
+  > ExprOptimizer                                                 I@20:24:04.013
+  > SetMembershipSimplifier                                       I@20:24:04.014
+  > ConstSimplifier                                               I@20:24:04.016
+PASS #12: AnalysisPass                                            I@20:24:04.017
+ > Marking skolemizable existentials and sets to be expanded...   I@20:24:04.018
+  > Skolemization                                                 I@20:24:04.018
+  > Expansion                                                     I@20:24:04.018
+  > Remove unused let-in defs                                     I@20:24:04.018
+ > Running analyzers...                                           I@20:24:04.019
+  > Introduced expression grades                                  I@20:24:04.019
+PASS #13: BoundedChecker                                          I@20:24:04.019
+State 0: Checking 2 state invariants                              I@20:24:04.524
+State 0: state invariant 0 holds.                                 I@20:24:04.524
+State 0: state invariant 1 holds.                                 I@20:24:04.529
+Step 0: picking a transition out of 1 transition(s)               I@20:24:04.529
+State 1: Checking 1 state invariants                              I@20:24:04.532
+State 1: state invariant 1 holds.                                 I@20:24:04.533
+Step 1: Transition #2 is disabled                                 I@20:24:04.534
+Step 1: picking a transition out of 2 transition(s)               I@20:24:04.535
+State 2: Checking 1 state invariants                              I@20:24:04.538
+State 2: state invariant 1 holds.                                 I@20:24:04.539
+State 2: Checking 1 state invariants                              I@20:24:04.540
+Check the trace in: <RUN_DIR>/artifacts/_apalache-out/REQ_SYS_AUTHZ_NEG_S_AND_R.tla/2026-06-04T20-24-03_18071816101969066114/violation1.tla, <RUN_DIR>/artifacts/_apalache-out/REQ_SYS_AUTHZ_NEG_S_AND_R.tla/2026-06-04T20-24-03_18071816101969066114/MCviolation1.out, <RUN_DIR>/artifacts/_apalache-out/REQ_SYS_AUTHZ_NEG_S_AND_R.tla/2026-06-04T20-24-03_18071816101969066114/violation1.json, <RUN_DIR>/artifacts/_apalache-out/REQ_SYS_AUTHZ_NEG_S_AND_R.tla/2026-06-04T20-24-03_18071816101969066114/violation1.itf.json I@20:24:04.583
+State 2: state invariant 1 violated.                              I@20:24:04.583
+Found 1 error(s)                                                  I@20:24:04.584
+The outcome is: Error                                             I@20:24:04.585
+Checker has found an error                                        I@20:24:04.593
+It took me 0 days  0 hours  0 min  0 sec                          I@20:24:04.593
+Total time: 0.986 sec                                             I@20:24:04.593
+EXITCODE: ERROR (12)

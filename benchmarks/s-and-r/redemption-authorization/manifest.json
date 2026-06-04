@@ -1,0 +1,62 @@
+{
+  "apalache_command": [
+    "apalache-mc",
+    "check",
+    "--cinit=ConstInit",
+    "--init=Init",
+    "--next=Next",
+    "--inv=Inv",
+    "--length=6",
+    "{module}"
+  ],
+  "budget": {
+    "max_depth": 6,
+    "timeout_seconds": 60
+  },
+  "corpus_id": "redemption-authorization",
+  "impact": {
+    "adapter_id": "python-source",
+    "affected_modules": [
+      "redemption"
+    ],
+    "call_graph_edges": [],
+    "input_symbols": [
+      "finalize_redemption"
+    ],
+    "language": "python",
+    "metadata": {},
+    "schema_version": "0.1"
+  },
+  "init_op": "SInit",
+  "invariants": [
+    "AuthorizationDefaultsClosed"
+  ],
+  "module_ids": [
+    "redemption"
+  ],
+  "next_op": "SNext",
+  "outcomes": {
+    "counterexample": {
+      "expect_status": "counterexample",
+      "requirement_dsl": "requirement authorization_precondition: scope redemption when wallet is not authorized then finalize_redemption must reject before rejected.",
+      "requirement_id": "REQ-SYS-AUTHZ-NEG"
+    },
+    "missing-tool": {
+      "expect_status": "invalid"
+    },
+    "timeout": {
+      "expect_status": "timeout"
+    },
+    "unsupported": {
+      "expect_status": "unsupported"
+    },
+    "valid": {
+      "expect_status": "valid",
+      "requirement_dsl": "requirement authorization_precondition: scope redemption when wallet is authorized then finalize_redemption must reject before rejected.",
+      "requirement_id": "REQ-SYS-AUTHZ"
+    }
+  },
+  "spec_id": "spec:redemption",
+  "spec_path": "spec/RedemptionAuthorization.tla",
+  "timeout_budget_seconds": 1
+}

@@ -1,0 +1,34 @@
+{
+  "bounds": {
+    "max_depth": 6,
+    "solver_options": {},
+    "timeout_seconds": 60
+  },
+  "checker_id": "apalache",
+  "command": [
+    "apalache-mc",
+    "check",
+    "--cinit=ConstInit",
+    "--init=Init",
+    "--next=Next",
+    "--inv=Inv",
+    "--length=6",
+    "REQ_SYS_AUTHZ_S_AND_R.tla"
+  ],
+  "config": "REQ_SYS_AUTHZ_S_AND_R.cfg",
+  "evidence_level": "BOUNDED_CHECKED",
+  "module": "REQ_SYS_AUTHZ_S_AND_R.tla",
+  "module_sha256": "sha256:d0088fb3b791975fdbca3ecfc8370263756dd9d5b00a890bc952059d6183ad79",
+  "preserved_invariants": [
+    "AuthorizationDefaultsClosed",
+    "R_Requirement"
+  ],
+  "requirement_id": "REQ-SYS-AUTHZ",
+  "runner_outcome": "valid",
+  "status": "valid",
+  "tool_version": "0.58.0",
+  "tool_version_command": [
+    "apalache-mc",
+    "version"
+  ]
+}

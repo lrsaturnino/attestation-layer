@@ -1,0 +1,13 @@
+{
+  "bounds": {},
+  "checker_id": "apalache",
+  "command": [],
+  "evidence_level": null,
+  "reason": "no reviewed system spec declares an invariant to preserve; an S that asserts nothing cannot make S \u2227 R non-trivial",
+  "refusal_kind": "no_system_invariant",
+  "requirement_id": "REQ-SYS-AUTHZ-NEG",
+  "runner_outcome": null,
+  "status": "unsupported",
+  "tool_version": null,
+  "tool_version_command": null
+}

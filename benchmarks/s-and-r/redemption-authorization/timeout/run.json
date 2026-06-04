@@ -1,0 +1,23 @@
+{
+  "bounds": {
+    "max_depth": 6,
+    "solver_options": {},
+    "timeout_seconds": 1
+  },
+  "checker_id": "custom",
+  "command": [
+    "python3",
+    "-c",
+    "import time; time.sleep(5)"
+  ],
+  "evidence_level": null,
+  "preserved_invariants": [
+    "AuthorizationDefaultsClosed",
+    "R_Requirement"
+  ],
+  "requirement_id": "REQ-SYS-AUTHZ-NEG",
+  "runner_outcome": "timeout",
+  "status": "timeout",
+  "tool_version": null,
+  "tool_version_command": null
+}
