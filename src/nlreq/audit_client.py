@@ -159,6 +159,38 @@ class RecordedAuditClient:
         return self._fixture
 
 
+class RecordedAuditFixture(BaseModel):
+    """Hash-bound on-disk fixture for replaying a recorded audit verdict.
+
+    Wraps an AuditVerdict together with the content hashes of the exact inputs it
+    was produced for.  The CLI ``--audit-client recorded:<path>`` consumes this
+    shape (never a bare AuditVerdict) so a passing verdict cannot be replayed
+    against a different controlled text — and, when bound, a different IR summary —
+    and bless a decomposition it never audited.
+
+    expected_controlled_text_hash is required: it binds the verdict to one approved
+    requirement.  expected_ir_summary_hash is optional: when set it further binds
+    the verdict to a single decomposition's IR summary, i.e. the sha256 of
+    summarize_ir_for_audit(requirement).  It is left optional because a single
+    audit fixture supplied to a multi-candidate ensemble must still apply across
+    candidates that share the same approved controlled text.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    verdict: AuditVerdict
+    expected_controlled_text_hash: str
+    expected_ir_summary_hash: str | None = None
+
+    def build_client(self) -> RecordedAuditClient:
+        """Return a RecordedAuditClient bound to this fixture's input hashes."""
+        return RecordedAuditClient(
+            fixture=self.verdict,
+            expected_controlled_text_hash=self.expected_controlled_text_hash,
+            expected_ir_summary_hash=self.expected_ir_summary_hash,
+        )
+
+
 class AnthropicAuditClient:
     """Live second-model Anthropic SDK client for decomposition auditing.
 

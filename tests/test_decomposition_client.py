@@ -11,7 +11,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from nlreq.cli import main
-from nlreq.audit_client import AuditVerdict, RecordedAuditClient, apply_audit
+from nlreq.audit_client import (
+    AuditVerdict,
+    RecordedAuditClient,
+    RecordedAuditFixture,
+    apply_audit,
+)
 from nlreq.decomposition_client import (
     AnthropicDecompositionClient,
     DecompositionClient,
@@ -1406,14 +1411,17 @@ def test_cli_audit_client_recorded_unlocks_unaudited_candidates(tmp_path: Path) 
     req_file = tmp_path / "req.nlreq"
     req_file.write_text(_CONTROLLED_TEXT)
 
-    # Write a passing AuditVerdict fixture.
-    audit_verdict = AuditVerdict(
-        covers_all_clauses=True,
-        invented_premises=[],
-        verdict="passed",
+    # Write a passing audit fixture bound to this requirement's controlled text.
+    audit_fixture = RecordedAuditFixture(
+        verdict=AuditVerdict(
+            covers_all_clauses=True,
+            invented_premises=[],
+            verdict="passed",
+        ),
+        expected_controlled_text_hash=sha256_text(_CONTROLLED_TEXT),
     )
     audit_fixture_path = tmp_path / "audit.json"
-    audit_fixture_path.write_text(audit_verdict.model_dump_json())
+    audit_fixture_path.write_text(audit_fixture.model_dump_json())
 
     # Write two approved-but-unaudited DecompositionResult fixtures (same IR → agree).
     decomp_result = DecompositionResult(
@@ -1453,6 +1461,71 @@ def test_cli_audit_client_recorded_unlocks_unaudited_candidates(tmp_path: Path) 
     for av in audit_verdicts:
         assert av["verdict"] == "passed"
         assert av["covers_all_clauses"] is True
+
+
+def test_cli_audit_client_recorded_hash_mismatch_blocks(tmp_path: Path) -> None:
+    """CLI --audit-client recorded:<path> with a wrong controlled-text hash blocks.
+
+    Closes the replay-unbound hole: a passing audit fixture bound to a DIFFERENT
+    controlled text must not bless this requirement through the advertised CLI
+    workflow.  The hash mismatch yields a conservative failed verdict, candidates
+    stay unaudited, and the report is needs_review (exit 1).
+    """
+    req_file = tmp_path / "req.nlreq"
+    req_file.write_text(_CONTROLLED_TEXT)
+
+    # A passing verdict, but bound to the hash of a different approved requirement.
+    audit_fixture = RecordedAuditFixture(
+        verdict=AuditVerdict(
+            covers_all_clauses=True,
+            invented_premises=[],
+            verdict="passed",
+        ),
+        expected_controlled_text_hash=sha256_text(
+            "a completely different approved requirement"
+        ),
+    )
+    audit_fixture_path = tmp_path / "audit.json"
+    audit_fixture_path.write_text(audit_fixture.model_dump_json())
+
+    decomp_result = DecompositionResult(
+        requirement=_parse_ir(),
+        candidate_id="cli-audit-candidate",
+        source_text_hash=sha256_text(_CONTROLLED_TEXT),
+        approval=_approved_approval(),
+        is_audited=False,
+    )
+    fixture_a = tmp_path / "fixture_a.json"
+    fixture_b = tmp_path / "fixture_b.json"
+    fixture_a.write_text(decomp_result.model_dump_json())
+    fixture_b.write_text(decomp_result.model_dump_json())
+
+    out_path = tmp_path / "report.json"
+    exit_code = main([
+        "semantic-translate", str(req_file),
+        "--requirement-id", _REQUIREMENT_ID,
+        "--title", _TITLE,
+        "--ensemble-client", f"recorded:{fixture_a}",
+        "--ensemble-client", f"recorded:{fixture_b}",
+        "--audit-client", f"recorded:{audit_fixture_path}",
+        "--out", str(out_path),
+    ])
+
+    assert exit_code == 1, (
+        "Hash-mismatched audit fixture must NOT unlock candidates; expected exit 1 "
+        f"(needs_review), got exit_code={exit_code}. Report: {out_path.read_text()[:500]}"
+    )
+    report = json.loads(out_path.read_text())
+    assert report["result"] == "needs_review"
+    assert report["refusal_code"] == "NLR-UNAUDITED-DECOMPOSITION"
+    # The conservative failure that explains the block must surface in the report.
+    audit_verdicts = report.get("ensemble_candidate_audit_verdicts", [])
+    assert len(audit_verdicts) == 2
+    for av in audit_verdicts:
+        assert av["verdict"] == "failed"
+        assert any("audit-fixture-mismatch" in p for p in av["invented_premises"]), (
+            f"Failure must explain the hash mismatch, got: {av['invented_premises']}"
+        )
 
 
 # ---------------------------------------------------------------------------

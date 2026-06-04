@@ -589,7 +589,8 @@ def main(argv: list[str] | None = None) -> int:
             "PA-6 audit client applied to LLM-produced ensemble candidates before the trust check. "
             "Formats: 'live' (AnthropicAuditClient with default model), "
             "'live:<model-id>' (AnthropicAuditClient with given model), "
-            "'recorded:<path>' (RecordedAuditClient replaying an AuditVerdict JSON fixture)."
+            "'recorded:<path>' (replays a hash-bound RecordedAuditFixture JSON fixture: a verdict "
+            "bound to the expected controlled-text hash so it cannot bless a different requirement)."
         ),
     )
 
@@ -2224,7 +2225,7 @@ def main(argv: list[str] | None = None) -> int:
 
             audit_client = None
             if args.audit_client:
-                from .audit_client import AnthropicAuditClient, AuditVerdict, RecordedAuditClient
+                from .audit_client import AnthropicAuditClient, RecordedAuditFixture
                 audit_spec = args.audit_client
                 if audit_spec == "live":
                     audit_client = AnthropicAuditClient()
@@ -2232,11 +2233,14 @@ def main(argv: list[str] | None = None) -> int:
                     audit_model_id = audit_spec.removeprefix("live:")
                     audit_client = AnthropicAuditClient(model=audit_model_id)
                 elif audit_spec.startswith("recorded:"):
+                    # The recorded audit fixture is hash-bound: it carries the verdict plus
+                    # the controlled-text hash (and optionally IR-summary hash) it was produced
+                    # for, so a passing verdict cannot bless a different requirement on replay.
                     audit_fixture_path = Path(audit_spec.removeprefix("recorded:"))
-                    audit_fixture = AuditVerdict.model_validate_json(
+                    audit_fixture = RecordedAuditFixture.model_validate_json(
                         audit_fixture_path.read_text()
                     )
-                    audit_client = RecordedAuditClient(fixture=audit_fixture)
+                    audit_client = audit_fixture.build_client()
                 else:
                     print(
                         f"nlreq: unknown --audit-client spec {audit_spec!r}. "
