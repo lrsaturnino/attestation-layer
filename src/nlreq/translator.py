@@ -6,7 +6,11 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .dsl_v2 import DslV2Parser
-from .formal_lowering import FORMAL_LOWERING_VERSION, lower_authorization_precondition_tla
+from .formal_lowering import (
+    FORMAL_LOWERING_VERSION,
+    lower_authorization_precondition_tla,
+    validate_authorization_precondition_shape,
+)
 from .jsonutil import canonical_json, sha256_json, sha256_text
 from .models import Approval, RequirementIRV2, SemanticNode, SourceSpan
 
@@ -151,6 +155,25 @@ def lower_ir_v2_to_tla(ir: RequirementIRV2) -> LoweredFormalArtifact:
 
 def _lower_non_vacuous(ir: RequirementIRV2, claim_class: str) -> LoweredFormalArtifact:
     """Non-vacuous lowering for supported claim kinds (authorization_precondition)."""
+    shape_problems = validate_authorization_precondition_shape(ir.semantic_ir)
+    if shape_problems:
+        return LoweredFormalArtifact(
+            requirement_id=ir.requirement_id,
+            source_ir_version=ir.ir_version,
+            source_ir_hash=sha256_json(ir),
+            status="refused",
+            temporal_bounds=_temporal_bounds(ir.semantic_ir),
+            diagnostics=[
+                LoweringDiagnostic(
+                    node_id=ir.semantic_ir.node_id,
+                    kind=kind,
+                    reason=reason,
+                    source_spans=ir.semantic_ir.source_spans,
+                )
+                for kind, reason in shape_problems
+            ],
+            metadata={"refusal_code": "NLR-LOWERING-UNSUPPORTED-SHAPE"},
+        )
     temporal_bounds = _temporal_bounds(ir.semantic_ir)
     source_ir_hash = sha256_json(ir)
     bounds_json = canonical_json([b.model_dump(mode="json") for b in temporal_bounds]).strip()

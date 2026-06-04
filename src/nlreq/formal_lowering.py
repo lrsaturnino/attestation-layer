@@ -6,6 +6,50 @@ from .models import RequirementIRV2, SemanticNode
 FORMAL_LOWERING_VERSION = "0.2"
 
 
+def validate_authorization_precondition_shape(root: SemanticNode) -> list[tuple[str, str]]:
+    """Return (kind, reason) pairs for unsupported authorization_precondition shapes.
+
+    Returns an empty list when the shape is fully supported. Callers must refuse
+    lowering when the list is non-empty — never silently emit TRUE or fall back
+    to defaults.
+    """
+    problems: list[tuple[str, str]] = []
+
+    if root.premise is None:
+        problems.append(("missing_premise", "authorization_precondition requires a premise clause (when ...)"))
+        return problems
+
+    premise = root.premise
+    nodes = premise.children if premise.kind == "and" else [premise]
+    for node in nodes:
+        if node.kind != "predicate":
+            problems.append((
+                node.kind,
+                (
+                    f"unsupported premise node kind '{node.kind}' in "
+                    f"authorization_precondition; only named predicate nodes are supported "
+                    f"(e.g. 'when actor is authorized'), not comparisons or membership checks"
+                ),
+            ))
+
+    if root.obligation is None:
+        problems.append(("missing_obligation", "authorization_precondition requires an obligation clause (must ...)"))
+    else:
+        must = root.obligation.must
+        if must is None:
+            problems.append(("missing_must", "authorization_precondition obligation requires a must clause"))
+        elif must.kind != "before":
+            problems.append((
+                must.kind,
+                (
+                    f"authorization_precondition obligation must be 'reject before <state>'; "
+                    f"got must node kind '{must.kind}' — unsupported obligation shape"
+                ),
+            ))
+
+    return problems
+
+
 def lower_authorization_precondition_tla(
     ir: RequirementIRV2,
     *,
@@ -13,12 +57,19 @@ def lower_authorization_precondition_tla(
 ) -> str:
     """Produce a non-vacuous TLA+ module for authorization_precondition.
 
-    Predicates are declared as CONSTANT uninterpreted operators so Apalache
-    can explore all boolean assignments. The rejects_before obligation maps
-    to a real Next transition: no accepted outcome while the premise holds.
+    Predicates are CONSTANT uninterpreted operators so Apalache can explore all
+    boolean assignments. The state machine has two executable steps:
+    - Step_{action}: guarded on idle; if premise holds → rejected, else → accepted.
+    - Step_{state_change}: guarded on accepted; crosses the state_change boundary.
+    The obligation is a safety invariant: when the premise holds, state_change is
+    unreachable (it can only be reached via accepted, which requires premise false).
 
-    Requirement vs. its negation produce modules with distinct predicate
-    declarations and obligation bodies — Apalache can distinguish them.
+    The requirement vs. its negation produce modules whose Obligation bodies differ
+    by the predicate name — structurally distinguishable, checker-distinguishable
+    only with a live Apalache/TLC binary (PB-4).
+
+    Caller must invoke validate_authorization_precondition_shape first and refuse
+    if any problems are returned; this function assumes a supported shape.
     """
     root = ir.semantic_ir
     module_name = "Req_" + _safe_name(ir.requirement_id)
@@ -32,29 +83,20 @@ def lower_authorization_precondition_tla(
         for name, _ in predicates
     )
 
-    if predicates:
-        premise_parts = [
-            f"{_pred_name(name)}({', '.join(args)})" if args else _pred_name(name)
-            for name, args in predicates
-        ]
-        premise_expr = " /\\ ".join(premise_parts)
-        rejection_cond = premise_expr
-        next_steps = (
-            f"  \\/ /\\ {rejection_cond}\n"
-            f"     /\\ NLRState' = \"rejected\"\n"
-            f"  \\/ /\\ ~({rejection_cond})\n"
-            f"     /\\ NLRState' = \"accepted\""
-        )
-    else:
-        premise_expr = "TRUE"
-        next_steps = "  NLRState' = NLRState"
-
-    # Obligation: when premise holds, the action outcome must not be "accepted"
-    obligation_expr = f"{premise_expr} => NLRState /= \"accepted\""
+    premise_parts = [
+        f"{_pred_name(name)}({', '.join(args)})" if args else _pred_name(name)
+        for name, args in predicates
+    ]
+    premise_expr = " /\\ ".join(premise_parts) if premise_parts else "TRUE"
 
     const_line = f"CONSTANTS {', '.join(const_identifiers)}\n\n" if const_identifiers else ""
 
     safe_action = _safe_name(action_name)
+    safe_state = _safe_name(state_ref_name)
+
+    # Safety obligation: when premise holds, state_change boundary is unreachable.
+    # state_change is only reachable via accepted, which requires premise false.
+    obligation_expr = f"{premise_expr} => NLRState /= \"state_changed\""
 
     return (
         f"---- MODULE {module_name} ----\n"
@@ -67,10 +109,15 @@ def lower_authorization_precondition_tla(
         f"{pred_decls}\n\n"
         f"VARIABLE NLRState\n\n"
         f"Init == NLRState = \"idle\"\n\n"
-        f"\\* Rejection obligation: rejects({action_name}) before {state_ref_name} when premise holds.\n"
-        f"\\* No transition reaches accepted while premise predicates hold.\n"
-        f"Step_{safe_action} ==\n{next_steps}\n\n"
-        f"Next == Step_{safe_action} \\/ UNCHANGED NLRState\n\n"
+        f"Step_{safe_action} ==\n"
+        f"  /\\ NLRState = \"idle\"\n"
+        f"  /\\ IF {premise_expr}\n"
+        f"     THEN NLRState' = \"rejected\"\n"
+        f"     ELSE NLRState' = \"accepted\"\n\n"
+        f"Step_{safe_state} ==\n"
+        f"  /\\ NLRState = \"accepted\"\n"
+        f"  /\\ NLRState' = \"state_changed\"\n\n"
+        f"Next == Step_{safe_action} \\/ Step_{safe_state} \\/ UNCHANGED NLRState\n\n"
         f"Premise == {premise_expr}\n\n"
         f"Obligation == {obligation_expr}\n\n"
         f"RequirementHolds == Premise => Obligation\n\n"

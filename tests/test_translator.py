@@ -6,6 +6,7 @@ import pytest
 from nlreq.cli import main
 from nlreq.dsl_v2 import DslV2Parser
 from nlreq.dsl_v3 import DslV3Parser
+from nlreq.formal_lowering import validate_authorization_precondition_shape
 from nlreq.models import RequirementIRV2
 from nlreq.translator import (
     ControlledDraft,
@@ -218,6 +219,96 @@ def test_dsl_v2_redemption_still_uses_skeleton_lowering() -> None:
 
     assert artifact.metadata.get("evidence") == "not_checked"
     assert artifact.status == "lowered"
+
+
+def test_lower_authorization_precondition_refuses_comparison_premise() -> None:
+    """Comparison premises in authorization_precondition must refuse, not silently emit TRUE.
+
+    DSL v3 allows comparison clauses (e.g. balance >= 5) under any claim kind.
+    formal_lowering only supports predicate nodes; silently skipping a comparison
+    and emitting Premise == TRUE would violate the non-vacuous contract.
+    """
+    ir = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope op "
+        "when balance >= 5 then operation must reject before state_change.",
+        requirement_id="AUTH-COMP-PREM",
+        title="Comparison premise",
+    )
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "refused"
+    assert artifact.content is None
+    assert any(d.kind == "gte" for d in artifact.diagnostics)
+    assert any("unsupported premise node kind" in d.reason for d in artifact.diagnostics)
+    assert artifact.metadata.get("refusal_code") == "NLR-LOWERING-UNSUPPORTED-SHAPE"
+
+
+def test_lower_authorization_precondition_refuses_non_before_obligation() -> None:
+    """Obligation shapes other than 'before' in authorization_precondition must refuse.
+
+    _obligation_components() previously fell back silently to ("action", "state_change")
+    when must.kind != "before", which hides bad inputs. The validator must catch this.
+    """
+    ir = _auth_precondition_ir()
+    root = ir.semantic_ir
+    bad_must = root.obligation.must.model_copy(update={"kind": "always"})
+    bad_obl = root.obligation.model_copy(update={"must": bad_must})
+    bad_root = root.model_copy(update={"obligation": bad_obl})
+    bad_ir = ir.model_copy(update={"semantic_ir": bad_root})
+
+    artifact = lower_ir_v2_to_tla(bad_ir)
+
+    assert artifact.status == "refused"
+    assert artifact.content is None
+    assert any(d.kind == "always" for d in artifact.diagnostics)
+    assert any("reject before" in d.reason for d in artifact.diagnostics)
+
+
+def test_lower_authorization_precondition_two_step_state_machine() -> None:
+    """Non-vacuous lowering produces a two-step state machine with state_changed boundary.
+
+    The obligation is reachable-state safety: state_changed is only reachable via
+    accepted, which requires the premise to be false. When the premise holds,
+    state_changed is unreachable — the obligation models rejects_before semantics.
+    """
+    ir = _auth_precondition_ir()
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "lowered"
+    assert artifact.content is not None
+    content = artifact.content
+    # Both steps must be present
+    assert "Step_operation ==" in content
+    assert "Step_state_change ==" in content
+    # State machine covers both step kinds and unchanged
+    assert "Next == Step_operation \\/ Step_state_change \\/ UNCHANGED NLRState" in content
+    # Obligation uses state_changed (not accepted) — semantics: state boundary unreachable
+    obligation_line = next(
+        (line for line in content.splitlines() if line.startswith("Obligation ==")), ""
+    )
+    assert "state_changed" in obligation_line
+    assert "accepted" not in obligation_line
+
+
+def test_validate_authorization_precondition_shape_catches_all_errors() -> None:
+    """Validator returns problems for both premise and obligation in a single call."""
+    ir = _auth_precondition_ir()
+    root = ir.semantic_ir
+    # Synthesize bad premise (comparison) AND bad obligation (not before) simultaneously
+    premise_node = root.premise
+    bad_child = premise_node.children[0].model_copy(update={"kind": "gte"}) if premise_node.children else premise_node
+    bad_premise = premise_node.model_copy(update={"children": [bad_child]})
+    bad_must = root.obligation.must.model_copy(update={"kind": "always"})
+    bad_obl = root.obligation.model_copy(update={"must": bad_must})
+    bad_root = root.model_copy(update={"premise": bad_premise, "obligation": bad_obl})
+
+    problems = validate_authorization_precondition_shape(bad_root)
+
+    kinds = {k for k, _ in problems}
+    assert "gte" in kinds
+    assert "always" in kinds
 
 
 def _auth_precondition_ir() -> RequirementIRV2:

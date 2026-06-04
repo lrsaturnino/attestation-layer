@@ -7,7 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .controlled_semantics import ClaimClass, build_controlled_requirement_semantics_reference
 from .jsonutil import canonical_json, sha256_json
 from .models import EvidenceLevel, RequirementIRV2, SemanticNode, SourceSpan, TemporalBound, ValueRef
-from .proof_closure import ProofPremiseRoute
+from .proof_closure import ProofDispatchPlan, ProofPremiseRoute
 
 
 FORMAL_CLAIM_SCHEMA_VERSION = "0.1"
@@ -285,32 +285,45 @@ def formal_claim_signature(
     return canonical_json(payload)
 
 
-def formal_claim_to_proof_premise_routes(
-    claim: FormalClaim,
-    *,
-    backend_id: str = "system_checker",
-) -> list[ProofPremiseRoute]:
+def formal_claim_to_proof_premise_routes(claim: FormalClaim) -> list[ProofPremiseRoute]:
     """Map FormalClaim fragments to ProofPremiseRoute entries for backend dispatch.
 
-    Each non-scope fragment becomes a typed route carrying the evidence level
-    required for its kind. The caller feeds routes into build_proof_dispatch_plan
-    rather than receiving a generic system-consistency route.
+    Each non-scope fragment becomes a typed route. The backend_id is selected
+    to match the required evidence level for the fragment kind — ensuring every
+    route can be discharged by its routed producer without an evidence mismatch.
+    The mapping follows the default_evidence_producer_mapping() producer table.
     """
     routes: list[ProofPremiseRoute] = []
     for fragment in [*claim.premises, *claim.obligations]:
         role: str = fragment.role if fragment.role in {"premise", "obligation"} else "obligation"
+        evidence = _evidence_for_fragment_kind(fragment.kind)
+        backend = _backend_for_evidence(evidence)
         routes.append(
             ProofPremiseRoute(
                 premise_id=fragment.fragment_id,
                 node_id=fragment.source_node_id,
                 node_kind=fragment.kind,
                 role=role,  # type: ignore[arg-type]
-                backend_id=backend_id,
-                required_evidence=_evidence_for_fragment_kind(fragment.kind),
-                reason=f"formal claim fragment {fragment.kind} routed to {backend_id}",
+                backend_id=backend,
+                required_evidence=evidence,
+                reason=f"formal claim fragment {fragment.kind} routed to {backend}",
             )
         )
     return routes
+
+
+def build_proof_dispatch_plan_from_formal_claim(claim: FormalClaim) -> ProofDispatchPlan:
+    """Build a ProofDispatchPlan whose routes correspond to FormalClaim fragment IDs.
+
+    Each premise/obligation fragment becomes one route. Callers pass the returned
+    plan as dispatch= to build_proof_object so that ProofObject.premises[*].premise_id
+    contains the formal fragment IDs.
+    """
+    routes = formal_claim_to_proof_premise_routes(claim)
+    return ProofDispatchPlan(
+        policy_id=f"formal-claim:{claim.claim_id}",
+        routes=routes,
+    )
 
 
 def _evidence_for_fragment_kind(kind: FormalClaimFragmentKind) -> EvidenceLevel:
@@ -328,6 +341,23 @@ def _evidence_for_fragment_kind(kind: FormalClaimFragmentKind) -> EvidenceLevel:
         "action": EvidenceLevel.CONSISTENCY_CHECKED,
     }
     return _map.get(kind, EvidenceLevel.CONSISTENCY_CHECKED)
+
+
+def _backend_for_evidence(evidence: EvidenceLevel) -> str:
+    """Return a backend_id whose allowed_evidence_levels includes evidence.
+
+    Must stay in sync with proof_closure.default_evidence_producer_mapping().
+    """
+    _map: dict[EvidenceLevel, str] = {
+        EvidenceLevel.SMT_CHECKED: "core_smt",
+        EvidenceLevel.BOUNDED_CHECKED: "apalache",
+        EvidenceLevel.TRACE_VALIDATED: "trace_validation",
+        EvidenceLevel.TEST_VALIDATED: "command",
+        EvidenceLevel.CONSISTENCY_CHECKED: "system_checker",
+        EvidenceLevel.PROVEN_INDUCTIVE: "tlaps",
+        EvidenceLevel.REVIEWED: "human_review",
+    }
+    return _map.get(evidence, "system_checker")
 
 
 def _claim_class(requirement: RequirementIRV2) -> ClaimClass | None:
