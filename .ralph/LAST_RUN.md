@@ -1,49 +1,27 @@
 # Review — iter 7
 ## Implementation summary
-This iteration addressed the three recommended actions from iter 6: PA-4 real client, PA-5 FormalClaim-signature comparator + refusal wiring, and gate de-fabrication.
-
-### PA-4 — Real `AnthropicLlmClient`
-- Added `AnthropicLlmClient` to `src/nlreq/llm_client.py:68-108`: lazy `import anthropic` inside `propose_controlled_rewrite`; credentials loaded from `NLREQ_ANTHROPIC_API_KEY` via `load_api_key()` (credential check before import, so missing key → `EnvironmentError`, not `ImportError`).
-- Added `anthropic>=0.25` as an optional dep in `pyproject.toml` under `[project.optional-dependencies] llm`.
-- Wired `intake-draft --method llm` (no `--fixture`) to use `AnthropicLlmClient` (`src/nlreq/cli.py:2028-2033`).
-- Removed misleading `llm` choice from `draft-controlled --method` (`src/nlreq/cli.py:480`).
-- Removed stale `PA-4.T2 TODO` from `src/nlreq/intake.py`.
-
-**Limitation acknowledged**: `NLREQ_ANTHROPIC_API_KEY` is not set in this repo's environment (`.claude/.env` has `TG_BOT_*` and `ENRICHER_*` only) and `anthropic` is an optional dep not installed by default. The real client requires operator-set `NLREQ_ANTHROPIC_API_KEY` + `pip install .[llm]`; not exercisable in CI by design. Offline path (`--fixture`) remains fully functional.
-
-### PA-5 — FormalClaim-signature comparator + REFUSED_AMBIGUOUS
-- Updated `_disagreements()` in `src/nlreq/translator_agreement.py:125-195` to use `formal_claim_signature(claim, alpha_identifiers=True, commutative=True)` as the primary agreement predicate when both candidates lower to a `FormalClaim`; structural diff used only when one or both fail to lower.
-- Added `refuse_ambiguous_ensemble()` to `src/nlreq/semantic_translation.py`: emits `SemanticTranslationReport` with `result="refused"`, `refusal_code="NLR-REFUSED-AMBIGUOUS"`, `syntactically_valid=True`, and clarification questions mapped from disagreement paths.
-
-### Gate de-fabrication + PA-5 live wiring
-- Single-source IR branch now uses one candidate → `needs_review` (no fabricated `agreed`) in `src/nlreq/end_to_end_gate.py:233-246`.
-- Added `translation_agreement: TranslationAgreementInput | None = None` param to `run_end_to_end_requirement_gate` (`src/nlreq/end_to_end_gate.py:215`). When supplied, it is used instead of auto-generated candidates.
-- Added live wiring: when `translation.status == "disagreed"`, calls `refuse_ambiguous_ensemble` and records `translation_refusal` artifact with `NLR-REFUSED-AMBIGUOUS`; existing `_blockers` propagates this to `decision="refused"` (`src/nlreq/end_to_end_gate.py:281-285`).
-- Controlled_text branch kept as two independent DSL v2 parse invocations (genuinely separate `parse_ir` calls, not same object reference).
-
-## Tests added (13 new, total 492 passing up from 479)
-- `test_anthropic_llm_client_constructs_without_key_in_env` — construction does not read the key (lazy)
-- `test_anthropic_llm_client_raises_on_missing_key` — `EnvironmentError` on missing key
-- `test_anthropic_llm_client_raises_on_empty_key` — `EnvironmentError` on empty/whitespace key
-- `test_anthropic_llm_client_is_llm_client_protocol` — satisfies `LlmClient` Protocol
-- `test_intake_draft_llm_no_fixture_constructs_real_client` — CLI with missing key → non-zero exit + variable name in stderr (not `NotImplementedError`)
-- `test_load_api_key_requires_env_var` / `test_load_api_key_returns_key_from_env`
-- `test_anthropic_llm_client_response_parsing` — monkeypatches fake `anthropic` module; verifies `message.content[0].text` extraction
-- `test_gate_single_source_ir_yields_needs_review_not_agreed` — asserts the artifact status is `needs_review`
-- `test_gate_refuses_on_disagreeing_translation_agreement_input` — genuinely disagreeing `TranslationAgreementInput` → `decision="refused"` + `NLR-REFUSED-AMBIGUOUS` in `translation_refusal` artifact
-- `test_translation_agreement_agrees_on_alpha_equivalent_formal_claims` — same structure, different operand names → `agreed` under `alpha_identifiers=True`
-- `test_translation_agreement_uses_formal_claim_signature_for_v3_requirements` — auth vs. numeric_invariant → `disagreed` with "formal-claim" in reason
-- `test_refuse_ambiguous_ensemble_emits_refused_ambiguous_code` — unit tests refusal report shape
-
-## Issues that persist
-- **PA-1/PA-2 acceptance still unmet**: lowering is non-vacuous scaffolding but not checker-distinguishable under `S ∧ R` (`tests/test_translator.py:582-585` still documents this).
-- **PA-5 spike not yet run**: 30-item spike on false-agreement/false-refusal rates across two domains not implemented.
-- **PA-6 audit gate still absent**: no second-model audit rubric or per-fragment LLM-vs-deterministic provenance gate.
-- **PA-7/PA-8 still the old contradiction table**: `contradiction_type` only allows `opposite_predicate`; seven-class taxonomy not implemented.
-- **PA-9 corpus still seed-sized**: three items, not ≥30 per domain; benchmark harness does not run the prose→controlled→IR path.
-
+- Added a real `AnthropicLlmClient` path with optional `anthropic` dependency, lazy SDK import, environment-variable credential checks, and CLI wiring for `intake-draft --method llm` without `--fixture`.
+- Removed the misleading `draft-controlled --method llm` surface; that legacy command is now manual-only.
+- Moved translator agreement toward PA-5 by comparing normalized `FormalClaim` signatures and emitting `NLR-REFUSED-AMBIGUOUS` artifacts from the end-to-end gate when a supplied agreement input disagrees.
+- Stopped fabricating agreement for caller-provided single-source IR; the gate now records a one-candidate agreement input that reports `needs_review`.
+## Trajectory vs prior iters
+- Fixed this iter: iter 6's missing real LLM client is partially resolved. `src/nlreq/llm_client.py:68`-`115` implements the Anthropic SDK call, `pyproject.toml:22`-`24` adds the optional dependency, and `src/nlreq/cli.py:2027`-`2040` uses the real client when no replay fixture is supplied.
+- Fixed this iter: iter 6's misleading legacy draft command is addressed. `src/nlreq/cli.py:473`-`480` now restricts `draft-controlled` to `--method manual` instead of accepting metadata-only `llm`.
+- Fixed this iter: iter 6's structural agreement comparator improved. `src/nlreq/translator_agreement.py:125`-`135` now calls `formal_claim_signature(..., alpha_identifiers=True, commutative=True)`, and `tests/test_translator_agreement.py:181`-`223` covers alpha-equivalent FormalClaims.
+- Fixed this iter: iter 6's fabricated two-candidate agreement for supplied IR is reduced. `src/nlreq/end_to_end_gate.py:250`-`261` creates a single candidate for caller-provided IR, and `tests/test_end_to_end_gate.py:245`-`283` asserts the result is `needs_review`.
+- Persists from iter 1: PA-1 checker-backed discrimination is still absent. `tests/test_translator.py:582`-`585` still says the discrimination artifact is not real-run evidence, and `src/nlreq/system_checker.py:314`-`315` still composes `SystemSpecAssumptions == TRUE`, so `S` is not actually conjoined.
+## Issues found
+- PA-4 credential loading still misses the specified `.claude/.env` source. `src/nlreq/llm_client.py:14`-`27` reads only `NLREQ_ANTHROPIC_API_KEY`, and the current tree has no `.claude/.env` loader path. The task explicitly required the real SDK key to come from `.claude/.env` and never be hardcoded.
+- PA-4 live-client provenance can omit the actual model. In `src/nlreq/cli.py:2033` the real client is constructed with the default model when `--model` is absent, but `src/nlreq/cli.py:2034`-`2040` passes `model=args.model`, so `ControlledRewriteProposal.producer.model` is recorded as `None` even though a concrete model was used.
+- PA-5 is still not an independent LLM decomposition ensemble. `src/nlreq/translator_workbench.py:75`-`125` still builds deterministic parser/post-processor candidates, and `src/nlreq/end_to_end_gate.py:263`-`284` still reparses DSL v2 twice. That can exercise the agreement schema, but it does not satisfy the required ≥2 independent LLM decompositions of the same controlled requirement.
+- PA-5 disagreement refusal is not integrated into the main semantic translation entry point. `translate_controlled_requirement_to_formal_claim()` at `src/nlreq/semantic_translation.py:84`-`223` remains deterministic parse plus `build_formal_claim()` and has no ensemble input or `REFUSED_AMBIGUOUS` branch; the refusal helper is only called by the gate when a caller already supplies `TranslationAgreementInput` (`src/nlreq/end_to_end_gate.py:247`-`295`).
+- Unapproved LLM candidates can still drive a disagreement refusal. `src/nlreq/translator_agreement.py:86`-`91` records blockers for unapproved LLM candidates, but `src/nlreq/translator_agreement.py:109`-`112` chooses `status="disagreed"` before considering blockers. If an unapproved LLM candidate differs from the baseline, the gate treats that unapproved output as a substantive ambiguity instead of blocking on missing approval first.
+- PA-2 remains incomplete through the normal gate. `src/nlreq/formal_claim.py:330`-`354` routes predicate fragments to `core_smt` and `rejection_order` to `apalache`, but `src/nlreq/formal_claim_smt.py:12`-`34` intentionally emits no predicate results and the gate produces no `apalache` result; `tests/test_end_to_end_gate.py:163`-`172` still asserts those FormalClaim premises remain open.
+- PA-3 and PA-7/PA-8 are still not implemented. Bounded temporal lowering remains the legacy passthrough (`src/nlreq/translator.py:275`-`294`, `:332`-`339`), and requirement-set consistency is still the six-entry `opposites` table with only `opposite_predicate` reports (`src/nlreq/system_checker.py:217`-`246`), not the seven-class FormalClaim taxonomy or conjunction SMT.
+- PA-9/PA-11 remain seed-only. `benchmarks/requirements-translation/corpus.json:2`-`47` still has three cases, not ≥30 cases in each of two unrelated domains, and there is no implemented multilingual slice with per-language false-acceptance/false-refusal metrics.
 ## Recommended actions
-- Implement PA-6: add `second_model_audit` rubric + gate in `translator_workbench.py`; tag LLM vs. deterministic per fragment in `provenance.py`; add test that a planted invented-premise decomposition is caught.
-- Expand translation corpus (`benchmarks/requirements-translation/corpus.json`) to ≥30 items in two unrelated domains; wire `translation_benchmark.py` to run the PA-4/PA-5 prose→controlled→IR front half rather than consuming precomputed result JSON (`src/nlreq/cli.py:3311-3323`).
-- Replace legacy contradiction table in `system_checker.py:217-246` with the seven-class FormalClaim taxonomy; wire numeric-range / temporal checks via SMT.
-- Either close PA-1/PA-2 by running a real Apalache binary check on the lowered `authorization_precondition` module, or explicitly mark them "deferred pending Pillar B" in the test comments.
+- Finish PA-4 provenance cleanly: add a `.claude/.env` loader or documented lookup order that includes it, keep env override behavior if desired, and record the effective model id whenever a live or fixture-backed LLM proposal is created.
+- Make PA-5 a real production path rather than an agreement helper: introduce independent LLM decomposition candidates, compare their FormalClaim signatures, and return `REFUSED_AMBIGUOUS` from `translate_controlled_requirement_to_formal_claim()` when approved candidates disagree.
+- Change agreement status precedence so unapproved LLM candidates block as `needs_review` before their IR is used for semantic disagreement decisions.
+- Keep PA-1/PA-2 explicitly incomplete until the gate can compose a real `S ∧ R` model, run the checker, and produce fragment-bound backend results for every FormalClaim route, including `rejection_order`.
+- After PA-4/PA-5 are real, implement PA-6 audit provenance, then replace the legacy contradiction table with the FormalClaim taxonomy and expand the translation corpus to the required multi-domain and multilingual release bars.

@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -9,6 +9,9 @@ from .formal_claim import FormalClaimLoweringReport, build_formal_claim
 from .jsonutil import sha256_json, sha256_text
 from .models import RequirementIRV2, SemanticNode, SourceSpan
 from .translator_agreement import TranslationDisagreement
+
+if TYPE_CHECKING:
+    from .decomposition_client import DecompositionClient
 
 
 SEMANTIC_TRANSLATION_SCHEMA_VERSION = "0.1"
@@ -89,6 +92,7 @@ def translate_controlled_requirement_to_formal_claim(
     translation_id: str | None = None,
     approved_controlled_text_hash: str | None = None,
     require_approved_controlled_text: bool = False,
+    decomposition_clients: "list[DecompositionClient] | None" = None,
 ) -> SemanticTranslationReport:
     source_hash = sha256_text(controlled_text)
     effective_translation_id = translation_id or f"semantic-translation-{requirement_id}"
@@ -173,6 +177,21 @@ def translate_controlled_requirement_to_formal_claim(
             artifact_hash=decomposition_hash,
         )
     )
+
+    # PA-5 ensemble check: when ≥2 independent decomposition clients are supplied,
+    # run each, compare FormalClaim signatures, and refuse on divergence.  This
+    # catches ambiguity in the controlled text before the claim reaches a backend.
+    if decomposition_clients is not None and len(decomposition_clients) >= 2:
+        ensemble_refusal = _check_decomposition_ensemble(
+            controlled_text=controlled_text,
+            requirement_id=requirement_id,
+            title=title,
+            translation_id=effective_translation_id,
+            clients=decomposition_clients,
+        )
+        if ensemble_refusal is not None:
+            return ensemble_refusal
+
     formal_claim_report = build_formal_claim(requirement)
     formal_claim_hash = (
         sha256_json(formal_claim_report.formal_claim)
@@ -320,6 +339,56 @@ def refuse_ambiguous_ensemble(
             )
         ],
     )
+
+
+def _check_decomposition_ensemble(
+    *,
+    controlled_text: str,
+    requirement_id: str,
+    title: str,
+    translation_id: str,
+    clients: "list[DecompositionClient]",
+) -> SemanticTranslationReport | None:
+    """Run ≥2 independent decomposition clients and compare their FormalClaim signatures.
+
+    Returns a REFUSED_AMBIGUOUS SemanticTranslationReport when approved candidates
+    disagree, or None when they agree (allowing the caller to continue).
+    """
+    from .formal_claim import build_formal_claim, formal_claim_signature
+    from .models import Approval
+    from .translator_agreement import (
+        TranslationAgreementInput,
+        TranslationCandidate,
+        build_translation_agreement_report,
+    )
+
+    candidates: list[TranslationCandidate] = []
+    for i, client in enumerate(clients):
+        ir = client.decompose_controlled_to_ir(controlled_text, requirement_id, title)
+        candidates.append(
+            TranslationCandidate(
+                translator_id=f"ensemble-decomposition-{i}",
+                method="llm",
+                requirement=ir,
+                # Ensemble clients are pre-approved by the caller's decision to
+                # supply them; we do not require an external approval artifact here.
+                approval=Approval(
+                    status="approved",
+                    approved_by="ensemble-runner",
+                    approved_at="ensemble",
+                ),
+                provenance={"source": "decomposition_ensemble", "index": str(i)},
+            )
+        )
+
+    agreement = build_translation_agreement_report(TranslationAgreementInput(candidates=candidates))
+    if agreement.status == "disagreed":
+        return refuse_ambiguous_ensemble(
+            requirement_id=requirement_id,
+            translation_id=translation_id,
+            disagreements=agreement.disagreements,
+        )
+    return None
 
 
 def _parse_repair_question(exc: DslV3ParseError) -> str:

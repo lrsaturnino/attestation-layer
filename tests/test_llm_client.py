@@ -551,6 +551,9 @@ def test_anthropic_llm_client_raises_on_missing_key(monkeypatch) -> None:
     from nlreq.llm_client import AnthropicLlmClient
 
     monkeypatch.delenv("NLREQ_ANTHROPIC_API_KEY", raising=False)
+    # Patch the .claude/.env finder so the ambient file on the developer's machine
+    # cannot supply the key and make this test pass silently.
+    monkeypatch.setattr("nlreq.llm_client._find_dot_claude_env", lambda start_dir=None: None)
     client = AnthropicLlmClient()
     with pytest.raises(EnvironmentError, match="NLREQ_ANTHROPIC_API_KEY"):
         client.propose_controlled_rewrite("prose", "grammar")
@@ -562,6 +565,7 @@ def test_anthropic_llm_client_raises_on_empty_key(monkeypatch) -> None:
     from nlreq.llm_client import AnthropicLlmClient
 
     monkeypatch.setenv("NLREQ_ANTHROPIC_API_KEY", "  ")
+    monkeypatch.setattr("nlreq.llm_client._find_dot_claude_env", lambda start_dir=None: None)
     client = AnthropicLlmClient()
     with pytest.raises(EnvironmentError, match="NLREQ_ANTHROPIC_API_KEY"):
         client.propose_controlled_rewrite("prose", "grammar")
@@ -585,6 +589,7 @@ def test_intake_draft_llm_no_fixture_constructs_real_client(monkeypatch, tmp_pat
     from nlreq.cli import main
 
     monkeypatch.delenv("NLREQ_ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr("nlreq.llm_client._find_dot_claude_env", lambda start_dir=None: None)
     original = tmp_path / "original.txt"
     original.write_text(_PROSE)
 
@@ -617,6 +622,7 @@ def test_load_api_key_requires_env_var(monkeypatch) -> None:
     import pytest
 
     monkeypatch.delenv(NLREQ_API_KEY_ENV, raising=False)
+    monkeypatch.setattr("nlreq.llm_client._find_dot_claude_env", lambda start_dir=None: None)
     with pytest.raises(EnvironmentError, match=NLREQ_API_KEY_ENV):
         load_api_key()
 
@@ -627,6 +633,46 @@ def test_load_api_key_returns_key_from_env(monkeypatch) -> None:
 
     monkeypatch.setenv(NLREQ_API_KEY_ENV, "sk-test-key")
     assert load_api_key() == "sk-test-key"
+
+
+def test_load_api_key_reads_from_dot_claude_env(monkeypatch, tmp_path: Path) -> None:
+    """load_api_key() falls back to .claude/.env when the env var is absent."""
+    from nlreq.llm_client import load_api_key, NLREQ_API_KEY_ENV, _parse_env_file
+
+    # Create a tmp .claude/.env file with the expected key.
+    dot_claude = tmp_path / ".claude"
+    dot_claude.mkdir()
+    env_file = dot_claude / ".env"
+    env_file.write_text(f"{NLREQ_API_KEY_ENV}=sk-from-dot-claude-env\n")
+
+    monkeypatch.delenv(NLREQ_API_KEY_ENV, raising=False)
+    # Point the finder at the tmp dir so the real .claude/.env is not used.
+    monkeypatch.setattr(
+        "nlreq.llm_client._find_dot_claude_env",
+        lambda start_dir=None: env_file,
+    )
+
+    assert load_api_key() == "sk-from-dot-claude-env"
+
+
+def test_load_api_key_env_var_takes_precedence_over_dot_claude_env(
+    monkeypatch, tmp_path: Path
+) -> None:
+    """NLREQ_ANTHROPIC_API_KEY env var wins over .claude/.env when both are set."""
+    from nlreq.llm_client import load_api_key, NLREQ_API_KEY_ENV
+
+    dot_claude = tmp_path / ".claude"
+    dot_claude.mkdir()
+    env_file = dot_claude / ".env"
+    env_file.write_text(f"{NLREQ_API_KEY_ENV}=sk-from-file\n")
+
+    monkeypatch.setenv(NLREQ_API_KEY_ENV, "sk-from-env-var")
+    monkeypatch.setattr(
+        "nlreq.llm_client._find_dot_claude_env",
+        lambda start_dir=None: env_file,
+    )
+
+    assert load_api_key() == "sk-from-env-var"
 
 
 def test_anthropic_llm_client_response_parsing(monkeypatch, tmp_path: Path) -> None:

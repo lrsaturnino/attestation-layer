@@ -90,7 +90,14 @@ def build_translation_agreement_report(
                 f"LLM candidate {candidate.translator_id} requires explicit approval"
             )
 
-    disagreements = _disagreements(agreement_input.candidates)
+    # Only run the disagreement check over approved candidates: unapproved LLM
+    # candidates must block as needs_review BEFORE their IR drives a disagreement
+    # decision.  A missing approval is a process blocker, not a semantic finding.
+    approved_candidates = [
+        c for c in agreement_input.candidates
+        if c.method != "llm" or (c.approval is not None and c.approval.status == "approved")
+    ]
+    disagreements = _disagreements(approved_candidates)
     clarifications = [
         TranslationClarification(
             question_id=f"clarify-{index}",
@@ -106,10 +113,11 @@ def build_translation_agreement_report(
         )
         for index, disagreement in enumerate(disagreements, start=1)
     ]
-    if disagreements:
-        status: Literal["agreed", "disagreed", "needs_review"] = "disagreed"
-    elif blockers:
-        status = "needs_review"
+    # Precedence: blockers (unapproved candidates, wrong ids) win over disagreements.
+    if blockers:
+        status: Literal["agreed", "disagreed", "needs_review"] = "needs_review"
+    elif disagreements:
+        status = "disagreed"
     else:
         status = "agreed"
     return TranslationAgreementReport(

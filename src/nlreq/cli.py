@@ -2029,14 +2029,20 @@ def main(argv: list[str] | None = None) -> int:
 
                 if args.fixture is not None:
                     client = RecordedLlmClient(args.fixture.read_text())
+                    # Fixture replays don't speak to a real model; record the
+                    # caller-supplied model name as-is (may be None).
+                    effective_model = args.model
                 else:
-                    client = AnthropicLlmClient(model=args.model or "claude-haiku-4-5-20251001")
+                    # Resolve the effective model before construction so the
+                    # concrete model id is always recorded in provenance.
+                    effective_model = args.model or "claude-haiku-4-5-20251001"
+                    client = AnthropicLlmClient(model=effective_model)
                 proposal = draft_controlled_rewrite_with_llm(
                     intake=intake,
                     client=client,
                     proposal_id=args.proposal_id,
                     timestamp=args.timestamp,
-                    model=args.model,
+                    model=effective_model,
                 )
             else:
                 if args.suggested is None:

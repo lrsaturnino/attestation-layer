@@ -297,6 +297,45 @@ def test_refuse_ambiguous_ensemble_emits_refused_ambiguous_code() -> None:
     assert "t2" in report.clarification_questions[0]
 
 
+def test_translation_agreement_unapproved_llm_with_different_ir_blocks_as_needs_review() -> None:
+    """An unapproved LLM candidate with a different IR must yield needs_review, not disagreed.
+
+    This is the PA-5 status-precedence regression test: before the fix, an
+    unapproved LLM candidate whose IR differed from the baseline would produce
+    status='disagreed'.  After the fix, the blocker (unapproved approval) wins
+    and the status is 'needs_review'.
+    """
+    agreement_input = TranslationAgreementInput(
+        candidates=[
+            TranslationCandidate(
+                translator_id="parser",
+                method="deterministic",
+                requirement=_ir(),
+            ),
+            TranslationCandidate(
+                translator_id="llm",
+                method="llm",
+                requirement=_ir_with_temporal_bound(7),  # intentionally different IR
+                # No approval — this is the unapproved case.
+            ),
+        ]
+    )
+
+    report = build_translation_agreement_report(agreement_input)
+
+    assert report.status == "needs_review", (
+        f"Unapproved LLM candidate with different IR must block as needs_review, "
+        f"got {report.status!r} with disagreements: {report.disagreements}"
+    )
+    assert any("requires explicit approval" in b for b in report.blockers), (
+        f"Expected approval blocker, got: {report.blockers}"
+    )
+    # Unapproved candidate's IR must not surface as a semantic disagreement.
+    assert report.disagreements == [], (
+        f"Unapproved candidate must not drive semantic disagreement, got: {report.disagreements}"
+    )
+
+
 def _ir() -> RequirementIRV2:
     return DslV2Parser().parse_ir(
         (FIXTURES / "dsl_v2_redemption.nlreq2").read_text(),

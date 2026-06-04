@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 from typing import Protocol, runtime_checkable
 
 
@@ -11,20 +12,62 @@ NLREQ_API_KEY_ENV = "NLREQ_ANTHROPIC_API_KEY"
 _DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 
 
-def load_api_key() -> str:
-    """Load the Anthropic API key from the environment.
+def _find_dot_claude_env(start_dir: Path | None = None) -> Path | None:
+    """Walk up from start_dir (default: cwd) looking for a .claude/.env file.
 
-    Reads NLREQ_ANTHROPIC_API_KEY. Raises EnvironmentError with a clear
-    message if the variable is absent or empty so callers get a useful error
-    rather than an opaque SDK failure.
+    This is a module-level function so tests can monkeypatch it to prevent
+    coupling to the ambient .claude/.env file on the developer's machine.
+    """
+    base = start_dir if start_dir is not None else Path.cwd()
+    for parent in [base, *base.parents]:
+        candidate = parent / ".claude" / ".env"
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _parse_env_file(path: Path) -> dict[str, str]:
+    """Parse KEY=VALUE lines from a .env file; skip blank lines and # comments."""
+    result: dict[str, str] = {}
+    for line in path.read_text(encoding="utf-8").splitlines():
+        stripped = line.strip()
+        if not stripped or stripped.startswith("#"):
+            continue
+        if "=" in stripped:
+            key, _, rest = stripped.partition("=")
+            # Trim inline comment (e.g., "KEY=val #alias: ...")
+            value = rest.split(" #")[0].strip()
+            result[key.strip()] = value
+    return result
+
+
+def load_api_key() -> str:
+    """Load the Anthropic API key.
+
+    Lookup order:
+    1. NLREQ_ANTHROPIC_API_KEY environment variable.
+    2. .claude/.env file (walked up from cwd), key NLREQ_ANTHROPIC_API_KEY.
+
+    Raises EnvironmentError with a clear message if neither source yields a
+    key, so callers get actionable guidance rather than an opaque SDK failure.
+    Patch _find_dot_claude_env to return None in tests that must not read the
+    ambient .claude/.env file.
     """
     key = os.environ.get(NLREQ_API_KEY_ENV, "").strip()
-    if not key:
-        raise EnvironmentError(
-            f"Real LLM drafting requires {NLREQ_API_KEY_ENV} to be set. "
-            "Set it to an Anthropic API key or pass --fixture for offline use."
-        )
-    return key
+    if key:
+        return key
+    dot_claude = _find_dot_claude_env()
+    if dot_claude is not None:
+        env_vars = _parse_env_file(dot_claude)
+        key = env_vars.get(NLREQ_API_KEY_ENV, "").strip()
+        if key:
+            return key
+    raise EnvironmentError(
+        f"Real LLM drafting requires {NLREQ_API_KEY_ENV} to be set. "
+        "Lookup order: (1) environment variable, "
+        "(2) .claude/.env file (walked up from cwd). "
+        "Set it to an Anthropic API key or pass --fixture for offline use."
+    )
 
 
 @runtime_checkable
