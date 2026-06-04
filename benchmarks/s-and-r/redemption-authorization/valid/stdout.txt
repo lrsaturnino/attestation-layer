@@ -1,51 +1,51 @@
-   I@20:24:05.317
-  > Introducing ConstInitPrimed for ConstInit'                    I@20:24:05.317
-  > Introducing InitPrimed for Init'                              I@20:24:05.374
-PASS #8: VCGen                                                    I@20:24:05.374
-  > Producing verification conditions from the invariant Inv      I@20:24:05.374
-  > VCGen produced 2 verification condition(s)                    I@20:24:05.376
-PASS #9: PreprocessingPass                                        I@20:24:05.376
-  > Before preprocessing: unique renaming                         I@20:24:05.376
- > Applying standard transformations:                             I@20:24:05.378
-  > PrimePropagation                                              I@20:24:05.378
-  > Desugarer                                                     I@20:24:05.379
-  > UniqueRenamer                                                 I@20:24:05.379
-  > Normalizer                                                    I@20:24:05.380
-  > SetMembershipSimplifier                                       I@20:24:05.380
-  > Keramelizer                                                   I@20:24:05.381
-  > After preprocessing: UniqueRenamer                            I@20:24:05.382
-PASS #10: TransitionFinderPass                                    I@20:24:05.383
-  > Found 1 initializing transitions                              I@20:24:05.391
-  > Found 3 transitions                                           I@20:24:05.396
-  > Found constant initializer ConstInit                          I@20:24:05.396
-  > Applying unique renaming                                      I@20:24:05.398
-PASS #11: OptimizationPass                                        I@20:24:05.398
- > Applying optimizations:                                        I@20:24:05.402
-  > ConstSimplifier                                               I@20:24:05.402
-  > ExprOptimizer                                                 I@20:24:05.403
-  > SetMembershipSimplifier                                       I@20:24:05.403
-  > ConstSimplifier                                               I@20:24:05.403
-PASS #12: AnalysisPass                                            I@20:24:05.406
- > Marking skolemizable existentials and sets to be expanded...   I@20:24:05.406
-  > Skolemization                                                 I@20:24:05.407
-  > Expansion                                                     I@20:24:05.407
-  > Remove unused let-in defs                                     I@20:24:05.407
- > Running analyzers...                                           I@20:24:05.408
-  > Introduced expression grades                                  I@20:24:05.408
-PASS #13: BoundedChecker                                          I@20:24:05.408
-State 0: Checking 2 state invariants                              I@20:24:05.911
-State 0: state invariant 0 holds.                                 I@20:24:05.912
-State 0: state invariant 1 holds.                                 I@20:24:05.913
-Step 0: picking a transition out of 1 transition(s)               I@20:24:05.913
-Step 1: Transition #2 is disabled                                 I@20:24:05.918
-Step 1: picking a transition out of 2 transition(s)               I@20:24:05.918
-Step 2: picking a transition out of 3 transition(s)               I@20:24:05.923
-Step 3: picking a transition out of 3 transition(s)               I@20:24:05.926
-Step 4: picking a transition out of 3 transition(s)               I@20:24:05.930
-Step 5: picking a transition out of 3 transition(s)               I@20:24:05.933
-Step 6: picking a transition out of 3 transition(s)               I@20:24:05.935
-The outcome is: NoError                                           I@20:24:05.937
-Checker reports no error up to computation length 6               I@20:24:05.937
-It took me 0 days  0 hours  0 min  0 sec                          I@20:24:05.937
-Total time: 0.939 sec                                             I@20:24:05.937
+   I@20:37:44.872
+  > Introducing ConstInitPrimed for ConstInit'                    I@20:37:44.873
+  > Introducing InitPrimed for Init'                              I@20:37:44.929
+PASS #8: VCGen                                                    I@20:37:44.930
+  > Producing verification conditions from the invariant Inv      I@20:37:44.930
+  > VCGen produced 2 verification condition(s)                    I@20:37:44.931
+PASS #9: PreprocessingPass                                        I@20:37:44.932
+  > Before preprocessing: unique renaming                         I@20:37:44.932
+ > Applying standard transformations:                             I@20:37:44.934
+  > PrimePropagation                                              I@20:37:44.934
+  > Desugarer                                                     I@20:37:44.934
+  > UniqueRenamer                                                 I@20:37:44.934
+  > Normalizer                                                    I@20:37:44.935
+  > SetMembershipSimplifier                                       I@20:37:44.935
+  > Keramelizer                                                   I@20:37:44.936
+  > After preprocessing: UniqueRenamer                            I@20:37:44.937
+PASS #10: TransitionFinderPass                                    I@20:37:44.938
+  > Found 1 initializing transitions                              I@20:37:44.945
+  > Found 3 transitions                                           I@20:37:44.949
+  > Found constant initializer ConstInit                          I@20:37:44.949
+  > Applying unique renaming                                      I@20:37:44.950
+PASS #11: OptimizationPass                                        I@20:37:44.951
+ > Applying optimizations:                                        I@20:37:44.954
+  > ConstSimplifier                                               I@20:37:44.954
+  > ExprOptimizer                                                 I@20:37:44.955
+  > SetMembershipSimplifier                                       I@20:37:44.956
+  > ConstSimplifier                                               I@20:37:44.957
+PASS #12: AnalysisPass                                            I@20:37:44.958
+ > Marking skolemizable existentials and sets to be expanded...   I@20:37:44.959
+  > Skolemization                                                 I@20:37:44.959
+  > Expansion                                                     I@20:37:44.959
+  > Remove unused let-in defs                                     I@20:37:44.959
+ > Running analyzers...                                           I@20:37:44.959
+  > Introduced expression grades                                  I@20:37:44.960
+PASS #13: BoundedChecker                                          I@20:37:44.960
+State 0: Checking 2 state invariants                              I@20:37:45.491
+State 0: state invariant 0 holds.                                 I@20:37:45.491
+State 0: state invariant 1 holds.                                 I@20:37:45.492
+Step 0: picking a transition out of 1 transition(s)               I@20:37:45.492
+Step 1: Transition #2 is disabled                                 I@20:37:45.496
+Step 1: picking a transition out of 2 transition(s)               I@20:37:45.496
+Step 2: picking a transition out of 3 transition(s)               I@20:37:45.500
+Step 3: picking a transition out of 3 transition(s)               I@20:37:45.503
+Step 4: picking a transition out of 3 transition(s)               I@20:37:45.506
+Step 5: picking a transition out of 3 transition(s)               I@20:37:45.508
+Step 6: picking a transition out of 3 transition(s)               I@20:37:45.510
+The outcome is: NoError                                           I@20:37:45.512
+Checker reports no error up to computation length 6               I@20:37:45.513
+It took me 0 days  0 hours  0 min  0 sec                          I@20:37:45.513
+Total time: 0.937 sec                                             I@20:37:45.513
 EXITCODE: OK

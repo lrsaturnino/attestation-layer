@@ -93,6 +93,34 @@ VALID_DSL = (
     "when wallet is authorized then finalize_redemption must reject before rejected."
 )
 
+# The product-vs-narrowing DISCRIMINATOR. Same requirement R as the counterexample (the
+# premise "wallet is not authorized" genuinely FIRES — S reaches "denied"), but this reviewed
+# spec has NO transition that finalizes the redemption (Pred_finalize_redemption is pinned
+# FALSE; SNext stops at "denied"). Under the narrowing this is a real, NON-vacuous 'valid':
+# the obligation holds because S cannot reach the forbidden outcome even though the premise is
+# satisfiable. A *product* composition would instead report a spurious counterexample here —
+# its requirement harness reaches "accepted" on its own, independent of S. Pairing this 'valid'
+# with the counterexample (same R, an S that CAN reach "finalized") proves the check depends on
+# S's transition relation, not on a requirement harness — i.e. it is a narrowing, not a product.
+UNREACHABLE_SPEC_FILENAME = "RedemptionAuthorizationUnreachable.tla"
+UNREACHABLE_SPEC = (
+    "---- MODULE RedemptionAuthorizationUnreachable ----\n"
+    "EXTENDS Naturals, TLC\n\n"
+    "\\* @type: Str;\n"
+    "VARIABLE authPhase\n\n"
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_authorized(a) == FALSE\n"
+    "\\* @type: (Str) => Bool;\n"
+    'Pred_not_authorized(a) == authPhase = "denied"\n'
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_finalize_redemption(a) == FALSE\n"
+    "\\* System invariant: authorization defaults closed.\n"
+    'AuthorizationDefaultsClosed == Pred_authorized("wallet") = FALSE\n'
+    'SInit == authPhase = "init"\n'
+    'SNext == (authPhase = "init" /\\ authPhase\' = "denied") \\/ UNCHANGED authPhase\n'
+    "====\n"
+)
+
 APALACHE_COMMAND = [
     "apalache-mc",
     "check",
@@ -114,16 +142,17 @@ IMPACT = ImpactAnalysisArtifact(
 )
 
 
-def _registry(project_root: Path, *, invariants: list[str]) -> SystemSpecRegistry:
+def _registry(project_root: Path, *, invariants: list[str],
+              spec_text: str = STATEFUL_SPEC, spec_filename: str = SPEC_FILENAME) -> SystemSpecRegistry:
     """Write the reviewed spec under project_root and return a registry pointing at it."""
     specs = project_root / "specs"
     specs.mkdir(parents=True, exist_ok=True)
-    (specs / SPEC_FILENAME).write_text(STATEFUL_SPEC)
+    (specs / spec_filename).write_text(spec_text)
     entry: dict[str, object] = {
         "spec_id": SPEC_ID,
         "module_ids": MODULE_IDS,
         "formalism": "tla",
-        "path": f"specs/{SPEC_FILENAME}",
+        "path": f"specs/{spec_filename}",
         "version": "1",
         "review_status": "reviewed",
         "freshness": "fresh",
@@ -139,12 +168,14 @@ def _ir(requirement_id: str, dsl: str):
 
 
 def _run(project_root: Path, requirement_id: str, dsl: str, command: list[str], *,
-         checker_id: str, invariants: list[str], timeout_seconds: int):
+         checker_id: str, invariants: list[str], timeout_seconds: int,
+         spec_text: str = STATEFUL_SPEC, spec_filename: str = SPEC_FILENAME):
     ir = _ir(requirement_id, dsl)
     return check_solver_backed_system_consistency(
         requirement=ir,
         lowered=lower_ir_v2_to_tla(ir),
-        registry=_registry(project_root, invariants=invariants),
+        registry=_registry(project_root, invariants=invariants,
+                           spec_text=spec_text, spec_filename=spec_filename),
         impact=IMPACT,
         project_root=project_root,
         budget=FormalBackendBudget(timeout_seconds=timeout_seconds, max_depth=BUDGET["max_depth"]),
@@ -283,8 +314,10 @@ def generate() -> None:
         shutil.rmtree(CORPUS_DIR)
     CORPUS_DIR.mkdir(parents=True)
 
-    # The reviewed system spec S, committed as the source of the corpus.
+    # The reviewed system specs, committed as the source of the corpus: the primary S (its
+    # Next reaches the forbidden outcome) and the discriminator S (its Next cannot).
     _write(CORPUS_DIR / "spec" / SPEC_FILENAME, STATEFUL_SPEC)
+    _write(CORPUS_DIR / "spec" / UNREACHABLE_SPEC_FILENAME, UNREACHABLE_SPEC)
 
     with tempfile.TemporaryDirectory() as tmp:
         # ---- counterexample: real Apalache finds an S behaviour that violates R ----
@@ -310,6 +343,27 @@ def generate() -> None:
                       timeout_seconds=BUDGET["timeout_seconds"])
         assert result.result.status == "valid", result.result.details
         dest = CORPUS_DIR / "valid"
+        module_name, config_name, module_sha = _copy_composed_module(result, dest, root)
+        _write(dest / "stdout.txt",
+               _sanitize_text(result.result.details["stdout"]["tail"], root))
+        _write(dest / "run.json", _canonical_json(_run_summary(
+            result, module_name=module_name, config_name=config_name,
+            module_sha=module_sha, trace_ref=None)))
+
+        # ---- valid-premise-fires: the product-vs-narrowing discriminator ----
+        # Same requirement R as the counterexample (the premise FIRES — S reaches "denied"),
+        # but this S has no transition that finalizes the redemption. The narrowing returns a
+        # real, NON-vacuous 'valid'; a product composition would report a spurious
+        # counterexample here. The differing outcome vs the counterexample (same R) is produced
+        # solely by S's transition relation — the proof that the composition narrows S.
+        root = Path(tmp) / "valid-premise-fires"
+        result = _run(root, COUNTEREXAMPLE_REQUIREMENT_ID, COUNTEREXAMPLE_DSL, APALACHE_COMMAND,
+                      checker_id="apalache", invariants=INVARIANTS,
+                      timeout_seconds=BUDGET["timeout_seconds"],
+                      spec_text=UNREACHABLE_SPEC, spec_filename=UNREACHABLE_SPEC_FILENAME)
+        assert result.result.status == "valid", result.result.details
+        assert not result.counterexamples, "a product composition would falsely flag this"
+        dest = CORPUS_DIR / "valid-premise-fires"
         module_name, config_name, module_sha = _copy_composed_module(result, dest, root)
         _write(dest / "stdout.txt",
                _sanitize_text(result.result.details["stdout"]["tail"], root))
@@ -378,6 +432,16 @@ def generate() -> None:
                 "requirement_id": VALID_REQUIREMENT_ID,
                 "requirement_dsl": VALID_DSL,
                 "expect_status": "valid",
+            },
+            "valid-premise-fires": {
+                "requirement_id": COUNTEREXAMPLE_REQUIREMENT_ID,
+                "requirement_dsl": COUNTEREXAMPLE_DSL,
+                "spec_path": f"spec/{UNREACHABLE_SPEC_FILENAME}",
+                "expect_status": "valid",
+                "discriminator": (
+                    "Same R as 'counterexample'; valid only because this S cannot reach the "
+                    "forbidden outcome though the premise fires. Proves narrowing, not product."
+                ),
             },
             "timeout": {"expect_status": "timeout"},
             "missing-tool": {"expect_status": "invalid"},

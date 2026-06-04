@@ -54,6 +54,13 @@
       "expect_status": "valid",
       "requirement_dsl": "requirement authorization_precondition: scope redemption when wallet is authorized then finalize_redemption must reject before rejected.",
       "requirement_id": "REQ-SYS-AUTHZ"
+    },
+    "valid-premise-fires": {
+      "discriminator": "Same R as 'counterexample'; valid only because this S cannot reach the forbidden outcome though the premise fires. Proves narrowing, not product.",
+      "expect_status": "valid",
+      "requirement_dsl": "requirement authorization_precondition: scope redemption when wallet is not authorized then finalize_redemption must reject before rejected.",
+      "requirement_id": "REQ-SYS-AUTHZ-NEG",
+      "spec_path": "spec/RedemptionAuthorizationUnreachable.tla"
     }
   },
   "spec_id": "spec:redemption",
