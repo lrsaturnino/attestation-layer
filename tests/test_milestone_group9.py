@@ -67,6 +67,29 @@ def test_phase110_extended_gate_requires_real_pipeline_stages() -> None:
     assert "adapter_evidence" in {stage.stage for stage in missing.stages if stage.status == "missing"}
 
 
+def test_extended_gate_treats_not_applicable_s_and_r_as_passing() -> None:
+    """not_applicable S ∧ R is a passing, non-blocking extended-gate outcome.
+
+    When no reviewed system spec relevant to the impact declares an invariant, S ∧ R has no
+    obligation to discharge — a passing result distinct from a verified 'valid' and from a
+    refusal. An accepted base gate carrying not_applicable S ∧ R must stay accepted, and the
+    s_and_r_composition stage must classify as 'passed', not 'refused'.
+    """
+    gate = build_extended_requirement_gate_report(
+        _base_gate("REQ-G9-NA-001", "accepted", downstream_action_allowed=True),
+        stage_statuses={
+            **PASSED_EXTENDED_STAGE_STATUSES,
+            "s_and_r_composition": "not_applicable",
+        },
+    )
+
+    assert gate.decision == "accepted"
+    assert gate.downstream_action_allowed is True
+    s_and_r = next(stage for stage in gate.stages if stage.stage == "s_and_r_composition")
+    assert s_and_r.status == "passed"
+    assert s_and_r.raw_status == "not_applicable"
+
+
 def test_phase111_ci_adoption_modes_preserve_stable_json_and_hard_blocking() -> None:
     gate = build_extended_requirement_gate_report(
         _base_gate("REQ-G9-CI-001", "unknown", downstream_action_allowed=False),

@@ -296,6 +296,41 @@ def check_solver_backed_system_consistency(
     )
 
 
+def not_applicable_system_consistency(
+    *,
+    requirement: RequirementIRV2,
+    registry: SystemSpecRegistry,
+    impact: ImpactAnalysisArtifact,
+) -> SystemConsistencyResult:
+    """S ∧ R is not-applicable: no reviewed spec relevant to the impacted modules declares
+    an invariant, so there is no system obligation to discharge.
+
+    This is decided structurally from the registry — not from the absence of a marker in a
+    spec file. The recorded BackendResult uses ``status="unsupported"`` (its status enum has
+    no not-applicable value) and carries ``details["mode"] == "not_applicable"``; the gate
+    reads that mode as a non-blocking stage, kept distinct from an ``unsupported`` produced
+    because a real S could not be grounded (undefined predicate, stale spec), which blocks.
+    """
+    spec_ids = [spec.spec_id for spec in specs_for_impact(registry, impact)]
+    return SystemConsistencyResult(
+        requirement_id=requirement.requirement_id,
+        spec_ids=spec_ids,
+        result=BackendResult(
+            backend="solver_system_checker",
+            status="unsupported",
+            evidence_level=None,
+            details={
+                "mode": "not_applicable",
+                "reason": (
+                    "no reviewed system spec relevant to the impacted modules declares an "
+                    "invariant; S ∧ R has no obligation to discharge"
+                ),
+                "relevant_spec_ids": spec_ids,
+            },
+        ),
+    )
+
+
 def check_requirement_set_consistency(requirements: list[RequirementIR]) -> RequirementSetConsistencyReport:
     contradictions: list[RequirementContradiction] = []
     seen: dict[tuple[str, tuple[str, ...]], tuple[str, Predicate]] = {}

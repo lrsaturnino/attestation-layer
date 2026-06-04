@@ -18,7 +18,7 @@ from .formal_claim_smt import smt_check_formal_claim_predicate_fragments
 from .impact import analyze_source_impact
 from .source_impact import analyze_source_impact_with_context
 from .jsonutil import sha256_json, sha256_text, write_json
-from .models import BackendResult, RequirementIRV2, SourceSpan
+from .models import BackendResult, EvidenceLevel, RequirementIRV2, SourceSpan
 from .proof_closure import (
     BackendAgreementReport,
     EvidenceProducerMapping,
@@ -31,8 +31,11 @@ from .proof_closure import (
 )
 from .requirement_self_consistency import check_requirement_self_consistency
 from .source_adapter import SourceLanguageAdapter, SourceManifest
-from .system_checker import check_system_consistency_fixture, check_solver_backed_system_consistency
-from .system_spec import SystemSpecRegistry
+from .system_checker import (
+    check_solver_backed_system_consistency,
+    not_applicable_system_consistency,
+)
+from .system_spec import SystemSpecRegistry, specs_for_impact
 from .trace_replay import build_trace_replay_report
 from .translator import lower_ir_v2_to_tla
 from .semantic_translation import refuse_ambiguous_ensemble, remap_disagreement_spans_to_original
@@ -65,7 +68,11 @@ _EXTENDED_STAGE_ACCEPTED_STATUSES: dict[str, set[str]] = {
     "semantic_translation": {"accepted", "agreed", "passed"},
     "formal_claim": {"lowered", "passed"},
     "requirement_self_consistency": {"valid", "passed"},
-    "s_and_r_composition": {"valid", "passed"},
+    # not_applicable: no reviewed S relevant to the impact declares an invariant, so there
+    # is no S ∧ R obligation to discharge — a passing (non-blocking) outcome, distinct from
+    # "valid" (verified against a real S) and from unsupported/timeout (a real S we could
+    # not determine, which falls through to the unknown set below).
+    "s_and_r_composition": {"valid", "not_applicable", "passed"},
     "spec_freshness": {"fresh", "passed"},
     "trace_validation": {"passed", "satisfied"},
     "adapter_evidence": {"certified", "passed"},
@@ -193,6 +200,48 @@ def build_proof_with_formal_claim_dispatch(
     return proof, formal_claim_report
 
 
+def _system_consistency_floor_baseline(system_status: str) -> BackendResult | None:
+    """A CONSISTENCY_CHECKED baseline that discharges the default proof dispatch's
+    system-consistency premises when the consolidated S ∧ R stage concluded the requirement
+    is consistent with the system.
+
+    The default dispatch (``build_proof_dispatch_plan``) routes a requirement's premises to
+    the ``system_checker`` producer at the ``CONSISTENCY_CHECKED`` floor. The solver-backed
+    stage instead emits its verdict under ``solver_system_checker`` at SMT_CHECKED /
+    BOUNDED_CHECKED — a stronger level that does not match the floor route, so on its own it
+    cannot discharge those premises. When the stage established consistency (``valid``) or
+    determined there is no system obligation to discharge (``not_applicable``), this baseline
+    lets the floor premises discharge on the weaker claim that the stronger verdict — recorded
+    separately under ``solver_system_checker`` — subsumes. A non-consistent verdict
+    (counterexample / timeout / unsupported) yields no baseline: the premises stay open and
+    the gate blocks on the real result.
+    """
+    if system_status not in {"valid", "not_applicable"}:
+        return None
+    if system_status == "not_applicable":
+        details: dict[str, object] = {
+            "mode": "not_applicable",
+            "reason": (
+                "no reviewed system spec relevant to the impacted modules declares an "
+                "invariant; S ∧ R has no obligation to discharge"
+            ),
+        }
+    else:
+        details = {
+            "mode": "solver_backed_baseline",
+            "reason": (
+                "solver-backed S ∧ R returned valid; the stronger verdict is recorded under "
+                "solver_system_checker and subsumes this CONSISTENCY_CHECKED floor"
+            ),
+        }
+    return BackendResult(
+        backend="system_checker",
+        status="valid",
+        evidence_level=EvidenceLevel.CONSISTENCY_CHECKED,
+        details=details,
+    )
+
+
 def run_end_to_end_requirement_gate(
     *,
     controlled_text: str,
@@ -226,9 +275,11 @@ def run_end_to_end_requirement_gate(
     adds a blocker so the gate decision is "refused".
 
     `execution` controls the self-consistency formal backend (TLA runner or custom).
-    `solver_execution` controls the solver-backed S∧R check (e.g. checker_id="z3").
-    Only an explicit `solver_execution` triggers the S∧R path — `execution` never
-    falls back to S∧R checking.
+    `solver_execution` overrides the checker for the solver-backed S ∧ R check (e.g.
+    checker_id="apalache"); when omitted, S ∧ R runs by default on in-process Z3. S ∧ R is
+    skipped as not-applicable only when no reviewed system spec relevant to the impact
+    declares an invariant. `execution` is never reused for S ∧ R, so a self-consistency-only
+    run never triggers it.
     """
     artifact_dir.mkdir(parents=True, exist_ok=True)
     artifacts: list[EndToEndGateArtifactRef] = []
@@ -375,35 +426,36 @@ def run_end_to_end_requirement_gate(
     )
     record("trace_replay", "trace-replay.json", trace_replay)
 
-    system_consistency = check_system_consistency_fixture(
-        requirement=requirement,
-        lowered=lowered,
-        registry=registry,
-        impact=impact,
-        project_root=project_root,
-    )
-    record("system_consistency", "system-consistency.json", system_consistency)
-
-    # When solver_execution is explicitly supplied, run the solver-backed S∧R check as
-    # additional evidence alongside the marker-based result.  Only explicit solver_execution
-    # triggers this path — execution (used for self-consistency) does NOT fall back to S∧R
-    # checking, because the old implicit fallback caused solver results to appear on tests
-    # that only intended to test self-consistency.  A counterexample/invalid from the solver
-    # is load-bearing: it blocks the gate even when the marker check passes (safety direction).
-    _effective_solver_exec = solver_execution
-    solver_system_result: list[BackendResult] = []
-    if _effective_solver_exec is not None:
-        solver_consistency = check_solver_backed_system_consistency(
+    # System consistency S ∧ R is checked by a real solver by default — never by grepping
+    # the spec text for markers (that path is check_system_consistency_fixture, offline tests
+    # only). The default checker is in-process Z3 (no external binary); a caller may override
+    # with solver_execution (e.g. Apalache). `execution` drives the self-consistency check and
+    # is deliberately NOT reused here, so a self-consistency-only run never triggers S ∧ R.
+    #
+    # A reviewed spec contributes a checkable S ∧ R obligation only when it declares an
+    # invariant to preserve. No relevant spec — or a relevant spec that asserts nothing —
+    # makes S ∧ R not-applicable: there is nothing to discharge. That is decided from the
+    # registry, not from the absence of a marker, so the stage is recorded as not-applicable
+    # (non-blocking) and kept distinct from "a real S we could not check" (unsupported /
+    # timeout), which blocks.
+    checkable_specs = [spec for spec in specs_for_impact(registry, impact) if spec.invariants]
+    if checkable_specs:
+        system_consistency = check_solver_backed_system_consistency(
             requirement=requirement,
             lowered=lowered,
             registry=registry,
             impact=impact,
             project_root=project_root,
             budget=budget,
-            execution=_effective_solver_exec,
+            execution=solver_execution or FormalBackendExecution(checker_id="z3"),
         )
-        record("solver_system_consistency", "solver-system-consistency.json", solver_consistency)
-        solver_system_result = [solver_consistency.result]
+        system_status = system_consistency.result.status
+    else:
+        system_consistency = not_applicable_system_consistency(
+            requirement=requirement, registry=registry, impact=impact
+        )
+        system_status = "not_applicable"
+    record("system_consistency", "system-consistency.json", system_consistency)
 
     delta = build_delta_report(
         self_consistency=self_consistency,
@@ -414,6 +466,16 @@ def run_end_to_end_requirement_gate(
     record("delta_report", "delta-report.json", delta)
 
     system_backend_results = backend_results_from_system_consistency(system_consistency)
+    # The default proof dispatch routes system-consistency premises to the system_checker
+    # producer at the CONSISTENCY_CHECKED floor, which the solver-backed result (emitted under
+    # solver_system_checker at SMT_CHECKED/BOUNDED_CHECKED) does not match. When the stage
+    # concluded the requirement is consistent (valid) or that there is no obligation to
+    # discharge (not_applicable), add the floor baseline so those premises can close; the
+    # stronger solver verdict remains recorded separately. A non-consistent verdict adds no
+    # baseline, leaving the premises open so the gate blocks on the real result.
+    floor_baseline = _system_consistency_floor_baseline(system_status)
+    if floor_baseline is not None:
+        system_backend_results = [*system_backend_results, floor_baseline]
     # When the FormalClaim report is lowered, also SMT-check predicate/comparison
     # fragments. These produce core_smt BackendResults with per-fragment covered_fragment_ids
     # so formal_claim-routed premises can be discharged without relying on the system-
@@ -423,25 +485,25 @@ def run_end_to_end_requirement_gate(
         smt_fragment_results = smt_check_formal_claim_predicate_fragments(
             formal_claim_preview.formal_claim
         )
-        # Enrich solver result with related_fragment_ids for provenance traceability.
-        # "related" not "covered": the solver encodes obligation predicate names, not each
-        # fragment class independently.  Naming this "covered" would overstate the evidence
-        # — predicate/comparison/membership fragments remain blocked until Apalache checks them.
-        if solver_system_result and formal_claim_preview.formal_claim is not None:
-            all_fragment_ids = [
-                f.fragment_id
-                for f in [
-                    *formal_claim_preview.formal_claim.premises,
-                    *formal_claim_preview.formal_claim.obligations,
-                ]
+        # Enrich the system-consistency result with related_fragment_ids for provenance
+        # traceability.  "related" not "covered": the solver encodes obligation predicate
+        # names, not each fragment class independently.  Naming this "covered" would overstate
+        # the evidence — predicate/comparison/membership fragments remain blocked until
+        # Apalache checks them.
+        all_fragment_ids = [
+            f.fragment_id
+            for f in [
+                *formal_claim_preview.formal_claim.premises,
+                *formal_claim_preview.formal_claim.obligations,
             ]
-            solver_system_result = [
-                r.model_copy(update={"details": {**r.details, "related_fragment_ids": all_fragment_ids}})
-                for r in solver_system_result
-            ]
+        ]
+        system_backend_results = [
+            r.model_copy(update={"details": {**r.details, "related_fragment_ids": all_fragment_ids}})
+            for r in system_backend_results
+        ]
     else:
         smt_fragment_results = []
-    all_backend_results = [*system_backend_results, *solver_system_result, *smt_fragment_results]
+    all_backend_results = [*system_backend_results, *smt_fragment_results]
 
     proof, formal_claim_report = build_proof_with_formal_claim_dispatch(
         requirement=requirement,
@@ -463,26 +525,21 @@ def run_end_to_end_requirement_gate(
         "spec_coverage": coverage.result,
         "trace_alignment": trace_alignment.result,
         "trace_replay": trace_replay.result,
-        "system_consistency": system_consistency.result.status,
+        "system_consistency": system_status,
         "formal_claim": formal_claim_report.result,
         "delta_report": "completed",
         "proof_object": proof.status,
         "closure_gate": closure.result,
     }
-    solver_status_for_blocker: str | None = None
-    if solver_system_result:
-        solver_status_for_blocker = solver_system_result[0].status
-        statuses["solver_system_consistency"] = solver_status_for_blocker
     blockers = _blockers(
         translation_status=translation.status,
         self_consistency_status=self_consistency.status,
         coverage_result=coverage.result,
         trace_alignment_result=trace_alignment.result,
         trace_replay_result=trace_replay.result,
-        system_status=system_consistency.result.status,
+        system_status=system_status,
         proof_status=proof.status,
         closure_result=closure.result,
-        solver_system_status=solver_status_for_blocker,
     )
     decision = _decision(blockers)
     return EndToEndRequirementGateReport(
@@ -569,14 +626,11 @@ def _extended_gate_default_statuses(gate: EndToEndRequirementGateReport) -> dict
     trace_status = "passed"
     if statuses.get("trace_alignment") != "passed" or statuses.get("trace_replay") != "passed":
         trace_status = statuses.get("trace_replay") or statuses.get("trace_alignment") or "missing"
-    # s_and_r_composition prefers the solver-backed result when available: the solver ran and
-    # its status (valid/counterexample/unsupported/timeout) is more informative than the marker
-    # check.  Solver "unsupported"/"timeout" maps to "unknown" in the extended gate, correctly
-    # distinguishing "tried but couldn't determine" from "marker says valid" (no solver run).
-    s_and_r_status = (
-        statuses.get("solver_system_consistency")
-        or statuses.get("system_consistency", "missing")
-    )
+    # s_and_r_composition reads the consolidated, solver-backed system_consistency status
+    # (valid / counterexample / unsupported / timeout / not_applicable).  "unsupported" /
+    # "timeout" map to "unknown" in the extended gate, distinguishing "a real S we could not
+    # determine" from "valid" (verified) and "not_applicable" (no obligation to discharge).
+    s_and_r_status = statuses.get("system_consistency", "missing")
     return {
         "semantic_translation": statuses.get("semantic_agreement")
         or statuses.get("translation_agreement", "missing"),
@@ -646,7 +700,6 @@ def _blockers(
     system_status: str,
     proof_status: str,
     closure_result: str,
-    solver_system_status: str | None = None,
 ) -> list[EndToEndGateBlocker]:
     blockers: list[EndToEndGateBlocker] = []
     _append_if_not(
@@ -671,37 +724,33 @@ def _blockers(
         expected="passed",
     )
     _append_if_not(blockers, stage="trace_replay", status=trace_replay_result, expected="passed")
-    _append_if_not(
-        blockers,
-        stage="system_consistency",
-        status=system_status,
-        expected="valid",
-        unknown_statuses={"unsupported", "timeout", "needs_review"},
-    )
-    # Solver-backed S∧R is load-bearing in both directions when the solver actually ran:
-    # - counterexample / invalid → definitive refusal; gate cannot accept.
-    # - valid → no blocker; gate proceeds on positive evidence.
-    # - unsupported / timeout / unknown → unknown blocker; gate is inconclusive until a
-    #   determinate result is available.  Silently ignoring these would let an inconclusive
-    #   solver run appear as acceptance, which conflicts with the honesty discipline.
-    if solver_system_status in {"counterexample", "invalid"}:
+    # System consistency S ∧ R is solver-backed by default (see run_end_to_end_requirement_gate).
+    # Its status is load-bearing in both directions:
+    # - valid → verified against S; no blocker.
+    # - not_applicable → no reviewed S relevant to the impact declares an invariant; there is
+    #   no obligation to discharge; no blocker.
+    # - counterexample / invalid → definitive refusal; the requirement contradicts S.
+    # - unsupported / timeout / needs_review → a real S that could not be determined; block as
+    #   unknown until a determinate result exists.  Silently ignoring these would let an
+    #   inconclusive run read as acceptance, which conflicts with the honesty discipline.
+    if system_status in {"counterexample", "invalid"}:
         blockers.append(
             EndToEndGateBlocker(
-                stage="solver_system_consistency",
+                stage="system_consistency",
                 status="refused",
                 message=(
-                    f"solver-backed S∧R check returned {solver_system_status!r}; "
+                    f"system-consistency S ∧ R check returned {system_status!r}; "
                     "requirement is inconsistent with system constraints"
                 ),
             )
         )
-    elif solver_system_status in {"unsupported", "timeout", "unknown"}:
+    elif system_status in {"unsupported", "timeout", "needs_review", "unknown"}:
         blockers.append(
             EndToEndGateBlocker(
-                stage="solver_system_consistency",
+                stage="system_consistency",
                 status="unknown",
                 message=(
-                    f"solver-backed S∧R check returned {solver_system_status!r}; "
+                    f"system-consistency S ∧ R check returned {system_status!r}; "
                     "check is inconclusive — gate is blocked pending a determinate result"
                 ),
             )
@@ -734,10 +783,10 @@ def _append_if_not(
 def _decision(blockers: list[EndToEndGateBlocker]) -> Literal["accepted", "refused", "unknown"]:
     if not blockers:
         return "accepted"
-    # A solver-backed counterexample is definitive evidence of a violation. Refuse
+    # A solver-backed S ∧ R counterexample is definitive evidence of a violation. Refuse
     # immediately — do not allow unknown stages to mask a confirmed bad result.
     if any(
-        b.stage == "solver_system_consistency" and b.status == "refused"
+        b.stage == "system_consistency" and b.status == "refused"
         for b in blockers
     ):
         return "refused"

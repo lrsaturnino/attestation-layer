@@ -399,7 +399,7 @@ def test_gate_z3_neg_r_plus_s_refuses_on_counterexample(tmp_path: Path) -> None:
 
     Mirrors test_z3_gate_neg_r_plus_s_returns_counterexample but drives the full
     run_end_to_end_requirement_gate.  ¬R has Pred_not_authorized; S assigns it TRUE.
-    Z3 returns counterexample → solver_system_consistency blocker → decision 'refused'.
+    Z3 returns counterexample → system_consistency blocker → decision 'refused'.
 
     The translation_agreement supplies two matching candidates so the agreement is
     'agreed' and the solver refusal is the sole blocker (not masked as 'unknown').
@@ -414,11 +414,15 @@ def test_gate_z3_neg_r_plus_s_refuses_on_counterexample(tmp_path: Path) -> None:
         "def finalize_redemption(wallet):\n    return 'rejected'\n"
     )
     # S: Pred_not_authorized(a) == TRUE — ¬R's obligation predicate is TRUE, Z3 → counterexample.
+    # SafetyInvariant makes S declare an invariant so the gate treats S ∧ R as applicable and
+    # runs the solver; the Z3 in-process path decides from the Pred_* assignment, not the
+    # invariant body.
     (specs / "SystemConstraint.tla").write_text(
         "---- MODULE SystemConstraint ----\n"
         "CONSTANT a\n"
         "\\* @type: (Str) => Bool;\n"
         "Pred_not_authorized(a) == TRUE\n"
+        "SafetyInvariant == TRUE\n"
         "====\n"
     )
     trace_path = tmp_path / "traces.json"
@@ -453,6 +457,7 @@ def test_gate_z3_neg_r_plus_s_refuses_on_counterexample(tmp_path: Path) -> None:
             "version": "1",
             "review_status": "reviewed",
             "freshness": "fresh",
+            "invariants": ["SafetyInvariant"],
         }],
     })
     neg_r_ir = DslV3Parser().parse_ir(
@@ -500,11 +505,11 @@ def test_gate_z3_neg_r_plus_s_refuses_on_counterexample(tmp_path: Path) -> None:
         f"¬R + Z3 S(pred=TRUE) must refuse; got decision={report.decision!r}, "
         f"blockers={[b.model_dump() for b in report.blockers]}"
     )
-    solver_blockers = [b for b in report.blockers if b.stage == "solver_system_consistency"]
-    assert solver_blockers, (
-        "Gate refusal must carry a solver_system_consistency blocker"
+    system_blockers = [b for b in report.blockers if b.stage == "system_consistency"]
+    assert system_blockers, (
+        "Gate refusal must carry a system_consistency blocker"
     )
-    assert solver_blockers[0].status == "refused"
+    assert system_blockers[0].status == "refused"
 
 
 def test_gate_z3_execution_adds_smt_checked_solver_result_to_proof_object(tmp_path: Path) -> None:
@@ -530,11 +535,14 @@ def test_gate_z3_execution_adds_smt_checked_solver_result_to_proof_object(tmp_pa
     # Fixture: "when actor is not authorized then operation must reject" → predicate is
     # Pred_not_authorized.  S assigns Pred_not_authorized(a) == FALSE so the obligation
     # antecedent is never triggered → no violation reachable → Z3 UNSAT → "valid".
+    # SafetyInvariant makes S declare an invariant so the gate runs the solver; the Z3
+    # in-process path decides from the Pred_* assignment, not the invariant body.
     (specs / "SystemConstraint.tla").write_text(
         "---- MODULE SystemConstraint ----\n"
         "CONSTANT a\n"
         "\\* @type: (Str) => Bool;\n"
         "Pred_not_authorized(a) == FALSE\n"
+        "SafetyInvariant == TRUE\n"
         "====\n"
     )
     trace_path = tmp_path / "traces.json"
@@ -553,7 +561,8 @@ def test_gate_z3_execution_adds_smt_checked_solver_result_to_proof_object(tmp_pa
         "schema_version": "0.1",
         "specs": [{"spec_id": "spec:redemption", "module_ids": ["redemption"],
                    "formalism": "tla", "path": "specs/SystemConstraint.tla",
-                   "version": "1", "review_status": "reviewed", "freshness": "fresh"}],
+                   "version": "1", "review_status": "reviewed", "freshness": "fresh",
+                   "invariants": ["SafetyInvariant"]}],
     })
     ir = DslV3Parser().parse_ir(
         FIXTURES.joinpath("authorization_precondition_v3.nlreq").read_text(),
@@ -584,10 +593,10 @@ def test_gate_z3_execution_adds_smt_checked_solver_result_to_proof_object(tmp_pa
         translation_agreement=agreement,
     )
 
-    # Solver consistency artifact must be recorded.
+    # The consolidated, solver-backed system-consistency artifact must be recorded.
     artifact_names = {a.name for a in report.artifacts}
-    assert "solver_system_consistency" in artifact_names, (
-        "solver_system_consistency artifact must be recorded when solver_execution='z3'"
+    assert "system_consistency" in artifact_names, (
+        "system_consistency artifact must be recorded (solver-backed when solver_execution='z3')"
     )
 
     # ProofObject must contain a valid solver_system_checker result with SMT_CHECKED.
@@ -609,13 +618,11 @@ def test_gate_z3_execution_adds_smt_checked_solver_result_to_proof_object(tmp_pa
 
 
 def test_solver_status_recorded_in_gate_statuses(tmp_path: Path) -> None:
-    """Solver status is recorded in report.statuses['solver_system_consistency'].
+    """Solver status is recorded in report.statuses['system_consistency'].
 
-    When solver_execution is supplied, the base gate must record the solver result
-    status in its statuses dict so extended-gate and callers can read it directly.
-    Previously solver_system_consistency was recorded only as an artifact file but
-    was absent from the statuses dict, causing _extended_gate_default_statuses to
-    fall back to the marker check regardless of the solver result.
+    System consistency is solver-backed by default, so the base gate records the solver
+    result status under the consolidated 'system_consistency' key (not a separate
+    'solver_system_consistency' key) so the extended gate and callers can read it directly.
     """
     from nlreq.dsl_v3 import DslV3Parser
     from nlreq.translator_agreement import TranslationAgreementInput, TranslationCandidate
@@ -648,8 +655,12 @@ def test_solver_status_recorded_in_gate_statuses(tmp_path: Path) -> None:
         "schema_version": "0.1",
         "specs": [{"spec_id": "spec:redemption", "module_ids": ["redemption"],
                    "formalism": "tla", "path": "specs/SystemConstraint.tla",
-                   "version": "1", "review_status": "reviewed", "freshness": "fresh"}],
+                   "version": "1", "review_status": "reviewed", "freshness": "fresh",
+                   "invariants": ["SafetyInvariant"]}],
     })
+    # SafetyInvariant makes S declare an invariant so the gate treats S ∧ R as applicable and
+    # runs the solver; with no Pred_* assignment for R's obligation predicate, the Z3 path
+    # reports 'unsupported' — a recognized solver outcome recorded in report.statuses.
     ir = DslV3Parser().parse_ir(
         FIXTURES.joinpath("authorization_precondition_v3.nlreq").read_text(),
         requirement_id="GATE-STATUS-001",
@@ -679,12 +690,12 @@ def test_solver_status_recorded_in_gate_statuses(tmp_path: Path) -> None:
         translation_agreement=agreement,
     )
 
-    assert "solver_system_consistency" in report.statuses, (
-        "report.statuses must contain 'solver_system_consistency' when solver_execution is supplied"
+    assert "system_consistency" in report.statuses, (
+        "report.statuses must contain 'system_consistency' (solver-backed by default)"
     )
-    assert report.statuses["solver_system_consistency"] in {"valid", "counterexample", "unsupported", "timeout"}, (
-        f"solver_system_consistency must be a recognized solver outcome, "
-        f"got {report.statuses['solver_system_consistency']!r}"
+    assert report.statuses["system_consistency"] in {"valid", "counterexample", "unsupported", "timeout", "not_applicable"}, (
+        f"system_consistency must be a recognized solver outcome, "
+        f"got {report.statuses['system_consistency']!r}"
     )
 
 
@@ -703,8 +714,9 @@ def test_solver_unsupported_produces_unknown_decision(tmp_path: Path) -> None:
     src.mkdir()
     specs.mkdir()
     (src / "operation.py").write_text("def operation(actor):\n    return 'rejected'\n")
-    # Non-Pred_* spec: no simple assignments for the Z3 in-process path to ground S on.
-    # The Z3 checker returns unsupported when obligation predicates have no S assignments.
+    # S declares the InvariantHolds invariant (so the gate treats S ∧ R as applicable and
+    # runs the solver) but defines no Pred_*(...) assignment for the Z3 in-process path to
+    # ground R's obligation predicate on — so the Z3 checker returns 'unsupported'.
     (specs / "SystemConstraint.tla").write_text(
         "---- MODULE SystemConstraint ----\n"
         "InvariantHolds == TRUE\n"
@@ -726,7 +738,8 @@ def test_solver_unsupported_produces_unknown_decision(tmp_path: Path) -> None:
         "schema_version": "0.1",
         "specs": [{"spec_id": "spec:redemption", "module_ids": ["redemption"],
                    "formalism": "tla", "path": "specs/SystemConstraint.tla",
-                   "version": "1", "review_status": "reviewed", "freshness": "fresh"}],
+                   "version": "1", "review_status": "reviewed", "freshness": "fresh",
+                   "invariants": ["InvariantHolds"]}],
     })
     ir = DslV3Parser().parse_ir(
         FIXTURES.joinpath("authorization_precondition_v3.nlreq").read_text(),
@@ -757,11 +770,11 @@ def test_solver_unsupported_produces_unknown_decision(tmp_path: Path) -> None:
         translation_agreement=agreement,
     )
 
-    solver_status = report.statuses.get("solver_system_consistency")
+    system_status = report.statuses.get("system_consistency")
     # The spec has no Pred_* assignments → Z3 gate returns unsupported (predicates not assigned).
-    assert solver_status == "unsupported", (
-        f"Expected solver_system_consistency='unsupported' for spec without Pred_* assignments; "
-        f"got {solver_status!r}"
+    assert system_status == "unsupported", (
+        f"Expected system_consistency='unsupported' for spec without Pred_* assignments; "
+        f"got {system_status!r}"
     )
     assert report.decision == "unknown", (
         f"Gate must be 'unknown' when solver returns 'unsupported'; got {report.decision!r}"
@@ -770,96 +783,106 @@ def test_solver_unsupported_produces_unknown_decision(tmp_path: Path) -> None:
         "downstream_action_allowed must be False when gate is unknown"
     )
     unknown_blocker = next(
-        (b for b in report.blockers if b.stage == "solver_system_consistency"), None
+        (b for b in report.blockers if b.stage == "system_consistency"), None
     )
-    assert unknown_blocker is not None, "Must have a solver_system_consistency blocker"
+    assert unknown_blocker is not None, "Must have a system_consistency blocker"
     assert unknown_blocker.status == "unknown", (
-        f"solver_system_consistency blocker must be 'unknown'; got {unknown_blocker.status!r}"
+        f"system_consistency blocker must be 'unknown'; got {unknown_blocker.status!r}"
     )
 
 
-def test_extended_gate_s_and_r_composition_prefers_solver_result(tmp_path: Path) -> None:
-    """_extended_gate_default_statuses maps s_and_r_composition to solver result when present.
+def test_extended_gate_s_and_r_composition_reads_solver_backed_system_consistency(
+    tmp_path: Path,
+) -> None:
+    """_extended_gate_default_statuses maps s_and_r_composition from the consolidated,
+    solver-backed system_consistency status.
 
-    When solver_system_consistency is in the base gate's statuses, the extended gate
-    must use it for s_and_r_composition rather than the marker-based system_consistency.
-    This makes the solver result the primary evidence for S∧R composition in the
-    extended gate, not an optional supplement.
+    System consistency is solver-backed by default — there is no separate marker vs solver
+    split to reconcile. The extended gate therefore reads s_and_r_composition directly from
+    the single system_consistency status, surfacing whatever the solver produced
+    (valid / counterexample / unsupported / timeout / not_applicable). No weaker marker
+    result can mask a real solver outcome.
     """
     from nlreq.end_to_end_gate import (
         EndToEndRequirementGateReport,
-        build_extended_requirement_gate_report,
         _extended_gate_default_statuses,
     )
 
-    # Simulate a base gate report where marker says "valid" but solver says "counterexample".
-    gate_with_solver = EndToEndRequirementGateReport(
-        requirement_id="TEST-PREF",
-        decision="refused",
-        downstream_action="merge",
-        downstream_action_allowed=False,
-        proof_status="blocked",
-        closure_result="blocked",
-        statuses={
-            "system_consistency": "valid",          # marker says OK
-            "solver_system_consistency": "counterexample",  # solver disagrees
-            "translation_agreement": "agreed",
-            "requirement_self_consistency": "valid",
-            "spec_coverage": "passed",
-            "trace_alignment": "passed",
-            "trace_replay": "passed",
-            "formal_claim": "lowered",
-            "proof_object": "blocked",
-            "closure_gate": "blocked",
-        },
+    def _gate(system_consistency: str, *, decision: str) -> EndToEndRequirementGateReport:
+        return EndToEndRequirementGateReport(
+            requirement_id=f"TEST-{system_consistency.upper()}",
+            decision=decision,
+            downstream_action="merge",
+            downstream_action_allowed=decision == "accepted",
+            proof_status="closed" if decision == "accepted" else "blocked",
+            closure_result="passed" if decision == "accepted" else "blocked",
+            statuses={
+                "system_consistency": system_consistency,
+                "translation_agreement": "agreed",
+                "requirement_self_consistency": "valid",
+            },
+        )
+
+    # A solver counterexample is surfaced verbatim — never masked by a weaker result.
+    assert (
+        _extended_gate_default_statuses(_gate("counterexample", decision="refused"))[
+            "s_and_r_composition"
+        ]
+        == "counterexample"
     )
-    stage_statuses = _extended_gate_default_statuses(gate_with_solver)
-    assert stage_statuses["s_and_r_composition"] == "counterexample", (
-        f"s_and_r_composition must use solver result ('counterexample') when present, "
-        f"not marker result ('valid'). Got: {stage_statuses['s_and_r_composition']!r}"
+    # An inconclusive run (unsupported) is surfaced as-is, not silently passed.
+    assert (
+        _extended_gate_default_statuses(_gate("unsupported", decision="unknown"))[
+            "s_and_r_composition"
+        ]
+        == "unsupported"
+    )
+    # A verified 'valid' is surfaced as valid.
+    assert (
+        _extended_gate_default_statuses(_gate("valid", decision="accepted"))[
+            "s_and_r_composition"
+        ]
+        == "valid"
+    )
+    # 'not_applicable' (no reviewed S relevant to the impact declares an invariant) is
+    # surfaced as-is — a passing, non-blocking outcome distinct from a verified 'valid'.
+    assert (
+        _extended_gate_default_statuses(_gate("not_applicable", decision="accepted"))[
+            "s_and_r_composition"
+        ]
+        == "not_applicable"
     )
 
-    # Simulate: solver ran but returned unsupported (tried, couldn't tell).
-    gate_solver_unknown = EndToEndRequirementGateReport(
-        requirement_id="TEST-UNK",
-        decision="unknown",
-        downstream_action="merge",
-        downstream_action_allowed=False,
-        proof_status="blocked",
-        closure_result="blocked",
-        statuses={
-            "system_consistency": "valid",
-            "solver_system_consistency": "unsupported",
-            "translation_agreement": "agreed",
-            "requirement_self_consistency": "valid",
-        },
-    )
-    stage_statuses_unknown = _extended_gate_default_statuses(gate_solver_unknown)
-    assert stage_statuses_unknown["s_and_r_composition"] == "unsupported", (
-        f"s_and_r_composition must use solver's 'unsupported' when present, "
-        f"falling back to marker 'valid' would silently hide a non-result. "
-        f"Got: {stage_statuses_unknown['s_and_r_composition']!r}"
-    )
 
-    # Simulate: no solver (solver_system_consistency absent) → falls back to marker.
-    gate_no_solver = EndToEndRequirementGateReport(
-        requirement_id="TEST-NOSOL",
-        decision="accepted",
-        downstream_action="merge",
-        downstream_action_allowed=True,
-        proof_status="closed",
-        closure_result="passed",
-        statuses={
-            "system_consistency": "valid",
-            "translation_agreement": "agreed",
-            "requirement_self_consistency": "valid",
-        },
-    )
-    stage_statuses_no_solver = _extended_gate_default_statuses(gate_no_solver)
-    assert stage_statuses_no_solver["s_and_r_composition"] == "valid", (
-        f"Without solver result, s_and_r_composition must fall back to marker 'valid'. "
-        f"Got: {stage_statuses_no_solver['s_and_r_composition']!r}"
-    )
+def test_system_consistency_floor_baseline_only_for_consistent_outcomes() -> None:
+    """_system_consistency_floor_baseline emits a system_checker / CONSISTENCY_CHECKED baseline
+    only when the consolidated S ∧ R stage concluded consistency (valid) or that there is no
+    obligation to discharge (not_applicable); a non-consistent verdict yields no baseline.
+
+    The default proof dispatch routes system-consistency premises to the system_checker
+    producer at the CONSISTENCY_CHECKED floor. A solver verdict is emitted under
+    solver_system_checker at SMT_CHECKED / BOUNDED_CHECKED — a stronger level that does not
+    match the floor route — so the baseline lets those premises close on the weaker claim the
+    solver verdict subsumes. A counterexample / unsupported / timeout must NOT produce a
+    baseline: the premises stay open so the gate blocks on the real result.
+    """
+    from nlreq.end_to_end_gate import _system_consistency_floor_baseline
+    from nlreq.models import EvidenceLevel
+
+    for consistent in ("valid", "not_applicable"):
+        baseline = _system_consistency_floor_baseline(consistent)
+        assert baseline is not None, f"{consistent} must yield a floor baseline"
+        assert baseline.backend == "system_checker"
+        assert baseline.status == "valid"
+        assert baseline.evidence_level == EvidenceLevel.CONSISTENCY_CHECKED
+        assert baseline.details["mode"] == (
+            "not_applicable" if consistent == "not_applicable" else "solver_backed_baseline"
+        )
+
+    for non_consistent in ("counterexample", "unsupported", "timeout", "invalid", "needs_review"):
+        assert _system_consistency_floor_baseline(non_consistent) is None, (
+            f"{non_consistent} must NOT yield a floor baseline"
+        )
 
 
 def test_solver_result_carries_related_fragment_ids_and_predicates_stay_blocked(tmp_path: Path) -> None:
