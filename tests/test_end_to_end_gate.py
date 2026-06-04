@@ -358,6 +358,24 @@ def test_gate_refuses_on_disagreeing_translation_agreement_input(tmp_path: Path)
     )
     assert len(refusal.clarification_questions) >= 1
 
+    # Provenance: gate must set a gate-scoped translation_id and carry input hashes.
+    assert refusal.translation_id == "gate-translation-GATE-DISAGREE-001", (
+        f"Gate refusal must carry gate-scoped translation_id, got {refusal.translation_id!r}"
+    )
+    assert "controlled_text" in refusal.input_hashes, (
+        "Gate refusal must carry controlled_text hash in input_hashes"
+    )
+    assert "requirement_ir" in refusal.input_hashes, (
+        "Gate refusal must carry requirement_ir hash in input_hashes"
+    )
+
+    # Fail-fast: no downstream artifacts must be produced after a disagreed translation.
+    artifact_names = {a.name for a in report.artifacts}
+    for downstream in ("formal_claim_artifact", "proof_object", "closure_gate", "lowered_formal"):
+        assert downstream not in artifact_names, (
+            f"Downstream artifact '{downstream}' must not be produced when translation disagreed"
+        )
+
 
 def _project(
     tmp_path: Path,

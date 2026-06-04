@@ -110,6 +110,7 @@ class RecordedDecompositionClient:
         is_audited: bool = False,
         model_id: str | None = None,
         prompt_hash: str | None = None,
+        fixture_provenance: dict[str, str] | None = None,
     ) -> None:
         self._fixture = fixture
         self._candidate_id = candidate_id
@@ -117,6 +118,7 @@ class RecordedDecompositionClient:
         self._is_audited = is_audited
         self._model_id = model_id
         self._prompt_hash = prompt_hash
+        self._fixture_provenance: dict[str, str] = fixture_provenance or {}
 
     def decompose_controlled_to_ir(
         self,
@@ -132,7 +134,9 @@ class RecordedDecompositionClient:
             prompt_hash=self._prompt_hash,
             approval=self._approval,
             is_audited=self._is_audited,
-            provenance={"source": "recorded_fixture"},
+            # Fixture provenance is merged so recorded replays carry the same
+            # provenance chain as the original decomposition result.
+            provenance={"source": "recorded_fixture", **self._fixture_provenance},
         )
 
 

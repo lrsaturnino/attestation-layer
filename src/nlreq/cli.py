@@ -577,7 +577,7 @@ def main(argv: list[str] | None = None) -> int:
             "PA-5 decomposition ensemble client. Repeat for multiple clients (≥2 triggers check). "
             "Formats: 'live' (AnthropicDecompositionClient with default model), "
             "'live:<model-id>' (AnthropicDecompositionClient with given model), "
-            "'recorded:<path>' (RecordedDecompositionClient replaying a RequirementIRV2 JSON fixture)."
+            "'recorded:<path>' (RecordedDecompositionClient replaying a DecompositionResult JSON fixture)."
         ),
     )
 
@@ -2197,6 +2197,7 @@ def main(argv: list[str] | None = None) -> int:
                                 is_audited=fixture_result.is_audited,
                                 model_id=fixture_result.model_id,
                                 prompt_hash=fixture_result.prompt_hash,
+                                fixture_provenance=fixture_result.provenance,
                             )
                         )
                     else:

@@ -297,11 +297,31 @@ def run_end_to_end_requirement_gate(
         )
         ambiguous_refusal = refuse_ambiguous_ensemble(
             requirement_id=requirement_id,
+            translation_id=f"gate-translation-{requirement_id}",
             disagreements=remapped_disagreements,
             requirement_ir=requirement,
             input_hashes=gate_input_hashes,
         )
         record("translation_refusal", "translation-refusal.json", ambiguous_refusal)
+        # A disagreed translation is a hard stop — downstream stages (lowering, SMT,
+        # traces, system check, proof, closure) must not run against an untrusted IR.
+        return EndToEndRequirementGateReport(
+            requirement_id=requirement_id,
+            decision="refused",
+            downstream_action=downstream_action,
+            downstream_action_allowed=False,
+            proof_status="blocked",
+            closure_result="blocked",
+            artifacts=artifacts,
+            statuses={"translation_agreement": translation.status},
+            blockers=[
+                EndToEndGateBlocker(
+                    stage="translation_agreement",
+                    status="refused",
+                    message=f"translation_agreement status is {translation.status}; expected agreed",
+                )
+            ],
+        )
 
     lowered = lower_ir_v2_to_tla(requirement)
     record("lowered_formal", "lowered-formal.json", lowered)
