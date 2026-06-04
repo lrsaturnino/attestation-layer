@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .formal_backend import FormalBackendBudget, FormalBackendExecution
+from .formal_lowering import parse_obligation_predicates
 from .jsonutil import sha256_json, sha256_text
 from .model_checker_runner import (
     ModelCheckerBudget,
@@ -156,9 +157,36 @@ def check_solver_backed_system_consistency(
         )
 
     execution = execution or FormalBackendExecution()
+    spec_texts = [(spec.spec_id, (project_root / spec.path).read_text()) for spec in specs]
+    pred_assignments = _extract_pred_assignments_from_specs(spec_texts)
+
+    # Z3 in-process path: when checker_id == "z3", evaluate S∧R using Z3 without an
+    # external binary.  S is given by Pred_*(a) == TRUE/FALSE definitions in spec files.
+    # The check parses the Obligation line of the lowered module; a vacuous Obligation
+    # (Obligation == TRUE) returns "unknown" — not a false "valid" — preserving honesty.
+    if execution.checker_id == "z3":
+        z3_outcome = _z3_check_obligation_under_s(lowered.content, pred_assignments)
+        solver_status: Literal["valid", "counterexample", "timeout", "unsupported", "invalid"] = (
+            z3_outcome if z3_outcome in {"valid", "counterexample"} else "unsupported"
+        )
+        return _solver_result(
+            requirement.requirement_id,
+            solver_status,
+            spec_ids,
+            {
+                "mode": "solver_backed",
+                "checker_id": "z3",
+                "z3_outcome": z3_outcome,
+                "obligation_pred_count": len(parse_obligation_predicates(lowered.content)),
+                "s_pred_count": len(pred_assignments),
+                "spec_hashes": {
+                    spec_id: sha256_text(text) for spec_id, text in spec_texts
+                },
+            },
+        )
+
     artifact_dir = _solver_artifact_dir(requirement, execution)
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    spec_texts = [(spec.spec_id, (project_root / spec.path).read_text()) for spec in specs]
     module_name = _safe_tla_name(f"{requirement.requirement_id}_S_AND_R")
     module_path = artifact_dir / f"{module_name}.tla"
     config_path = artifact_dir / f"{module_name}.cfg"
@@ -298,6 +326,78 @@ def _solver_artifact_dir(
     ).resolve(strict=False)
 
 
+def _extract_pred_assignments_from_specs(
+    spec_texts: list[tuple[str, str]],
+) -> dict[str, bool]:
+    """Parse Pred_*(...) == TRUE/FALSE operator definitions from system spec files.
+
+    Enables the Z3 gate path: when specs define predicate operators (e.g. from
+    generate_minimal_discriminating_s_module), this function extracts the S assignments
+    so _z3_check_obligation_under_s can encode the S∧R check in-process.
+
+    Returns {pred_name: bool_value} for each found definition.  Duplicate definitions
+    are last-writer-wins (same as TLA+ module import semantics).
+    """
+    import re
+    pattern = re.compile(r"^\s*(Pred_\w+)\([^)]*\)\s*==\s*(TRUE|FALSE)", re.MULTILINE)
+    assignments: dict[str, bool] = {}
+    for _spec_id, text in spec_texts:
+        for match in pattern.finditer(text):
+            assignments[match.group(1)] = match.group(2) == "TRUE"
+    return assignments
+
+
+def _z3_check_obligation_under_s(
+    lowered_content: str,
+    pred_assignments: dict[str, bool],
+) -> Literal["valid", "counterexample", "unknown"]:
+    """Z3 in-process S∧R check: does the lowered obligation hold under system constraint S?
+
+    S is given by pred_assignments (Pred_name → bool).  The obligation predicates are
+    parsed from the Obligation == line of the lowered module — not from CONSTANT declarations
+    — so a regression that replaces Obligation with TRUE is caught (returns "unknown").
+
+    Under S (pred = FALSE for R):
+      Violation query: pred=TRUE AND reached=TRUE.
+      S forces pred=FALSE; violation requires pred=TRUE → contradiction → UNSAT → "valid".
+
+    Under S (pred = TRUE for ¬R):
+      Violation query: pred=TRUE AND reached=TRUE.
+      S has pred=TRUE (consistent with violation) and reached is unconstrained → SAT → "counterexample".
+
+    Returns "unknown" when:
+      - The Obligation line is absent or vacuous (Obligation == TRUE regression).
+      - Not all obligation predicates have assignments in pred_assignments.
+    """
+    from z3 import Bool, BoolVal, Solver, sat, unsat
+
+    obligation_preds = parse_obligation_predicates(lowered_content)
+    if not obligation_preds:
+        return "unknown"
+
+    if not all(name in pred_assignments for name in obligation_preds):
+        return "unknown"
+
+    pred_bools = {name: Bool(name) for name in obligation_preds}
+    reached = Bool("nlr_reached_accepted")
+    s = Solver()
+
+    for name, val in pred_assignments.items():
+        if name in pred_bools:
+            s.add(pred_bools[name] == BoolVal(val))
+
+    for name in obligation_preds:
+        s.add(pred_bools[name])
+    s.add(reached)
+
+    result = s.check()
+    if result == unsat:
+        return "valid"
+    if result == sat:
+        return "counterexample"
+    return "unknown"
+
+
 def _composed_tla_module(
     module_name: str,
     lowered: LoweredFormalArtifact,
@@ -307,9 +407,22 @@ def _composed_tla_module(
     spec_hashes = "\n".join(
         f"\\* System spec {spec_id}: {sha256_text(text)}" for spec_id, text in spec_texts
     )
+    # Document the S predicate assignments (if any) from spec files.
+    # The Z3 gate path uses these to run S∧R in-process; TLC/Apalache paths
+    # use them as documentation — the full inline composition requires PB-4.
+    pred_assignments = _extract_pred_assignments_from_specs(spec_texts)
+    if pred_assignments:
+        s_comment_lines = "\n".join(
+            f"\\*   {name}(a) == {'TRUE' if val else 'FALSE'}"
+            for name, val in sorted(pred_assignments.items())
+        )
+        s_block = f"\\* System constraint S from spec files:\n{s_comment_lines}\n"
+    else:
+        s_block = ""
     return (
         f"---- MODULE {module_name} ----\n"
-        f"{spec_hashes}\n\n"
+        f"{spec_hashes}\n"
+        f"{s_block}\n"
         f"{body}\n\n"
         "SystemSpecAssumptions == TRUE\n"
         "SystemAndRequirement == SystemSpecAssumptions => RequirementHolds\n\n"

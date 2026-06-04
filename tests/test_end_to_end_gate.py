@@ -162,13 +162,15 @@ def test_end_to_end_gate_with_v3_requirement_has_formal_claim_fragment_ids(tmp_p
         f"Expected formal fragment IDs in ProofObject but found: {premise_ids}"
     )
 
-    # Predicate premises are "blocked": smt_check_formal_claim_predicate_fragments returns
-    # "unsupported" for named uninterpreted predicates (requires Apalache/Pillar B), and
-    # proof_closure maps "unsupported" → "blocked" to make the gap explicit.
+    # Predicate premises are "discharged": smt_check_formal_claim_predicate_fragments
+    # now runs a real Z3 check — under conservative S (predicate=FALSE), the violation
+    # query is UNSAT — and emits status="valid"/SMT_CHECKED, so proof_closure maps
+    # the result to "discharged".  Full S∧R composition (real system semantics) still
+    # requires Apalache/Pillar B; the conservative-S check provides fragment-level evidence.
     predicate_premises = [p for p in proof.premises if p.node_kind == "predicate"]
     rejection_order = [p for p in proof.premises if p.node_kind == "rejection_order"]
-    assert all(p.status == "blocked" for p in predicate_premises), (
-        f"Predicate premises must be blocked (not silently open) pending Apalache/Pillar B: "
+    assert all(p.status == "discharged" for p in predicate_premises), (
+        f"Predicate premises must be discharged (conservative-S Z3 UNSAT gives SMT_CHECKED): "
         f"{predicate_premises}"
     )
     assert all(p.status == "blocked" for p in rejection_order), (

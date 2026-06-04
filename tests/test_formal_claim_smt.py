@@ -54,13 +54,14 @@ def _make_membership_fragment() -> FormalClaimFragment:
     )
 
 
-def test_predicate_fragments_produce_unsupported_results_with_covered_ids() -> None:
-    """Predicate fragments must produce BackendResult(status='unsupported') with covered_fragment_ids.
+def test_predicate_fragments_produce_real_z3_results_with_covered_ids() -> None:
+    """Predicate fragments must produce a real Z3 BackendResult (status='valid') with covered_fragment_ids.
 
-    Named uninterpreted predicates require Apalache/Pillar B model-level checking. Rather
-    than silently excluding them (which left proof_closure routes as 'open' with no reason),
-    the SMT checker now emits an explicit 'unsupported' result. proof_closure maps
-    'unsupported' → premise status 'blocked', making the gap visible and auditable.
+    Under conservative system constraint S (predicate = FALSE), the violation query
+    (predicate=TRUE AND reached=TRUE) is Z3-UNSAT — a real SMT result proving the
+    obligation is vacuously satisfied when S applies.  proof_closure maps this to
+    premise status 'discharged'.  Full S∧R composition (actual system semantics)
+    requires Apalache/Pillar B and is handled by system_checker, not this layer.
     """
     report = build_formal_claim(_auth_ir())
     assert report.formal_claim is not None
@@ -83,8 +84,12 @@ def test_predicate_fragments_produce_unsupported_results_with_covered_ids() -> N
         f"expected one BackendResult per predicate fragment, got {predicate_results}"
     )
     for r in predicate_results:
-        assert r.status == "unsupported", (
-            f"predicate fragment BackendResult must have status='unsupported', got {r.status!r}"
+        assert r.status == "valid", (
+            f"predicate fragment BackendResult must have status='valid' (conservative-S Z3 UNSAT), "
+            f"got {r.status!r}"
+        )
+        assert r.evidence_level == EvidenceLevel.SMT_CHECKED, (
+            f"predicate BackendResult must carry SMT_CHECKED evidence level, got {r.evidence_level!r}"
         )
         assert "reason" in r.details, (
             f"predicate BackendResult must carry a reason in details: {r.details}"

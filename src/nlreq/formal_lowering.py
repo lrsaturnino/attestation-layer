@@ -41,8 +41,10 @@ class LoweredDiscriminationResult:
     z3_discriminate_lowered_requirements, which:
       1. Validates both RequirementIRV2 shapes.
       2. Produces lowered TLA+ modules for R and ¬R via lower_authorization_precondition_tla.
-      3. Extracts predicate names from the IRs — same names the modules use.
-      4. Encodes the obligation semantics in Z3 using those actual names.
+      3. Parses Pred_* names from the Obligation == line of each module (not just CONSTANTs).
+         Raises ValueError if the Obligation is vacuous (no Pred_* references) — this
+         catches regressions where Obligation == TRUE but CONSTANT Pred_* still exist.
+      4. Encodes the obligation semantics in Z3 using those obligation-derived names.
       5. Checks S∧R (should be UNSAT) and S∧¬R (should be SAT).
 
     requirement_module and negation_module are the evidence artifacts that anchor
@@ -393,6 +395,27 @@ def _parse_module_pred_constants(module_text: str) -> list[str]:
     return re.findall(r"^CONSTANT (Pred_\w+)", module_text, re.MULTILINE)
 
 
+def parse_obligation_predicates(module_text: str) -> list[str]:
+    """Parse Pred_* names referenced in the Obligation == line of a lowered module.
+
+    Returns the Pred_* names that appear in the Obligation definition.
+    An empty return means the obligation is absent or vacuous (e.g. Obligation == TRUE);
+    callers should treat this as a lowering regression and refuse discrimination.
+
+    The lowered module format produced by lower_authorization_precondition_tla is:
+      Obligation == Pred_{name}({args}) /\\ ... => NLRState /= "accepted"
+
+    This function anchors the Z3 encoding to the actual Obligation definition — not
+    just to the CONSTANT declarations.  A regression that emits Obligation == TRUE
+    while preserving CONSTANT Pred_* declarations is caught here (returns []).
+    """
+    import re
+    match = re.search(r"^Obligation == (.*)$", module_text, re.MULTILINE)
+    if not match:
+        return []
+    return re.findall(r"Pred_\w+", match.group(1))
+
+
 def z3_discriminate_lowered_requirements(
     requirement_ir: RequirementIRV2,
     negation_ir: RequirementIRV2,
@@ -417,8 +440,9 @@ def z3_discriminate_lowered_requirements(
     forced FALSE and TRUE simultaneously → both checks are UNSAT → discriminated=False.
     This preserves the negative-control property of the name-string version.
 
-    Raises ValueError if either IR has an unsupported shape, or if the lowered module
-    declares no Pred_* constants (which would indicate a lowering defect).
+    Raises ValueError if either IR has an unsupported shape, or if the lowered module's
+    Obligation line is vacuous (Obligation == TRUE or no Pred_* in Obligation) — this
+    catches regressions where CONSTANT declarations remain but the obligation is empty.
     """
     from z3 import Bool, BoolVal, Solver, sat, unsat
 
@@ -437,18 +461,23 @@ def z3_discriminate_lowered_requirements(
     requirement_module = lower_authorization_precondition_tla(requirement_ir)
     negation_module = lower_authorization_precondition_tla(negation_ir)
 
-    # Parse Pred_* constant names from the module text (not from the IR).
-    # These are the exact names the modules declare; the Z3 Bools mirror them.
-    req_pred_z3_names = _parse_module_pred_constants(requirement_module)
-    neg_pred_z3_names = _parse_module_pred_constants(negation_module)
+    # Parse Pred_* names from the Obligation == line of each module.
+    # This anchors the Z3 encoding to the actual Obligation definition, not merely
+    # the CONSTANT declarations.  A regression that emits Obligation == TRUE while
+    # preserving CONSTANT Pred_* declarations is caught here — parse_obligation_predicates
+    # returns [] and we raise ValueError before encoding any Z3 constraints.
+    req_pred_z3_names = parse_obligation_predicates(requirement_module)
+    neg_pred_z3_names = parse_obligation_predicates(negation_module)
 
     if not req_pred_z3_names:
         raise ValueError(
-            "requirement_module declares no Pred_* constants — lowering defect"
+            "requirement_module Obligation is vacuous (no Pred_* references) — "
+            "lowering defect or regression; expected non-vacuous obligation"
         )
     if not neg_pred_z3_names:
         raise ValueError(
-            "negation_module declares no Pred_* constants — lowering defect"
+            "negation_module Obligation is vacuous (no Pred_* references) — "
+            "lowering defect or regression; expected non-vacuous obligation"
         )
 
     # Z3 Bools are named after the module's CONSTANT declarations.

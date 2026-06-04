@@ -316,3 +316,196 @@ def _registry(tmp_path: Path, *, marker: str = "") -> SystemSpecRegistry:
             ],
         }
     )
+
+
+# ---------------------------------------------------------------------------
+# Z3 in-process S∧R gate tests (PA-1)
+# ---------------------------------------------------------------------------
+
+def _authz_ir():
+    """DSL v3 authorization_precondition IR: wallet is authorized."""
+    from nlreq.dsl_v3 import DslV3Parser
+    return DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope redemption "
+        "when wallet is authorized then finalize_redemption must reject before rejected.",
+        requirement_id="REQ-SYS-AUTHZ",
+        title="Authorization precondition",
+    )
+
+
+def _negation_ir():
+    """DSL v3 authorization_precondition IR: wallet is not authorized (negation of _authz_ir).
+
+    Predicate name is 'not_authorized' (DSL tokenizes "not authorized" → Pred_not_authorized).
+    """
+    from nlreq.dsl_v3 import DslV3Parser
+    return DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope redemption "
+        "when wallet is not authorized then finalize_redemption must reject before rejected.",
+        requirement_id="REQ-SYS-AUTHZ-NEG",
+        title="Authorization precondition negation",
+    )
+
+
+def _z3_registry(tmp_path: Path, *, spec_content: str) -> SystemSpecRegistry:
+    """Registry with a single spec whose content defines Pred_* assignments for Z3 gate."""
+    specs = tmp_path / "specs"
+    specs.mkdir(exist_ok=True)
+    (specs / "SystemConstraint.tla").write_text(spec_content)
+    return SystemSpecRegistry.model_validate(
+        {
+            "schema_version": "0.1",
+            "specs": [
+                {
+                    "spec_id": "spec:z3-constraint",
+                    "module_ids": ["redemption"],
+                    "formalism": "tla",
+                    "path": "specs/SystemConstraint.tla",
+                    "version": "1",
+                    "review_status": "reviewed",
+                    "freshness": "fresh",
+                }
+            ],
+        }
+    )
+
+
+def _authz_impact() -> ImpactAnalysisArtifact:
+    return ImpactAnalysisArtifact(
+        adapter_id="python-source",
+        language="python",
+        input_symbols=["finalize_redemption"],
+        affected_modules=["redemption"],
+    )
+
+
+def test_z3_gate_r_plus_s_returns_valid(tmp_path: Path) -> None:
+    """R + S(pred=FALSE) → Z3 UNSAT → valid.
+
+    S assigns Pred_authorized(a) = FALSE.  Under S, the violation query
+    (Pred_authorized=TRUE ∧ reached=TRUE) contradicts S → UNSAT → "valid".
+    This is the PA-1 gate-path evidence: R holds under the system constraint.
+    """
+    from nlreq.formal_lowering import lower_authorization_precondition_tla
+    ir = _authz_ir()
+    lowered = lower_ir_v2_to_tla(ir)
+    assert lowered.status == "lowered", f"IR must lower successfully, got: {lowered}"
+
+    # S: Pred_authorized(a) == FALSE — R holds vacuously under this constraint.
+    s_spec = (
+        "---- MODULE SystemConstraint ----\n"
+        "CONSTANT a\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_authorized(a) == FALSE\n"
+        "====\n"
+    )
+    registry = _z3_registry(tmp_path, spec_content=s_spec)
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lowered,
+        registry=registry,
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        execution=FormalBackendExecution(checker_id="z3"),
+    )
+
+    assert result.result.status == "valid", (
+        f"R+S must return 'valid' (UNSAT under conservative S), got {result.result.status!r}"
+    )
+    assert result.result.backend == "solver_system_checker"
+    assert result.result.evidence_level.value == "BOUNDED_CHECKED"
+    assert result.result.details["checker_id"] == "z3"
+    assert result.result.details["z3_outcome"] == "valid"
+
+
+def test_z3_gate_neg_r_plus_s_returns_counterexample(tmp_path: Path) -> None:
+    """¬R + S(pred=TRUE) → Z3 SAT → counterexample.
+
+    S assigns Pred_not_authorized(a) = TRUE.  Under S, the violation query
+    (Pred_not_authorized=TRUE ∧ reached=TRUE) is consistent with S → SAT → "counterexample".
+    This discriminates R from ¬R: R holds under S while ¬R fails.
+    """
+    ir = _negation_ir()
+    lowered = lower_ir_v2_to_tla(ir)
+    assert lowered.status == "lowered", f"Negation IR must lower successfully, got: {lowered}"
+
+    # S: Pred_not_authorized(a) == TRUE — ¬R's obligation fires, violation is reachable.
+    s_spec = (
+        "---- MODULE SystemConstraint ----\n"
+        "CONSTANT a\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_not_authorized(a) == TRUE\n"
+        "====\n"
+    )
+    registry = _z3_registry(tmp_path, spec_content=s_spec)
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lowered,
+        registry=registry,
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        execution=FormalBackendExecution(checker_id="z3"),
+    )
+
+    assert result.result.status == "counterexample", (
+        f"¬R+S must return 'counterexample' (SAT: ¬R fails under S), got {result.result.status!r}"
+    )
+    assert result.result.details["z3_outcome"] == "counterexample"
+
+
+def test_z3_gate_obligation_vacuous_breaks_discrimination(tmp_path: Path) -> None:
+    """Mutation: Obligation == TRUE → Z3 gate returns 'unsupported' for ¬R (no discrimination).
+
+    When the lowered module's Obligation is replaced with TRUE (vacuous regression),
+    parse_obligation_predicates returns [] and _z3_check_obligation_under_s returns
+    "unknown".  The gate must NOT return "counterexample" — proving it is anchored to
+    the actual Obligation line, not to CONSTANT declarations.
+    """
+    import re
+    from nlreq.translator import LoweredFormalArtifact as LFA
+    from nlreq.jsonutil import sha256_text
+
+    ir = _negation_ir()
+    normal_lowered = lower_ir_v2_to_tla(ir)
+    assert normal_lowered.status == "lowered"
+
+    # Mutate: replace "Obligation == ..." with "Obligation == TRUE"
+    vacuous_content = re.sub(
+        r"^Obligation == .*$",
+        "Obligation == TRUE",
+        normal_lowered.content,
+        flags=re.MULTILINE,
+    )
+    vacuous_lowered = LFA.model_validate(
+        normal_lowered.model_copy(
+            update={"content": vacuous_content, "content_hash": sha256_text(vacuous_content)}
+        ).model_dump(mode="json", exclude_none=True)
+    )
+
+    # S assigns ¬R's predicates = TRUE — would normally produce "counterexample".
+    s_spec = (
+        "---- MODULE SystemConstraint ----\n"
+        "CONSTANT a\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_not_authorized(a) == TRUE\n"
+        "====\n"
+    )
+    registry = _z3_registry(tmp_path, spec_content=s_spec)
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=vacuous_lowered,
+        registry=registry,
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        execution=FormalBackendExecution(checker_id="z3"),
+    )
+
+    assert result.result.status != "counterexample", (
+        "Vacuous obligation (Obligation == TRUE) must NOT produce 'counterexample' — "
+        "the Z3 gate is not anchored to CONSTANT declarations alone, only the Obligation line. "
+        f"Got status: {result.result.status!r}"
+    )
+    assert result.result.status == "unsupported", (
+        f"Vacuous obligation must return 'unsupported' (unknown Z3 outcome), "
+        f"got {result.result.status!r}"
+    )
