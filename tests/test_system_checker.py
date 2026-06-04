@@ -352,18 +352,26 @@ def test_solver_backed_refuses_operator_name_collision(tmp_path: Path) -> None:
     assert not (tmp_path / "artifacts").exists()
 
 
-def test_solver_backed_refuses_spec_with_own_transition_system(tmp_path: Path) -> None:
-    """A reviewed S whose entry declares init_op/next_op is refused end-to-end.
+def _stateful_s_registry(tmp_path: Path) -> SystemSpecRegistry:
+    """Registry with the reviewed stateful S (Case B: its own SInit/SNext)."""
+    return _reviewed_s_registry(
+        tmp_path,
+        spec_text=_STATEFUL_SPEC,
+        invariants=("AuthorizationDefaultsClosed",),
+        init_op="SInit",
+        next_op="SNext",
+    )
 
-    Composing the requirement as a narrowing of the spec's own transition relation is
-    not yet implemented; the spec metadata threads through to the composition, which
-    refuses rather than silently dropping the spec's transitions.
-    """
+
+def test_solver_backed_product_path_writes_synchronous_product_module(tmp_path: Path) -> None:
+    """A reviewed S that brings its own transition system composes end-to-end as a
+    synchronous product (Case B) — it is no longer refused. The artifact on disk shows
+    S's transitions conjoined with R's under the R_ namespace, not dropped."""
     ir = _authz_ir()
     result = check_solver_backed_system_consistency(
         requirement=ir,
         lowered=lower_ir_v2_to_tla(ir),
-        registry=_reviewed_s_registry(tmp_path, next_op="Next"),
+        registry=_stateful_s_registry(tmp_path),
         impact=_authz_impact(),
         project_root=tmp_path,
         execution=FormalBackendExecution(
@@ -373,9 +381,87 @@ def test_solver_backed_refuses_spec_with_own_transition_system(tmp_path: Path) -
         ),
     )
 
-    assert result.result.status == "unsupported"
-    assert result.result.details["refusal_kind"] == "unsupported_spec_transition_system"
-    assert not (tmp_path / "artifacts").exists()
+    assert result.result.status == "valid"
+    assert result.result.details["mode"] == "solver_backed"
+    module_path = tmp_path / "artifacts" / "REQ_SYS_AUTHZ_S_AND_R.tla"
+    assert module_path.is_file()
+    composed = module_path.read_text()
+    # The product conjoins S's own transition operators with R's projected ones.
+    assert "Init == SInit /\\ R_Init" in composed
+    assert "Next == SNext /\\ R_Next" in composed
+    assert "Inv == AuthorizationDefaultsClosed /\\ R_RequirementHolds" in composed
+    assert "SystemSpecAssumptions" not in composed
+
+
+def _itf_traces_under(artifact_dir: Path) -> list[dict]:
+    """Load every Apalache ITF counterexample trace written under an artifact dir."""
+    traces = []
+    for path in sorted(artifact_dir.glob("**/violation*.itf.json")):
+        traces.append(json.loads(path.read_text()))
+    return traces
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_product_compatible_requirement_is_valid(tmp_path: Path) -> None:
+    """SP2-B (stateful S): a requirement compatible with a reviewed S that has its own
+    transition system yields a real Apalache 'valid'. S's premise predicate stays FALSE,
+    so no product step violates the conjoined invariant."""
+    ir = _authz_ir()
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_stateful_s_registry(tmp_path),
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=60, max_depth=6),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=_APALACHE_COMMAND,
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.status == "valid", result.result.details
+    assert result.result.evidence_level.value == "BOUNDED_CHECKED"
+    assert "AuthorizationDefaultsClosed" in result.result.details["preserved_invariants"]
+    assert "R_RequirementHolds" in result.result.details["preserved_invariants"]
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_product_contradicting_counterexample_shows_system_step(
+    tmp_path: Path,
+) -> None:
+    """SP2-B (stateful S): the contradicting sibling yields a real Apalache counterexample
+    whose trace shows S TAKING A TRANSITION (authPhase init→denied). The violation is
+    unreachable at the initial state — it exists only because S moved — proving S's
+    Init/Next are load-bearing, not decorative. Same S as the compatible test."""
+    ir = _negation_ir()
+    artifact_dir = tmp_path / "artifacts"
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_stateful_s_registry(tmp_path),
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=60, max_depth=6),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=_APALACHE_COMMAND,
+            artifact_dir=artifact_dir.as_posix(),
+        ),
+    )
+
+    assert result.result.status == "counterexample", result.result.details
+    assert result.counterexamples
+
+    traces = _itf_traces_under(artifact_dir)
+    assert traces, "expected a retained Apalache ITF counterexample trace"
+    states = traces[0]["states"]
+    phases = [state.get("authPhase") for state in states]
+    # The system variable must change along the trace — the counterexample requires S to
+    # step from "init" to "denied" (which fires R's premise), not sit at the initial state.
+    assert phases[0] == "init"
+    assert "denied" in phases[1:], f"S did not take a transition; authPhase stayed {phases!r}"
 
 
 def test_solver_backed_runs_checker_over_composed_module(tmp_path: Path) -> None:
@@ -944,6 +1030,72 @@ _GOLDEN_COMPOSED = (
 )
 
 
+# A reviewed S that brings its OWN transition system (Case B). authPhase starts
+# "init" (Pred_not_authorized FALSE) and a system step can move it to "denied"
+# (Pred_not_authorized TRUE); Pred_authorized stays FALSE. The shared stateful
+# predicate is the coupling: an S transition can make R's premise fire, so the
+# counterexample is only reachable because S moves — not at the initial state.
+_STATEFUL_SPEC = (
+    "---- MODULE RedemptionAuthorization ----\n"
+    "EXTENDS Naturals, TLC\n\n"
+    "\\* @type: Str;\n"
+    "VARIABLE authPhase\n\n"
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_authorized(a) == FALSE\n"
+    "\\* @type: (Str) => Bool;\n"
+    'Pred_not_authorized(a) == authPhase = "denied"\n'
+    "\\* System invariant: authorization defaults closed.\n"
+    'AuthorizationDefaultsClosed == Pred_authorized("wallet") = FALSE\n'
+    'SInit == authPhase = "init"\n'
+    'SNext == (authPhase = "init" /\\ authPhase\' = "denied") \\/ UNCHANGED authPhase\n'
+    "====\n"
+)
+
+# Byte-stable Case B composition of _GOLDEN_LOWERED with _STATEFUL_SPEC: S keeps its
+# operator names, R is emitted under R_, and Init/Next/Inv are the synchronous product.
+# Validated against apalache-mc 0.58.0 (NoError on this compatible requirement).
+_GOLDEN_PRODUCT_COMPOSED = (
+    "---- MODULE Req_GOLDEN_S_AND_R ----\n"
+    "EXTENDS Naturals, TLC\n\n"
+    "CONSTANT\n"
+    "  \\* @type: Str;\n"
+    "  wallet\n\n"
+    "VARIABLE\n"
+    "  \\* @type: Str;\n"
+    "  authPhase\n\n"
+    "VARIABLE\n"
+    "  \\* @type: Str;\n"
+    "  NLRState\n\n"
+    "\\* ===== Reviewed system spec S (inlined; operators keep their names) =====\n"
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_authorized(a) == FALSE\n"
+    "\\* @type: (Str) => Bool;\n"
+    'Pred_not_authorized(a) == authPhase = "denied"\n'
+    "\\* System invariant: authorization defaults closed.\n"
+    'AuthorizationDefaultsClosed == Pred_authorized("wallet") = FALSE\n'
+    'SInit == authPhase = "init"\n'
+    'SNext == (authPhase = "init" /\\ authPhase\' = "denied") \\/ UNCHANGED authPhase\n\n'
+    "\\* ===== Requirement projection R (under R_ namespace) =====\n"
+    'R_Init == NLRState = "idle"\n\n'
+    "R_Step_act ==\n"
+    '  /\\ NLRState = "idle"\n'
+    '  /\\ NLRState\' \\in {"rejected", "accepted"}\n\n'
+    "R_Next == R_Step_act \\/ UNCHANGED NLRState\n\n"
+    "R_Premise == Pred_authorized(wallet)\n\n"
+    'R_Obligation == Pred_authorized(wallet) => NLRState /= "accepted"\n\n'
+    "R_RequirementHolds == R_Premise => R_Obligation\n\n"
+    "\\* ===== Synchronous product S /\\ R: S and R step together over the union of\n"
+    "\\* their variables; R's obligation and S's invariants are jointly preserved\n"
+    "\\* (R runs parallel to S, coupled through the shared stateful predicates — this\n"
+    "\\* is a product, not a narrowing of S's Next) =====\n"
+    "Init == SInit /\\ R_Init\n"
+    "Next == SNext /\\ R_Next\n"
+    "Inv == AuthorizationDefaultsClosed /\\ R_RequirementHolds\n"
+    'ConstInit == wallet = "wallet"\n'
+    "====\n"
+)
+
+
 def test_compose_s_and_r_module_is_byte_stable() -> None:
     """The composed S ∧ R module is byte-for-byte stable and inlines the real spec
     invariant operator — not a hash comment or a SystemSpecAssumptions tautology."""
@@ -989,16 +1141,96 @@ def test_compose_s_and_r_module_refuses_operator_name_collision() -> None:
     assert composed.refusal_kind == "operator_name_collision"
 
 
-def test_compose_s_and_r_module_refuses_spec_with_own_transition_system() -> None:
-    """A reviewed spec that brings its own transition operators (init_op/next_op) is
-    refused: narrowing the spec's transition relation is not yet composable, so the
-    spec's transitions are not silently dropped in favour of the requirement's."""
+def test_compose_s_and_r_product_module_is_byte_stable() -> None:
+    """A reviewed spec that brings its own transition system (init_op/next_op) composes
+    as a synchronous product: S keeps its operator names, R is emitted under R_, and
+    Init/Next conjoin S's and R's transitions. Byte-stable; not a refusal."""
     contribution = build_system_spec_contribution(
-        "spec:sys", _GOLDEN_SPEC, ["SystemDefaultsClosed"], init_op="Init", next_op="Next"
+        "spec:sys", _STATEFUL_SPEC, ["AuthorizationDefaultsClosed"],
+        init_op="SInit", next_op="SNext",
+    )
+    composed = compose_s_and_r_module("Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution])
+
+    assert composed.status == "composed"
+    assert composed.module_text == _GOLDEN_PRODUCT_COMPOSED
+    # The product preserves S's named invariant and the R_-namespaced obligation.
+    assert composed.preserved_invariants == ["AuthorizationDefaultsClosed", "R_RequirementHolds"]
+    assert composed.bound_predicates == ["Pred_authorized"]
+    # S's transition operators are textually present and conjoined, not dropped.
+    assert "Init == SInit /\\ R_Init" in composed.module_text
+    assert "Next == SNext /\\ R_Next" in composed.module_text
+
+
+def test_compose_s_and_r_product_refuses_incomplete_transition_operators() -> None:
+    """A spec that declares only one of init_op/next_op has an ill-formed transition
+    system — refuse rather than compose half a state machine."""
+    contribution = build_system_spec_contribution(
+        "spec:sys", _STATEFUL_SPEC, ["AuthorizationDefaultsClosed"], next_op="SNext"
     )
     composed = compose_s_and_r_module("Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution])
 
     assert composed.status == "refused"
-    assert composed.module_text is None
-    assert composed.refusal_kind == "unsupported_spec_transition_system"
-    assert "spec:sys" in composed.refusal_reason
+    assert composed.refusal_kind == "incomplete_transition_operators"
+
+
+def test_compose_s_and_r_product_refuses_undefined_transition_operator() -> None:
+    """init_op/next_op naming operators the spec body does not define is refused, so a
+    typo'd transition name cannot silently fall back to a vacuous machine."""
+    contribution = build_system_spec_contribution(
+        "spec:sys", _STATEFUL_SPEC, ["AuthorizationDefaultsClosed"],
+        init_op="SInit", next_op="NoSuchNext",
+    )
+    composed = compose_s_and_r_module("Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution])
+
+    assert composed.status == "refused"
+    assert composed.refusal_kind == "undefined_transition_operator"
+
+
+def test_compose_s_and_r_product_refuses_spec_constant() -> None:
+    """A stateful spec that declares its own CONSTANT is refused: the product cannot pin
+    it in ConstInit, so it declines rather than leave it unconstrained."""
+    spec_with_constant = (
+        "---- MODULE Sys ----\n"
+        "EXTENDS Naturals, TLC\n\n"
+        "\\* @type: Str;\n"
+        "CONSTANT threshold\n\n"
+        "\\* @type: Str;\n"
+        "VARIABLE authPhase\n\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_authorized(a) == FALSE\n"
+        'SystemClosed == Pred_authorized("wallet") = FALSE\n'
+        'SInit == authPhase = "init"\n'
+        "SNext == UNCHANGED authPhase\n"
+        "====\n"
+    )
+    contribution = build_system_spec_contribution(
+        "spec:sys", spec_with_constant, ["SystemClosed"], init_op="SInit", next_op="SNext"
+    )
+    composed = compose_s_and_r_module("Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution])
+
+    assert composed.status == "refused"
+    assert composed.refusal_kind == "unsupported_spec_constant"
+
+
+def test_compose_s_and_r_product_refuses_variable_name_collision() -> None:
+    """A stateful spec whose variable shadows R's harness variable (NLRState) is refused,
+    so the product's two state machines cannot be silently merged into one variable."""
+    spec_clash = (
+        "---- MODULE Sys ----\n"
+        "EXTENDS Naturals, TLC\n\n"
+        "\\* @type: Str;\n"
+        "VARIABLE NLRState\n\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_authorized(a) == FALSE\n"
+        'SystemClosed == Pred_authorized("wallet") = FALSE\n'
+        'SInit == NLRState = "init"\n'
+        "SNext == UNCHANGED NLRState\n"
+        "====\n"
+    )
+    contribution = build_system_spec_contribution(
+        "spec:sys", spec_clash, ["SystemClosed"], init_op="SInit", next_op="SNext"
+    )
+    composed = compose_s_and_r_module("Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution])
+
+    assert composed.status == "refused"
+    assert composed.refusal_kind == "variable_name_collision"

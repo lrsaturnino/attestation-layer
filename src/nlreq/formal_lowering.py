@@ -727,10 +727,10 @@ class SystemSpecContribution:
     defined_operators: list[str] = field(default_factory=list)
     defined_predicates: list[str] = field(default_factory=list)
     # When a reviewed spec carries its own state machine (its own Init/Next), the
-    # requirement must narrow that transition relation rather than provide its own.
-    # That composition is not implemented yet, so these are load-bearing: a spec that
-    # declares them is refused (unsupported_spec_transition_system) rather than having
-    # its transitions silently dropped.
+    # composition forms a synchronous product: S and R step together over the union of
+    # their variables (Init == S_init /\ R_Init, Next == S_next /\ R_Next), with R's
+    # operators emitted under an R_ prefix. init_op/next_op name S's transition operators
+    # that the product conjoins — see _compose_synchronous_product.
     init_op: str | None = None
     next_op: str | None = None
 
@@ -741,9 +741,12 @@ class ComposedSandRModule:
 
     A refusal is honest non-evidence — the composition declines rather than
     emitting a module that would prove a tautology. refusal_kind is one of
-    ``unsupported_requirement_shape``, ``unsupported_spec_transition_system``,
-    ``no_system_invariant``, ``operator_name_collision``, ``undefined_predicate``,
-    or ``undefined_invariant`` (listed in the order the composition checks them).
+    ``unsupported_requirement_shape``, ``no_system_invariant``,
+    ``operator_name_collision``, ``undefined_predicate``, or
+    ``undefined_invariant`` (stateless S, Case A); the stateful-S product (Case B)
+    additionally uses ``incomplete_transition_operators``,
+    ``unsupported_spec_constant``, ``variable_name_collision``, and
+    ``undefined_transition_operator``.
     """
 
     status: Literal["composed", "refused"]
@@ -771,8 +774,8 @@ def build_system_spec_contribution(
     Strips the module wrapper and any EXTENDS line (the composed module supplies
     Naturals/TLC) so only operator definitions remain, then records the operator
     and predicate names declared so the caller can bind predicates and detect
-    collisions. init_op/next_op are carried through so the composition can refuse a
-    spec that brings its own transition system (not yet composable).
+    collisions. init_op/next_op are carried through so the synchronous-product
+    composition can conjoin a spec that brings its own transition system.
     """
     body = _strip_spec_operator_body(spec_text)
     defined = parse_operator_definition_names(body)
@@ -796,10 +799,24 @@ def compose_s_and_r_module(
     """Compose the lowered requirement R with reviewed system specs S.
 
     Returns a checker-ready TLA+ module whose state invariant ``Inv`` conjoins
-    the requirement obligation ``RequirementHolds`` with every named system
-    invariant, after substituting S's concrete predicate definitions for R's
-    abstract premise predicates. Refuses (no module) when the composition would
-    be vacuous or ill-formed; the refusal_kind names why.
+    the requirement obligation with every named system invariant, after
+    substituting S's concrete predicate definitions for R's abstract premise
+    predicates. Refuses (no module) when the composition would be vacuous or
+    ill-formed; the refusal_kind names why.
+
+    Two composition shapes, chosen by whether any spec declares its own
+    transition operators (init_op/next_op):
+
+    - Stateless S (Case A): S contributes only predicate interpretations and
+      invariant operators; R supplies the single state machine (``Init``/``Next``)
+      and the obligation operator is ``RequirementHolds``.
+    - Stateful S (Case B): S brings its own ``Init``/``Next`` over its own
+      variables. The composition is a synchronous product — ``Init == S_init /\\
+      R_Init``, ``Next == S_next /\\ R_Next`` over the union of variables — with
+      R's operators emitted under an ``R_`` namespace so S keeps its names. The
+      coupling that makes the product non-vacuous is the shared stateful
+      predicate: S's ``Pred_*`` definitions read S's state, so an S transition
+      can make R's premise fire. See _compose_synchronous_product.
     """
     identifier_constants = parse_lowered_identifier_constants(lowered_content)
     abstract_predicates = _parse_module_pred_constants(lowered_content)
@@ -816,25 +833,23 @@ def compose_s_and_r_module(
             ),
         )
 
+    # When any reviewed spec brings its own transition system (init_op/next_op), the
+    # composition is a synchronous product: S and R step together over the union of their
+    # variables, and the conjoined Inv preserves both S's invariants and R's obligation.
+    # Otherwise S is a stateless set of predicate interpretations + invariants and R
+    # supplies the only state machine (the original Case A path below).
+    if any(c.init_op or c.next_op for c in contributions):
+        return _compose_synchronous_product(
+            module_name=module_name,
+            identifier_constants=identifier_constants,
+            abstract_predicates=abstract_predicates,
+            variable_name=variable_name,
+            logic_body=logic_body,
+            contributions=contributions,
+        )
+
     requirement_operators = set(parse_operator_definition_names(logic_body))
     reserved = requirement_operators | _COMPOSITION_RESERVED_OPERATORS
-
-    spec_with_transitions = [
-        contribution.spec_id
-        for contribution in contributions
-        if contribution.init_op is not None or contribution.next_op is not None
-    ]
-    if spec_with_transitions:
-        return ComposedSandRModule(
-            status="refused",
-            refusal_kind="unsupported_spec_transition_system",
-            refusal_reason=(
-                "reviewed system specs declare their own transition operators "
-                f"(init_op/next_op): {sorted(spec_with_transitions)}; composing the "
-                "requirement as a narrowing of the spec's transition relation is not yet "
-                "implemented, so the spec's transitions are not silently dropped"
-            ),
-        )
 
     invariants: list[str] = []
     for contribution in contributions:
@@ -923,6 +938,271 @@ def compose_s_and_r_module(
         preserved_invariants=["RequirementHolds", *invariants],
         bound_predicates=bound_predicates,
     )
+
+
+# Operators the synchronous product emits itself; an inlined spec must not redefine
+# them (S's own transitions are named by init_op/next_op, e.g. SInit/SNext — never the
+# bare Init/Next the product reserves for the combined transition system).
+_PRODUCT_RESERVED_OPERATORS = frozenset({"Init", "Next", "Inv", "ConstInit"})
+
+
+def _compose_synchronous_product(
+    *,
+    module_name: str,
+    identifier_constants: list[str],
+    abstract_predicates: list[str],
+    variable_name: str,
+    logic_body: str,
+    contributions: list[SystemSpecContribution],
+) -> ComposedSandRModule:
+    """Compose S ∧ R as a synchronous product when S brings its own transition system.
+
+    The composed module steps S and R together: ``Init == <S inits> /\\ R_Init``,
+    ``Next == <S nexts> /\\ R_Next`` over the union of S's variables and R's harness
+    variable, with ``Inv == <S invariants> /\\ R_RequirementHolds``. R's operators are
+    renamed under an ``R_`` prefix so S's operators (named verbatim) cannot shadow them;
+    the shared ``Pred_*`` predicates are NOT renamed — they are the coupling, since S
+    interprets them over S's state, so an S transition can flip R's premise.
+
+    This is a product (R running parallel to S), NOT the plan's literal "R narrows S's
+    Next" — that would require re-lowering R over S's own state vocabulary (a Pillar A
+    concern). Refuses, rather than emitting a meaningless module, when: a spec declares
+    only one of init_op/next_op; a named transition operator is undefined; a spec brings
+    its own CONSTANTS (the product cannot pin them in ConstInit); an S variable collides
+    with R's variable or another spec's; an S operator shadows a reserved/projected name;
+    a premise predicate is uninterpreted; or no invariant is declared.
+    """
+    incomplete = [
+        c.spec_id
+        for c in contributions
+        if (c.init_op or c.next_op) and not (c.init_op and c.next_op)
+    ]
+    if incomplete:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="incomplete_transition_operators",
+            refusal_reason=(
+                "reviewed system specs declare only one of init_op/next_op, so their "
+                f"transition system is ill-formed: {sorted(incomplete)}"
+            ),
+        )
+
+    invariants: list[str] = []
+    for contribution in contributions:
+        invariants.extend(contribution.invariants)
+    if not invariants:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="no_system_invariant",
+            refusal_reason=(
+                "no reviewed system spec declares an invariant to preserve; an S that "
+                "asserts nothing cannot make S ∧ R non-trivial"
+            ),
+        )
+
+    requirement_operators = parse_operator_definition_names(logic_body)
+    projected_operators = {f"R_{name}" for name in requirement_operators}
+    prefixed_logic_body = _prefix_requirement_operators(logic_body, "R_")
+
+    system_blocks: list[str] = []
+    system_variables: list[tuple[str, str | None]] = []
+    seen_variables: set[str] = set()
+    owner_of: dict[str, str] = {}
+    collisions: set[str] = set()
+    defined_predicates: set[str] = set()
+    init_ops: list[str] = []
+    next_ops: list[str] = []
+
+    for contribution in contributions:
+        constants, variables, body = _split_declarations(contribution.operator_body)
+        if constants:
+            return ComposedSandRModule(
+                status="refused",
+                refusal_kind="unsupported_spec_constant",
+                refusal_reason=(
+                    f"reviewed system spec {contribution.spec_id!r} declares CONSTANTS "
+                    f"{[name for name, _ in constants]}; the product cannot pin them in "
+                    "ConstInit, so it refuses rather than leaving them unconstrained"
+                ),
+            )
+        for var_name, var_type in variables:
+            if var_name == variable_name or var_name in seen_variables:
+                return ComposedSandRModule(
+                    status="refused",
+                    refusal_kind="variable_name_collision",
+                    refusal_reason=(
+                        f"system spec variable {var_name!r} collides with the "
+                        "requirement's variable or another spec's variable"
+                    ),
+                )
+            seen_variables.add(var_name)
+            system_variables.append((var_name, var_type))
+        system_blocks.append(body)
+        defined_predicates.update(contribution.defined_predicates)
+        for operator in contribution.defined_operators:
+            if (
+                operator in _PRODUCT_RESERVED_OPERATORS
+                or operator in projected_operators
+                or operator in owner_of
+            ):
+                collisions.add(operator)
+            owner_of[operator] = contribution.spec_id
+        if contribution.init_op:
+            init_ops.append(contribution.init_op)
+        if contribution.next_op:
+            next_ops.append(contribution.next_op)
+
+    if collisions:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="operator_name_collision",
+            refusal_reason=(
+                "system spec operators collide with the requirement projection or the "
+                f"product's reserved operators: {sorted(collisions)}"
+            ),
+        )
+
+    missing_transition = [op for op in (*init_ops, *next_ops) if op not in owner_of]
+    if missing_transition:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="undefined_transition_operator",
+            refusal_reason=(
+                "system spec metadata names transition operators the spec body does not "
+                f"define: {sorted(set(missing_transition))}"
+            ),
+        )
+
+    missing_predicates = [
+        predicate for predicate in abstract_predicates if predicate not in defined_predicates
+    ]
+    if missing_predicates:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="undefined_predicate",
+            refusal_reason=(
+                "reviewed system specs do not interpret premise predicates "
+                f"{sorted(missing_predicates)}; cannot ground S ∧ R"
+            ),
+        )
+
+    missing_invariants = [name for name in invariants if name not in owner_of]
+    if missing_invariants:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="undefined_invariant",
+            refusal_reason=(
+                "system spec metadata names invariants that the spec body does not "
+                f"define: {sorted(missing_invariants)}"
+            ),
+        )
+
+    constant_block = _render_constant_block(identifier_constants)
+    system_variable_blocks = _render_system_variable_blocks(system_variables)
+    requirement_variable_block = _render_variable_block(variable_name)
+    system_block = "\n\n".join(block for block in system_blocks if block).strip()
+    init_line = "Init == " + " /\\ ".join([*init_ops, "R_Init"])
+    next_line = "Next == " + " /\\ ".join([*next_ops, "R_Next"])
+    inv_line = "Inv == " + " /\\ ".join([*invariants, "R_RequirementHolds"])
+    const_init = _render_const_init(identifier_constants)
+    bound_predicates = sorted(set(abstract_predicates) & defined_predicates)
+
+    module_text = (
+        f"---- MODULE {module_name} ----\n"
+        f"EXTENDS Naturals, TLC\n\n"
+        f"{constant_block}"
+        f"{system_variable_blocks}"
+        f"{requirement_variable_block}"
+        f"\\* ===== Reviewed system spec S (inlined; operators keep their names) =====\n"
+        f"{system_block}\n\n"
+        f"\\* ===== Requirement projection R (under R_ namespace) =====\n"
+        f"{prefixed_logic_body}\n\n"
+        f"\\* ===== Synchronous product S /\\ R: S and R step together over the union of\n"
+        f"\\* their variables; R's obligation and S's invariants are jointly preserved\n"
+        f"\\* (R runs parallel to S, coupled through the shared stateful predicates — this\n"
+        f"\\* is a product, not a narrowing of S's Next) =====\n"
+        f"{init_line}\n"
+        f"{next_line}\n"
+        f"{inv_line}\n"
+        f"{const_init}\n"
+        f"====\n"
+    )
+    return ComposedSandRModule(
+        status="composed",
+        module_text=module_text,
+        preserved_invariants=[*invariants, "R_RequirementHolds"],
+        bound_predicates=bound_predicates,
+    )
+
+
+def _prefix_requirement_operators(logic_body: str, prefix: str) -> str:
+    """Rename every requirement operator definition (and its references) under ``prefix``.
+
+    Only operator-definition names (``Name ==``) are renamed — the shared ``Pred_*``
+    predicates (referenced, not defined, in R's body), the state variable, and identifier
+    constants are left intact so S's interpretation of the predicates still binds. A
+    single-pass alternation (longest name first) avoids double-prefixing; ``\\b`` plus the
+    ``_`` word character means a prefixed name (``R_Init``) is never re-matched as ``Init``.
+    """
+    import re
+
+    names = sorted(set(parse_operator_definition_names(logic_body)), key=len, reverse=True)
+    if not names:
+        return logic_body
+    pattern = re.compile(r"\b(" + "|".join(re.escape(name) for name in names) + r")\b")
+    return pattern.sub(lambda match: prefix + match.group(1), logic_body)
+
+
+def _split_declarations(
+    operator_body: str,
+) -> tuple[list[tuple[str, str | None]], list[tuple[str, str | None]], str]:
+    """Separate CONSTANT/VARIABLE declarations from a spec's operator definitions.
+
+    Returns ``(constants, variables, body_without_declarations)`` where constants and
+    variables are ``(name, type_annotation_or_None)``. An Apalache ``\\* @type: …;``
+    comment immediately preceding a declaration is consumed with it (and re-emitted by the
+    composition); a ``@type`` comment preceding an operator *definition* (e.g. a predicate)
+    is kept in the body. The composition re-emits declarations at the top so a predicate
+    that reads a spec variable is not declared after its use.
+    """
+    import re
+
+    lines = operator_body.splitlines()
+    constants: list[tuple[str, str | None]] = []
+    variables: list[tuple[str, str | None]] = []
+    kept: list[str] = []
+    index = 0
+    total = len(lines)
+    decl_re = re.compile(r"\s*(CONSTANT|VARIABLE)\s+(\w+)")
+    type_re = re.compile(r"\s*\\\*\s*@type:\s*(.+?);\s*$")
+    while index < total:
+        line = lines[index]
+        type_match = type_re.match(line)
+        next_line = lines[index + 1] if index + 1 < total else ""
+        paired_decl = decl_re.match(next_line) if type_match else None
+        if type_match and paired_decl:
+            entry = (paired_decl.group(2), type_match.group(1).strip())
+            (constants if paired_decl.group(1) == "CONSTANT" else variables).append(entry)
+            index += 2
+            continue
+        bare_decl = decl_re.match(line)
+        if bare_decl:
+            entry = (bare_decl.group(2), None)
+            (constants if bare_decl.group(1) == "CONSTANT" else variables).append(entry)
+            index += 1
+            continue
+        kept.append(line)
+        index += 1
+    return constants, variables, "\n".join(kept).strip()
+
+
+def _render_system_variable_blocks(variables: list[tuple[str, str | None]]) -> str:
+    """Render each system spec variable as its own Apalache-typed VARIABLE block."""
+    blocks = []
+    for name, type_annotation in variables:
+        annotation = type_annotation or "Str"
+        blocks.append(f"VARIABLE\n  \\* @type: {annotation};\n  {name}\n\n")
+    return "".join(blocks)
 
 
 def parse_lowered_identifier_constants(module_text: str) -> list[str]:

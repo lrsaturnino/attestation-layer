@@ -26,10 +26,9 @@ class SystemSpecEntry(BaseModel):
     # Operator metadata the S∧R composition reads from the reviewed spec S. invariants
     # names the spec's safety operators the composed module must preserve; the composition
     # refuses (no vacuous pass) when a relevant spec declares none. init_op/next_op name the
-    # spec's own transition operators when S carries its own state machine — composing the
-    # requirement as a narrowing of that relation is not yet implemented, so a spec that
-    # declares them is currently refused (unsupported_spec_transition_system) rather than
-    # having its transitions silently dropped.
+    # spec's own transition operators when S carries its own state machine; the composition
+    # consumes them to build a synchronous product (Init == S_init /\ R_Init, Next == S_next
+    # /\ R_Next) so S and R step together — see formal_lowering._compose_synchronous_product.
     init_op: str | None = None
     next_op: str | None = None
     invariants: list[str] = Field(default_factory=list)
