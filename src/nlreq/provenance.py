@@ -4,7 +4,7 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .jsonutil import sha256_text
+from .jsonutil import sha256_json, sha256_text
 from .models import RequirementIRV2, SemanticNode, SourceSpan
 from .translator import LoweredFormalArtifact
 from .translator_agreement import TranslationAgreementReport
@@ -24,6 +24,10 @@ class ProvenanceNode(BaseModel):
     label: str
     source_span: SourceSpan | None = None
     artifact_hash: str | None = None
+    # Optional content-addressed detail for the node.  For an audit_verdict node this
+    # carries the human-readable summary (model_id, prompt version, coverage, invented
+    # premise count) while artifact_hash content-addresses the full AuditVerdict.
+    metadata: dict[str, str] = Field(default_factory=dict)
 
 
 class ProvenanceEdge(BaseModel):
@@ -138,7 +142,26 @@ def build_provenance_graph(
     if audit_verdict is not None:
         audit_node_id = "audit:verdict"
         audit_label = f"audit:{audit_verdict.verdict}"
-        nodes.append(ProvenanceNode(node_id=audit_node_id, kind="audit_verdict", label=audit_label))
+        # Content-address the full verdict via artifact_hash so the node anchors the exact
+        # audited object, and carry a human-readable summary in metadata rather than only
+        # the passed/failed label.
+        audit_metadata = {
+            "audit_verdict": audit_verdict.verdict,
+            "covers_all_clauses": str(audit_verdict.covers_all_clauses).lower(),
+            "invented_premises_count": str(len(audit_verdict.invented_premises)),
+            "audit_prompt_version": audit_verdict.audit_prompt_version,
+        }
+        if audit_verdict.model_id is not None:
+            audit_metadata["model_id"] = audit_verdict.model_id
+        nodes.append(
+            ProvenanceNode(
+                node_id=audit_node_id,
+                kind="audit_verdict",
+                label=audit_label,
+                artifact_hash=sha256_json(audit_verdict),
+                metadata=audit_metadata,
+            )
+        )
         # Connect the audit verdict to the formal fragment when lowered, else to IR root.
         audit_anchor = "formal:lowered" if lowered is not None else "ir:rule.root"
         edges.append(ProvenanceEdge(from_node=audit_anchor, to_node=audit_node_id, relation="audited_by"))

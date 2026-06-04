@@ -63,6 +63,13 @@
           "title": "Label",
           "type": "string"
         },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
         "node_id": {
           "title": "Node Id",
           "type": "string"

@@ -682,16 +682,33 @@ def test_build_provenance_graph_with_audit_verdict_adds_audit_node() -> None:
     by a second-model audit and what the verdict was.
     """
     from nlreq.audit_client import AuditVerdict
+    from nlreq.jsonutil import sha256_json
 
     controlled = DSL_V3_CASES[1][1]
     ir = DslV3Parser().parse_ir(controlled, requirement_id="REQ-PROV-AUDIT", title="Audit Prov")
-    verdict = AuditVerdict(covers_all_clauses=True, invented_premises=[], verdict="passed")
+    verdict = AuditVerdict(
+        covers_all_clauses=True,
+        invented_premises=[],
+        verdict="passed",
+        model_id="audit-model-0.1",
+    )
 
     graph = build_provenance_graph(ir, audit_verdict=verdict)
 
     audit_nodes = [n for n in graph.nodes if n.kind == "audit_verdict"]
     assert len(audit_nodes) == 1, f"Expected 1 audit_verdict node, got {len(audit_nodes)}"
-    assert "passed" in audit_nodes[0].label
+    node = audit_nodes[0]
+    assert "passed" in node.label
+    # The node content-addresses the full verdict, not just the passed/failed label.
+    assert node.artifact_hash == sha256_json(verdict), (
+        "audit node artifact_hash must be the content hash of the full AuditVerdict"
+    )
+    # And it preserves the rich audit detail in metadata.
+    assert node.metadata["audit_verdict"] == "passed"
+    assert node.metadata["covers_all_clauses"] == "true"
+    assert node.metadata["invented_premises_count"] == "0"
+    assert node.metadata["model_id"] == "audit-model-0.1"
+    assert node.metadata["audit_prompt_version"] == verdict.audit_prompt_version
 
     audited_edges = [e for e in graph.edges if e.relation == "audited_by"]
     assert len(audited_edges) == 1
@@ -719,4 +736,11 @@ def test_build_provenance_graph_audit_verdict_anchors_to_formal_fragment_when_lo
 
     audit_nodes = [n for n in graph.nodes if n.kind == "audit_verdict"]
     assert len(audit_nodes) == 1
-    assert "failed" in audit_nodes[0].label
+    node = audit_nodes[0]
+    assert "failed" in node.label
+    # A failing verdict preserves the invented-premise count and coverage status, and
+    # omits model_id when the verdict carries none (recorded fixtures have model_id=None).
+    assert node.metadata["audit_verdict"] == "failed"
+    assert node.metadata["covers_all_clauses"] == "false"
+    assert node.metadata["invented_premises_count"] == "1"
+    assert "model_id" not in node.metadata
