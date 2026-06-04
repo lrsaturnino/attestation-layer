@@ -8,7 +8,7 @@ from .dsl_v3 import DslV3ParseError, DslV3Parser
 from .formal_claim import FormalClaimLoweringReport, build_formal_claim
 from .jsonutil import sha256_json, sha256_text
 from .models import RequirementIRV2, SemanticNode, SourceSpan
-from .translator_agreement import TranslationDisagreement
+from .translator_agreement import TranslationDisagreement, spans_for_path
 
 if TYPE_CHECKING:
     from .decomposition_client import DecompositionClient, DecompositionResult
@@ -478,10 +478,13 @@ def _check_decomposition_ensemble(
     )
 
     if agreement.status == "disagreed":
+        remapped = _remap_disagreement_spans_to_original(
+            agreement.disagreements, requirement_ir
+        )
         return refuse_ambiguous_ensemble(
             requirement_id=requirement_id,
             translation_id=translation_id,
-            disagreements=agreement.disagreements,
+            disagreements=remapped,
             prior_stages=prior_stages,
             input_hashes=full_input_hashes,
             semantic_tree_hash=semantic_hash,
@@ -516,6 +519,34 @@ def _check_decomposition_ensemble(
         )
 
     return None
+
+
+def _remap_disagreement_spans_to_original(
+    disagreements: list[TranslationDisagreement],
+    original_ir: RequirementIRV2,
+) -> list[TranslationDisagreement]:
+    """Remap disagreement source_spans to the original parsed requirement_ir where possible.
+
+    Candidate IRs produced by LLM re-expression carry spans referencing model-output
+    positions, not the original controlled text.  This function resolves each
+    disagreement path against the original IR.  When the path resolves, the original
+    spans replace the candidate spans.  When it does not (the candidate IR diverged
+    structurally and the path has no counterpart), the candidate spans are kept and an
+    explicit note is appended to the reason field so callers know the fallback was taken.
+    """
+    remapped: list[TranslationDisagreement] = []
+    for d in disagreements:
+        original_spans = spans_for_path(original_ir.semantic_ir, d.path)
+        if original_spans:
+            remapped.append(d.model_copy(update={"source_spans": original_spans}))
+        else:
+            fallback_reason = (
+                d.reason
+                + f" (span-fallback: no original-text counterpart at path {d.path!r};"
+                " spans from candidate IR)"
+            )
+            remapped.append(d.model_copy(update={"reason": fallback_reason}))
+    return remapped
 
 
 def _parse_repair_question(exc: DslV3ParseError) -> str:

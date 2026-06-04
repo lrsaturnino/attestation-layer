@@ -269,9 +269,19 @@ def _fragment(value: Any) -> dict[str, Any] | None:
     return {"value": value}
 
 
-def _spans_for_path(root: SemanticNode, path: str) -> list[SourceSpan]:
+def spans_for_path(root: SemanticNode, path: str) -> list[SourceSpan]:
+    """Return source spans from `root` for the given structural dot-path.
+
+    Returns spans from the resolved node if it exists, or an empty list if the
+    path does not resolve (e.g. the candidate IR diverged structurally from the
+    original and the path has no counterpart node).
+    """
     node = _node_for_path(root, path)
     return node.source_spans if node is not None else []
+
+
+# Private alias kept for internal callers.
+_spans_for_path = spans_for_path
 
 
 def _node_for_path(root: SemanticNode, path: str) -> SemanticNode | None:

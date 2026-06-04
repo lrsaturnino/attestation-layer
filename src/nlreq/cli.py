@@ -567,6 +567,19 @@ def main(argv: list[str] | None = None) -> int:
     semantic_translate_cmd.add_argument("--title", required=True)
     semantic_translate_cmd.add_argument("--translation-id")
     semantic_translate_cmd.add_argument("--out", type=Path)
+    semantic_translate_cmd.add_argument(
+        "--ensemble-client",
+        action="append",
+        dest="ensemble_clients",
+        default=[],
+        metavar="CLIENT",
+        help=(
+            "PA-5 decomposition ensemble client. Repeat for multiple clients (≥2 triggers check). "
+            "Formats: 'live' (AnthropicDecompositionClient with default model), "
+            "'live:<model-id>' (AnthropicDecompositionClient with given model), "
+            "'recorded:<path>' (RecordedDecompositionClient replaying a RequirementIRV2 JSON fixture)."
+        ),
+    )
 
     semantic_agreement_cmd = subcommands.add_parser(
         "semantic-agreement", help="Compare formal claim candidates with semantic equivalence profiles."
@@ -2156,11 +2169,39 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "semantic-translate":
             from .jsonutil import write_json
 
+            decomposition_clients = None
+            if args.ensemble_clients:
+                from .decomposition_client import (
+                    AnthropicDecompositionClient,
+                    RecordedDecompositionClient,
+                )
+                from .models import RequirementIRV2
+
+                decomposition_clients = []
+                for spec in args.ensemble_clients:
+                    if spec == "live":
+                        decomposition_clients.append(AnthropicDecompositionClient())
+                    elif spec.startswith("live:"):
+                        model_id = spec.removeprefix("live:")
+                        decomposition_clients.append(AnthropicDecompositionClient(model=model_id))
+                    elif spec.startswith("recorded:"):
+                        fixture_path = Path(spec.removeprefix("recorded:"))
+                        fixture_ir = RequirementIRV2.model_validate_json(fixture_path.read_text())
+                        decomposition_clients.append(RecordedDecompositionClient(fixture=fixture_ir))
+                    else:
+                        print(
+                            f"nlreq: unknown --ensemble-client spec {spec!r}. "
+                            "Use 'live', 'live:<model-id>', or 'recorded:<fixture-path>'.",
+                            file=sys.stderr,
+                        )
+                        return 2
+
             report = translate_controlled_requirement_to_formal_claim(
                 controlled_text=args.file.read_text(),
                 requirement_id=args.requirement_id,
                 title=args.title,
                 translation_id=args.translation_id,
+                decomposition_clients=decomposition_clients,
             )
             if args.out:
                 write_json(args.out, report)

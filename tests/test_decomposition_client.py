@@ -3,8 +3,9 @@ translate_controlled_requirement_to_formal_claim.
 """
 from __future__ import annotations
 
+import types
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -15,6 +16,7 @@ from nlreq.decomposition_client import (
     RecordedDecompositionClient,
 )
 from nlreq.dsl_v3 import DslV3Parser
+from nlreq.jsonutil import sha256_text
 from nlreq.models import Approval, RequirementIRV2
 from nlreq.semantic_translation import translate_controlled_requirement_to_formal_claim
 
@@ -356,3 +358,154 @@ def test_single_ensemble_client_skips_check() -> None:
     assert report.refusal_code != "NLR-REFUSED-AMBIGUOUS", (
         "Single-client list must not produce NLR-REFUSED-AMBIGUOUS"
     )
+
+
+# ---------------------------------------------------------------------------
+# AnthropicDecompositionClient — mocked-SDK success path (no live call)
+# ---------------------------------------------------------------------------
+
+# Parseable DSL v3 text the fake SDK will return.
+_PARSEABLE_SDK_RESPONSE = (
+    "requirement authorization_precondition: "
+    "scope operation_request when actor is not authorized "
+    "then operation must reject before state_change."
+)
+
+
+def _make_fake_anthropic_module(response_text: str):
+    """Build a fake 'anthropic' module and return it with the underlying mock SDK client.
+
+    The returned sdk_client mock records calls to .messages.create() so tests can
+    inspect the prompt that was sent.
+    """
+    module = types.ModuleType("anthropic")
+    message = MagicMock()
+    message.content = [MagicMock()]
+    message.content[0].text = response_text
+    sdk_client = MagicMock()
+    sdk_client.messages.create.return_value = message
+    module.Anthropic = MagicMock(return_value=sdk_client)
+    return module, sdk_client
+
+
+def test_anthropic_decomposition_client_success_returns_ir() -> None:
+    """AnthropicDecompositionClient success path returns a DecompositionResult with a valid IR."""
+    fake_module, _ = _make_fake_anthropic_module(_PARSEABLE_SDK_RESPONSE)
+    client = AnthropicDecompositionClient()
+
+    with patch.dict("sys.modules", {"anthropic": fake_module}):
+        with patch("nlreq.llm_client.load_api_key", return_value="test-key"):
+            result = client.decompose_controlled_to_ir(_CONTROLLED_TEXT, _REQUIREMENT_ID, _TITLE)
+
+    assert isinstance(result, DecompositionResult)
+    assert isinstance(result.requirement, RequirementIRV2)
+    assert result.requirement.requirement_id == _REQUIREMENT_ID
+
+
+def test_anthropic_decomposition_client_success_provenance_metadata() -> None:
+    """Success path records non-empty model_id, prompt_hash, and correct source_text_hash."""
+    fake_module, _ = _make_fake_anthropic_module(_PARSEABLE_SDK_RESPONSE)
+    client = AnthropicDecompositionClient()
+
+    with patch.dict("sys.modules", {"anthropic": fake_module}):
+        with patch("nlreq.llm_client.load_api_key", return_value="test-key"):
+            result = client.decompose_controlled_to_ir(_CONTROLLED_TEXT, _REQUIREMENT_ID, _TITLE)
+
+    assert result.model_id is not None and result.model_id != "", "model_id must be populated"
+    assert result.prompt_hash is not None and result.prompt_hash != "", "prompt_hash must be populated"
+    assert result.source_text_hash == sha256_text(_CONTROLLED_TEXT), (
+        "source_text_hash must be sha256 of the exact input controlled_text"
+    )
+
+
+def test_anthropic_decomposition_client_success_always_unaudited() -> None:
+    """Success path always returns is_audited=False and approval=None (PA-6 not yet active)."""
+    fake_module, _ = _make_fake_anthropic_module(_PARSEABLE_SDK_RESPONSE)
+    client = AnthropicDecompositionClient()
+
+    with patch.dict("sys.modules", {"anthropic": fake_module}):
+        with patch("nlreq.llm_client.load_api_key", return_value="test-key"):
+            result = client.decompose_controlled_to_ir(_CONTROLLED_TEXT, _REQUIREMENT_ID, _TITLE)
+
+    assert result.is_audited is False, (
+        "AnthropicDecompositionClient must always return is_audited=False until PA-6 audit runs"
+    )
+    assert result.approval is None, (
+        "AnthropicDecompositionClient must always return approval=None until human approval"
+    )
+
+
+def test_anthropic_decomposition_client_success_prompt_contains_inputs() -> None:
+    """Success path embeds requirement_id, title, and controlled_text in the SDK prompt."""
+    fake_module, sdk_client = _make_fake_anthropic_module(_PARSEABLE_SDK_RESPONSE)
+    client = AnthropicDecompositionClient()
+
+    with patch.dict("sys.modules", {"anthropic": fake_module}):
+        with patch("nlreq.llm_client.load_api_key", return_value="test-key"):
+            client.decompose_controlled_to_ir(_CONTROLLED_TEXT, _REQUIREMENT_ID, _TITLE)
+
+    call_args = sdk_client.messages.create.call_args
+    assert call_args is not None, "sdk_client.messages.create must have been called"
+    prompt_text = call_args.kwargs["messages"][0]["content"]
+    assert _REQUIREMENT_ID in prompt_text, "prompt must include requirement_id"
+    assert _TITLE in prompt_text, "prompt must include title"
+    assert _CONTROLLED_TEXT.strip() in prompt_text, "prompt must include controlled_text"
+
+
+# ---------------------------------------------------------------------------
+# Source span remapping: disagreement spans resolve to the original IR
+# ---------------------------------------------------------------------------
+
+
+def test_refused_ambiguous_source_spans_from_original_ir() -> None:
+    """NLR-REFUSED-AMBIGUOUS source_spans come from the original parsed IR, not candidate IR.
+
+    When two approved+audited candidates disagree, the disagreement's source_spans
+    must reference nodes from the original requirement_ir (the one parsed from the
+    controlled_text supplied to translate_controlled_requirement_to_formal_claim),
+    not positions in a model-produced re-expression.  We verify this by checking
+    that the spans in the ambiguity findings are a subset of those present in the
+    original requirement_ir.
+    """
+    approval = _approved_approval()
+    ir_a = _parse_ir()
+    ir_b = _parse_ir_variant()
+
+    # Collect all source spans in the original IR.
+    def _collect_spans(ir: RequirementIRV2) -> set[tuple]:
+        spans = set()
+        def _walk(node):
+            for sp in node.source_spans:
+                spans.add((sp.document, sp.start_char, sp.end_char))
+            for child in (
+                [node.premise, node.obligation, node.action, node.must]
+                + list(node.scope)
+                + list(node.children)
+            ):
+                if child is not None:
+                    _walk(child)
+        _walk(ir.semantic_ir)
+        return spans
+
+    original_ir = DslV3Parser().parse_ir(_CONTROLLED_TEXT, requirement_id=_REQUIREMENT_ID, title=_TITLE)
+    original_spans = _collect_spans(original_ir)
+
+    clients = [
+        RecordedDecompositionClient(fixture=ir_a, approval=approval, is_audited=True),
+        RecordedDecompositionClient(fixture=ir_b, approval=approval, is_audited=True),
+    ]
+    report = translate_controlled_requirement_to_formal_claim(
+        controlled_text=_CONTROLLED_TEXT,
+        requirement_id=_REQUIREMENT_ID,
+        title=_TITLE,
+        decomposition_clients=clients,
+    )
+
+    assert report.refusal_code == "NLR-REFUSED-AMBIGUOUS"
+    for finding in report.ambiguity_findings:
+        for span in finding.source_spans:
+            span_tuple = (span.document, span.start_char, span.end_char)
+            assert span_tuple in original_spans, (
+                f"span {span_tuple} in ambiguity finding was not found in the original IR spans; "
+                "spans must be remapped to the original controlled text"
+            )
