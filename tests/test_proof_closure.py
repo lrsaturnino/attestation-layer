@@ -1,6 +1,9 @@
 import json
 from pathlib import Path
 
+import json
+from pathlib import Path
+
 from nlreq.cli import main
 from nlreq.coverage_alignment import build_spec_coverage_report, build_trace_alignment_report
 from nlreq.dsl_v2 import DslV2Parser
@@ -9,9 +12,12 @@ from nlreq.models import BackendResult, EvidenceLevel, NormalizedTraceArtifact
 from nlreq.proof_closure import (
     EvidenceProducer,
     EvidenceProducerMapping,
+    ProofDispatchPlan,
+    ProofPremiseRoute,
     backend_results_from_system_consistency,
     build_proof_dispatch_plan,
     build_proof_object,
+    default_evidence_producer_mapping,
     evaluate_closure_gate,
 )
 from nlreq.system_checker import check_system_consistency
@@ -250,6 +256,92 @@ def _registry(tmp_path: Path) -> SystemSpecRegistry:
             ],
         }
     )
+
+
+def test_fragment_binding_result_with_covered_ids_does_not_discharge_other_routes() -> None:
+    """A BackendResult that declares covered_fragment_ids must only discharge matching routes.
+
+    Without this guard, a single backend success discharges every route on that backend,
+    even if the result only covers one FormalClaim fragment.
+    """
+    ir = _ir()
+    route_a = ProofPremiseRoute(
+        premise_id="fragment.A",
+        node_id="n1",
+        node_kind="predicate",
+        role="premise",
+        backend_id="core_smt",
+        required_evidence=EvidenceLevel.SMT_CHECKED,
+        reason="route A",
+    )
+    route_b = ProofPremiseRoute(
+        premise_id="fragment.B",
+        node_id="n2",
+        node_kind="comparison",
+        role="obligation",
+        backend_id="core_smt",
+        required_evidence=EvidenceLevel.SMT_CHECKED,
+        reason="route B",
+    )
+    dispatch = ProofDispatchPlan(policy_id="test-fragment-binding", routes=[route_a, route_b])
+
+    # Result covers only fragment.A — fragment.B must remain open
+    result_covers_a_only = BackendResult(
+        backend="core_smt",
+        status="valid",
+        evidence_level=EvidenceLevel.SMT_CHECKED,
+        details={"covered_fragment_ids": ["fragment.A"]},
+    )
+    proof = build_proof_object(
+        requirement=ir,
+        backend_results=[result_covers_a_only],
+        dispatch=dispatch,
+    )
+
+    premise_by_id = {p.premise_id: p for p in proof.premises}
+    assert premise_by_id["fragment.A"].status == "discharged"
+    assert premise_by_id["fragment.B"].status == "open"
+
+
+def test_fragment_binding_result_without_covered_ids_discharges_all_backend_routes() -> None:
+    """A BackendResult without covered_fragment_ids uses backward-compatible backend-only matching."""
+    ir = _ir()
+    route_a = ProofPremiseRoute(
+        premise_id="fragment.A",
+        node_id="n1",
+        node_kind="predicate",
+        role="premise",
+        backend_id="core_smt",
+        required_evidence=EvidenceLevel.SMT_CHECKED,
+        reason="route A",
+    )
+    route_b = ProofPremiseRoute(
+        premise_id="fragment.B",
+        node_id="n2",
+        node_kind="comparison",
+        role="obligation",
+        backend_id="core_smt",
+        required_evidence=EvidenceLevel.SMT_CHECKED,
+        reason="route B",
+    )
+    dispatch = ProofDispatchPlan(policy_id="test-no-covered-ids", routes=[route_a, route_b])
+
+    # No covered_fragment_ids — both routes match by backend
+    result_no_fragment_ids = BackendResult(
+        backend="core_smt",
+        status="valid",
+        evidence_level=EvidenceLevel.SMT_CHECKED,
+        details={},
+    )
+    proof = build_proof_object(
+        requirement=ir,
+        backend_results=[result_no_fragment_ids],
+        dispatch=dispatch,
+    )
+
+    premise_by_id = {p.premise_id: p for p in proof.premises}
+    assert premise_by_id["fragment.A"].status == "discharged"
+    assert premise_by_id["fragment.B"].status == "discharged"
 
 
 def _trace(trace_id: str, actions: list[str]) -> dict[str, object]:

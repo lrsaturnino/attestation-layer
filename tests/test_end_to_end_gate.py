@@ -3,12 +3,15 @@ import sys
 from pathlib import Path
 
 from nlreq.cli import main
-from nlreq.end_to_end_gate import run_end_to_end_requirement_gate
+from nlreq.dsl_v3 import DslV3Parser
+from nlreq.end_to_end_gate import build_proof_with_formal_claim_dispatch, run_end_to_end_requirement_gate
 from nlreq.formal_backend import FormalBackendExecution
 from nlreq.jsonutil import read_json
 from nlreq.python_source_adapter import PythonSourceLanguageAdapter
 from nlreq.source_adapter import SourceManifest
 from nlreq.system_spec import SystemSpecRegistry
+
+FIXTURES = Path(__file__).parent / "fixtures" / "requirements"
 
 
 DSL = (
@@ -51,6 +54,65 @@ def test_end_to_end_gate_accepts_closed_requirement(tmp_path: Path) -> None:
         "closure_gate",
     }
     assert all(Path(artifact.path).is_file() for artifact in report.artifacts)
+
+
+def test_build_proof_with_formal_claim_dispatch_uses_fragment_ids_for_classed_ir() -> None:
+    """build_proof_with_formal_claim_dispatch must carry FormalClaim fragment IDs into the ProofObject.
+
+    This tests the production entry point — not a manually-constructed dispatch plan — so the
+    assertion that ProofObject.premises contain formal fragment IDs is not test-only wiring.
+    With no backend results all premises are open; the test only verifies the IDs are present.
+    """
+    ir = DslV3Parser().parse_ir(
+        FIXTURES.joinpath("authorization_precondition_v3.nlreq").read_text(),
+        requirement_id="AUTH-FC-GATE",
+        title="Authorization precondition (gate test)",
+    )
+
+    proof, formal_claim_report = build_proof_with_formal_claim_dispatch(
+        requirement=ir,
+        backend_results=[],
+    )
+
+    assert formal_claim_report.result == "lowered"
+    assert formal_claim_report.formal_claim is not None
+    premise_ids = {p.premise_id for p in proof.premises}
+    for fragment in [*formal_claim_report.formal_claim.premises, *formal_claim_report.formal_claim.obligations]:
+        assert fragment.fragment_id in premise_ids, (
+            f"fragment {fragment.fragment_id} ({fragment.kind}) missing from ProofObject.premises"
+        )
+    # All premises open — no backend results were supplied
+    assert all(p.status == "open" for p in proof.premises)
+
+
+def test_end_to_end_gate_records_formal_claim_artifact(tmp_path: Path) -> None:
+    """FormalClaim artifact must be recorded by the gate regardless of claim class support.
+
+    DSL-v2 text without a supported requirement_class produces a 'refused' formal claim;
+    the artifact is still recorded so downstream tooling can inspect why dispatch fell back
+    to the default system-consistency plan.
+    """
+    manifest, registry = _project(tmp_path)
+
+    report = run_end_to_end_requirement_gate(
+        controlled_text=DSL,
+        requirement_id="REQ-GATE-FC-001",
+        title="Formal claim artifact test",
+        source_adapter=PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["finalize_redemption"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-artifacts",
+        execution=_execution(tmp_path),
+    )
+
+    assert "formal_claim_artifact" in {artifact.name for artifact in report.artifacts}
+    assert "formal_claim" in report.statuses
+    # DSL-v2 text has no requirement_class annotation — formal claim is refused,
+    # gate falls back to default dispatch and remains accepted
+    assert report.statuses["formal_claim"] == "refused"
+    assert report.decision == "accepted"
 
 
 def test_end_to_end_gate_refuses_trace_replay_violation(tmp_path: Path) -> None:

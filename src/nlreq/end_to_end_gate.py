@@ -9,11 +9,21 @@ from .coverage_alignment import build_spec_coverage_report, build_trace_alignmen
 from .delta_extractor import build_delta_report
 from .dsl_v2 import DslV2Parser
 from .formal_backend import FormalBackendBudget, FormalBackendExecution
+from .formal_claim import (
+    FormalClaimLoweringReport,
+    build_formal_claim,
+    build_proof_dispatch_plan_from_formal_claim,
+)
 from .impact import analyze_source_impact
 from .source_impact import analyze_source_impact_with_context
 from .jsonutil import sha256_json, write_json
-from .models import SourceSpan
+from .models import BackendResult, RequirementIRV2, SourceSpan
 from .proof_closure import (
+    BackendAgreementReport,
+    EvidenceProducerMapping,
+    ProofObject,
+    SpecCoverageReport,
+    TraceAlignmentReport,
     backend_results_from_system_consistency,
     build_proof_object,
     evaluate_closure_gate,
@@ -144,6 +154,43 @@ class ExtendedEndToEndRequirementGateReport(BaseModel):
 ExtendedRequirementGateReport = ExtendedEndToEndRequirementGateReport
 
 
+def build_proof_with_formal_claim_dispatch(
+    *,
+    requirement: RequirementIRV2,
+    backend_results: list[BackendResult],
+    coverage: SpecCoverageReport | None = None,
+    trace_alignment: TraceAlignmentReport | None = None,
+    backend_agreement: BackendAgreementReport | None = None,
+    producer_mapping: EvidenceProducerMapping | None = None,
+) -> tuple[ProofObject, FormalClaimLoweringReport]:
+    """Build a ProofObject using FormalClaim-derived dispatch when the claim class is supported.
+
+    When build_formal_claim returns 'lowered', the dispatch plan carries formal fragment IDs
+    so ProofObject.premises[*].premise_id maps to FormalClaim fragments rather than raw
+    semantic node IDs. When the claim class is unsupported (result='refused'), falls back to
+    the default semantic-node dispatch — equivalent to calling build_proof_object directly.
+
+    This is the production entry point that gates and tests should use to ensure FormalClaim
+    dispatch is exercised through a real code path, not only in test-only manual dispatch.
+    """
+    formal_claim_report = build_formal_claim(requirement)
+    dispatch = (
+        build_proof_dispatch_plan_from_formal_claim(formal_claim_report.formal_claim)
+        if formal_claim_report.result == "lowered" and formal_claim_report.formal_claim is not None
+        else None
+    )
+    proof = build_proof_object(
+        requirement=requirement,
+        backend_results=backend_results,
+        coverage=coverage,
+        trace_alignment=trace_alignment,
+        backend_agreement=backend_agreement,
+        producer_mapping=producer_mapping,
+        dispatch=dispatch,
+    )
+    return proof, formal_claim_report
+
+
 def run_end_to_end_requirement_gate(
     *,
     controlled_text: str,
@@ -262,12 +309,13 @@ def run_end_to_end_requirement_gate(
     )
     record("delta_report", "delta-report.json", delta)
 
-    proof = build_proof_object(
+    proof, formal_claim_report = build_proof_with_formal_claim_dispatch(
         requirement=requirement,
         backend_results=backend_results_from_system_consistency(system_consistency),
         coverage=coverage,
         trace_alignment=trace_alignment,
     )
+    record("formal_claim_artifact", "formal-claim.json", formal_claim_report)
     record("proof_object", "proof-object.json", proof)
 
     closure = evaluate_closure_gate(proof, downstream_action=downstream_action)
@@ -282,6 +330,7 @@ def run_end_to_end_requirement_gate(
         "trace_alignment": trace_alignment.result,
         "trace_replay": trace_replay.result,
         "system_consistency": system_consistency.result.status,
+        "formal_claim": formal_claim_report.result,
         "delta_report": "completed",
         "proof_object": proof.status,
         "closure_gate": closure.result,

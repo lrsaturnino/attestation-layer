@@ -443,7 +443,18 @@ def _evaluate_premise(
     mapping: EvidenceProducerMapping,
     blockers: list[ProofClosureBlocker],
 ) -> ProofPremise:
-    matching = [result for result in backend_results if result.backend == route.backend_id]
+    # Fragment-level binding: if a result declares covered_fragment_ids, only match
+    # results that explicitly cover this route's premise_id. Results without the field
+    # retain backward-compatible backend-only matching (legacy and non-FormalClaim paths).
+    matching = [
+        result
+        for result in backend_results
+        if result.backend == route.backend_id
+        and (
+            "covered_fragment_ids" not in result.details
+            or route.premise_id in result.details["covered_fragment_ids"]
+        )
+    ]
     if not matching:
         return _premise_from_route(
             route,

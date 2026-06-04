@@ -165,12 +165,12 @@ def _lower_non_vacuous(ir: RequirementIRV2, claim_class: str) -> LoweredFormalAr
             temporal_bounds=_temporal_bounds(ir.semantic_ir),
             diagnostics=[
                 LoweringDiagnostic(
-                    node_id=ir.semantic_ir.node_id,
+                    node_id=offending.node_id if offending is not None else ir.semantic_ir.node_id,
                     kind=kind,
                     reason=reason,
-                    source_spans=ir.semantic_ir.source_spans,
+                    source_spans=offending.source_spans if offending is not None else ir.semantic_ir.source_spans,
                 )
-                for kind, reason in shape_problems
+                for kind, reason, offending in shape_problems
             ],
             metadata={"refusal_code": "NLR-LOWERING-UNSUPPORTED-SHAPE"},
         )

@@ -166,18 +166,15 @@ def test_lower_authorization_precondition_is_non_vacuous() -> None:
     assert artifact.metadata.get("evidence") == "lowered"
 
 
-def test_lower_authorization_precondition_structural_discrimination() -> None:
-    """Requirement and negation lower to modules whose Obligation bodies differ.
+def test_lower_authorization_precondition_obligation_references_correct_predicate() -> None:
+    """The Obligation expression must reference the actual predicate, not a vacuous TRUE.
 
-    This is a structural proxy for checker-distinguishability: the obligation is
-    conditioned on the actual predicate, not a vacuous TRUE. A vacuous lowering
-    that emitted Pred_not_authorized(actor) == TRUE would also emit
-    Obligation == TRUE => NLRState /= "accepted", failing the assertion below
-    that the predicate name appears inside the Obligation expression.
-
-    Full checker-distinguishability (Apalache finding a counterexample for one
-    but not the other) requires a live TLC/Apalache binary (PB-4) not available
-    in this environment.
+    This verifies that the predicate name (Pred_not_authorized vs Pred_authorized)
+    reaches the Obligation expression — the formal module is non-vacuous. It does NOT
+    assert checker-distinguishability between the two requirements: each module has an
+    independent uninterpreted CONSTANT predicate, so a real Apalache run would find the
+    same violation (predicate=TRUE, action reaches accepted) for both. True functional
+    distinction between requirement and negation requires linked domain constraints (PB-4).
     """
     ir_pos = DslV3Parser().parse_ir(
         "requirement authorization_precondition: scope op "
@@ -306,9 +303,124 @@ def test_validate_authorization_precondition_shape_catches_all_errors() -> None:
 
     problems = validate_authorization_precondition_shape(bad_root)
 
-    kinds = {k for k, _ in problems}
+    kinds = {k for k, _, _ in problems}
     assert "gte" in kinds
     assert "always" in kinds
+
+
+def test_validate_authorization_precondition_shape_catches_empty_premise() -> None:
+    """Empty 'and' premise must refuse — no predicates means premise_expr would silently become TRUE."""
+    ir = _auth_precondition_ir()
+    root = ir.semantic_ir
+    empty_and = root.premise.model_copy(update={"kind": "and", "children": []})
+    bad_root = root.model_copy(update={"premise": empty_and})
+
+    problems = validate_authorization_precondition_shape(bad_root)
+
+    kinds = {k for k, _, _ in problems}
+    assert "empty_premise" in kinds
+
+
+def test_validate_authorization_precondition_shape_catches_before_missing_state_ref() -> None:
+    """'before' clause with fewer than 2 children must refuse — state_ref is required."""
+    ir = _auth_precondition_ir()
+    root = ir.semantic_ir
+    bad_must = root.obligation.must.model_copy(update={"children": []})
+    bad_obl = root.obligation.model_copy(update={"must": bad_must})
+    bad_root = root.model_copy(update={"obligation": bad_obl})
+
+    problems = validate_authorization_precondition_shape(bad_root)
+
+    kinds = {k for k, _, _ in problems}
+    assert "missing_state_ref" in kinds
+
+
+def test_validate_authorization_precondition_shape_catches_missing_action_name() -> None:
+    """Obligation with a nameless action node must refuse — 'Step_action' is a silent fallback."""
+    ir = _auth_precondition_ir()
+    root = ir.semantic_ir
+    bad_action = root.obligation.action.model_copy(update={"name": None})
+    bad_obl = root.obligation.model_copy(update={"action": bad_action})
+    bad_root = root.model_copy(update={"obligation": bad_obl})
+
+    problems = validate_authorization_precondition_shape(bad_root)
+
+    kinds = {k for k, _, _ in problems}
+    assert "missing_action" in kinds
+
+
+def test_lower_authorization_precondition_refuses_nameless_action_node() -> None:
+    """lower_ir_v2_to_tla must refuse (not emit Step_action) when action name is missing."""
+    ir = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope op "
+        "when actor is not authorized then operation must reject before state_change.",
+        requirement_id="AUTH-NO-ACTION",
+        title="No action name",
+    )
+    root = ir.semantic_ir
+    bad_action = root.obligation.action.model_copy(update={"name": None})
+    bad_obl = root.obligation.model_copy(update={"action": bad_action})
+    bad_ir = ir.model_copy(update={"semantic_ir": root.model_copy(update={"obligation": bad_obl})})
+
+    artifact = lower_ir_v2_to_tla(bad_ir)
+
+    assert artifact.status == "refused"
+    assert artifact.content is None
+    assert any(d.kind == "missing_action" for d in artifact.diagnostics)
+
+
+def test_lower_authorization_precondition_has_apalache_type_annotations() -> None:
+    """Generated module must include Apalache @type annotations for type-checked runs.
+
+    Annotations are string-match only — no Apalache binary is available.
+    The convention follows https://apalache-mc.org/docs/adr/002adr-types.html:
+    predicates get '(Str) => Bool', state variable and identifier constants get 'Str'.
+    """
+    ir = _auth_precondition_ir()
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "lowered"
+    assert artifact.content is not None
+    # State variable annotation
+    assert "\\* @type: Str;" in artifact.content
+    assert "VARIABLE NLRState" in artifact.content
+    # Predicate constant annotation
+    assert "\\* @type: (Str) => Bool;" in artifact.content
+
+
+def test_lower_authorization_precondition_step_is_unconstrained() -> None:
+    """Step action must not gate on the premise predicate.
+
+    If the predicate appears in Step_* or Next definitions, the state machine
+    is self-satisfying: it encodes behavior that avoids violating the obligation
+    by construction. An unconstrained step lets the checker find the violation.
+    """
+    ir = _auth_precondition_ir()
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "lowered"
+    assert artifact.content is not None
+    for line in artifact.content.splitlines():
+        if line.startswith("Step_") or line.startswith("Next =="):
+            assert "Pred_" not in line, f"predicate appeared in action step: {line!r}"
+
+
+def test_lowering_diagnostic_carries_offending_node_span() -> None:
+    """Refusal diagnostics must carry the offending node's ID and spans, not the root's."""
+    ir = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope op "
+        "when balance >= 5 then operation must reject before state_change.",
+        requirement_id="AUTH-COMP-SPAN",
+        title="Comparison span test",
+    )
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "refused"
+    comp_diag = next((d for d in artifact.diagnostics if d.kind == "gte"), None)
+    assert comp_diag is not None
+    # The offending node is the 'gte' premise child, not the root rule node
+    assert comp_diag.node_id != ir.semantic_ir.node_id
 
 
 def _auth_precondition_ir() -> RequirementIRV2:
