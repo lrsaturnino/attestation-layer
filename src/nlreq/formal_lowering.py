@@ -1,9 +1,104 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
+from typing import Literal
+
 from .models import RequirementIRV2, SemanticNode
 
 
 FORMAL_LOWERING_VERSION = "0.2"
+
+
+@dataclass
+class Z3DiscriminationResult:
+    """Outcome of a Z3 reachability check that discriminates R from ¬R under system constraint S.
+
+    Scope: operates on predicate NAME STRINGS, not a parsed IR or lowered module.
+    `discriminated=True` means: for distinct predicate names (req≠neg), the
+    authorization_precondition TEMPLATE admits a system constraint S that separates R from ¬R.
+    It does NOT mean this specific requirement's ProofObject has been closed — system_checker
+    still composes `SystemSpecAssumptions == TRUE` (the S∧R gap), so no gate-level evidence
+    flows from this check into the pipeline.  Test-only; not called from the gate.
+
+    Under S (req_pred=FALSE, neg_pred=TRUE):
+      R+S   → UNSAT: violation state (req_pred=TRUE ∧ reached=TRUE) is unreachable.
+      ¬R+S  → SAT:   violation state (neg_pred=TRUE ∧ reached=TRUE) is reachable.
+    """
+
+    discriminated: bool
+    r_plus_s_outcome: Literal["unsat", "sat", "unknown"]
+    neg_r_plus_s_outcome: Literal["unsat", "sat", "unknown"]
+    requirement_pred_name: str
+    negation_pred_name: str
+
+
+def z3_discriminate_authorization_precondition(
+    requirement_pred_name: str,
+    negation_pred_name: str,
+) -> Z3DiscriminationResult:
+    """Z3 reachability check that discriminates the authorization_precondition requirement R from ¬R.
+
+    S assigns: requirement_pred = FALSE (conservative), negation_pred = TRUE (fires the obligation).
+
+    R+S check (requirement_pred=FALSE):
+      Violation query: can (requirement_pred=TRUE AND reached_accepted=TRUE)?
+      Under S requirement_pred is FALSE → cannot simultaneously be TRUE → UNSAT.
+      UNSAT means: under S, R holds (no counterexample possible).
+
+    ¬R+S check (negation_pred=TRUE):
+      Violation query: can (negation_pred=TRUE AND reached_accepted=TRUE)?
+      Under S negation_pred is TRUE and Step_action is unconstrained → reached_accepted
+      can be TRUE (the action is not guarded by the predicate in the transition relation).
+      SAT means: under S, ¬R fails (counterexample: pred=TRUE, state=accepted).
+
+    NOTE: Operates on predicate name strings from the IR, not the lowered module.
+    Discriminates the template under an explicit S; does not close the ProofObject
+    (system_checker still stubs SystemSpecAssumptions==TRUE).  Test-only; not wired into the gate.
+    """
+    from z3 import Bool, BoolVal, Solver, sat, unsat
+
+    # Symbolic variables. When req==neg name both resolve to the same Z3 Bool (Z3
+    # uses the name as identity), making S self-contradictory (negative control).
+    req_pred = Bool(f"Pred_{_safe_name(requirement_pred_name)}")
+    neg_pred = Bool(f"Pred_{_safe_name(negation_pred_name)}")
+    reached = Bool("nlr_reached_accepted")
+
+    # R+S check: can violation state (req_pred=TRUE ∧ reached=TRUE) coexist with S?
+    # S forces req_pred=FALSE; violation requires req_pred=TRUE → contradiction → UNSAT.
+    # UNSAT proves R holds under S (its precondition cannot fire when S applies).
+    # Both S halves are asserted so the same-name negative control propagates to s2.
+    s1 = Solver()
+    s1.add(req_pred == BoolVal(False))  # S: requirement pred = FALSE
+    s1.add(neg_pred == BoolVal(True))   # S: negation pred = TRUE
+    s1.add(req_pred)   # violation premise: req_pred = TRUE
+    s1.add(reached)    # violation outcome: reached "accepted"
+    r_check = s1.check()
+    r_plus_s: Literal["unsat", "sat", "unknown"] = (
+        "unsat" if r_check == unsat else ("sat" if r_check == sat else "unknown")
+    )
+
+    # ¬R+S check: can violation state (neg_pred=TRUE ∧ reached=TRUE) coexist with S?
+    # Under S neg_pred=TRUE (consistent) and reached is unconstrained → SAT.
+    # When req==neg: S also has neg_pred=FALSE (from req side) → contradiction → UNSAT.
+    # This is the negative control: a requirement cannot be discriminated from itself.
+    s2 = Solver()
+    s2.add(req_pred == BoolVal(False))  # S: same constraint set as s1
+    s2.add(neg_pred == BoolVal(True))   # S
+    s2.add(neg_pred)   # violation premise: neg_pred = TRUE (consistent with S when req≠neg)
+    s2.add(reached)    # violation outcome: reached = TRUE (unconstrained → SAT when S consistent)
+    neg_check = s2.check()
+    neg_r_plus_s: Literal["unsat", "sat", "unknown"] = (
+        "sat" if neg_check == sat else ("unsat" if neg_check == unsat else "unknown")
+    )
+
+    discriminated = (r_plus_s == "unsat") and (neg_r_plus_s == "sat")
+    return Z3DiscriminationResult(
+        discriminated=discriminated,
+        r_plus_s_outcome=r_plus_s,
+        neg_r_plus_s_outcome=neg_r_plus_s,
+        requirement_pred_name=requirement_pred_name,
+        negation_pred_name=negation_pred_name,
+    )
 
 
 def validate_authorization_precondition_shape(

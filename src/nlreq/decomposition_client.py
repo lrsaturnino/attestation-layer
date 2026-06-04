@@ -111,6 +111,7 @@ class RecordedDecompositionClient:
         model_id: str | None = None,
         prompt_hash: str | None = None,
         fixture_provenance: dict[str, str] | None = None,
+        source_spans: list[SourceSpan] | None = None,
     ) -> None:
         self._fixture = fixture
         self._candidate_id = candidate_id
@@ -119,6 +120,7 @@ class RecordedDecompositionClient:
         self._model_id = model_id
         self._prompt_hash = prompt_hash
         self._fixture_provenance: dict[str, str] = fixture_provenance or {}
+        self._source_spans: list[SourceSpan] = source_spans or []
 
     def decompose_controlled_to_ir(
         self,
@@ -132,11 +134,12 @@ class RecordedDecompositionClient:
             source_text_hash=sha256_text(controlled_text),
             model_id=self._model_id,
             prompt_hash=self._prompt_hash,
+            source_spans=self._source_spans,
             approval=self._approval,
             is_audited=self._is_audited,
-            # Fixture provenance is merged so recorded replays carry the same
-            # provenance chain as the original decomposition result.
-            provenance={"source": "recorded_fixture", **self._fixture_provenance},
+            # Use "replay_marker" to avoid colliding with a "source" key that may
+            # already exist in fixture_provenance (e.g. {"source": "test_fixture"}).
+            provenance={"replay_marker": "recorded_fixture", **self._fixture_provenance},
         )
 
 

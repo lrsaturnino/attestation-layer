@@ -54,8 +54,14 @@ def _make_membership_fragment() -> FormalClaimFragment:
     )
 
 
-def test_predicate_fragments_are_excluded_from_smt_results() -> None:
-    """Predicate fragments must not produce BackendResults — they require model-level checking."""
+def test_predicate_fragments_produce_unsupported_results_with_covered_ids() -> None:
+    """Predicate fragments must produce BackendResult(status='unsupported') with covered_fragment_ids.
+
+    Named uninterpreted predicates require Apalache/Pillar B model-level checking. Rather
+    than silently excluding them (which left proof_closure routes as 'open' with no reason),
+    the SMT checker now emits an explicit 'unsupported' result. proof_closure maps
+    'unsupported' → premise status 'blocked', making the gap visible and auditable.
+    """
     report = build_formal_claim(_auth_ir())
     assert report.formal_claim is not None
     predicate_fragments = [
@@ -66,10 +72,22 @@ def test_predicate_fragments_are_excluded_from_smt_results() -> None:
 
     results = smt_check_formal_claim_predicate_fragments(report.formal_claim)
 
-    covered_ids = {fid for r in results for fid in r.details.get("covered_fragment_ids", [])}
-    for frag in predicate_fragments:
-        assert frag.fragment_id not in covered_ids, (
-            f"predicate fragment {frag.fragment_id!r} must not be SMT-checked"
+    predicate_results = [
+        r for r in results
+        if any(
+            fid in r.details.get("covered_fragment_ids", [])
+            for fid in {f.fragment_id for f in predicate_fragments}
+        )
+    ]
+    assert len(predicate_results) == len(predicate_fragments), (
+        f"expected one BackendResult per predicate fragment, got {predicate_results}"
+    )
+    for r in predicate_results:
+        assert r.status == "unsupported", (
+            f"predicate fragment BackendResult must have status='unsupported', got {r.status!r}"
+        )
+        assert "reason" in r.details, (
+            f"predicate BackendResult must carry a reason in details: {r.details}"
         )
 
 

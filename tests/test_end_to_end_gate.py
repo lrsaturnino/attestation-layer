@@ -122,8 +122,10 @@ def test_end_to_end_gate_with_v3_requirement_has_formal_claim_fragment_ids(tmp_p
     dispatch → ProofObject. It is NOT the helper-only path from
     test_build_proof_with_formal_claim_dispatch_uses_fragment_ids_for_classed_ir.
 
-    Predicate premises are discharged via the SMT check (core_smt with covered_fragment_ids).
-    rejection_order obligations remain open — no Apalache binary available.
+    Predicate premises become "blocked" — smt_check_formal_claim_predicate_fragments returns
+    "unsupported" for named predicates (requires Apalache/Pillar B); proof_closure maps
+    "unsupported" → "blocked" so the status is explicit rather than silently "open".
+    rejection_order obligations also become "blocked" for the same reason.
     """
     manifest, registry = _project(tmp_path)
     ir = DslV3Parser().parse_ir(
@@ -160,16 +162,18 @@ def test_end_to_end_gate_with_v3_requirement_has_formal_claim_fragment_ids(tmp_p
         f"Expected formal fragment IDs in ProofObject but found: {premise_ids}"
     )
 
-    # Predicate premises remain open — named uninterpreted predicates require
-    # model-level checking (Pillar B/system_checker), not SMT well-formedness.
-    # rejection_order obligations remain open — no Apalache binary available.
+    # Predicate premises are "blocked": smt_check_formal_claim_predicate_fragments returns
+    # "unsupported" for named uninterpreted predicates (requires Apalache/Pillar B), and
+    # proof_closure maps "unsupported" → "blocked" to make the gap explicit.
     predicate_premises = [p for p in proof.premises if p.node_kind == "predicate"]
     rejection_order = [p for p in proof.premises if p.node_kind == "rejection_order"]
-    assert all(p.status == "open" for p in predicate_premises), (
-        f"Predicate premises should be open pending Pillar B: {predicate_premises}"
+    assert all(p.status == "blocked" for p in predicate_premises), (
+        f"Predicate premises must be blocked (not silently open) pending Apalache/Pillar B: "
+        f"{predicate_premises}"
     )
-    assert all(p.status == "open" for p in rejection_order), (
-        f"rejection_order premises should be open without Apalache: {rejection_order}"
+    assert all(p.status == "blocked" for p in rejection_order), (
+        f"rejection_order premises must be blocked (not silently open) without Apalache: "
+        f"{rejection_order}"
     )
 
 

@@ -742,7 +742,7 @@ def test_recorded_decomposition_client_preserves_fixture_provenance() -> None:
     Fix 3 (iter 2): the client used to emit only {"source": "recorded_fixture"},
     silently dropping any provenance carried by the fixture (model ID, prompt version,
     original pipeline stage, etc.).  After the fix it should emit the fixture's
-    provenance merged with the recorded_fixture marker.
+    provenance merged under the "replay_marker" key to avoid collision.
     """
     ir = _parse_ir()
     fixture_provenance = {
@@ -757,8 +757,8 @@ def test_recorded_decomposition_client_preserves_fixture_provenance() -> None:
     )
     result = client.decompose_controlled_to_ir(_CONTROLLED_TEXT, _REQUIREMENT_ID, _TITLE)
 
-    assert result.provenance.get("source") == "recorded_fixture", (
-        "recorded_fixture marker must be present"
+    assert result.provenance.get("replay_marker") == "recorded_fixture", (
+        "replay_marker must be present under 'replay_marker' key, not 'source'"
     )
     for key, value in fixture_provenance.items():
         assert result.provenance.get(key) == value, (
@@ -766,12 +766,63 @@ def test_recorded_decomposition_client_preserves_fixture_provenance() -> None:
         )
 
 
+def test_recorded_decomposition_client_replay_marker_survives_fixture_source_key() -> None:
+    """Replay marker must not be overwritten when fixture provenance already has a 'source' key.
+
+    This is the collision that existed before the fix: {"source": "recorded_fixture",
+    **fixture_provenance} silently overwrote the marker when the fixture already had
+    {"source": "test_fixture"}.  After the fix the marker lives under "replay_marker"
+    so both keys coexist.
+    """
+    ir = _parse_ir()
+    fixture_provenance = {"source": "test_fixture", "model": "test-model-0.1"}
+    client = RecordedDecompositionClient(
+        ir,
+        candidate_id="collision-test",
+        fixture_provenance=fixture_provenance,
+    )
+    result = client.decompose_controlled_to_ir(_CONTROLLED_TEXT, _REQUIREMENT_ID, _TITLE)
+
+    assert result.provenance.get("replay_marker") == "recorded_fixture", (
+        "replay_marker must survive even when fixture provenance has a 'source' key"
+    )
+    assert result.provenance.get("source") == "test_fixture", (
+        "original fixture 'source' key must not be overwritten by the replay marker"
+    )
+    assert result.provenance.get("model") == "test-model-0.1", (
+        "other fixture provenance keys must be preserved"
+    )
+
+
+def test_recorded_decomposition_client_preserves_source_spans() -> None:
+    """RecordedDecompositionClient must replay source_spans from the fixture.
+
+    Before the fix, DecompositionResult.source_spans were always empty for recorded
+    replays because RecordedDecompositionClient had no way to accept them.  After the
+    fix the constructor accepts source_spans and the replay carries them through.
+    """
+    from nlreq.models import SourceSpan
+    ir = _parse_ir()
+    spans = [SourceSpan(document="req.nlreq", start_char=0, end_char=10, text="actor")]
+    client = RecordedDecompositionClient(
+        ir,
+        candidate_id="spans-test",
+        source_spans=spans,
+    )
+    result = client.decompose_controlled_to_ir(_CONTROLLED_TEXT, _REQUIREMENT_ID, _TITLE)
+
+    assert result.source_spans == spans, (
+        "source_spans supplied at construction must appear in the replayed DecompositionResult"
+    )
+
+
 def test_cli_recorded_fixture_preserves_provenance_in_decomposition(tmp_path: Path) -> None:
-    """CLI recorded: path must carry fixture provenance through RecordedDecompositionClient.
+    """CLI recorded: path must carry fixture provenance into the report's ensemble_candidate_provenances.
 
     When a DecompositionResult fixture has non-empty provenance (e.g. a model ID and
-    prompt version), those fields must appear in the ensemble decomposition results, not
-    be silently dropped as they were before the fix.
+    prompt version), those fields must appear in the translation report's
+    ensemble_candidate_provenances list, proving that fixture provenance flowed through
+    the RecordedDecompositionClient → _check_decomposition_ensemble → report path.
     """
     req_file = tmp_path / "req.nlreq"
     req_file.write_text(_CONTROLLED_TEXT)
@@ -803,11 +854,25 @@ def test_cli_recorded_fixture_preserves_provenance_in_decomposition(tmp_path: Pa
         "--out", str(out_path),
     ])
 
-    # Should produce a valid (non-refused) report since both fixtures agree.
-    report = json.loads(out_path.read_text())
-    # The provenance check: the translation report stages or provenance chain must not
-    # lose the fixture origin. We verify at least that the CLI completed successfully
-    # (or with a review-needed exit that carries a report) — not exit 2.
+    # Both fixtures agree and are audited — ensemble returns accepted or needs_review, not exit 2.
     assert exit_code in (0, 1), (
         f"CLI must not exit 2 (unknown spec) when fixture provenance is non-empty, got {exit_code}"
     )
+    report = json.loads(out_path.read_text())
+
+    # The fixture provenance must appear in ensemble_candidate_provenances — this proves
+    # that fixture_result.provenance flowed through RecordedDecompositionClient and into
+    # _check_decomposition_ensemble's candidate_provenances list.
+    candidate_provs: list[dict] = report.get("ensemble_candidate_provenances", [])
+    assert len(candidate_provs) == 2, (
+        f"expected 2 candidate provenances in report, got {len(candidate_provs)}: {candidate_provs}"
+    )
+    for i, cp in enumerate(candidate_provs):
+        for key, value in fixture_provenance.items():
+            assert cp.get(key) == value, (
+                f"candidate_provenances[{i}] must contain fixture_provenance[{key!r}]={value!r}, "
+                f"got {cp}"
+            )
+        assert cp.get("replay_marker") == "recorded_fixture", (
+            f"candidate_provenances[{i}] must carry the replay_marker, got {cp}"
+        )

@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from z3 import Bool, Int, Solver, unsat
-
 from .formal_claim import FormalClaim, FormalClaimFragment
 from .models import BackendResult, EvidenceLevel
 
@@ -10,12 +8,12 @@ FORMAL_CLAIM_SMT_VERSION = "0.1"
 
 
 def smt_check_formal_claim_predicate_fragments(claim: FormalClaim) -> list[BackendResult]:
-    """SMT-check ground (concrete-number) comparison FormalClaim fragments.
+    """SMT-check FormalClaim fragments, returning explicit results for every kind.
 
     Evidence honesty contract:
-      - Predicate fragments: excluded. Named uninterpreted predicates require
-        model-level checking (Pillar B/system_checker), not SMT well-formedness.
-        Their routes remain open pending that evidence.
+      - Predicate fragments: named uninterpreted predicates require model-level
+        checking (Apalache/Pillar B). Emits "unsupported" so their routes become
+        "blocked" in the proof object (explicit reason) rather than silently "open".
       - Comparison fragments, both operands concrete numbers: evaluates ground
         truth and emits SMT_CHECKED. This is a real check.
       - Comparison fragments, at least one symbolic operand: satisfiability-in-
@@ -23,6 +21,8 @@ def smt_check_formal_claim_predicate_fragments(claim: FormalClaim) -> list[Backe
         Emits CONSISTENCY_CHECKED with needs_review so the route stays open.
       - Membership fragments: not implemented; emits CONSISTENCY_CHECKED /
         needs_review so routes stay open.
+      - rejection_order fragments: bounded-reachability ordering requires a model
+        checker (Apalache). Emits "unsupported" so routes become "blocked".
 
     covered_fragment_ids is set on every result so proof_closure can match
     formal_claim-routed premises by fragment ID.
@@ -30,16 +30,48 @@ def smt_check_formal_claim_predicate_fragments(claim: FormalClaim) -> list[Backe
     return [
         _check_fragment(fragment)
         for fragment in [*claim.premises, *claim.obligations]
-        if fragment.kind in {"comparison", "membership"}
+        if fragment.kind in {"comparison", "membership", "predicate", "rejection_order"}
     ]
 
 
 def _check_fragment(fragment: FormalClaimFragment) -> BackendResult:
     if fragment.kind == "comparison":
         status, evidence = _check_comparison(fragment)
+        check_label = "fragment_satisfiability:comparison"
+        extra: dict[str, str] = {}
+    elif fragment.kind == "predicate":
+        # Named uninterpreted predicates require Apalache/Pillar B model-level checking.
+        # Returning "unsupported" causes proof_closure to set the premise status to
+        # "blocked" with an explicit reason rather than leaving it silently "open".
+        status, evidence = "unsupported", EvidenceLevel.CONSISTENCY_CHECKED
+        check_label = "fragment_satisfiability:predicate"
+        span_text = fragment.source_spans[0].text if fragment.source_spans else fragment.canonical
+        extra = {"reason": (
+            f"uninterpreted predicate '{span_text}' has no fragment-level SMT content "
+            "(a free boolean is trivially SAT); checkable only at the requirement level "
+            "via S∧R composition in system_checker — not a fragment-level Z3 query"
+        )}
+    elif fragment.kind == "rejection_order":
+        # Bounded-reachability ordering requires a model checker (Apalache).
+        # Return with backend="apalache" to match the routed_backend so proof_closure can
+        # find this result and set the premise to "blocked" (not silently "open").
+        span_text = fragment.source_spans[0].text if fragment.source_spans else fragment.canonical
+        return BackendResult(
+            backend="apalache",
+            status="unsupported",
+            evidence_level=EvidenceLevel.CONSISTENCY_CHECKED,
+            details={
+                "covered_fragment_ids": [fragment.fragment_id],
+                "check": "fragment_satisfiability:rejection_order",
+                "tool_version": FORMAL_CLAIM_SMT_VERSION,
+                "reason": f"rejection_order '{span_text}' bounded-reachability requires Apalache binary; not available",
+            },
+        )
     else:
         # membership — encode not yet implemented
         status, evidence = "needs_review", EvidenceLevel.CONSISTENCY_CHECKED
+        check_label = f"fragment_satisfiability:{fragment.kind}"
+        extra = {}
 
     return BackendResult(
         backend="core_smt",
@@ -47,8 +79,9 @@ def _check_fragment(fragment: FormalClaimFragment) -> BackendResult:
         evidence_level=evidence,
         details={
             "covered_fragment_ids": [fragment.fragment_id],
-            "check": f"fragment_satisfiability:{fragment.kind}",
+            "check": check_label,
             "tool_version": FORMAL_CLAIM_SMT_VERSION,
+            **extra,
         },
     )
 

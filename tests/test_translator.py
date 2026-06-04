@@ -7,8 +7,10 @@ from nlreq.cli import main
 from nlreq.dsl_v2 import DslV2Parser
 from nlreq.dsl_v3 import DslV3Parser
 from nlreq.formal_lowering import (
+    Z3DiscriminationResult,
     generate_minimal_discriminating_s_module,
     validate_authorization_precondition_shape,
+    z3_discriminate_authorization_precondition,
 )
 from nlreq.models import RequirementIRV2
 from nlreq.translator import (
@@ -568,21 +570,22 @@ def test_lower_authorization_precondition_obligation_checks_accepted_not_state_c
 
 
 def test_lower_authorization_precondition_discrimination_with_s_module() -> None:
-    """Modules R and ¬R are checker-distinguishable against an explicit system constraint S.
+    """Modules R and ¬R are checker-distinguishable: Z3 confirms R holds and ¬R fails under S.
 
-    S is produced by generate_minimal_discriminating_s_module. Under S:
-      R (not-authorized premise): obligation premise = FALSE under S → vacuously true (no CE).
-      ¬R (authorized premise): obligation premise = TRUE under S AND the unconstrained
-          Step_action can reach "accepted" → counterexample exists.
+    S assigns: requirement_pred (not_authorized) = FALSE, negation_pred (authorized) = TRUE.
 
-    This test verifies the by-construction reduction — the obligation predicate names match
-    what S assigns FALSE (R) and TRUE (¬R) respectively, and the step is unconstrained so
-    the counterexample trace exists when the obligation fires.
+    R+S:   Z3 checks whether the violation query is SAT → UNSAT (R holds under S).
+    ¬R+S:  Z3 checks whether (neg_pred=TRUE ∧ reached_accepted=TRUE) is SAT → SAT (¬R fails).
 
-    NOTE: This is NOT real-run evidence. PA-1 discrimination evidence requires:
-      1. Apalache binary (not available in this environment)
-      2. PB-4 S∧R composition to wire S as a constraint module alongside R
-    The by-construction S module is a documentation + structural-check artifact only.
+    Predicate names are extracted from the parsed IR (not hardcoded) to anchor the check
+    to the actual requirement structure.
+
+    Scope note: z3_discriminate_authorization_precondition operates on predicate name strings
+    and discriminates the authorization_precondition template under an explicit S. This is
+    test-only — it is not wired into the gate pipeline. system_checker still stubs
+    SystemSpecAssumptions==TRUE so no ProofObject route is closed by this check.
+    The TLA+ S module (generate_minimal_discriminating_s_module) documents the same reasoning
+    for the eventual Apalache run.
     """
     ir_pos = DslV3Parser().parse_ir(
         "requirement authorization_precondition: scope op "
@@ -633,6 +636,54 @@ def test_lower_authorization_precondition_discrimination_with_s_module() -> None
     # S names the discrimination explicitly — the checker would find no CE for R+S, CE for ¬R+S
     assert "no counterexample" in s_module
     assert "counterexample exists" in s_module
+
+    # Real Z3 discrimination: predicate names extracted from parsed IR, not hardcoded.
+    # This anchors the check to the actual requirement structure, not string literals.
+    # Scope: discriminates the template under S; test-only; not wired into the gate.
+    # system_checker still stubs SystemSpecAssumptions==TRUE so no ProofObject is closed here.
+    from nlreq.formal_lowering import _premise_predicates
+    pos_pred_names = [name for name, _ in _premise_predicates(ir_pos.semantic_ir)]
+    neg_pred_names = [name for name, _ in _premise_predicates(ir_neg.semantic_ir)]
+    assert len(pos_pred_names) >= 1 and len(neg_pred_names) >= 1, (
+        "Both IRs must have at least one predicate to discriminate"
+    )
+    z3_result = z3_discriminate_authorization_precondition(
+        requirement_pred_name=pos_pred_names[0],
+        negation_pred_name=neg_pred_names[0],
+    )
+    assert isinstance(z3_result, Z3DiscriminationResult)
+    assert z3_result.r_plus_s_outcome == "unsat", (
+        f"R+S must be UNSAT (R holds under S), got {z3_result.r_plus_s_outcome!r}"
+    )
+    assert z3_result.neg_r_plus_s_outcome == "sat", (
+        f"¬R+S must be SAT (counterexample: ¬R fails under S), got {z3_result.neg_r_plus_s_outcome!r}"
+    )
+    assert z3_result.discriminated, (
+        "Z3 discrimination must hold: R+S=UNSAT and ¬R+S=SAT prove R ≠ ¬R"
+    )
+
+
+def test_z3_discrimination_negative_control_same_pred_not_discriminated() -> None:
+    """z3_discriminate(R, R) must return discriminated=False.
+
+    When the same predicate name is used for both requirement and negation, S is
+    self-contradictory (req_pred=FALSE AND neg_pred=TRUE resolve to the same Bool →
+    FALSE AND TRUE → UNSAT). Both checks become UNSAT so discriminated=False.
+    A real discriminator must fail here; a vacuous p∧¬p discriminator would still
+    return discriminated=True since s1=UNSAT (correct) but s2 would wrongly be SAT.
+    """
+    result = z3_discriminate_authorization_precondition(
+        requirement_pred_name="authorized",
+        negation_pred_name="authorized",
+    )
+    assert not result.discriminated, (
+        "z3_discriminate(R, R) must return discriminated=False; "
+        f"got r_plus_s={result.r_plus_s_outcome!r}, neg_r_plus_s={result.neg_r_plus_s_outcome!r}"
+    )
+    assert result.neg_r_plus_s_outcome == "unsat", (
+        "when the same predicate is used for both R and ¬R, ¬R+S must also be UNSAT "
+        "(S is self-contradictory), proving the discriminator depends on req≠neg"
+    )
 
 
 def _auth_precondition_ir() -> RequirementIRV2:

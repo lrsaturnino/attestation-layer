@@ -80,6 +80,11 @@ class SemanticTranslationReport(BaseModel):
     clarification_questions: list[str] = Field(default_factory=list)
     stages: list[SemanticTranslationStage] = Field(default_factory=list)
     input_hashes: dict[str, str] = Field(default_factory=dict)
+    # Per-candidate provenance from the ensemble decomposition (PA-5/PA-6). Populated
+    # whenever ≥2 clients are run, regardless of whether they agreed or refused.
+    # Each entry mirrors the provenance dict from the corresponding DecompositionResult
+    # so callers can verify fixture provenance flowed through the CLI path.
+    ensemble_candidate_provenances: list[dict[str, str]] = Field(default_factory=list)
     tool: str = "nlreq.semantic_translation"
     tool_version: str = SEMANTIC_TRANSLATION_TOOL_VERSION
 
@@ -181,8 +186,9 @@ def translate_controlled_requirement_to_formal_claim(
     # PA-5 ensemble check: when ≥2 independent decomposition clients are supplied,
     # run each, compare FormalClaim signatures, and refuse on divergence.  This
     # catches ambiguity in the controlled text before the claim reaches a backend.
+    ensemble_candidate_provenances: list[dict[str, str]] = []
     if decomposition_clients is not None and len(decomposition_clients) >= 2:
-        ensemble_result = _check_decomposition_ensemble(
+        ensemble_result, ensemble_candidate_provenances = _check_decomposition_ensemble(
             controlled_text=controlled_text,
             requirement_id=requirement_id,
             title=title,
@@ -246,6 +252,7 @@ def translate_controlled_requirement_to_formal_claim(
             "semantic_decomposition": decomposition_hash,
             **({"formal_claim": formal_claim_hash} if formal_claim_hash else {}),
         },
+        ensemble_candidate_provenances=ensemble_candidate_provenances,
     )
 
 
@@ -311,6 +318,7 @@ def refuse_ambiguous_ensemble(
     semantic_decomposition_hash: str | None = None,
     requirement_ir: RequirementIRV2 | None = None,
     semantic_decomposition: "SemanticDecompositionTree | None" = None,
+    ensemble_candidate_provenances: list[dict[str, str]] | None = None,
 ) -> SemanticTranslationReport:
     """Return a REFUSED_AMBIGUOUS report for ensemble signature disagreement.
 
@@ -363,6 +371,7 @@ def refuse_ambiguous_ensemble(
         clarification_questions=clarification_questions,
         stages=all_stages,
         input_hashes=input_hashes or {},
+        ensemble_candidate_provenances=ensemble_candidate_provenances or [],
     )
 
 
@@ -380,8 +389,12 @@ def _check_decomposition_ensemble(
     decomposition_hash: str,
     requirement_ir: RequirementIRV2,
     semantic_decomposition: "SemanticDecompositionTree",
-) -> SemanticTranslationReport | None:
+) -> tuple[SemanticTranslationReport | None, list[dict[str, str]]]:
     """Run ≥2 independent decomposition clients and compare their FormalClaim signatures.
+
+    Returns (report, candidate_provenances). report is None when all candidates agree and
+    the caller may continue to claim lowering; candidate_provenances is always populated
+    so the caller can attach it to the agreed-path report.
 
     Trust-boundary rules enforced here:
     1. Any candidate that is not both approved and audited (is_audited=True) causes the
@@ -390,7 +403,6 @@ def _check_decomposition_ensemble(
        decomposition candidate can drive an ambiguity refusal.
     2. Only after all candidates pass the trust check do we run the FormalClaim-signature
        comparison.  Disagreement then produces NLR-REFUSED-AMBIGUOUS with full provenance.
-    3. Returns None when all candidates agree and the caller may continue to claim lowering.
 
     Approvals are never synthesised here — they must be carried in each DecompositionResult.
     """
@@ -416,6 +428,11 @@ def _check_decomposition_ensemble(
         client.decompose_controlled_to_ir(controlled_text, requirement_id, title)
         for client in clients
     ]
+
+    # Collect per-candidate provenance so the report carries the full chain regardless
+    # of whether the ensemble agreed, refused, or blocked on audit. This lets callers
+    # (and tests) assert that fixture provenance flowed through the CLI path.
+    candidate_provenances: list[dict[str, str]] = [r.provenance for r in results]
 
     # Trust check: any unaudited or unapproved candidate blocks as needs_review.
     unaudited = [
@@ -452,7 +469,8 @@ def _check_decomposition_ensemble(
                 ),
             ],
             input_hashes=full_input_hashes,
-        )
+            ensemble_candidate_provenances=candidate_provenances,
+        ), candidate_provenances
 
     # All candidates are approved and audited: build TranslationCandidates from
     # actual DecompositionResult approval — never synthesise an Approval here.
@@ -491,7 +509,8 @@ def _check_decomposition_ensemble(
             semantic_decomposition_hash=decomposition_hash,
             requirement_ir=requirement_ir,
             semantic_decomposition=semantic_decomposition,
-        )
+            ensemble_candidate_provenances=candidate_provenances,
+        ), candidate_provenances
 
     if agreement.status == "needs_review":
         return SemanticTranslationReport(
@@ -516,9 +535,10 @@ def _check_decomposition_ensemble(
                 ),
             ],
             input_hashes=full_input_hashes,
-        )
+            ensemble_candidate_provenances=candidate_provenances,
+        ), candidate_provenances
 
-    return None
+    return None, candidate_provenances
 
 
 def remap_disagreement_spans_to_original(

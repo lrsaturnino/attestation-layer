@@ -1300,6 +1300,16 @@
       "title": "Clarification Questions",
       "type": "array"
     },
+    "ensemble_candidate_provenances": {
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Ensemble Candidate Provenances",
+      "type": "array"
+    },
     "formal_claim_hash": {
       "anyOf": [
         {

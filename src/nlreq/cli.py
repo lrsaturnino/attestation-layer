@@ -2198,6 +2198,7 @@ def main(argv: list[str] | None = None) -> int:
                                 model_id=fixture_result.model_id,
                                 prompt_hash=fixture_result.prompt_hash,
                                 fixture_provenance=fixture_result.provenance,
+                                source_spans=fixture_result.source_spans,
                             )
                         )
                     else:
