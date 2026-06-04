@@ -25,6 +25,25 @@
           "title": "Freshness",
           "type": "string"
         },
+        "init_op": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Init Op"
+        },
+        "invariants": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Invariants",
+          "type": "array"
+        },
         "metadata": {
           "additionalProperties": {
             "type": "string"
@@ -39,6 +58,18 @@
           "minItems": 1,
           "title": "Module Ids",
           "type": "array"
+        },
+        "next_op": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Op"
         },
         "path": {
           "title": "Path",

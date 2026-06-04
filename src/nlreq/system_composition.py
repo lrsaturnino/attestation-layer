@@ -151,11 +151,12 @@ def _composition_artifacts(consistency: SystemConsistencyResult) -> list[Composi
 
 def _preserved_invariants(consistency: SystemConsistencyResult) -> list[str]:
     details = consistency.result.details
+    # The solver-backed S ∧ R check emits the real invariant operators it conjoined into
+    # the composed module's Inv (RequirementHolds plus each reviewed system invariant).
+    # Read those names rather than inventing the retired SystemSpecAssumptions tautology.
     raw = details.get("preserved_invariants")
     if isinstance(raw, list):
         return [str(item) for item in raw]
-    if details.get("mode") == "solver_backed":
-        return ["SystemAndRequirement", "SystemSpecAssumptions", "RequirementHolds"]
     return ["RequirementHolds"]
 
 

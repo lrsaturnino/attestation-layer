@@ -7,6 +7,8 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .formal_backend import FormalBackendBudget, FormalBackendExecution
 from .formal_lowering import (
+    build_system_spec_contribution,
+    compose_s_and_r_module,
     obligation_consequent_is_real,
     next_has_steps,
     parse_obligation_predicates,
@@ -193,12 +195,19 @@ def check_solver_backed_system_consistency(
             evidence_level=z3_evidence,
         )
 
-    # External-checker path: real S∧R composition requires inlining S operator definitions
-    # into the composed module.  Until PB-4 implements proper composition, refuse whenever
-    # relevant system spec files exist — not only when they happen to define the simple
-    # Pred_*(...) == TRUE/FALSE pattern.  Any other TLA+ constraint in a spec file would
-    # still be composed with SystemSpecAssumptions == TRUE (a tautology that proves nothing).
-    if spec_texts:
+    # External-checker path: compose the reviewed system spec S into the lowered
+    # requirement R and check S ∧ R with a real model checker (PB-1). The composition
+    # binds S's concrete predicate definitions onto R's abstract premise predicates and
+    # conjoins R's obligation with S's named invariants — replacing the prior
+    # `SystemSpecAssumptions == TRUE` tautology. A composition that would be vacuous or
+    # ill-formed refuses with a named reason instead of running a meaningless check.
+    module_name = _safe_tla_name(f"{requirement.requirement_id}_S_AND_R")
+    composed = compose_s_and_r_module(
+        module_name,
+        lowered.content,
+        _system_spec_contributions(specs, spec_texts),
+    )
+    if composed.status == "refused" or composed.module_text is None:
         return _solver_result(
             requirement.requirement_id,
             "unsupported",
@@ -206,10 +215,9 @@ def check_solver_backed_system_consistency(
             {
                 "mode": "solver_backed",
                 "checker_id": execution.checker_id,
-                "reason": (
-                    "system spec files cannot be inlined into the composed TLA+ module; "
-                    "real S∧R composition is pending PB-4"
-                ),
+                "reason": composed.refusal_reason
+                or "S ∧ R composition refused",
+                "refusal_kind": composed.refusal_kind,
                 "s_pred_count": len(pred_assignments),
                 "spec_count": len(spec_texts),
                 "spec_hashes": {
@@ -220,11 +228,13 @@ def check_solver_backed_system_consistency(
 
     artifact_dir = _solver_artifact_dir(requirement, execution)
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    module_name = _safe_tla_name(f"{requirement.requirement_id}_S_AND_R")
     module_path = artifact_dir / f"{module_name}.tla"
     config_path = artifact_dir / f"{module_name}.cfg"
-    module_path.write_text(_composed_tla_module(module_name, lowered, spec_texts))
-    config_path.write_text("INIT Init\nNEXT Next\nPROPERTY SystemAndRequirement\n")
+    module_path.write_text(composed.module_text)
+    # The composed module's checkable operators (consumed by the checker via CLI flags or,
+    # for TLC, this config): Init / Next as the transition system, Inv as the conjoined
+    # S ∧ R state invariant, ConstInit pinning identifier constants.
+    config_path.write_text("INIT Init\nNEXT Next\nINVARIANT Inv\n")
 
     command = _solver_checker_command(execution, module_path, config_path, module_name)
     runner_result = run_model_checker(
@@ -258,6 +268,8 @@ def check_solver_backed_system_consistency(
             "config_hash": sha256_text(config_path.read_text()),
             "command": command,
             "bounds": _budget_details(budget),
+            "preserved_invariants": composed.preserved_invariants,
+            "bound_predicates": composed.bound_predicates,
             "spec_hashes": {
                 spec_id: sha256_text(text)
                 for spec_id, text in spec_texts
@@ -408,9 +420,9 @@ def _z3_check_obligation_under_s(
     violation query (pred=TRUE AND reached_accepted=TRUE) is SAT under those assignments.
     It does NOT evaluate RequirementHolds, real action/state targets, or the full
     composed TLA+ transition system.  It is a structural discriminator useful for
-    regression-catching on Pred_* assignments only.  Full PA-1 evidence requires an
-    Apalache run on the composed S∧R module (PB-4); this path is complementary, not
-    a substitute.
+    regression-catching on Pred_* assignments only.  Full bounded evidence comes from an
+    Apalache run on the module built by compose_s_and_r_module; this in-process path is
+    complementary, not a substitute.
 
     S is given by pred_assignments (Pred_name → bool).  The obligation predicates are
     parsed from the Obligation == line of the lowered module — not from CONSTANT declarations
@@ -471,45 +483,20 @@ def _z3_check_obligation_under_s(
     return "unknown"
 
 
-def _composed_tla_module(
-    module_name: str,
-    lowered: LoweredFormalArtifact,
-    spec_texts: list[tuple[str, str]],
-) -> str:
-    body = _strip_tla_module_wrapper(lowered.content or "")
-    spec_hashes = "\n".join(
-        f"\\* System spec {spec_id}: {sha256_text(text)}" for spec_id, text in spec_texts
-    )
-    # Document the S predicate assignments (if any) from spec files.
-    # The Z3 gate path uses these to run S∧R in-process; TLC/Apalache paths
-    # use them as documentation — the full inline composition requires PB-4.
-    pred_assignments = _extract_pred_assignments_from_specs(spec_texts)
-    if pred_assignments:
-        s_comment_lines = "\n".join(
-            f"\\*   {name}(a) == {'TRUE' if val else 'FALSE'}"
-            for name, val in sorted(pred_assignments.items())
-        )
-        s_block = f"\\* System constraint S from spec files:\n{s_comment_lines}\n"
-    else:
-        s_block = ""
-    return (
-        f"---- MODULE {module_name} ----\n"
-        f"{spec_hashes}\n"
-        f"{s_block}\n"
-        f"{body}\n\n"
-        "SystemSpecAssumptions == TRUE\n"
-        "SystemAndRequirement == SystemSpecAssumptions => RequirementHolds\n\n"
-        "====\n"
-    )
+def _system_spec_contributions(specs, spec_texts: list[tuple[str, str]]):
+    """Build the S ∧ R composition inputs from reviewed system spec entries.
 
-
-def _strip_tla_module_wrapper(content: str) -> str:
-    lines = content.splitlines()
-    if lines and lines[0].startswith("---- MODULE "):
-        lines = lines[1:]
-    if lines and lines[-1] == "====":
-        lines = lines[:-1]
-    return "\n".join(lines).strip()
+    Pairs each spec entry with its file text and declared invariant operators so
+    compose_s_and_r_module can inline the spec's predicate definitions and conjoin
+    its invariants. Specs whose text was not read (e.g. missing file) are skipped;
+    upstream freshness gating already refuses missing specs before this point.
+    """
+    text_by_id = dict(spec_texts)
+    return [
+        build_system_spec_contribution(spec.spec_id, text_by_id[spec.spec_id], spec.invariants)
+        for spec in specs
+        if spec.spec_id in text_by_id
+    ]
 
 
 def _solver_checker_command(

@@ -146,17 +146,47 @@ def test_phase126_tlc_records_explicit_state_counterexample(tmp_path: Path) -> N
 
 
 def test_phase127_s_and_r_composition_report_records_backend_artifacts(tmp_path: Path) -> None:
-    # Use an empty registry so the PB-4 guard does not fire (no relevant spec files).
-    # The external checker runs over the lowered module alone with SystemSpecAssumptions == TRUE.
-    from nlreq.system_spec import SystemSpecRegistry as SSR
-    empty_registry = SSR.model_validate({"schema_version": "0.1", "specs": []})
+    # A reviewed system spec S is composed into the lowered requirement R; a stub checker
+    # exercises the report plumbing over the real composed S ∧ R module.
+    specs = tmp_path / "specs"
+    specs.mkdir()
+    (specs / "RedemptionSystem.tla").write_text(
+        "---- MODULE RedemptionSystem ----\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_authorized(a) == FALSE\n"
+        '\\* System invariant: authorization defaults closed.\n'
+        'SystemDefaultsClosed == Pred_authorized("wallet") = FALSE\n'
+        "====\n"
+    )
+    registry = SystemSpecRegistry.model_validate(
+        {
+            "schema_version": "0.1",
+            "specs": [
+                {
+                    "spec_id": "spec:redemption",
+                    "module_ids": ["redemption"],
+                    "formalism": "tla",
+                    "path": "specs/RedemptionSystem.tla",
+                    "version": "1",
+                    "review_status": "reviewed",
+                    "freshness": "fresh",
+                    "invariants": ["SystemDefaultsClosed"],
+                }
+            ],
+        }
+    )
 
-    ir = _ir()
+    ir = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope redemption "
+        "when wallet is authorized then finalize_redemption must reject before rejected.",
+        requirement_id="REQ-M11-127",
+        title="S and R composition",
+    )
     lowered = lower_ir_v2_to_tla(ir)
     consistency = check_solver_backed_system_consistency(
         requirement=ir,
         lowered=lowered,
-        registry=empty_registry,
+        registry=registry,
         impact=_impact(),
         project_root=tmp_path,
         budget=FormalBackendBudget(timeout_seconds=5, max_depth=12),
@@ -169,7 +199,7 @@ def test_phase127_s_and_r_composition_report_records_backend_artifacts(tmp_path:
     report = build_s_and_r_composition_report(
         requirement=ir,
         lowered=lowered,
-        registry=empty_registry,
+        registry=registry,
         impact=_impact(),
         project_root=tmp_path,
         consistency=consistency,
@@ -181,7 +211,8 @@ def test_phase127_s_and_r_composition_report_records_backend_artifacts(tmp_path:
         "tla_module",
         "tla_config",
     }
-    assert "SystemAndRequirement" in report.preserved_invariants
+    # The composition records the real conjoined invariants, not the retired tautology.
+    assert report.preserved_invariants == ["RequirementHolds", "SystemDefaultsClosed"]
     assert report.blockers == []
 
 

@@ -1,10 +1,14 @@
 import json
+import shutil
 import sys
 from pathlib import Path
+
+import pytest
 
 from nlreq.cli import main
 from nlreq.dsl_v2 import DslV2Parser
 from nlreq.formal_backend import FormalBackendBudget, FormalBackendExecution
+from nlreq.formal_lowering import build_system_spec_contribution, compose_s_and_r_module
 from nlreq.impact import ImpactAnalysisArtifact
 from nlreq.models import RequirementIR
 from nlreq.parser import RequirementParser
@@ -124,23 +128,145 @@ def test_requirement_set_consistency_detects_opposite_predicates() -> None:
     assert report.contradictions[0].contradiction_type == "opposite_predicate"
 
 
-def test_solver_backed_external_checker_with_specs_returns_unsupported(tmp_path: Path) -> None:
-    """External checker with system spec files returns unsupported (PB-4 guard).
+# ---------------------------------------------------------------------------
+# PB-1 solver-backed S ∧ R: a real reviewed spec S is composed into the lowered
+# requirement R and a real model checker verifies S ∧ R. The reviewed S pins the
+# authorization predicates R leaves abstract (the shared-predicate coupling that
+# makes the check non-vacuous) and declares a named system invariant.
+# ---------------------------------------------------------------------------
 
-    When relevant spec files exist, the composed TLA+ module cannot inline S semantics
-    without PB-4 proper composition.  Running the checker over SystemSpecAssumptions == TRUE
-    would prove a tautology — the guard refuses with 'unsupported' instead.
+APALACHE = shutil.which("apalache-mc")
 
-    This replaces the old test that expected 'valid': the old path was the tautological
-    composition and is now correctly blocked until PB-4.
+_APALACHE_COMMAND = [
+    "apalache-mc",
+    "check",
+    "--cinit=ConstInit",
+    "--init=Init",
+    "--next=Next",
+    "--inv=Inv",
+    "--length=6",
+    "{module}",
+]
+
+
+def _reviewed_s_spec_text() -> str:
+    """Reviewed system spec S: interprets both authorization predicates and declares
+    a named system invariant, so the composed S ∧ R is grounded and non-vacuous."""
+    return (
+        "---- MODULE RedemptionSystem ----\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_authorized(a) == FALSE\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_not_authorized(a) == TRUE\n"
+        "\\* System invariant: authorization defaults closed.\n"
+        'SystemDefaultsClosed == Pred_authorized("wallet") = FALSE\n'
+        "====\n"
+    )
+
+
+def _reviewed_s_registry(
+    tmp_path: Path,
+    *,
+    spec_text: str | None = None,
+    invariants: tuple[str, ...] = ("SystemDefaultsClosed",),
+) -> SystemSpecRegistry:
+    specs = tmp_path / "specs"
+    specs.mkdir(exist_ok=True)
+    (specs / "RedemptionSystem.tla").write_text(
+        spec_text if spec_text is not None else _reviewed_s_spec_text()
+    )
+    return SystemSpecRegistry.model_validate(
+        {
+            "schema_version": "0.1",
+            "specs": [
+                {
+                    "spec_id": "spec:redemption",
+                    "module_ids": ["redemption"],
+                    "formalism": "tla",
+                    "path": "specs/RedemptionSystem.tla",
+                    "version": "1",
+                    "review_status": "reviewed",
+                    "freshness": "fresh",
+                    "invariants": list(invariants),
+                }
+            ],
+        }
+    )
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_s_and_r_compatible_requirement_is_valid(tmp_path: Path) -> None:
+    """SP2-B: a requirement compatible with S yields a real Apalache 'valid'.
+
+    R's premise is Pred_authorized, which S pins FALSE; the obligation is vacuously
+    satisfied, so no reachable state violates the conjoined invariant.
     """
+    ir = _authz_ir()
     result = check_solver_backed_system_consistency(
-        requirement=_ir(),
-        lowered=lower_ir_v2_to_tla(_ir()),
-        registry=_registry(tmp_path),
-        impact=_impact(),
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(tmp_path),
+        impact=_authz_impact(),
         project_root=tmp_path,
-        budget=FormalBackendBudget(timeout_seconds=5, max_depth=12),
+        budget=FormalBackendBudget(timeout_seconds=60, max_depth=6),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=_APALACHE_COMMAND,
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.status == "valid", result.result.details
+    assert result.result.backend == "solver_system_checker"
+    assert result.result.evidence_level.value == "BOUNDED_CHECKED"
+    assert "RequirementHolds" in result.result.details["preserved_invariants"]
+    assert "SystemDefaultsClosed" in result.result.details["preserved_invariants"]
+    assert result.result.details["bound_predicates"] == ["Pred_authorized"]
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_s_and_r_contradicting_requirement_is_counterexample(
+    tmp_path: Path,
+) -> None:
+    """SP2-B: a requirement that contradicts S yields a real Apalache counterexample.
+
+    ¬R's premise is Pred_not_authorized, which S pins TRUE; the obligation fires and
+    the transition system reaches "accepted", violating the conjoined invariant.
+    Same S as the compatible-sibling test — the only change is the requirement.
+    """
+    ir = _negation_ir()
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(tmp_path),
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=60, max_depth=6),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=_APALACHE_COMMAND,
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.status == "counterexample", result.result.details
+    assert result.counterexamples
+    assert result.counterexamples[0].backend == "solver_system_checker"
+
+
+def test_solver_backed_refuses_spec_without_declared_invariant(tmp_path: Path) -> None:
+    """A reviewed S that declares no invariant cannot make S ∧ R non-trivial — refuse.
+
+    Replaces the prior PB-4 guard: the refusal is now grounded in the composition
+    (no system invariant to preserve), not a 'pending implementation' marker.
+    """
+    ir = _authz_ir()
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(tmp_path, invariants=()),
+        impact=_authz_impact(),
+        project_root=tmp_path,
         execution=FormalBackendExecution(
             checker_id="custom",
             command=[sys.executable, "-c", "print('verification successful')"],
@@ -148,33 +274,32 @@ def test_solver_backed_external_checker_with_specs_returns_unsupported(tmp_path:
         ),
     )
 
-    assert result.result.backend == "solver_system_checker"
     assert result.result.status == "unsupported"
-    assert result.result.details["mode"] == "solver_backed"
-    assert result.result.details["spec_count"] >= 1
-    assert "PB-4" in result.result.details["reason"]
-    # External checker must NOT have been invoked — artifact dir must not be created.
+    assert result.result.details["refusal_kind"] == "no_system_invariant"
+    # Refusal happens before composition runs the checker — no artifacts written.
     assert not (tmp_path / "artifacts").exists()
 
 
-def test_solver_backed_external_checker_no_relevant_specs_runs_checker(tmp_path: Path) -> None:
-    """External checker path runs when no relevant spec files exist for this requirement.
+def test_solver_backed_refuses_when_spec_omits_required_predicate(tmp_path: Path) -> None:
+    """S declares an invariant but does not interpret the predicate R depends on — refuse.
 
-    Without matching specs, spec_texts is empty and the PB-4 guard does not fire.
-    The external checker subprocess is invoked over the lowered module alone.
-    The composed module still uses SystemSpecAssumptions == TRUE (no S to inline),
-    which is acceptable when there are no system constraints to check.
+    Without a concrete Pred_authorized definition the composed module has an undefined
+    operator; the composition refuses rather than emit an unrunnable module.
     """
-    empty_registry = SystemSpecRegistry.model_validate(
-        {"schema_version": "0.1", "specs": []}
+    ir = _authz_ir()
+    spec_text = (
+        "---- MODULE RedemptionSystem ----\n"
+        "SystemSafety == TRUE\n"
+        "====\n"
     )
     result = check_solver_backed_system_consistency(
-        requirement=_ir(),
-        lowered=lower_ir_v2_to_tla(_ir()),
-        registry=empty_registry,
-        impact=_impact(),
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(
+            tmp_path, spec_text=spec_text, invariants=("SystemSafety",)
+        ),
+        impact=_authz_impact(),
         project_root=tmp_path,
-        budget=FormalBackendBudget(timeout_seconds=5, max_depth=12),
         execution=FormalBackendExecution(
             checker_id="custom",
             command=[sys.executable, "-c", "print('verification successful')"],
@@ -182,26 +307,84 @@ def test_solver_backed_external_checker_no_relevant_specs_runs_checker(tmp_path:
         ),
     )
 
-    assert result.result.backend == "solver_system_checker"
-    assert result.result.status == "valid"
-    assert result.result.details["mode"] == "solver_backed"
-    assert (tmp_path / "artifacts" / "REQ_SYS_001_S_AND_R.tla").is_file()
+    assert result.result.status == "unsupported"
+    assert result.result.details["refusal_kind"] == "undefined_predicate"
+    assert not (tmp_path / "artifacts").exists()
 
 
-def test_solver_backed_system_consistency_preserves_counterexample(tmp_path: Path) -> None:
-    """External checker counterexample detection works when no relevant specs exist.
+def test_solver_backed_refuses_operator_name_collision(tmp_path: Path) -> None:
+    """S declares an operator whose name shadows a requirement operator — refuse.
 
-    Without specs, the PB-4 guard does not fire and the subprocess output is parsed
-    for counterexample markers.  Uses an empty registry so spec_texts is empty.
+    Honors the namespacing rule: the requirement projection's operators are not
+    silently overridden by a system spec that reuses their names.
     """
-    empty_registry = SystemSpecRegistry.model_validate(
-        {"schema_version": "0.1", "specs": []}
+    ir = _authz_ir()
+    spec_text = (
+        "---- MODULE RedemptionSystem ----\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_authorized(a) == FALSE\n"
+        "Obligation == TRUE\n"
+        'SystemDefaultsClosed == Pred_authorized("wallet") = FALSE\n'
+        "====\n"
     )
     result = check_solver_backed_system_consistency(
-        requirement=_ir(),
-        lowered=lower_ir_v2_to_tla(_ir()),
-        registry=empty_registry,
-        impact=_impact(),
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(
+            tmp_path, spec_text=spec_text, invariants=("SystemDefaultsClosed",)
+        ),
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        execution=FormalBackendExecution(
+            checker_id="custom",
+            command=[sys.executable, "-c", "print('verification successful')"],
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.status == "unsupported"
+    assert result.result.details["refusal_kind"] == "operator_name_collision"
+    assert not (tmp_path / "artifacts").exists()
+
+
+def test_solver_backed_runs_checker_over_composed_module(tmp_path: Path) -> None:
+    """The composed S ∧ R module is written and the checker subprocess runs over it.
+
+    Uses a stub checker (deterministic, tool-free) to exercise the subprocess plumbing
+    and artifact recording; the composed module text asserts the tautology is gone.
+    """
+    ir = _authz_ir()
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(tmp_path),
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        execution=FormalBackendExecution(
+            checker_id="custom",
+            command=[sys.executable, "-c", "print('verification successful')"],
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.status == "valid"
+    assert result.result.details["mode"] == "solver_backed"
+    module_path = tmp_path / "artifacts" / "REQ_SYS_AUTHZ_S_AND_R.tla"
+    assert module_path.is_file()
+    composed = module_path.read_text()
+    assert "Inv == RequirementHolds /\\ SystemDefaultsClosed" in composed
+    assert "SystemSpecAssumptions" not in composed
+    assert "Pred_authorized(a) == FALSE" in composed
+
+
+def test_solver_backed_parses_counterexample_from_checker_output(tmp_path: Path) -> None:
+    """A counterexample marker in the checker subprocess output maps to a counterexample."""
+    ir = _authz_ir()
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(tmp_path),
+        impact=_authz_impact(),
         project_root=tmp_path,
         execution=FormalBackendExecution(
             checker_id="custom",
@@ -282,12 +465,12 @@ def test_system_consistency_cli(tmp_path: Path, capsys) -> None:
 
 
 def test_solver_backed_system_consistency_cli(tmp_path: Path, capsys) -> None:
-    ir = _ir()
+    ir = _authz_ir()
     lowered = lower_ir_v2_to_tla(ir)
-    # Use an empty registry so the PB-4 guard does not fire — the CLI test verifies the
-    # subprocess mechanism works; real S∧R composition is tested via Z3 gate tests.
-    registry = SystemSpecRegistry.model_validate({"schema_version": "0.1", "specs": []})
-    impact = _impact()
+    # A reviewed spec S is composed into R; the stub checker exercises the CLI plumbing
+    # over the real composed S ∧ R module.
+    registry = _reviewed_s_registry(tmp_path)
+    impact = _authz_impact()
     ir_path = tmp_path / "requirement.ir.json"
     lowered_path = tmp_path / "lowered.json"
     registry_path = tmp_path / "registry.json"
@@ -668,93 +851,108 @@ def test_z3_gate_no_step_transitions_returns_unsupported(tmp_path: Path) -> None
     )
 
 
-def test_external_solver_with_s_pred_assignments_returns_unsupported(tmp_path: Path) -> None:
-    """External solver path refuses as unsupported when S predicate assignments exist.
 
-    When spec files define Pred_*(...) == TRUE/FALSE and a non-Z3 external checker is
-    requested, real S∧R composition would require stripping CONSTANT declarations from
-    the lowered module and inlining concrete operator definitions — not implemented until
-    PB-4.  The check must refuse rather than run with SystemSpecAssumptions == TRUE
-    (a tautology that proves nothing about the real S∧R relationship).
-    """
-    ir = _authz_ir()
-    lowered = lower_ir_v2_to_tla(ir)
-    assert lowered.status == "lowered"
+# ---------------------------------------------------------------------------
+# compose_s_and_r_module: byte-stable composition + refusal unit tests (PB-1)
+# ---------------------------------------------------------------------------
 
-    # S has Pred_authorized assignments — this triggers the PB-4 guard.
-    s_spec = (
-        "---- MODULE SystemConstraint ----\n"
-        "CONSTANT a\n"
+_GOLDEN_LOWERED = (
+    "---- MODULE Req_GOLDEN ----\n"
+    "EXTENDS Naturals, TLC\n\n"
+    "\\* @type: Str;\n"
+    "CONSTANT wallet\n\n"
+    "\\* @type: (Str) => Bool;\n"
+    "CONSTANT Pred_authorized(_)\n\n"
+    "\\* @type: Str;\n"
+    "VARIABLE NLRState\n\n"
+    'Init == NLRState = "idle"\n\n'
+    "Step_act ==\n"
+    '  /\\ NLRState = "idle"\n'
+    '  /\\ NLRState\' \\in {"rejected", "accepted"}\n\n'
+    "Next == Step_act \\/ UNCHANGED NLRState\n\n"
+    "Premise == Pred_authorized(wallet)\n\n"
+    'Obligation == Pred_authorized(wallet) => NLRState /= "accepted"\n\n'
+    "RequirementHolds == Premise => Obligation\n\n"
+    "====\n"
+)
+
+_GOLDEN_SPEC = (
+    "---- MODULE Sys ----\n"
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_authorized(a) == FALSE\n"
+    'SystemDefaultsClosed == Pred_authorized("wallet") = FALSE\n'
+    "====\n"
+)
+
+_GOLDEN_COMPOSED = (
+    "---- MODULE Req_GOLDEN_S_AND_R ----\n"
+    "EXTENDS Naturals, TLC\n\n"
+    "CONSTANT\n"
+    "  \\* @type: Str;\n"
+    "  wallet\n\n"
+    "\\* ===== Reviewed system spec S (inlined; operators keep their names) =====\n"
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_authorized(a) == FALSE\n"
+    'SystemDefaultsClosed == Pred_authorized("wallet") = FALSE\n\n'
+    "VARIABLE\n"
+    "  \\* @type: Str;\n"
+    "  NLRState\n\n"
+    "\\* ===== Requirement projection R (transition system + obligation) =====\n"
+    'Init == NLRState = "idle"\n\n'
+    "Step_act ==\n"
+    '  /\\ NLRState = "idle"\n'
+    '  /\\ NLRState\' \\in {"rejected", "accepted"}\n\n'
+    "Next == Step_act \\/ UNCHANGED NLRState\n\n"
+    "Premise == Pred_authorized(wallet)\n\n"
+    'Obligation == Pred_authorized(wallet) => NLRState /= "accepted"\n\n'
+    "RequirementHolds == Premise => Obligation\n\n"
+    "\\* ===== S ∧ R: requirement obligation conjoined with system invariants =====\n"
+    "Inv == RequirementHolds /\\ SystemDefaultsClosed\n"
+    'ConstInit == wallet = "wallet"\n'
+    "====\n"
+)
+
+
+def test_compose_s_and_r_module_is_byte_stable() -> None:
+    """The composed S ∧ R module is byte-for-byte stable and inlines the real spec
+    invariant operator — not a hash comment or a SystemSpecAssumptions tautology."""
+    contribution = build_system_spec_contribution(
+        "spec:sys", _GOLDEN_SPEC, ["SystemDefaultsClosed"]
+    )
+    composed = compose_s_and_r_module("Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution])
+
+    assert composed.status == "composed"
+    assert composed.module_text == _GOLDEN_COMPOSED
+    # The spec's invariant operator is textually present (acceptance: not just a hash).
+    assert "SystemDefaultsClosed == " in composed.module_text
+    assert "SystemSpecAssumptions" not in composed.module_text
+    assert composed.preserved_invariants == ["RequirementHolds", "SystemDefaultsClosed"]
+    assert composed.bound_predicates == ["Pred_authorized"]
+
+
+def test_compose_s_and_r_module_refuses_without_invariant() -> None:
+    """A spec with no declared invariant cannot yield a non-vacuous S ∧ R — refuse."""
+    contribution = build_system_spec_contribution("spec:sys", _GOLDEN_SPEC, [])
+    composed = compose_s_and_r_module("Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution])
+
+    assert composed.status == "refused"
+    assert composed.module_text is None
+    assert composed.refusal_kind == "no_system_invariant"
+
+
+def test_compose_s_and_r_module_refuses_operator_name_collision() -> None:
+    """A spec operator that shadows a requirement operator is refused, not overridden."""
+    colliding_spec = (
+        "---- MODULE Sys ----\n"
         "\\* @type: (Str) => Bool;\n"
         "Pred_authorized(a) == FALSE\n"
+        "RequirementHolds == TRUE\n"
         "====\n"
     )
-    registry = _z3_registry(tmp_path, spec_content=s_spec)
-    result = check_solver_backed_system_consistency(
-        requirement=ir,
-        lowered=lowered,
-        registry=registry,
-        impact=_authz_impact(),
-        project_root=tmp_path,
-        execution=FormalBackendExecution(
-            checker_id="custom",
-            command=[sys.executable, "-c", "print('verification successful')"],
-            artifact_dir=(tmp_path / "artifacts").as_posix(),
-        ),
+    contribution = build_system_spec_contribution(
+        "spec:sys", colliding_spec, ["RequirementHolds"]
     )
+    composed = compose_s_and_r_module("Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution])
 
-    assert result.result.status == "unsupported", (
-        f"External solver with S pred assignments must return 'unsupported' (PB-4 guard), "
-        f"got {result.result.status!r}"
-    )
-    assert "PB-4" in result.result.details.get("reason", ""), (
-        "Unsupported reason must reference PB-4"
-    )
-    # External checker must NOT have been invoked (no artifact directory created).
-    assert not (tmp_path / "artifacts").exists(), (
-        "Artifact directory must not be created when returning unsupported before execution"
-    )
-
-
-def test_external_solver_with_non_pred_spec_returns_unsupported(tmp_path: Path) -> None:
-    """External solver path refuses when spec files exist even without Pred_* assignments.
-
-    A spec containing only TLA+ constants without Pred_*(...) == TRUE/FALSE patterns
-    still cannot be inlined into the composed module.  The guard must fire for any
-    non-empty spec_texts, not only when pred_assignments is non-empty.
-    """
-    ir = _authz_ir()
-    lowered = lower_ir_v2_to_tla(ir)
-    assert lowered.status == "lowered"
-
-    # Spec has no Pred_* assignments — only a plain TLA+ invariant.
-    plain_spec = (
-        "---- MODULE SystemConstraint ----\n"
-        "VARIABLE state\n"
-        "Invariant == state # 0\n"
-        "====\n"
-    )
-    registry = _z3_registry(tmp_path, spec_content=plain_spec)
-    result = check_solver_backed_system_consistency(
-        requirement=ir,
-        lowered=lowered,
-        registry=registry,
-        impact=_authz_impact(),
-        project_root=tmp_path,
-        execution=FormalBackendExecution(
-            checker_id="custom",
-            command=[sys.executable, "-c", "print('verification successful')"],
-            artifact_dir=(tmp_path / "artifacts").as_posix(),
-        ),
-    )
-
-    assert result.result.status == "unsupported", (
-        f"External solver with non-Pred_* spec must return 'unsupported' (PB-4 guard), "
-        f"got {result.result.status!r}"
-    )
-    assert "PB-4" in result.result.details.get("reason", ""), (
-        "Unsupported reason must reference PB-4"
-    )
-    assert not (tmp_path / "artifacts").exists(), (
-        "Artifact directory must not be created when returning unsupported before execution"
-    )
+    assert composed.status == "refused"
+    assert composed.refusal_kind == "operator_name_collision"

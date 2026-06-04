@@ -388,9 +388,8 @@ def run_end_to_end_requirement_gate(
     # additional evidence alongside the marker-based result.  Only explicit solver_execution
     # triggers this path — execution (used for self-consistency) does NOT fall back to S∧R
     # checking, because the old implicit fallback caused solver results to appear on tests
-    # that only intended to test self-consistency, masking the PB-4 unsupported guard.
-    # A counterexample/invalid from the solver is load-bearing: it blocks the gate even
-    # when the marker check passes (safety direction).
+    # that only intended to test self-consistency.  A counterexample/invalid from the solver
+    # is load-bearing: it blocks the gate even when the marker check passes (safety direction).
     _effective_solver_exec = solver_execution
     solver_system_result: list[BackendResult] = []
     if _effective_solver_exec is not None:

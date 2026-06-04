@@ -703,9 +703,8 @@ def test_solver_unsupported_produces_unknown_decision(tmp_path: Path) -> None:
     src.mkdir()
     specs.mkdir()
     (src / "operation.py").write_text("def operation(actor):\n    return 'rejected'\n")
-    # Non-Pred_* spec: no simple assignments → would trigger the PB-4 guard on external path.
-    # Z3 path also returns unsupported when obligation predicates have no S assignments.
-    # Using an empty spec (no Pred_* assignments) with Z3 checker → Z3 returns unsupported.
+    # Non-Pred_* spec: no simple assignments for the Z3 in-process path to ground S on.
+    # The Z3 checker returns unsupported when obligation predicates have no S assignments.
     (specs / "SystemConstraint.tla").write_text(
         "---- MODULE SystemConstraint ----\n"
         "InvariantHolds == TRUE\n"

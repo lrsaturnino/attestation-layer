@@ -16,9 +16,9 @@ class Z3DiscriminationResult:
     Scope: operates on predicate NAME STRINGS, not a parsed IR or lowered module.
     `discriminated=True` means: for distinct predicate names (req≠neg), the
     authorization_precondition TEMPLATE admits a system constraint S that separates R from ¬R.
-    It does NOT mean this specific requirement's ProofObject has been closed — system_checker
-    still composes `SystemSpecAssumptions == TRUE` (the S∧R gap), so no gate-level evidence
-    flows from this check into the pipeline.  Test-only; not called from the gate.
+    It does NOT mean this specific requirement's ProofObject has been closed — it is a
+    name-string template check. The grounded S ∧ R composition that a model checker runs
+    lives in compose_s_and_r_module; this helper is test-only and not called from the gate.
 
     Under S (req_pred=FALSE, neg_pred=TRUE):
       R+S   → UNSAT: violation state (req_pred=TRUE ∧ reached=TRUE) is unreachable.
@@ -84,8 +84,8 @@ def z3_discriminate_authorization_precondition(
       SAT means: under S, ¬R fails (counterexample: pred=TRUE, state=accepted).
 
     NOTE: Operates on predicate name strings from the IR, not the lowered module.
-    Discriminates the template under an explicit S; does not close the ProofObject
-    (system_checker still stubs SystemSpecAssumptions==TRUE).  Test-only; not wired into the gate.
+    Discriminates the template under an explicit S; does not close the ProofObject and
+    is independent of the grounded compose_s_and_r_module path.  Test-only; not wired into the gate.
     """
     from z3 import Bool, BoolVal, Solver, sat, unsat
 
@@ -354,9 +354,10 @@ def generate_minimal_discriminating_s_module(
       ¬R (obligation premise = negation_pred_name): TRUE => NLRState /= "accepted"
           and Step_{action} can reach "accepted" (unconstrained) → counterexample exists.
 
-    This S cannot be used directly by TlaRunnerBackend until PB-4 wires S∧R composition.
-    It is provided as a documentation artifact showing what system model discriminates
-    the two requirement variants — the real-run evidence requires the Apalache binary.
+    This minimal S is a documentation artifact showing what system model discriminates
+    the two requirement variants. The grounded, model-checkable composition lives in
+    compose_s_and_r_module, which inlines a reviewed spec's predicate definitions and
+    invariants; real-run evidence comes from running that composed module under Apalache.
     """
     r_pred = _pred_name(requirement_pred_name)
     n_pred = _pred_name(negation_pred_name)
@@ -368,7 +369,7 @@ def generate_minimal_discriminating_s_module(
         f"\\* ¬R + S: obligation premise is TRUE → obligation fires; Step_action can reach\n"
         f"\\*          'accepted' (unconstrained) → counterexample exists.\n"
         f"\\* Checker-distinguishable: against S, R holds and ¬R fails.\n"
-        f"\\* Real-run evidence requires Apalache binary + PB-4 S∧R composition.\n"
+        f"\\* Real-run evidence comes from compose_s_and_r_module under Apalache.\n"
         f"CONSTANT actor\n\n"
         f"\\* @type: (Str) => Bool;\n"
         f"{r_pred}(a) == FALSE\n\n"
@@ -684,3 +685,313 @@ def _safe_name(value: str) -> str:
     if cleaned[0].isdigit():
         return "_" + cleaned
     return cleaned
+
+
+# ---------------------------------------------------------------------------
+# PB-1: real S ∧ R composition.
+#
+# The lowered requirement module R leaves its premise predicates abstract
+# (CONSTANT Pred_*(_)). A reviewed system spec S gives those predicates a
+# concrete interpretation (e.g. Pred_authorized(a) == FALSE) and declares the
+# named invariants the system guarantees. compose_s_and_r_module binds S's
+# concrete predicate definitions onto R's abstract predicates — the shared
+# predicate IS the coupling that makes S ∧ R non-vacuous — and conjoins R's
+# obligation with S's invariants into a single state invariant a model checker
+# verifies. This replaces the prior `SystemSpecAssumptions == TRUE` tautology.
+#
+# Empirically validated against apalache-mc 0.58.0: a requirement whose premise
+# S pins TRUE yields a real counterexample; its sibling whose premise S pins
+# FALSE yields a real valid — against the same S. Disjoint (non-shared) state
+# would make S's invariants trivially preserved, so the composition refuses an
+# S that declares no invariants and an S that fails to interpret a predicate R
+# depends on, rather than emitting a module that proves nothing.
+# ---------------------------------------------------------------------------
+
+
+@dataclass
+class SystemSpecContribution:
+    """One reviewed system spec's contribution to the composed S ∧ R module.
+
+    operator_body is the spec's TLA+ operator definitions (predicate
+    interpretations such as ``Pred_authorized(a) == FALSE`` and named invariant
+    operators) inlined verbatim with their own names preserved. invariants names
+    the operators the composition must preserve. defined_operators lists every
+    operator the spec declares so the composition can detect name collisions
+    with the requirement projection; defined_predicates is the ``Pred_*`` subset
+    that binds the requirement's abstract premise predicates.
+    """
+
+    spec_id: str
+    operator_body: str
+    invariants: list[str] = field(default_factory=list)
+    defined_operators: list[str] = field(default_factory=list)
+    defined_predicates: list[str] = field(default_factory=list)
+
+
+@dataclass
+class ComposedSandRModule:
+    """Result of composing S ∧ R: either a checker-ready module or a refusal.
+
+    A refusal is honest non-evidence — the composition declines rather than
+    emitting a module that would prove a tautology. refusal_kind is one of
+    ``no_system_invariant``, ``undefined_predicate``, ``operator_name_collision``,
+    ``undefined_invariant``, ``unsupported_spec_shape``, or
+    ``unsupported_requirement_shape``.
+    """
+
+    status: Literal["composed", "refused"]
+    module_text: str | None = None
+    refusal_kind: str | None = None
+    refusal_reason: str | None = None
+    preserved_invariants: list[str] = field(default_factory=list)
+    bound_predicates: list[str] = field(default_factory=list)
+
+
+# Operators the composition itself emits; an inlined spec must not redefine them.
+_COMPOSITION_RESERVED_OPERATORS = frozenset({"Inv", "ConstInit"})
+
+
+def build_system_spec_contribution(
+    spec_id: str, spec_text: str, invariants: list[str]
+) -> SystemSpecContribution:
+    """Parse one reviewed system spec into its inlinable operator contribution.
+
+    Strips the module wrapper and any EXTENDS line (the composed module supplies
+    Naturals/TLC) so only operator definitions remain, then records the operator
+    and predicate names declared so the caller can bind predicates and detect
+    collisions.
+    """
+    body = _strip_spec_operator_body(spec_text)
+    defined = parse_operator_definition_names(body)
+    predicates = [name for name in defined if name.startswith("Pred_")]
+    return SystemSpecContribution(
+        spec_id=spec_id,
+        operator_body=body,
+        invariants=list(invariants),
+        defined_operators=defined,
+        defined_predicates=predicates,
+    )
+
+
+def compose_s_and_r_module(
+    module_name: str,
+    lowered_content: str,
+    contributions: list[SystemSpecContribution],
+) -> ComposedSandRModule:
+    """Compose the lowered requirement R with reviewed system specs S.
+
+    Returns a checker-ready TLA+ module whose state invariant ``Inv`` conjoins
+    the requirement obligation ``RequirementHolds`` with every named system
+    invariant, after substituting S's concrete predicate definitions for R's
+    abstract premise predicates. Refuses (no module) when the composition would
+    be vacuous or ill-formed; the refusal_kind names why.
+    """
+    identifier_constants = parse_lowered_identifier_constants(lowered_content)
+    abstract_predicates = _parse_module_pred_constants(lowered_content)
+    variable_name = parse_lowered_variable_name(lowered_content)
+    logic_body = extract_lowered_logic_body(lowered_content)
+
+    if variable_name is None or not logic_body:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="unsupported_requirement_shape",
+            refusal_reason=(
+                "lowered requirement module is missing a VARIABLE declaration or a "
+                "transition body; cannot compose S ∧ R"
+            ),
+        )
+
+    requirement_operators = set(parse_operator_definition_names(logic_body))
+    reserved = requirement_operators | _COMPOSITION_RESERVED_OPERATORS
+
+    invariants: list[str] = []
+    for contribution in contributions:
+        invariants.extend(contribution.invariants)
+    if not invariants:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="no_system_invariant",
+            refusal_reason=(
+                "no reviewed system spec declares an invariant to preserve; an S that "
+                "asserts nothing cannot make S ∧ R non-trivial"
+            ),
+        )
+
+    # Every operator a spec inlines must be unique and must not shadow the
+    # requirement projection's operators or the composition's own operators.
+    owner_of: dict[str, str] = {}
+    collisions: set[str] = set()
+    defined_predicates: set[str] = set()
+    for contribution in contributions:
+        defined_predicates.update(contribution.defined_predicates)
+        for operator in contribution.defined_operators:
+            if operator in reserved or operator in owner_of:
+                collisions.add(operator)
+            owner_of[operator] = contribution.spec_id
+    if collisions:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="operator_name_collision",
+            refusal_reason=(
+                "system spec operators collide with requirement or composition "
+                f"operators: {sorted(collisions)}"
+            ),
+        )
+
+    missing_predicates = [
+        predicate for predicate in abstract_predicates if predicate not in defined_predicates
+    ]
+    if missing_predicates:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="undefined_predicate",
+            refusal_reason=(
+                "reviewed system specs do not interpret premise predicates "
+                f"{sorted(missing_predicates)}; cannot ground S ∧ R"
+            ),
+        )
+
+    missing_invariants = [name for name in invariants if name not in owner_of]
+    if missing_invariants:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="undefined_invariant",
+            refusal_reason=(
+                "system spec metadata names invariants that the spec body does not "
+                f"define: {sorted(missing_invariants)}"
+            ),
+        )
+
+    constant_block = _render_constant_block(identifier_constants)
+    variable_block = _render_variable_block(variable_name)
+    system_block = "\n\n".join(
+        contribution.operator_body for contribution in contributions
+    ).strip()
+    inv_line = "Inv == RequirementHolds" + "".join(f" /\\ {name}" for name in invariants)
+    const_init = _render_const_init(identifier_constants)
+    bound_predicates = sorted(set(abstract_predicates) & defined_predicates)
+
+    module_text = (
+        f"---- MODULE {module_name} ----\n"
+        f"EXTENDS Naturals, TLC\n\n"
+        f"{constant_block}"
+        f"\\* ===== Reviewed system spec S (inlined; operators keep their names) =====\n"
+        f"{system_block}\n\n"
+        f"{variable_block}"
+        f"\\* ===== Requirement projection R (transition system + obligation) =====\n"
+        f"{logic_body}\n\n"
+        f"\\* ===== S ∧ R: requirement obligation conjoined with system invariants =====\n"
+        f"{inv_line}\n"
+        f"{const_init}\n"
+        f"====\n"
+    )
+    return ComposedSandRModule(
+        status="composed",
+        module_text=module_text,
+        preserved_invariants=["RequirementHolds", *invariants],
+        bound_predicates=bound_predicates,
+    )
+
+
+def parse_lowered_identifier_constants(module_text: str) -> list[str]:
+    """Return non-predicate ``CONSTANT`` names declared in a lowered module.
+
+    These are the scope identifiers (e.g. ``redemption``, ``wallet``) that the
+    composition re-declares in a single Apalache-typed CONSTANT block and pins
+    via ConstInit. ``Pred_*`` constants are excluded — the system spec binds
+    those with concrete operator definitions.
+    """
+    import re
+
+    names: list[str] = []
+    for match in re.finditer(r"^CONSTANT (\w+)\s*$", module_text, re.MULTILINE):
+        name = match.group(1)
+        if not name.startswith("Pred_"):
+            names.append(name)
+    return names
+
+
+def parse_lowered_variable_name(module_text: str) -> str | None:
+    """Return the single VARIABLE name declared in a lowered module, or None."""
+    import re
+
+    match = re.search(r"^VARIABLE (\w+)\s*$", module_text, re.MULTILINE)
+    return match.group(1) if match else None
+
+
+def extract_lowered_logic_body(module_text: str) -> str:
+    """Return the operator-definition body of a lowered module (Init … last op).
+
+    Slices from the first top-level operator definition (``Init ==``) through to
+    the line before the module terminator, dropping the declaration headers whose
+    Apalache type-annotation placement the composition re-emits in its own form.
+    """
+    import re
+
+    lines = module_text.splitlines()
+    start = None
+    for index, line in enumerate(lines):
+        if re.match(r"^Init\s*==", line):
+            start = index
+            break
+    if start is None:
+        return ""
+    end = len(lines)
+    for index in range(start, len(lines)):
+        if lines[index].strip() == "====":
+            end = index
+            break
+    return "\n".join(lines[start:end]).strip()
+
+
+def parse_operator_definition_names(module_text: str) -> list[str]:
+    """Return top-level operator names defined (``Name == …`` / ``Name(a) == …``).
+
+    Anchored at line start with no leading whitespace, so continuation lines of a
+    multi-line definition (``  /\\ NLRState = "idle"``) and single-``=`` equalities
+    are not mistaken for definitions.
+    """
+    import re
+
+    return re.findall(r"^(\w+)\s*(?:\([^)]*\))?\s*==", module_text, re.MULTILINE)
+
+
+def _strip_spec_operator_body(spec_text: str) -> str:
+    """Strip a system spec down to its inlinable operator definitions.
+
+    Removes the ``---- MODULE … ----`` / ``====`` wrapper and any EXTENDS line
+    (the composed module supplies Naturals/TLC), leaving operator definitions and
+    their type-annotation comments intact for verbatim inlining.
+    """
+    import re
+
+    lines = spec_text.splitlines()
+    if lines and lines[0].startswith("---- MODULE "):
+        lines = lines[1:]
+    if lines and lines[-1].strip() == "====":
+        lines = lines[:-1]
+    kept = [line for line in lines if not re.match(r"^EXTENDS\b", line.strip())]
+    return "\n".join(kept).strip()
+
+
+def _render_constant_block(identifier_constants: list[str]) -> str:
+    """Render identifier constants as one Apalache-typed CONSTANT block."""
+    if not identifier_constants:
+        return ""
+    entries = ",\n".join(
+        f"  \\* @type: Str;\n  {name}" for name in identifier_constants
+    )
+    return f"CONSTANT\n{entries}\n\n"
+
+
+def _render_variable_block(variable_name: str) -> str:
+    """Render the requirement's state variable as an Apalache-typed VARIABLE block."""
+    return f"VARIABLE\n  \\* @type: Str;\n  {variable_name}\n\n"
+
+
+def _render_const_init(identifier_constants: list[str]) -> str:
+    """Render a ConstInit that pins each identifier constant to a model value."""
+    if not identifier_constants:
+        return "ConstInit == TRUE"
+    conjuncts = " /\\ ".join(f'{name} = "{name}"' for name in identifier_constants)
+    return f"ConstInit == {conjuncts}"
