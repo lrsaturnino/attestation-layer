@@ -2208,6 +2208,7 @@ def main(argv: list[str] | None = None) -> int:
                                 candidate_id=fixture_result.candidate_id,
                                 approval=fixture_result.approval,
                                 is_audited=fixture_result.is_audited,
+                                audit_verdict=fixture_result.audit_verdict,
                                 model_id=fixture_result.model_id,
                                 prompt_hash=fixture_result.prompt_hash,
                                 fixture_provenance=fixture_result.provenance,

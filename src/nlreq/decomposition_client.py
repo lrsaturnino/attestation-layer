@@ -98,9 +98,11 @@ class RecordedDecompositionClient:
     not the input routing.
 
     Callers supply explicit trust metadata at construction time.  To exercise the
-    refused-ambiguous path in tests, pass approval=Approval(status="approved", …)
-    and is_audited=True.  To exercise the needs-review / unaudited path, leave both
-    at their defaults (None / False).
+    refused-ambiguous path in tests, pass approval=Approval(status="approved", …),
+    is_audited=True, and a passing audit_verdict — the ensemble trust check requires
+    a present, structurally passing verdict as evidence, not just the is_audited flag.
+    To exercise the needs-review / untrusted path, leave them at their defaults
+    (None / False / None).
 
     Pass expected_source_text_hash (typically fixture_result.source_text_hash from the
     saved fixture) to bind the replay to the original input.  When set, replaying against
@@ -115,6 +117,7 @@ class RecordedDecompositionClient:
         candidate_id: str = "recorded",
         approval: Approval | None = None,
         is_audited: bool = False,
+        audit_verdict: AuditVerdict | None = None,
         model_id: str | None = None,
         prompt_hash: str | None = None,
         fixture_provenance: dict[str, str] | None = None,
@@ -125,6 +128,7 @@ class RecordedDecompositionClient:
         self._candidate_id = candidate_id
         self._approval = approval
         self._is_audited = is_audited
+        self._audit_verdict = audit_verdict
         self._model_id = model_id
         self._prompt_hash = prompt_hash
         self._fixture_provenance: dict[str, str] = fixture_provenance or {}
@@ -157,6 +161,7 @@ class RecordedDecompositionClient:
             source_spans=self._source_spans,
             approval=self._approval,
             is_audited=self._is_audited,
+            audit_verdict=self._audit_verdict,
             # Use "replay_marker" to avoid colliding with a "source" key that may
             # already exist in fixture_provenance (e.g. {"source": "test_fixture"}).
             provenance={"replay_marker": "recorded_fixture", **self._fixture_provenance},

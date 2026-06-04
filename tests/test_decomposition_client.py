@@ -64,6 +64,15 @@ def _approved_approval() -> Approval:
     return Approval(status="approved", approved_by="test-suite", approved_at="test")
 
 
+def _passing_verdict() -> AuditVerdict:
+    """A structurally passing audit verdict: covers all clauses, invents nothing.
+
+    The ensemble trust check requires a present, passing verdict as evidence, so
+    fixtures that should reach the accepted / refused-ambiguous path carry this.
+    """
+    return AuditVerdict(covers_all_clauses=True, invented_premises=[], verdict="passed")
+
+
 # ---------------------------------------------------------------------------
 # RecordedDecompositionClient
 # ---------------------------------------------------------------------------
@@ -161,8 +170,8 @@ def test_ensemble_agreed_audited_clients_produce_accepted() -> None:
     approval = _approved_approval()
     ir = _parse_ir()
     clients = [
-        RecordedDecompositionClient(fixture=ir, approval=approval, is_audited=True),
-        RecordedDecompositionClient(fixture=ir, approval=approval, is_audited=True),
+        RecordedDecompositionClient(fixture=ir, approval=approval, is_audited=True, audit_verdict=_passing_verdict()),
+        RecordedDecompositionClient(fixture=ir, approval=approval, is_audited=True, audit_verdict=_passing_verdict()),
     ]
 
     report = translate_controlled_requirement_to_formal_claim(
@@ -214,8 +223,8 @@ def test_ensemble_disagreed_audited_clients_produce_refused_ambiguous() -> None:
     ir_a = _parse_ir()
     ir_b = _parse_ir_variant()  # different predicate → different formal-claim signature
     clients = [
-        RecordedDecompositionClient(fixture=ir_a, approval=approval, is_audited=True),
-        RecordedDecompositionClient(fixture=ir_b, approval=approval, is_audited=True),
+        RecordedDecompositionClient(fixture=ir_a, approval=approval, is_audited=True, audit_verdict=_passing_verdict()),
+        RecordedDecompositionClient(fixture=ir_b, approval=approval, is_audited=True, audit_verdict=_passing_verdict()),
     ]
 
     report = translate_controlled_requirement_to_formal_claim(
@@ -314,8 +323,8 @@ def test_ensemble_refused_ambiguous_carries_prior_provenance() -> None:
     ir_a = _parse_ir()
     ir_b = _parse_ir_variant()
     clients = [
-        RecordedDecompositionClient(fixture=ir_a, approval=approval, is_audited=True),
-        RecordedDecompositionClient(fixture=ir_b, approval=approval, is_audited=True),
+        RecordedDecompositionClient(fixture=ir_a, approval=approval, is_audited=True, audit_verdict=_passing_verdict()),
+        RecordedDecompositionClient(fixture=ir_b, approval=approval, is_audited=True, audit_verdict=_passing_verdict()),
     ]
 
     report = translate_controlled_requirement_to_formal_claim(
@@ -503,8 +512,8 @@ def test_refused_ambiguous_source_spans_from_original_ir() -> None:
     original_spans = _collect_spans(original_ir)
 
     clients = [
-        RecordedDecompositionClient(fixture=ir_a, approval=approval, is_audited=True),
-        RecordedDecompositionClient(fixture=ir_b, approval=approval, is_audited=True),
+        RecordedDecompositionClient(fixture=ir_a, approval=approval, is_audited=True, audit_verdict=_passing_verdict()),
+        RecordedDecompositionClient(fixture=ir_b, approval=approval, is_audited=True, audit_verdict=_passing_verdict()),
     ]
     report = translate_controlled_requirement_to_formal_claim(
         controlled_text=_CONTROLLED_TEXT,
@@ -628,6 +637,7 @@ def _write_decomposition_fixture(
     candidate_id: str,
     approval: Approval | None,
     is_audited: bool,
+    audit_verdict: AuditVerdict | None = None,
 ) -> Path:
     result = DecompositionResult(
         requirement=ir,
@@ -635,6 +645,7 @@ def _write_decomposition_fixture(
         source_text_hash=sha256_text(_CONTROLLED_TEXT),
         approval=approval,
         is_audited=is_audited,
+        audit_verdict=audit_verdict,
         provenance={"source": "test_fixture"},
     )
     path.write_text(result.model_dump_json())
@@ -659,6 +670,7 @@ def test_cli_semantic_translate_two_approved_disagreeing_fixtures_refused_ambigu
         candidate_id="candidate-a",
         approval=approval,
         is_audited=True,
+        audit_verdict=_passing_verdict(),
     )
     fixture_b = _write_decomposition_fixture(
         tmp_path / "fixture_b.json",
@@ -666,6 +678,7 @@ def test_cli_semantic_translate_two_approved_disagreeing_fixtures_refused_ambigu
         candidate_id="candidate-b",
         approval=approval,
         is_audited=True,
+        audit_verdict=_passing_verdict(),
     )
     out_path = tmp_path / "report.json"
 
@@ -841,6 +854,7 @@ def test_cli_recorded_fixture_preserves_provenance_in_decomposition(tmp_path: Pa
         source_text_hash=sha256_text(_CONTROLLED_TEXT),
         approval=approval,
         is_audited=True,
+        audit_verdict=_passing_verdict(),
         provenance=fixture_provenance,
     )
     fixture_path = tmp_path / "fixture_prov.json"
@@ -1322,16 +1336,18 @@ def test_translate_failing_audit_client_keeps_candidates_unaudited() -> None:
         assert "invented_premise_should_block" in av.invented_premises
 
 
-def test_translate_no_audit_client_preserves_existing_behaviour() -> None:
-    """Without audit_client, behaviour is unchanged: already-audited fixtures proceed normally.
+def test_translate_boolean_only_is_audited_without_verdict_is_not_trusted() -> None:
+    """A boolean is_audited=True with no audit verdict is NOT trusted: needs_review.
 
-    Regression guard: adding audit_client as an optional parameter must not break
-    existing call sites that pass is_audited=True fixtures and no audit_client.
+    Closes the trust hole: previously a candidate could carry is_audited=True with
+    no audit_verdict and, absent an audit_client, be accepted on the strength of the
+    flag alone.  The flag is not evidence — the trust check now requires a present,
+    structurally passing audit verdict, so such a candidate blocks as needs_review.
     """
     client_a = RecordedDecompositionClient(
         fixture=_parse_ir(),
         approval=_approved_approval(),
-        is_audited=True,  # already audited by caller
+        is_audited=True,  # flag set, but no audit_verdict supplied
     )
     client_b = RecordedDecompositionClient(
         fixture=_parse_ir(),
@@ -1344,19 +1360,58 @@ def test_translate_no_audit_client_preserves_existing_behaviour() -> None:
         requirement_id=_REQUIREMENT_ID,
         title=_TITLE,
         decomposition_clients=[client_a, client_b],
-        audit_client=None,  # explicit None — existing callers omit this
+        audit_client=None,  # no audit client: the flag alone must not unlock trust
+    )
+
+    assert report.result == "needs_review", (
+        "Boolean-only is_audited=True with no verdict must NOT be accepted; "
+        f"expected needs_review, got {report.result!r}"
+    )
+    assert report.refusal_code == "NLR-UNAUDITED-DECOMPOSITION", (
+        f"Expected NLR-UNAUDITED-DECOMPOSITION, got {report.refusal_code!r}"
+    )
+    # The fixtures carry no verdict and no audit_client ran, so the verdicts are
+    # absent — and that absence of evidence is exactly why the candidates are untrusted.
+    for av in report.ensemble_candidate_audit_verdicts:
+        assert av is None
+
+
+def test_translate_preaudited_with_verdict_no_audit_client_accepted() -> None:
+    """A fixture pre-audited WITH a passing verdict proceeds without an audit_client.
+
+    The audit_client stays optional: a candidate that already carries real audit
+    evidence (is_audited=True AND a passing audit_verdict) is trusted on its own and
+    reaches accepted, so existing callers that supply audited fixtures are unaffected.
+    """
+    client_a = RecordedDecompositionClient(
+        fixture=_parse_ir(),
+        approval=_approved_approval(),
+        is_audited=True,
+        audit_verdict=_passing_verdict(),
+    )
+    client_b = RecordedDecompositionClient(
+        fixture=_parse_ir(),
+        approval=_approved_approval(),
+        is_audited=True,
+        audit_verdict=_passing_verdict(),
+    )
+
+    report = translate_controlled_requirement_to_formal_claim(
+        controlled_text=_CONTROLLED_TEXT,
+        requirement_id=_REQUIREMENT_ID,
+        title=_TITLE,
+        decomposition_clients=[client_a, client_b],
+        audit_client=None,  # optional: candidates already carry their verdict
     )
 
     assert report.result == "accepted", (
-        f"Pre-audited fixtures without audit_client must still produce 'accepted', "
-        f"got {report.result!r}"
+        f"Pre-audited fixtures carrying a passing verdict must produce 'accepted', "
+        f"got {report.result!r}: refusal_code={report.refusal_code!r}"
     )
-    # No audit verdicts are emitted when no audit_client was supplied and candidates
-    # were already audited (audit_verdict=None from RecordedDecompositionClient).
+    # The carried verdicts flow through to the report.
+    assert len(report.ensemble_candidate_audit_verdicts) == 2
     for av in report.ensemble_candidate_audit_verdicts:
-        assert av is None, (
-            "No audit_client supplied and RecordedDecompositionClient sets no audit_verdict"
-        )
+        assert av is not None and av.verdict == "passed"
 
 
 def test_translate_audit_verdicts_present_even_on_ambiguous_refusal() -> None:

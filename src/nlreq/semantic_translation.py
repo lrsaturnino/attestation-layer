@@ -389,6 +389,32 @@ def refuse_ambiguous_ensemble(
     )
 
 
+def _is_trusted_candidate(result: "DecompositionResult") -> bool:
+    """Whether a decomposition candidate may drive a formal-claim comparison.
+
+    A candidate is trusted only with real audit evidence:
+      - explicit approval (approval.status == "approved"), AND
+      - is_audited is True, AND
+      - a present audit verdict that structurally passes — it covers all clauses
+        and invents no premises.
+
+    A boolean is_audited=True with no audit_verdict is NOT trusted: the verdict is
+    the evidence, the flag alone is not.  The structural fields are checked directly
+    (matching how apply_audit derives the gate) rather than trusting the verdict
+    string.
+    """
+    if result.approval is None or result.approval.status != "approved":
+        return False
+    if not result.is_audited:
+        return False
+    if result.audit_verdict is None:
+        return False
+    return (
+        result.audit_verdict.covers_all_clauses
+        and not result.audit_verdict.invented_premises
+    )
+
+
 def _check_decomposition_ensemble(
     *,
     controlled_text: str,
@@ -415,9 +441,11 @@ def _check_decomposition_ensemble(
     1. When audit_client is supplied (PA-6), it is applied to any candidate that is not
        yet audited (is_audited=False) before the trust check.  audit_client uses the
        original approved controlled_text, never a candidate's re-expressed text.
-    2. Any candidate that is not both approved and audited (is_audited=True) after the
-       optional audit causes the ensemble to return needs_review — the unaudited result
-       is a process blocker, not a semantic finding.
+    2. Any candidate that is not approved AND audited with a present, structurally
+       passing audit verdict (covers all clauses, no invented premises) causes the
+       ensemble to return needs_review — a boolean is_audited flag without a verdict
+       is not trusted evidence.  The untrusted result is a process blocker, not a
+       semantic finding.
     3. Only after all candidates pass the trust check do we run the FormalClaim-signature
        comparison.  Disagreement then produces NLR-REFUSED-AMBIGUOUS with full provenance.
 
@@ -462,14 +490,12 @@ def _check_decomposition_ensemble(
     candidate_provenances: list[dict[str, str]] = [r.provenance for r in results]
     candidate_audit_verdicts: list[AuditVerdict | None] = [r.audit_verdict for r in results]
 
-    # Trust check: any unaudited or unapproved candidate blocks as needs_review.
-    unaudited = [
-        r for r in results
-        if not r.is_audited
-        or r.approval is None
-        or r.approval.status != "approved"
-    ]
-    if unaudited:
+    # Trust check: a candidate may drive a formal-claim comparison only with real audit
+    # evidence — explicit approval AND a present, structurally passing audit verdict.
+    # A boolean is_audited=True with no verdict is NOT trusted: the verdict is the
+    # evidence, the flag alone is not.
+    untrusted = [r for r in results if not _is_trusted_candidate(r)]
+    if untrusted:
         return SemanticTranslationReport(
             translation_id=translation_id,
             requirement_id=requirement_id,
@@ -491,8 +517,9 @@ def _check_decomposition_ensemble(
                     stage="lower_formal_claim",
                     status="needs_review",
                     message=(
-                        f"{len(unaudited)} of {len(results)} decomposition candidate(s) are "
-                        "unaudited or unapproved; PA-6 audit required before claim inference"
+                        f"{len(untrusted)} of {len(results)} decomposition candidate(s) are "
+                        "unapproved or lack a present, passing audit verdict; audit evidence "
+                        "required before claim inference"
                     ),
                 ),
             ],
