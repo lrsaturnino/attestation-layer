@@ -11,6 +11,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from nlreq.cli import main
+from nlreq.audit_client import AuditVerdict, RecordedAuditClient, apply_audit
 from nlreq.decomposition_client import (
     AnthropicDecompositionClient,
     DecompositionClient,
@@ -982,3 +983,161 @@ def test_cli_recorded_fixture_hash_mismatch_produces_clean_error(tmp_path: Path)
     assert "does not match fixture's expected hash" in stderr_output, (
         f"Error message must explain the hash mismatch. Got: {stderr_output!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# PA-6: AuditClient — RecordedAuditClient and AuditVerdict
+# ---------------------------------------------------------------------------
+
+
+def test_recorded_audit_client_returns_fixture_verdict() -> None:
+    """RecordedAuditClient replays the fixture AuditVerdict regardless of inputs."""
+    verdict = AuditVerdict(
+        covers_all_clauses=True,
+        invented_premises=[],
+        verdict="passed",
+    )
+    client = RecordedAuditClient(fixture=verdict)
+
+    result = client.audit_decomposition(
+        controlled_text="any controlled text",
+        ir_summary="any IR summary",
+    )
+
+    assert result is verdict
+    assert result.verdict == "passed"
+    assert result.covers_all_clauses is True
+    assert result.invented_premises == []
+
+
+def test_apply_audit_failing_verdict_blocks_is_audited() -> None:
+    """apply_audit with a failing fixture (invented premise) leaves is_audited=False.
+
+    This is the PA-6 acceptance criterion: a planted invented-premise decomposition
+    is caught by the audit gate.  apply_audit is the gating function — the only code
+    path that may set is_audited=True on an LLM-produced DecompositionResult.
+    A failing verdict must leave is_audited=False so the ensemble treats the
+    candidate as needs_review rather than trusted.
+    """
+    failing_verdict = AuditVerdict(
+        covers_all_clauses=True,
+        invented_premises=["invented_condition_not_in_controlled_text"],
+        verdict="failed",
+    )
+    audit_client = RecordedAuditClient(fixture=failing_verdict)
+    base_result = RecordedDecompositionClient(fixture=_parse_ir()).decompose_controlled_to_ir(
+        _CONTROLLED_TEXT, _REQUIREMENT_ID, _TITLE
+    )
+    assert base_result.is_audited is False, "Base result must start unaudited"
+
+    gated = apply_audit(base_result, audit_client, _CONTROLLED_TEXT)
+
+    assert gated.is_audited is False, (
+        "apply_audit must leave is_audited=False when verdict is 'failed'"
+    )
+    assert gated.audit_verdict is not None
+    assert gated.audit_verdict.verdict == "failed"
+    assert "invented_condition_not_in_controlled_text" in gated.audit_verdict.invented_premises
+    # Original result is not mutated.
+    assert base_result.audit_verdict is None
+
+
+def test_apply_audit_passing_verdict_sets_is_audited() -> None:
+    """apply_audit with a passing fixture (clean decomposition) sets is_audited=True.
+
+    A clean decomposition (all clauses covered, no invented premises) must set
+    is_audited=True via apply_audit so the ensemble can treat the candidate as trusted.
+    """
+    passing_verdict = AuditVerdict(
+        covers_all_clauses=True,
+        invented_premises=[],
+        verdict="passed",
+    )
+    audit_client = RecordedAuditClient(fixture=passing_verdict)
+    base_result = RecordedDecompositionClient(fixture=_parse_ir()).decompose_controlled_to_ir(
+        _CONTROLLED_TEXT, _REQUIREMENT_ID, _TITLE
+    )
+
+    gated = apply_audit(base_result, audit_client, _CONTROLLED_TEXT)
+
+    assert gated.is_audited is True, (
+        "apply_audit must set is_audited=True when verdict is 'passed'"
+    )
+    assert gated.audit_verdict is not None
+    assert gated.audit_verdict.verdict == "passed"
+    assert gated.audit_verdict.covers_all_clauses is True
+    assert gated.audit_verdict.invented_premises == []
+    # Original result is not mutated.
+    assert base_result.is_audited is False
+
+
+def test_apply_audit_missing_clause_blocks_is_audited() -> None:
+    """apply_audit with missing-clause failure leaves is_audited=False.
+
+    covers_all_clauses=False must produce verdict='failed' which blocks is_audited.
+    """
+    missing_clause_verdict = AuditVerdict(
+        covers_all_clauses=False,
+        invented_premises=[],
+        verdict="failed",
+    )
+    audit_client = RecordedAuditClient(fixture=missing_clause_verdict)
+    base_result = RecordedDecompositionClient(fixture=_parse_ir()).decompose_controlled_to_ir(
+        _CONTROLLED_TEXT, _REQUIREMENT_ID, _TITLE
+    )
+
+    gated = apply_audit(base_result, audit_client, _CONTROLLED_TEXT)
+
+    assert gated.is_audited is False
+    assert gated.audit_verdict.covers_all_clauses is False
+
+
+def test_audit_verdict_schema() -> None:
+    """AuditVerdict fields are correctly validated by Pydantic."""
+    verdict = AuditVerdict(
+        covers_all_clauses=False,
+        invented_premises=["extra_condition"],
+        verdict="failed",
+        model_id="claude-haiku-4-5-20251001",
+    )
+
+    data = verdict.model_dump(mode="json")
+    assert data["covers_all_clauses"] is False
+    assert data["invented_premises"] == ["extra_condition"]
+    assert data["verdict"] == "failed"
+    assert data["model_id"] == "claude-haiku-4-5-20251001"
+    assert "audit_prompt_version" in data
+
+
+def test_decomposition_result_carries_audit_verdict() -> None:
+    """DecompositionResult.audit_verdict field carries AuditVerdict when set."""
+    ir = _parse_ir()
+    verdict = AuditVerdict(
+        covers_all_clauses=True,
+        invented_premises=[],
+        verdict="passed",
+    )
+    decomp = DecompositionResult(
+        requirement=ir,
+        candidate_id="test-candidate",
+        source_text_hash=sha256_text(_CONTROLLED_TEXT),
+        audit_verdict=verdict,
+        is_audited=True,
+    )
+
+    assert decomp.audit_verdict is not None
+    assert decomp.audit_verdict.verdict == "passed"
+    assert decomp.is_audited is True
+
+
+def test_decomposition_result_audit_verdict_defaults_to_none() -> None:
+    """DecompositionResult.audit_verdict is None by default (not yet audited)."""
+    ir = _parse_ir()
+    decomp = DecompositionResult(
+        requirement=ir,
+        candidate_id="test-candidate",
+        source_text_hash=sha256_text(_CONTROLLED_TEXT),
+    )
+
+    assert decomp.audit_verdict is None
+    assert decomp.is_audited is False

@@ -6,7 +6,11 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .formal_backend import FormalBackendBudget, FormalBackendExecution
-from .formal_lowering import parse_obligation_predicates
+from .formal_lowering import (
+    obligation_consequent_is_real,
+    next_has_steps,
+    parse_obligation_predicates,
+)
 from .jsonutil import sha256_json, sha256_text
 from .model_checker_runner import (
     ModelCheckerBudget,
@@ -189,12 +193,12 @@ def check_solver_backed_system_consistency(
             evidence_level=z3_evidence,
         )
 
-    # External-checker path: real S∧R composition requires removing CONSTANT declarations
-    # from the lowered module and inlining concrete operator definitions for S.  This cannot
-    # be done by simple string substitution without risking arity/name mismatches across the
-    # module body.  Until PB-4 implements proper composition, refuse when S assignments exist
-    # rather than running with SystemSpecAssumptions == TRUE (a tautology that proves nothing).
-    if pred_assignments:
+    # External-checker path: real S∧R composition requires inlining S operator definitions
+    # into the composed module.  Until PB-4 implements proper composition, refuse whenever
+    # relevant system spec files exist — not only when they happen to define the simple
+    # Pred_*(...) == TRUE/FALSE pattern.  Any other TLA+ constraint in a spec file would
+    # still be composed with SystemSpecAssumptions == TRUE (a tautology that proves nothing).
+    if spec_texts:
         return _solver_result(
             requirement.requirement_id,
             "unsupported",
@@ -203,11 +207,11 @@ def check_solver_backed_system_consistency(
                 "mode": "solver_backed",
                 "checker_id": execution.checker_id,
                 "reason": (
-                    "S predicate assignments from spec files cannot be inlined into the "
-                    "composed TLA+ module without removing CONSTANT declarations; "
+                    "system spec files cannot be inlined into the composed TLA+ module; "
                     "real S∧R composition is pending PB-4"
                 ),
                 "s_pred_count": len(pred_assignments),
+                "spec_count": len(spec_texts),
                 "spec_hashes": {
                     spec_id: sha256_text(text) for spec_id, text in spec_texts
                 },
@@ -386,33 +390,11 @@ def _extract_pred_assignments_from_specs(
 
 
 def _obligation_consequent_is_real(module_text: str) -> bool:
-    """True if the Obligation definition has a non-vacuous state constraint consequent.
-
-    Catches regressions where the obligation consequent is changed to TRUE while
-    the Pred_* name is preserved, e.g. Obligation == Pred_foo(a) => TRUE.
-    The expected form from lower_authorization_precondition_tla is:
-      Obligation == Pred_foo(a) => NLRState /= "accepted"
-    Returns False for vacuous consequents (=> TRUE) or missing Obligation lines.
-    """
-    import re
-    match = re.search(r"^Obligation == (.*)$", module_text, re.MULTILINE)
-    if not match:
-        return False
-    body = match.group(1)
-    return "NLRState" in body and "/=" in body
+    return obligation_consequent_is_real(module_text)
 
 
 def _next_has_steps(module_text: str) -> bool:
-    """True if the Next definition includes at least one Step_* action.
-
-    Catches regressions where Next == UNCHANGED NLRState (no real transitions),
-    which would make the obligation trivially true regardless of the S assignment.
-    """
-    import re
-    match = re.search(r"^Next == (.+)$", module_text, re.MULTILINE)
-    if not match:
-        return False
-    return "Step_" in match.group(1)
+    return next_has_steps(module_text)
 
 
 def _z3_check_obligation_under_s(

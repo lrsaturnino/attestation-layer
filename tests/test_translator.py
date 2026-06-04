@@ -788,6 +788,140 @@ def test_z3_discriminate_lowered_requirements_negative_control_same_ir() -> None
     )
 
 
+def test_z3_discriminate_lowered_requirements_raises_on_vacuous_consequent() -> None:
+    """z3_discriminate_lowered_requirements raises ValueError for a vacuous obligation consequent.
+
+    A mutation that changes the consequent to => TRUE while preserving the Pred_*
+    name in the Obligation line should be caught by obligation_consequent_is_real
+    before any Z3 encoding runs.  This is the same guard applied in the gate Z3 path.
+    """
+    import re
+    from nlreq.formal_lowering import lower_authorization_precondition_tla
+
+    ir_pos = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope op "
+        "when actor is not authorized then operation must reject before state_change.",
+        requirement_id="LOWERED-MUT-CONSEQ-POS",
+        title="Not authorized (mutation test)",
+    )
+    ir_neg = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope op "
+        "when actor is authorized then operation must reject before state_change.",
+        requirement_id="LOWERED-MUT-CONSEQ-NEG",
+        title="Authorized (mutation test)",
+    )
+
+    # Produce the real module and mutate the requirement's obligation consequent.
+    req_module = lower_authorization_precondition_tla(ir_pos)
+    vacuous_module = re.sub(
+        r"(^Obligation == .* => )NLRState /= \"accepted\"",
+        r"\1TRUE",
+        req_module,
+        flags=re.MULTILINE,
+    )
+    assert "=> TRUE" in vacuous_module, "Mutation must insert vacuous => TRUE consequent"
+
+    # Build a mutated RequirementIRV2 whose lowered module will carry the vacuous consequent.
+    # We do this by monkeypatching lower_authorization_precondition_tla for the requirement_ir.
+    import nlreq.formal_lowering as fl
+    original_lower = fl.lower_authorization_precondition_tla
+
+    def patched_lower(ir):
+        if ir.requirement_id == "LOWERED-MUT-CONSEQ-POS":
+            return vacuous_module
+        return original_lower(ir)
+
+    fl.lower_authorization_precondition_tla = patched_lower
+    try:
+        with pytest.raises(ValueError, match="vacuous obligation consequent"):
+            z3_discriminate_lowered_requirements(ir_pos, ir_neg)
+    finally:
+        fl.lower_authorization_precondition_tla = original_lower
+
+
+def test_z3_discriminate_lowered_requirements_raises_on_no_step_transitions() -> None:
+    """z3_discriminate_lowered_requirements raises ValueError when Next has no Step_* actions.
+
+    A mutation that strips Step_* from the Next definition while preserving the rest
+    of the module structure should be caught by next_has_steps before Z3 encoding.
+    """
+    import re
+    from nlreq.formal_lowering import lower_authorization_precondition_tla
+
+    ir_pos = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope op "
+        "when actor is not authorized then operation must reject before state_change.",
+        requirement_id="LOWERED-MUT-STEP-POS",
+        title="Not authorized (no-step mutation)",
+    )
+    ir_neg = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope op "
+        "when actor is authorized then operation must reject before state_change.",
+        requirement_id="LOWERED-MUT-STEP-NEG",
+        title="Authorized (no-step mutation)",
+    )
+
+    req_module = lower_authorization_precondition_tla(ir_pos)
+    no_step_module = re.sub(
+        r"^Next == .*$",
+        "Next == UNCHANGED NLRState",
+        req_module,
+        flags=re.MULTILINE,
+    )
+    assert "UNCHANGED NLRState" in no_step_module
+    assert "Step_" not in re.search(r"^Next == (.+)$", no_step_module, re.MULTILINE).group(1)
+
+    import nlreq.formal_lowering as fl
+    original_lower = fl.lower_authorization_precondition_tla
+
+    def patched_lower(ir):
+        if ir.requirement_id == "LOWERED-MUT-STEP-POS":
+            return no_step_module
+        return original_lower(ir)
+
+    fl.lower_authorization_precondition_tla = patched_lower
+    try:
+        with pytest.raises(ValueError, match="no Step_\\* transitions"):
+            z3_discriminate_lowered_requirements(ir_pos, ir_neg)
+    finally:
+        fl.lower_authorization_precondition_tla = original_lower
+
+
+def test_z3_discriminate_lowered_requirements_raises_on_changed_state_name() -> None:
+    """z3_discriminate_lowered_requirements raises ValueError when the state variable name changes.
+
+    A mutation that renames NLRState to some other name (so the obligation consequent
+    no longer references NLRState) is caught by obligation_consequent_is_real.
+    """
+    import re
+    from nlreq.formal_lowering import lower_authorization_precondition_tla
+
+    ir = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope op "
+        "when actor is authorized then operation must reject before state_change.",
+        requirement_id="LOWERED-MUT-STATE",
+        title="State name mutation",
+    )
+    req_module = lower_authorization_precondition_tla(ir)
+    mutated = req_module.replace("NLRState", "SomeOtherState")
+    assert "SomeOtherState" in mutated
+
+    import nlreq.formal_lowering as fl
+    original_lower = fl.lower_authorization_precondition_tla
+
+    def patched_lower(some_ir):
+        if some_ir.requirement_id == "LOWERED-MUT-STATE":
+            return mutated
+        return original_lower(some_ir)
+
+    fl.lower_authorization_precondition_tla = patched_lower
+    try:
+        with pytest.raises(ValueError, match="vacuous obligation consequent"):
+            z3_discriminate_lowered_requirements(ir, ir)
+    finally:
+        fl.lower_authorization_precondition_tla = original_lower
+
+
 def test_parse_obligation_predicates_finds_pred_names_in_real_module() -> None:
     """parse_obligation_predicates returns the Pred_* names from the Obligation == line.
 

@@ -416,6 +416,43 @@ def parse_obligation_predicates(module_text: str) -> list[str]:
     return re.findall(r"Pred_\w+", match.group(1))
 
 
+def obligation_consequent_is_real(module_text: str) -> bool:
+    """True when the Obligation definition has a non-vacuous state-constraint consequent.
+
+    Catches regressions where the obligation consequent is replaced with TRUE while
+    the Pred_* predicate name is preserved, e.g. Obligation == Pred_foo(a) => TRUE.
+    The expected form from lower_authorization_precondition_tla is:
+      Obligation == Pred_foo(a) => NLRState /= "accepted"
+    Returns False for vacuous consequents (=> TRUE) or missing Obligation lines.
+
+    Exported so both system_checker (gate Z3 path) and formal_lowering
+    (z3_discriminate_lowered_requirements) can apply the same guard.
+    """
+    import re
+    match = re.search(r"^Obligation == (.*)$", module_text, re.MULTILINE)
+    if not match:
+        return False
+    body = match.group(1)
+    return "NLRState" in body and "/=" in body
+
+
+def next_has_steps(module_text: str) -> bool:
+    """True when the Next definition includes at least one Step_* action.
+
+    Catches regressions where Next == UNCHANGED NLRState (no real transitions),
+    which would make the obligation trivially true regardless of the S assignment.
+    Returns False when the Next line is missing or contains no Step_* references.
+
+    Exported so both system_checker (gate Z3 path) and formal_lowering
+    (z3_discriminate_lowered_requirements) can apply the same guard.
+    """
+    import re
+    match = re.search(r"^Next == (.+)$", module_text, re.MULTILINE)
+    if not match:
+        return False
+    return "Step_" in match.group(1)
+
+
 def z3_discriminate_lowered_requirements(
     requirement_ir: RequirementIRV2,
     negation_ir: RequirementIRV2,
@@ -478,6 +515,31 @@ def z3_discriminate_lowered_requirements(
         raise ValueError(
             "negation_module Obligation is vacuous (no Pred_* references) — "
             "lowering defect or regression; expected non-vacuous obligation"
+        )
+
+    # Structural integrity guards — same checks as the gate Z3 path (_z3_check_obligation_under_s).
+    # Without these, a mutation that changes the obligation consequent to => TRUE or strips
+    # all Step_* transitions from Next would still produce a discrimination result, making
+    # this function weaker than the gate path it is used to validate.
+    if not obligation_consequent_is_real(requirement_module):
+        raise ValueError(
+            "requirement_module has a vacuous obligation consequent (missing NLRState /= constraint) "
+            "— lowering defect or regression"
+        )
+    if not obligation_consequent_is_real(negation_module):
+        raise ValueError(
+            "negation_module has a vacuous obligation consequent (missing NLRState /= constraint) "
+            "— lowering defect or regression"
+        )
+    if not next_has_steps(requirement_module):
+        raise ValueError(
+            "requirement_module Next definition has no Step_* transitions "
+            "— lowering defect or regression"
+        )
+    if not next_has_steps(negation_module):
+        raise ValueError(
+            "negation_module Next definition has no Step_* transitions "
+            "— lowering defect or regression"
         )
 
     # Z3 Bools are named after the module's CONSTANT declarations.

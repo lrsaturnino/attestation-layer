@@ -146,12 +146,17 @@ def test_phase126_tlc_records_explicit_state_counterexample(tmp_path: Path) -> N
 
 
 def test_phase127_s_and_r_composition_report_records_backend_artifacts(tmp_path: Path) -> None:
+    # Use an empty registry so the PB-4 guard does not fire (no relevant spec files).
+    # The external checker runs over the lowered module alone with SystemSpecAssumptions == TRUE.
+    from nlreq.system_spec import SystemSpecRegistry as SSR
+    empty_registry = SSR.model_validate({"schema_version": "0.1", "specs": []})
+
     ir = _ir()
     lowered = lower_ir_v2_to_tla(ir)
     consistency = check_solver_backed_system_consistency(
         requirement=ir,
         lowered=lowered,
-        registry=_registry(tmp_path),
+        registry=empty_registry,
         impact=_impact(),
         project_root=tmp_path,
         budget=FormalBackendBudget(timeout_seconds=5, max_depth=12),
@@ -164,7 +169,7 @@ def test_phase127_s_and_r_composition_report_records_backend_artifacts(tmp_path:
     report = build_s_and_r_composition_report(
         requirement=ir,
         lowered=lowered,
-        registry=_registry(tmp_path),
+        registry=empty_registry,
         impact=_impact(),
         project_root=tmp_path,
         consistency=consistency,

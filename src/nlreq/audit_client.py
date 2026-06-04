@@ -1,0 +1,237 @@
+"""PA-6 audit client — second-model rubric for LLM decomposition results.
+
+Every LLM-produced decomposition is audited by an independent model before its
+verdict can be treated as a gate-level authority.  The rubric asks two questions:
+  1. Does the decomposed IR cover every clause in the approved controlled text?
+  2. Does the IR add any premise or obligation that is not in the controlled text?
+
+An invented-premise finding causes the verdict to fail; missing clause coverage
+causes failure.  Only a passing audit unlocks is_audited=True in DecompositionResult.
+
+The LLM is an auditor, not a prover — it can flag invented/missing content that
+a deterministic check would miss, but its verdict is not a formal proof.
+"""
+from __future__ import annotations
+
+from typing import Protocol, runtime_checkable
+
+from pydantic import BaseModel, ConfigDict, Field
+
+
+_DEFAULT_AUDIT_MODEL = "claude-haiku-4-5-20251001"
+
+# Bump this when the semantic content of the audit prompt changes.
+_AUDIT_PROMPT_VERSION = "0.1"
+
+_AUDIT_PROMPT_TEMPLATE = (
+    "You are a rigorous requirements auditor. "
+    "You will receive an APPROVED CONTROLLED TEXT (the authoritative DSL v3 requirement) "
+    "and a DECOMPOSED IR SUMMARY (a structured representation produced by an independent model).\n\n"
+    "Answer ONLY with a JSON object in exactly this schema — no markdown, no commentary:\n"
+    '{{"covers_all_clauses": true|false, "invented_premises": ["...", ...], "verdict": "passed"|"failed"}}\n\n'
+    "Rules:\n"
+    "- covers_all_clauses: true if every clause, condition, and obligation in the controlled text "
+    "appears in the IR. false if any clause is missing or weakened.\n"
+    "- invented_premises: list every IR premise, condition, or obligation that is NOT in the "
+    "controlled text. Empty list [] if none.\n"
+    "- verdict: 'passed' if covers_all_clauses is true AND invented_premises is empty. "
+    "'failed' otherwise.\n\n"
+    "APPROVED CONTROLLED TEXT:\n{controlled_text}\n\n"
+    "DECOMPOSED IR SUMMARY:\n{ir_summary}"
+)
+
+
+class AuditVerdict(BaseModel):
+    """Structured verdict from a PA-6 audit of a decomposition result.
+
+    Fields:
+      covers_all_clauses: True if every clause in the controlled text is present in the IR.
+      invented_premises: List of IR premises or obligations not in the controlled text.
+      verdict: "passed" only when covers_all_clauses is True and invented_premises is empty.
+      audit_prompt_version: Version of the audit prompt used.
+      model_id: Model that produced the verdict (None for recorded fixtures).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    covers_all_clauses: bool
+    invented_premises: list[str] = Field(default_factory=list)
+    verdict: str
+    audit_prompt_version: str = _AUDIT_PROMPT_VERSION
+    model_id: str | None = None
+
+
+@runtime_checkable
+class AuditClient(Protocol):
+    """Synchronous interface for auditing an LLM decomposition result.
+
+    The audit checks whether the decomposed IR:
+      (1) covers every clause in the approved controlled text, and
+      (2) does not add invented premises absent from the controlled text.
+
+    Implementations:
+    - RecordedAuditClient — replays a fixture verdict (offline/golden tests).
+    - AnthropicAuditClient — second-model audit via live SDK call.
+    """
+
+    def audit_decomposition(
+        self,
+        controlled_text: str,
+        ir_summary: str,
+    ) -> AuditVerdict:
+        """Return an AuditVerdict for the given controlled text and IR summary.
+
+        Args:
+            controlled_text: The approved DSL v3 controlled text (authoritative).
+            ir_summary: A text summary of the decomposed IR for comparison.
+
+        Returns:
+            AuditVerdict with covers_all_clauses, invented_premises, and verdict.
+        """
+        ...
+
+
+class RecordedAuditClient:
+    """Replays a pre-recorded fixture verdict; never contacts a real model.
+
+    Use for offline/golden tests and CI.  The fixture verdict is returned verbatim
+    regardless of the controlled_text or ir_summary inputs.
+
+    To test invented-premise rejection: supply a fixture with verdict="failed"
+    and a non-empty invented_premises list.
+    To test clean decomposition: supply a fixture with verdict="passed".
+    """
+
+    def __init__(self, fixture: AuditVerdict) -> None:
+        self._fixture = fixture
+
+    def audit_decomposition(
+        self,
+        controlled_text: str,
+        ir_summary: str,
+    ) -> AuditVerdict:
+        return self._fixture
+
+
+class AnthropicAuditClient:
+    """Live second-model Anthropic SDK client for decomposition auditing.
+
+    Mirrors AnthropicDecompositionClient: SDK import is lazy, credentials via
+    load_api_key(), temperature=0 for best-effort reproducibility.
+
+    The model receives the controlled text and IR summary and returns a JSON
+    verdict.  If parsing fails, the verdict is a conservative failure so an
+    unreadable response does not silently pass as an audit.
+    """
+
+    def __init__(self, model: str = _DEFAULT_AUDIT_MODEL) -> None:
+        self._model = model
+
+    def audit_decomposition(
+        self,
+        controlled_text: str,
+        ir_summary: str,
+    ) -> AuditVerdict:
+        from .llm_client import load_api_key
+        import json
+
+        api_key = load_api_key()
+
+        try:
+            import anthropic
+        except ImportError as exc:
+            raise ImportError(
+                "Live audit requires the 'anthropic' package. "
+                "Install it via: pip install anthropic  (or uv add anthropic)"
+            ) from exc
+
+        client = anthropic.Anthropic(api_key=api_key)
+        prompt = _AUDIT_PROMPT_TEMPLATE.format(
+            controlled_text=controlled_text.strip(),
+            ir_summary=ir_summary.strip(),
+        )
+        message = client.messages.create(
+            model=self._model,
+            max_tokens=512,
+            temperature=0,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        raw = message.content[0].text.strip()
+
+        try:
+            data = json.loads(raw)
+            return AuditVerdict(
+                covers_all_clauses=bool(data["covers_all_clauses"]),
+                invented_premises=list(data.get("invented_premises", [])),
+                verdict=str(data["verdict"]),
+                model_id=self._model,
+            )
+        except (json.JSONDecodeError, KeyError, TypeError):
+            # Conservative failure: an unreadable verdict does not pass as audit.
+            return AuditVerdict(
+                covers_all_clauses=False,
+                invented_premises=["[audit-parse-error: model response was not valid JSON]"],
+                verdict="failed",
+                model_id=self._model,
+            )
+
+
+def summarize_ir_for_audit(requirement: object) -> str:
+    """Produce a plain-text summary of a RequirementIRV2 for the audit rubric input.
+
+    Returns a compact readable description of the requirement's claim class,
+    premise, and obligation.  The model receives this rather than raw JSON to
+    avoid leaking schema internals into the rubric prompt.
+    """
+    try:
+        semantic = getattr(requirement, "semantic_ir", None)
+        req_id = getattr(requirement, "requirement_id", "unknown")
+        title = getattr(requirement, "title", "")
+        claim_class = getattr(semantic, "claim_class", "unknown") if semantic else "unknown"
+        premise = getattr(semantic, "premise", None) if semantic else None
+        obligation = getattr(semantic, "obligation", None) if semantic else None
+
+        parts = [f"requirement_id: {req_id}", f"title: {title}", f"claim_class: {claim_class}"]
+        if premise is not None:
+            parts.append(f"premise: {premise}")
+        if obligation is not None:
+            parts.append(f"obligation: {obligation}")
+        return "\n".join(parts)
+    except Exception:
+        return str(requirement)
+
+
+def apply_audit(
+    result: object,
+    audit_client: AuditClient,
+    controlled_text: str,
+) -> object:
+    """Apply an audit gate to a DecompositionResult and return an updated copy.
+
+    Builds an IR summary from result.requirement, calls audit_client.audit_decomposition,
+    and returns a new DecompositionResult with:
+      - audit_verdict set to the returned AuditVerdict
+      - is_audited set to True ONLY when verdict == "passed"
+
+    The original result is never mutated.  This is the PA-6 gate function — the only
+    code path that may set is_audited=True on an LLM-produced DecompositionResult.
+    A failing verdict (invented premises, missing clauses) leaves is_audited=False
+    so the ensemble treats the candidate as needs_review rather than trusted.
+
+    Args:
+        result: A DecompositionResult produced by a DecompositionClient.
+        audit_client: The audit client (RecordedAuditClient for tests,
+                      AnthropicAuditClient for live runs).
+        controlled_text: The approved DSL v3 controlled text (authoritative).
+
+    Returns:
+        An updated DecompositionResult with audit_verdict and is_audited set.
+    """
+    requirement = getattr(result, "requirement", None)
+    ir_summary = summarize_ir_for_audit(requirement) if requirement is not None else ""
+    verdict = audit_client.audit_decomposition(
+        controlled_text=controlled_text,
+        ir_summary=ir_summary,
+    )
+    passed = verdict.verdict == "passed"
+    return result.model_copy(update={"audit_verdict": verdict, "is_audited": passed})

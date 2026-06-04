@@ -4,6 +4,7 @@ from typing import Protocol, runtime_checkable
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .audit_client import AuditVerdict
 from .jsonutil import sha256_text
 from .models import Approval, RequirementIRV2, SourceSpan
 
@@ -48,6 +49,7 @@ class DecompositionResult(BaseModel):
     source_spans: list[SourceSpan] = Field(default_factory=list)
     approval: Approval | None = None
     is_audited: bool = False
+    audit_verdict: AuditVerdict | None = None
     provenance: dict[str, str] = Field(default_factory=dict)
 
 

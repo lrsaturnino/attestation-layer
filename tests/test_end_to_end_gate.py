@@ -688,6 +688,97 @@ def test_solver_status_recorded_in_gate_statuses(tmp_path: Path) -> None:
     )
 
 
+def test_solver_unsupported_produces_unknown_decision(tmp_path: Path) -> None:
+    """Solver returning 'unsupported' produces an 'unknown' gate decision, not 'accepted'.
+
+    An inconclusive solver run must NOT silently pass through to acceptance.
+    The gate decision is 'unknown' so downstream consumers know checking was inconclusive
+    and cannot treat the requirement as cleared.
+    """
+    from nlreq.dsl_v3 import DslV3Parser
+    from nlreq.translator_agreement import TranslationAgreementInput, TranslationCandidate
+
+    src = tmp_path / "src"
+    specs = tmp_path / "specs"
+    src.mkdir()
+    specs.mkdir()
+    (src / "operation.py").write_text("def operation(actor):\n    return 'rejected'\n")
+    # Non-Pred_* spec: no simple assignments → would trigger the PB-4 guard on external path.
+    # Z3 path also returns unsupported when obligation predicates have no S assignments.
+    # Using an empty spec (no Pred_* assignments) with Z3 checker → Z3 returns unsupported.
+    (specs / "SystemConstraint.tla").write_text(
+        "---- MODULE SystemConstraint ----\n"
+        "InvariantHolds == TRUE\n"
+        "====\n"
+    )
+    trace_path = tmp_path / "traces.json"
+    trace_path.write_text(json.dumps([{
+        "trace_id": "T1", "adapter_id": "raw-python", "source_hash": "sha256:x",
+        "events": [{"event_id": "e1", "timestamp": "2026-06-01T00:00:01Z",
+                    "action": "operation", "post_state": {}}],
+    }]))
+    manifest = SourceManifest.model_validate({
+        "schema_version": "0.1", "adapter": "python-source",
+        "language": "python", "runtime": "cpython",
+        "modules": [{"module_id": "redemption", "path": "src/operation.py",
+                     "symbols": ["operation"], "trace_sources": ["traces.json"]}],
+    })
+    registry = SystemSpecRegistry.model_validate({
+        "schema_version": "0.1",
+        "specs": [{"spec_id": "spec:redemption", "module_ids": ["redemption"],
+                   "formalism": "tla", "path": "specs/SystemConstraint.tla",
+                   "version": "1", "review_status": "reviewed", "freshness": "fresh"}],
+    })
+    ir = DslV3Parser().parse_ir(
+        FIXTURES.joinpath("authorization_precondition_v3.nlreq").read_text(),
+        requirement_id="GATE-UNKNOWN-001",
+        title="Solver unsupported → unknown decision",
+    )
+    agreement = TranslationAgreementInput(
+        candidates=[
+            TranslationCandidate(translator_id="p", method="deterministic",
+                                 requirement=ir, provenance={"source": "test"}),
+            TranslationCandidate(translator_id="r", method="deterministic",
+                                 requirement=ir, provenance={"source": "test"}),
+        ]
+    )
+
+    report = run_end_to_end_requirement_gate(
+        controlled_text=FIXTURES.joinpath("authorization_precondition_v3.nlreq").read_text(),
+        requirement_id="GATE-UNKNOWN-001",
+        title="Solver unsupported → unknown decision",
+        source_adapter=__import__("nlreq.python_source_adapter", fromlist=["PythonSourceLanguageAdapter"]).PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["operation"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-unknown-artifacts",
+        solver_execution=FormalBackendExecution(checker_id="z3"),
+        requirement_ir=ir,
+        translation_agreement=agreement,
+    )
+
+    solver_status = report.statuses.get("solver_system_consistency")
+    # The spec has no Pred_* assignments → Z3 gate returns unsupported (predicates not assigned).
+    assert solver_status == "unsupported", (
+        f"Expected solver_system_consistency='unsupported' for spec without Pred_* assignments; "
+        f"got {solver_status!r}"
+    )
+    assert report.decision == "unknown", (
+        f"Gate must be 'unknown' when solver returns 'unsupported'; got {report.decision!r}"
+    )
+    assert report.downstream_action_allowed is False, (
+        "downstream_action_allowed must be False when gate is unknown"
+    )
+    unknown_blocker = next(
+        (b for b in report.blockers if b.stage == "solver_system_consistency"), None
+    )
+    assert unknown_blocker is not None, "Must have a solver_system_consistency blocker"
+    assert unknown_blocker.status == "unknown", (
+        f"solver_system_consistency blocker must be 'unknown'; got {unknown_blocker.status!r}"
+    )
+
+
 def test_extended_gate_s_and_r_composition_prefers_solver_result(tmp_path: Path) -> None:
     """_extended_gate_default_statuses maps s_and_r_composition to solver result when present.
 
@@ -772,13 +863,14 @@ def test_extended_gate_s_and_r_composition_prefers_solver_result(tmp_path: Path)
     )
 
 
-def test_solver_result_carries_covered_fragment_ids_and_predicates_stay_blocked(tmp_path: Path) -> None:
-    """Solver S∧R result carries covered_fragment_ids; predicate routes stay blocked.
+def test_solver_result_carries_related_fragment_ids_and_predicates_stay_blocked(tmp_path: Path) -> None:
+    """Solver S∧R result carries related_fragment_ids; predicate routes stay blocked.
 
     The solver result (backend='solver_system_checker') must carry the fragment IDs of
-    all formal claim fragments as traceability metadata.  Crucially, predicate and
-    rejection_order fragment routes must remain blocked — adding covered_fragment_ids
-    to the solver result must NOT discharge those routes (wrong backend + wrong evidence
+    all formal claim fragments as traceability metadata ('related', not 'covered' —
+    the solver encodes obligation predicate names, not each fragment class independently).
+    Predicate and rejection_order fragment routes must remain blocked — adding
+    related_fragment_ids must NOT discharge those routes (wrong backend + wrong evidence
     level vs the core_smt/apalache routes that formal_claim routing requires).
     """
     from nlreq.dsl_v3 import DslV3Parser
@@ -849,15 +941,15 @@ def test_solver_result_carries_covered_fragment_ids_and_predicates_stay_blocked(
     proof_path = Path(next(a.path for a in report.artifacts if a.name == "proof_object"))
     proof = ProofObject.model_validate(read_json(proof_path))
 
-    # Solver result must carry covered_fragment_ids (provenance traceability).
+    # Solver result must carry related_fragment_ids (provenance traceability).
     solver_results = [r for r in proof.backend_results if r.backend == "solver_system_checker"]
     assert solver_results, "ProofObject must carry solver_system_checker backend result"
-    solver_with_ids = [r for r in solver_results if "covered_fragment_ids" in r.details]
+    solver_with_ids = [r for r in solver_results if "related_fragment_ids" in r.details]
     assert solver_with_ids, (
-        "Solver result must carry covered_fragment_ids for provenance traceability"
+        "Solver result must carry related_fragment_ids for provenance traceability"
     )
-    fragment_ids_in_solver = solver_with_ids[0].details["covered_fragment_ids"]
-    assert len(fragment_ids_in_solver) > 0, "covered_fragment_ids must be non-empty"
+    fragment_ids_in_solver = solver_with_ids[0].details["related_fragment_ids"]
+    assert len(fragment_ids_in_solver) > 0, "related_fragment_ids must be non-empty"
 
     # Predicate and rejection_order premises must stay blocked — not discharged by the solver.
     # formal_claim routes require an exact backend match (core_smt/apalache) so
@@ -870,7 +962,7 @@ def test_solver_result_carries_covered_fragment_ids_and_predicates_stay_blocked(
         assert premise.status == "blocked", (
             f"Predicate/rejection_order premise {premise.premise_id!r} must stay 'blocked' "
             f"even with solver result present; got {premise.status!r}. "
-            "Solver results must not discharge formal_claim-routed premises via covered_fragment_ids."
+            "Solver results must not discharge formal_claim-routed premises via related_fragment_ids."
         )
 
 

@@ -227,9 +227,8 @@ def run_end_to_end_requirement_gate(
 
     `execution` controls the self-consistency formal backend (TLA runner or custom).
     `solver_execution` controls the solver-backed S∧R check (e.g. checker_id="z3").
-    When only `execution` is supplied and it has a checker_id, it drives both paths
-    (legacy behaviour). When both are supplied, `solver_execution` is used exclusively
-    for `check_solver_backed_system_consistency`.
+    Only an explicit `solver_execution` triggers the S∧R path — `execution` never
+    falls back to S∧R checking.
     """
     artifact_dir.mkdir(parents=True, exist_ok=True)
     artifacts: list[EndToEndGateArtifactRef] = []
@@ -385,14 +384,14 @@ def run_end_to_end_requirement_gate(
     )
     record("system_consistency", "system-consistency.json", system_consistency)
 
-    # When a solver execution is available, run the solver-backed S∧R check as additional
-    # evidence alongside the marker-based result.  `solver_execution` takes priority; if
-    # not supplied, fall back to `execution` when it carries a checker_id (legacy mode).
+    # When solver_execution is explicitly supplied, run the solver-backed S∧R check as
+    # additional evidence alongside the marker-based result.  Only explicit solver_execution
+    # triggers this path — execution (used for self-consistency) does NOT fall back to S∧R
+    # checking, because the old implicit fallback caused solver results to appear on tests
+    # that only intended to test self-consistency, masking the PB-4 unsupported guard.
     # A counterexample/invalid from the solver is load-bearing: it blocks the gate even
     # when the marker check passes (safety direction).
-    _effective_solver_exec = solver_execution or (
-        execution if execution is not None and execution.checker_id else None
-    )
+    _effective_solver_exec = solver_execution
     solver_system_result: list[BackendResult] = []
     if _effective_solver_exec is not None:
         solver_consistency = check_solver_backed_system_consistency(
@@ -417,20 +416,18 @@ def run_end_to_end_requirement_gate(
 
     system_backend_results = backend_results_from_system_consistency(system_consistency)
     # When the FormalClaim report is lowered, also SMT-check predicate/comparison
-    # fragments. These produce core_smt BackendResults with covered_fragment_ids so
-    # formal_claim-routed premises can be discharged without relying on the system-
+    # fragments. These produce core_smt BackendResults with per-fragment covered_fragment_ids
+    # so formal_claim-routed premises can be discharged without relying on the system-
     # consistency result (which only covers system_checker routes).
     formal_claim_preview = build_formal_claim(requirement)
     if formal_claim_preview.result == "lowered" and formal_claim_preview.formal_claim is not None:
         smt_fragment_results = smt_check_formal_claim_predicate_fragments(
             formal_claim_preview.formal_claim
         )
-        # Enrich solver result with covered_fragment_ids for provenance traceability.
-        # The solver's S∧R check operates at requirement level and covers all predicate/
-        # obligation fragments — recording the IDs makes the scope explicit in the ProofObject.
-        # This does NOT change route matching: predicate fragments route to core_smt/apalache
-        # (formal_claim mode requires an exact backend match), so they remain blocked until
-        # a real Apalache run discharges them.
+        # Enrich solver result with related_fragment_ids for provenance traceability.
+        # "related" not "covered": the solver encodes obligation predicate names, not each
+        # fragment class independently.  Naming this "covered" would overstate the evidence
+        # — predicate/comparison/membership fragments remain blocked until Apalache checks them.
         if solver_system_result and formal_claim_preview.formal_claim is not None:
             all_fragment_ids = [
                 f.fragment_id
@@ -440,7 +437,7 @@ def run_end_to_end_requirement_gate(
                 ]
             ]
             solver_system_result = [
-                r.model_copy(update={"details": {**r.details, "covered_fragment_ids": all_fragment_ids}})
+                r.model_copy(update={"details": {**r.details, "related_fragment_ids": all_fragment_ids}})
                 for r in solver_system_result
             ]
     else:
@@ -682,10 +679,12 @@ def _blockers(
         expected="valid",
         unknown_statuses={"unsupported", "timeout", "needs_review"},
     )
-    # Solver-backed S∧R evidence is load-bearing in the hard direction: a counterexample
-    # or invalid result from the solver MUST refuse the gate regardless of the marker check.
-    # Valid/unsupported/timeout/unknown from the solver do not generate blockers —
-    # gate acceptance on the positive path still rests on the marker check and proof closure.
+    # Solver-backed S∧R is load-bearing in both directions when the solver actually ran:
+    # - counterexample / invalid → definitive refusal; gate cannot accept.
+    # - valid → no blocker; gate proceeds on positive evidence.
+    # - unsupported / timeout / unknown → unknown blocker; gate is inconclusive until a
+    #   determinate result is available.  Silently ignoring these would let an inconclusive
+    #   solver run appear as acceptance, which conflicts with the honesty discipline.
     if solver_system_status in {"counterexample", "invalid"}:
         blockers.append(
             EndToEndGateBlocker(
@@ -694,6 +693,17 @@ def _blockers(
                 message=(
                     f"solver-backed S∧R check returned {solver_system_status!r}; "
                     "requirement is inconsistent with system constraints"
+                ),
+            )
+        )
+    elif solver_system_status in {"unsupported", "timeout", "unknown"}:
+        blockers.append(
+            EndToEndGateBlocker(
+                stage="solver_system_consistency",
+                status="unknown",
+                message=(
+                    f"solver-backed S∧R check returned {solver_system_status!r}; "
+                    "check is inconclusive — gate is blocked pending a determinate result"
                 ),
             )
         )

@@ -124,7 +124,16 @@ def test_requirement_set_consistency_detects_opposite_predicates() -> None:
     assert report.contradictions[0].contradiction_type == "opposite_predicate"
 
 
-def test_solver_backed_system_consistency_runs_checker_over_composition(tmp_path: Path) -> None:
+def test_solver_backed_external_checker_with_specs_returns_unsupported(tmp_path: Path) -> None:
+    """External checker with system spec files returns unsupported (PB-4 guard).
+
+    When relevant spec files exist, the composed TLA+ module cannot inline S semantics
+    without PB-4 proper composition.  Running the checker over SystemSpecAssumptions == TRUE
+    would prove a tautology — the guard refuses with 'unsupported' instead.
+
+    This replaces the old test that expected 'valid': the old path was the tautological
+    composition and is now correctly blocked until PB-4.
+    """
     result = check_solver_backed_system_consistency(
         requirement=_ir(),
         lowered=lower_ir_v2_to_tla(_ir()),
@@ -140,18 +149,58 @@ def test_solver_backed_system_consistency_runs_checker_over_composition(tmp_path
     )
 
     assert result.result.backend == "solver_system_checker"
-    assert result.result.status == "valid"
-    assert result.result.evidence_level.value == "BOUNDED_CHECKED"
+    assert result.result.status == "unsupported"
     assert result.result.details["mode"] == "solver_backed"
-    assert result.result.details["bounds"]["max_depth"] == 12
+    assert result.result.details["spec_count"] >= 1
+    assert "PB-4" in result.result.details["reason"]
+    # External checker must NOT have been invoked — artifact dir must not be created.
+    assert not (tmp_path / "artifacts").exists()
+
+
+def test_solver_backed_external_checker_no_relevant_specs_runs_checker(tmp_path: Path) -> None:
+    """External checker path runs when no relevant spec files exist for this requirement.
+
+    Without matching specs, spec_texts is empty and the PB-4 guard does not fire.
+    The external checker subprocess is invoked over the lowered module alone.
+    The composed module still uses SystemSpecAssumptions == TRUE (no S to inline),
+    which is acceptable when there are no system constraints to check.
+    """
+    empty_registry = SystemSpecRegistry.model_validate(
+        {"schema_version": "0.1", "specs": []}
+    )
+    result = check_solver_backed_system_consistency(
+        requirement=_ir(),
+        lowered=lower_ir_v2_to_tla(_ir()),
+        registry=empty_registry,
+        impact=_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=5, max_depth=12),
+        execution=FormalBackendExecution(
+            checker_id="custom",
+            command=[sys.executable, "-c", "print('verification successful')"],
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.backend == "solver_system_checker"
+    assert result.result.status == "valid"
+    assert result.result.details["mode"] == "solver_backed"
     assert (tmp_path / "artifacts" / "REQ_SYS_001_S_AND_R.tla").is_file()
 
 
 def test_solver_backed_system_consistency_preserves_counterexample(tmp_path: Path) -> None:
+    """External checker counterexample detection works when no relevant specs exist.
+
+    Without specs, the PB-4 guard does not fire and the subprocess output is parsed
+    for counterexample markers.  Uses an empty registry so spec_texts is empty.
+    """
+    empty_registry = SystemSpecRegistry.model_validate(
+        {"schema_version": "0.1", "specs": []}
+    )
     result = check_solver_backed_system_consistency(
         requirement=_ir(),
         lowered=lower_ir_v2_to_tla(_ir()),
-        registry=_registry(tmp_path),
+        registry=empty_registry,
         impact=_impact(),
         project_root=tmp_path,
         execution=FormalBackendExecution(
@@ -235,7 +284,9 @@ def test_system_consistency_cli(tmp_path: Path, capsys) -> None:
 def test_solver_backed_system_consistency_cli(tmp_path: Path, capsys) -> None:
     ir = _ir()
     lowered = lower_ir_v2_to_tla(ir)
-    registry = _registry(tmp_path)
+    # Use an empty registry so the PB-4 guard does not fire — the CLI test verifies the
+    # subprocess mechanism works; real S∧R composition is tested via Z3 gate tests.
+    registry = SystemSpecRegistry.model_validate({"schema_version": "0.1", "specs": []})
     impact = _impact()
     ir_path = tmp_path / "requirement.ir.json"
     lowered_path = tmp_path / "lowered.json"
@@ -660,6 +711,50 @@ def test_external_solver_with_s_pred_assignments_returns_unsupported(tmp_path: P
         "Unsupported reason must reference PB-4"
     )
     # External checker must NOT have been invoked (no artifact directory created).
+    assert not (tmp_path / "artifacts").exists(), (
+        "Artifact directory must not be created when returning unsupported before execution"
+    )
+
+
+def test_external_solver_with_non_pred_spec_returns_unsupported(tmp_path: Path) -> None:
+    """External solver path refuses when spec files exist even without Pred_* assignments.
+
+    A spec containing only TLA+ constants without Pred_*(...) == TRUE/FALSE patterns
+    still cannot be inlined into the composed module.  The guard must fire for any
+    non-empty spec_texts, not only when pred_assignments is non-empty.
+    """
+    ir = _authz_ir()
+    lowered = lower_ir_v2_to_tla(ir)
+    assert lowered.status == "lowered"
+
+    # Spec has no Pred_* assignments — only a plain TLA+ invariant.
+    plain_spec = (
+        "---- MODULE SystemConstraint ----\n"
+        "VARIABLE state\n"
+        "Invariant == state # 0\n"
+        "====\n"
+    )
+    registry = _z3_registry(tmp_path, spec_content=plain_spec)
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lowered,
+        registry=registry,
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        execution=FormalBackendExecution(
+            checker_id="custom",
+            command=[sys.executable, "-c", "print('verification successful')"],
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.status == "unsupported", (
+        f"External solver with non-Pred_* spec must return 'unsupported' (PB-4 guard), "
+        f"got {result.result.status!r}"
+    )
+    assert "PB-4" in result.result.details.get("reason", ""), (
+        "Unsupported reason must reference PB-4"
+    )
     assert not (tmp_path / "artifacts").exists(), (
         "Artifact directory must not be created when returning unsupported before execution"
     )
