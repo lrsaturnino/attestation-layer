@@ -2,21 +2,68 @@ from __future__ import annotations
 
 from typing import Protocol, runtime_checkable
 
-from .models import RequirementIRV2
+from pydantic import BaseModel, ConfigDict, Field
+
+from .jsonutil import sha256_text
+from .models import Approval, RequirementIRV2, SourceSpan
+
+
+# Model used for decomposition. Temperature=0 for best-effort reproducibility;
+# callers must still treat output as untrusted and never approved/audited.
+_DEFAULT_DECOMPOSITION_MODEL = "claude-haiku-4-5-20251001"
+
+# Bump this string whenever the semantic content of the prompt changes so
+# that prompt_hash values in archived DecompositionResult objects remain
+# interpretable against a specific prompt version.
+_DECOMPOSITION_PROMPT_VERSION = "0.1"
+
+_DECOMPOSITION_PROMPT_TEMPLATE = (
+    "You are a precise formal-requirements analyst. "
+    "You will receive a requirement written in DSL v3 controlled language. "
+    "Your task: independently re-express it as a valid DSL v3 requirement, "
+    "capturing every stated obligation and predicate without adding or removing semantics.\n\n"
+    "Output ONLY the DSL v3 controlled text — no explanation, no commentary.\n\n"
+    "REQUIREMENT ID: {requirement_id}\n"
+    "TITLE: {title}\n\n"
+    "CONTROLLED TEXT:\n{controlled_text}"
+)
+
+
+class DecompositionResult(BaseModel):
+    """Rich result from a decomposition client, carrying provenance and trust metadata.
+
+    Trust boundary: is_audited is False until a PA-6 audit explicitly sets it.
+    An ensemble check treats any unaudited or unapproved candidate as needs_review,
+    not as a semantic finding.  Only approved+audited results proceed to the
+    FormalClaim-signature comparison that can trigger REFUSED_AMBIGUOUS.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    requirement: RequirementIRV2
+    candidate_id: str
+    source_text_hash: str
+    model_id: str | None = None
+    prompt_hash: str | None = None
+    source_spans: list[SourceSpan] = Field(default_factory=list)
+    approval: Approval | None = None
+    is_audited: bool = False
+    provenance: dict[str, str] = Field(default_factory=dict)
 
 
 @runtime_checkable
 class DecompositionClient(Protocol):
-    """Synchronous interface for decomposing controlled DSL v3 text into a RequirementIRV2.
+    """Synchronous interface for decomposing controlled DSL v3 text into a DecompositionResult.
 
     Used by the PA-5 ensemble: two independent clients receive the same approved
-    controlled text and each returns its interpretation as an IR.  The caller
-    compares FormalClaim signatures; divergence triggers REFUSED_AMBIGUOUS.
+    controlled text and each returns its interpretation as a DecompositionResult.
+    The caller compares FormalClaim signatures; divergence triggers REFUSED_AMBIGUOUS
+    only when all candidates are approved and audited.
 
     Implementations:
-    - RecordedDecompositionClient — replays a fixture IR (offline/golden tests).
-    - UnavailableDecompositionClient — raises NotImplementedError (placeholder until
-      the live LLM decomposition path is fully implemented).
+    - RecordedDecompositionClient — replays a fixture IR with caller-supplied trust
+      metadata (offline / golden tests; explicit approval enables the ambiguity path).
+    - AnthropicDecompositionClient — live SDK call; always unaudited/unapproved until PA-6.
 
     The returned IR is UNTRUSTED from a semantic standpoint: the ensemble check
     determines whether it agrees with other independent decompositions.
@@ -27,8 +74,8 @@ class DecompositionClient(Protocol):
         controlled_text: str,
         requirement_id: str,
         title: str,
-    ) -> RequirementIRV2:
-        """Return a RequirementIRV2 for the given controlled DSL v3 text.
+    ) -> DecompositionResult:
+        """Return a DecompositionResult for the given controlled DSL v3 text.
 
         Args:
             controlled_text: Approved DSL v3 controlled text.
@@ -36,7 +83,7 @@ class DecompositionClient(Protocol):
             title: Human-readable title to embed in the returned IR.
 
         Returns:
-            A RequirementIRV2 representing this client's interpretation.
+            A DecompositionResult carrying the IR and its trust / provenance metadata.
         """
         ...
 
@@ -44,40 +91,130 @@ class DecompositionClient(Protocol):
 class RecordedDecompositionClient:
     """Replays a pre-recorded fixture IR; never contacts a real model.
 
-    Use for offline/golden tests and CI.  The fixture is returned verbatim
-    regardless of the controlled_text, requirement_id, or title — golden tests
-    pin the decomposition result, not the input routing.
+    Use for offline/golden tests and CI.  The fixture IR is returned verbatim
+    regardless of the controlled_text — golden tests pin the decomposition result,
+    not the input routing.
+
+    Callers supply explicit trust metadata at construction time.  To exercise the
+    refused-ambiguous path in tests, pass approval=Approval(status="approved", …)
+    and is_audited=True.  To exercise the needs-review / unaudited path, leave both
+    at their defaults (None / False).
     """
 
-    def __init__(self, fixture: RequirementIRV2) -> None:
+    def __init__(
+        self,
+        fixture: RequirementIRV2,
+        *,
+        candidate_id: str = "recorded",
+        approval: Approval | None = None,
+        is_audited: bool = False,
+        model_id: str | None = None,
+        prompt_hash: str | None = None,
+    ) -> None:
         self._fixture = fixture
+        self._candidate_id = candidate_id
+        self._approval = approval
+        self._is_audited = is_audited
+        self._model_id = model_id
+        self._prompt_hash = prompt_hash
 
     def decompose_controlled_to_ir(
         self,
         controlled_text: str,
         requirement_id: str,
         title: str,
-    ) -> RequirementIRV2:
-        return self._fixture
+    ) -> DecompositionResult:
+        return DecompositionResult(
+            requirement=self._fixture,
+            candidate_id=self._candidate_id,
+            source_text_hash=sha256_text(controlled_text),
+            model_id=self._model_id,
+            prompt_hash=self._prompt_hash,
+            approval=self._approval,
+            is_audited=self._is_audited,
+            provenance={"source": "recorded_fixture"},
+        )
 
 
-class UnavailableDecompositionClient:
-    """Raises NotImplementedError; installed until the live LLM path is complete.
+class AnthropicDecompositionClient:
+    """Live Anthropic SDK client for independent LLM-based IR decomposition.
 
-    The live Anthropic-backed decomposition client (PA-5 full impl) is not yet
-    available.  This placeholder surfaces a clear error rather than silently
-    skipping the ensemble check.  Replace with the real implementation once the
-    LLM prompt + IR-extraction path is validated on the spike corpus (PA-9).
+    Mirrors AnthropicLlmClient: SDK import is lazy (no import-time failure),
+    credentials loaded via load_api_key() (never hardcoded), temperature=0 for
+    best-effort reproducibility.
+
+    The LLM independently re-expresses the controlled text as DSL v3; DslV3Parser
+    then produces the IR deterministically from that output.  If the LLM interprets
+    the requirement differently it produces different DSL v3 → different FormalClaim
+    signature → ensemble disagreement detected.
+
+    Results are always unaudited (is_audited=False, approval=None) until PA-6
+    implements the second-model audit.  An ensemble using this client returns
+    needs_review, not refused-ambiguous, until audit is available.
     """
 
+    def __init__(self, model: str = _DEFAULT_DECOMPOSITION_MODEL) -> None:
+        self._model = model
+
     def decompose_controlled_to_ir(
         self,
         controlled_text: str,
         requirement_id: str,
         title: str,
-    ) -> RequirementIRV2:
-        raise NotImplementedError(
-            "Live LLM decomposition is not yet implemented (PA-5 full impl pending). "
-            "Supply RecordedDecompositionClient instances for offline testing, "
-            "or omit decomposition_clients to skip the ensemble check."
+    ) -> DecompositionResult:
+        from .llm_client import load_api_key
+
+        api_key = load_api_key()
+
+        try:
+            import anthropic
+        except ImportError as exc:
+            raise ImportError(
+                "Live LLM decomposition requires the 'anthropic' package. "
+                "Install it via: pip install anthropic (or uv add anthropic)"
+            ) from exc
+
+        prompt = _DECOMPOSITION_PROMPT_TEMPLATE.format(
+            controlled_text=controlled_text,
+            requirement_id=requirement_id,
+            title=title,
+        )
+        prompt_hash = sha256_text(prompt)
+        source_text_hash = sha256_text(controlled_text)
+
+        sdk_client = anthropic.Anthropic(api_key=api_key)
+        message = sdk_client.messages.create(
+            model=self._model,
+            max_tokens=2048,
+            temperature=0,
+            messages=[
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+        )
+        proposed_text: str = message.content[0].text
+
+        from .dsl_v3 import DslV3Parser
+
+        requirement = DslV3Parser().parse_ir(
+            proposed_text.strip(),
+            requirement_id=requirement_id,
+            title=title,
+        )
+
+        return DecompositionResult(
+            requirement=requirement,
+            candidate_id=f"anthropic-{self._model}",
+            source_text_hash=source_text_hash,
+            model_id=self._model,
+            prompt_hash=prompt_hash,
+            approval=None,
+            is_audited=False,
+            provenance={
+                "source": "anthropic_decomposition",
+                "model": self._model,
+                "prompt_version": _DECOMPOSITION_PROMPT_VERSION,
+            },
         )

@@ -11,7 +11,7 @@ from .models import RequirementIRV2, SemanticNode, SourceSpan
 from .translator_agreement import TranslationDisagreement
 
 if TYPE_CHECKING:
-    from .decomposition_client import DecompositionClient
+    from .decomposition_client import DecompositionClient, DecompositionResult
 
 
 SEMANTIC_TRANSLATION_SCHEMA_VERSION = "0.1"
@@ -182,15 +182,22 @@ def translate_controlled_requirement_to_formal_claim(
     # run each, compare FormalClaim signatures, and refuse on divergence.  This
     # catches ambiguity in the controlled text before the claim reaches a backend.
     if decomposition_clients is not None and len(decomposition_clients) >= 2:
-        ensemble_refusal = _check_decomposition_ensemble(
+        ensemble_result = _check_decomposition_ensemble(
             controlled_text=controlled_text,
             requirement_id=requirement_id,
             title=title,
             translation_id=effective_translation_id,
             clients=decomposition_clients,
+            prior_stages=stages,
+            source_hash=source_hash,
+            approved_controlled_text_hash=approved_controlled_text_hash,
+            semantic_hash=semantic_hash,
+            decomposition_hash=decomposition_hash,
+            requirement_ir=requirement,
+            semantic_decomposition=semantic_decomposition,
         )
-        if ensemble_refusal is not None:
-            return ensemble_refusal
+        if ensemble_result is not None:
+            return ensemble_result
 
     formal_claim_report = build_formal_claim(requirement)
     formal_claim_hash = (
@@ -298,13 +305,23 @@ def refuse_ambiguous_ensemble(
     requirement_id: str,
     translation_id: str | None = None,
     disagreements: list[TranslationDisagreement],
+    prior_stages: list[SemanticTranslationStage] | None = None,
+    input_hashes: dict[str, str] | None = None,
+    semantic_tree_hash: str | None = None,
+    semantic_decomposition_hash: str | None = None,
+    requirement_ir: RequirementIRV2 | None = None,
+    semantic_decomposition: "SemanticDecompositionTree | None" = None,
 ) -> SemanticTranslationReport:
     """Return a REFUSED_AMBIGUOUS report for ensemble signature disagreement.
 
     Use this when ≥2 independent translation candidates produce FormalClaim
     signatures that do not agree under alpha-renaming and commutativity
-    normalisation. The report carries source spans and clarification questions
-    mapped from the disagreement paths.
+    normalisation.  The report carries source spans, clarification questions
+    mapped from the disagreement paths, and all available prior-stage provenance
+    so callers can reconstruct the full translation history.
+
+    All provenance params are optional for backward-compatibility with call sites
+    that only supply requirement_id and disagreements (e.g. end_to_end_gate).
     """
     effective_id = translation_id or f"semantic-translation-{requirement_id}"
     findings = [
@@ -314,30 +331,38 @@ def refuse_ambiguous_ensemble(
             source_spans=d.source_spans,
             clarification_question=(
                 f"Clarify the intended formal structure at '{d.path}': "
-                f"translator '{d.left_translator_id}' and '{d.right_translator_id}' disagree."
+                f"translator '{d.left_translator_id}' and '{d.right_translator_id}' disagree. "
+                "Rephrase the requirement to eliminate the ambiguous construct and re-submit."
             ),
         )
         for i, d in enumerate(disagreements, start=1)
     ]
     clarification_questions = [f.clarification_question for f in findings]
+    all_stages = [
+        *(prior_stages or []),
+        SemanticTranslationStage(
+            stage="lower_formal_claim",
+            status="failed",
+            message=(
+                f"ensemble translation disagreement: {len(disagreements)} disagreement(s) "
+                "across independent candidates; require clarification before accepting"
+            ),
+        ),
+    ]
     return SemanticTranslationReport(
         translation_id=effective_id,
         requirement_id=requirement_id,
         result="refused",
         syntactically_valid=True,
+        semantic_tree_hash=semantic_tree_hash,
+        semantic_decomposition_hash=semantic_decomposition_hash,
         refusal_code="NLR-REFUSED-AMBIGUOUS",
+        requirement_ir=requirement_ir,
+        semantic_decomposition=semantic_decomposition,
         ambiguity_findings=findings,
         clarification_questions=clarification_questions,
-        stages=[
-            SemanticTranslationStage(
-                stage="lower_formal_claim",
-                status="failed",
-                message=(
-                    f"ensemble translation disagreement: {len(disagreements)} disagreement(s) "
-                    "across independent candidates; require clarification before accepting"
-                ),
-            )
-        ],
+        stages=all_stages,
+        input_hashes=input_hashes or {},
     )
 
 
@@ -348,46 +373,148 @@ def _check_decomposition_ensemble(
     title: str,
     translation_id: str,
     clients: "list[DecompositionClient]",
+    prior_stages: list[SemanticTranslationStage],
+    source_hash: str,
+    approved_controlled_text_hash: str | None,
+    semantic_hash: str,
+    decomposition_hash: str,
+    requirement_ir: RequirementIRV2,
+    semantic_decomposition: "SemanticDecompositionTree",
 ) -> SemanticTranslationReport | None:
     """Run ≥2 independent decomposition clients and compare their FormalClaim signatures.
 
-    Returns a REFUSED_AMBIGUOUS SemanticTranslationReport when approved candidates
-    disagree, or None when they agree (allowing the caller to continue).
+    Trust-boundary rules enforced here:
+    1. Any candidate that is not both approved and audited (is_audited=True) causes the
+       ensemble to return needs_review — the unaudited result is a process blocker, not
+       a semantic finding.  This reflects that PA-6 audit is required before a
+       decomposition candidate can drive an ambiguity refusal.
+    2. Only after all candidates pass the trust check do we run the FormalClaim-signature
+       comparison.  Disagreement then produces NLR-REFUSED-AMBIGUOUS with full provenance.
+    3. Returns None when all candidates agree and the caller may continue to claim lowering.
+
+    Approvals are never synthesised here — they must be carried in each DecompositionResult.
     """
-    from .formal_claim import build_formal_claim, formal_claim_signature
-    from .models import Approval
+    from .decomposition_client import DecompositionResult
     from .translator_agreement import (
         TranslationAgreementInput,
         TranslationCandidate,
         build_translation_agreement_report,
     )
 
-    candidates: list[TranslationCandidate] = []
-    for i, client in enumerate(clients):
-        ir = client.decompose_controlled_to_ir(controlled_text, requirement_id, title)
-        candidates.append(
-            TranslationCandidate(
-                translator_id=f"ensemble-decomposition-{i}",
-                method="llm",
-                requirement=ir,
-                # Ensemble clients are pre-approved by the caller's decision to
-                # supply them; we do not require an external approval artifact here.
-                approval=Approval(
-                    status="approved",
-                    approved_by="ensemble-runner",
-                    approved_at="ensemble",
+    full_input_hashes: dict[str, str] = {
+        "controlled_text": source_hash,
+        **(
+            {"approved_controlled_text": approved_controlled_text_hash}
+            if approved_controlled_text_hash is not None
+            else {}
+        ),
+        "semantic_tree": semantic_hash,
+        "semantic_decomposition": decomposition_hash,
+    }
+
+    results: list[DecompositionResult] = [
+        client.decompose_controlled_to_ir(controlled_text, requirement_id, title)
+        for client in clients
+    ]
+
+    # Trust check: any unaudited or unapproved candidate blocks as needs_review.
+    unaudited = [
+        r for r in results
+        if not r.is_audited
+        or r.approval is None
+        or r.approval.status != "approved"
+    ]
+    if unaudited:
+        return SemanticTranslationReport(
+            translation_id=translation_id,
+            requirement_id=requirement_id,
+            result="needs_review",
+            syntactically_valid=True,
+            semantic_tree_hash=semantic_hash,
+            semantic_decomposition_hash=decomposition_hash,
+            refusal_code="NLR-UNAUDITED-DECOMPOSITION",
+            requirement_ir=requirement_ir,
+            semantic_decomposition=semantic_decomposition,
+            clarification_questions=[
+                "Ensemble decomposition candidates must be audited (PA-6 audit) and explicitly "
+                "approved before their IR can drive a formal-claim comparison. "
+                "Supply audited results or omit the ensemble check to proceed."
+            ],
+            stages=[
+                *prior_stages,
+                SemanticTranslationStage(
+                    stage="lower_formal_claim",
+                    status="needs_review",
+                    message=(
+                        f"{len(unaudited)} of {len(results)} decomposition candidate(s) are "
+                        "unaudited or unapproved; PA-6 audit required before claim inference"
+                    ),
                 ),
-                provenance={"source": "decomposition_ensemble", "index": str(i)},
-            )
+            ],
+            input_hashes=full_input_hashes,
         )
 
-    agreement = build_translation_agreement_report(TranslationAgreementInput(candidates=candidates))
+    # All candidates are approved and audited: build TranslationCandidates from
+    # actual DecompositionResult approval — never synthesise an Approval here.
+    agreement_candidates: list[TranslationCandidate] = [
+        TranslationCandidate(
+            translator_id=f"ensemble-decomposition-{i}",
+            method="llm",
+            requirement=result.requirement,
+            approval=result.approval,
+            provenance={
+                "source": "decomposition_ensemble",
+                "index": str(i),
+                **({"model": result.model_id} if result.model_id else {}),
+                **({"prompt_hash": result.prompt_hash} if result.prompt_hash else {}),
+                **result.provenance,
+            },
+        )
+        for i, result in enumerate(results)
+    ]
+
+    agreement = build_translation_agreement_report(
+        TranslationAgreementInput(candidates=agreement_candidates)
+    )
+
     if agreement.status == "disagreed":
         return refuse_ambiguous_ensemble(
             requirement_id=requirement_id,
             translation_id=translation_id,
             disagreements=agreement.disagreements,
+            prior_stages=prior_stages,
+            input_hashes=full_input_hashes,
+            semantic_tree_hash=semantic_hash,
+            semantic_decomposition_hash=decomposition_hash,
+            requirement_ir=requirement_ir,
+            semantic_decomposition=semantic_decomposition,
         )
+
+    if agreement.status == "needs_review":
+        return SemanticTranslationReport(
+            translation_id=translation_id,
+            requirement_id=requirement_id,
+            result="needs_review",
+            syntactically_valid=True,
+            semantic_tree_hash=semantic_hash,
+            semantic_decomposition_hash=decomposition_hash,
+            refusal_code="NLR-TRANSLATION-AGREEMENT-BLOCKED",
+            requirement_ir=requirement_ir,
+            semantic_decomposition=semantic_decomposition,
+            clarification_questions=[
+                f"Translator agreement blocked: {b}" for b in agreement.blockers
+            ],
+            stages=[
+                *prior_stages,
+                SemanticTranslationStage(
+                    stage="lower_formal_claim",
+                    status="needs_review",
+                    message=f"translator agreement blocked: {'; '.join(agreement.blockers)}",
+                ),
+            ],
+            input_hashes=full_input_hashes,
+        )
+
     return None
 
 
