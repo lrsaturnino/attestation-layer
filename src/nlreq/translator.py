@@ -6,6 +6,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .dsl_v2 import DslV2Parser
+from .formal_lowering import FORMAL_LOWERING_VERSION, lower_authorization_precondition_tla
 from .jsonutil import canonical_json, sha256_json, sha256_text
 from .models import Approval, RequirementIRV2, SemanticNode, SourceSpan
 
@@ -142,6 +143,34 @@ def parse_approved_draft_ir_v2(
 
 
 def lower_ir_v2_to_tla(ir: RequirementIRV2) -> LoweredFormalArtifact:
+    claim_class = ir.semantic_ir.metadata.get("requirement_class")
+    if claim_class == "authorization_precondition":
+        return _lower_non_vacuous(ir, claim_class)
+    return _lower_skeleton(ir)
+
+
+def _lower_non_vacuous(ir: RequirementIRV2, claim_class: str) -> LoweredFormalArtifact:
+    """Non-vacuous lowering for supported claim kinds (authorization_precondition)."""
+    temporal_bounds = _temporal_bounds(ir.semantic_ir)
+    source_ir_hash = sha256_json(ir)
+    bounds_json = canonical_json([b.model_dump(mode="json") for b in temporal_bounds]).strip()
+    content = lower_authorization_precondition_tla(ir, bounds_json=bounds_json)
+    return LoweredFormalArtifact(
+        requirement_id=ir.requirement_id,
+        source_ir_version=ir.ir_version,
+        source_ir_hash=source_ir_hash,
+        translator="nlreq.formal_lowering.authorization_precondition",
+        translator_version=FORMAL_LOWERING_VERSION,
+        status="lowered",
+        content=content,
+        content_hash=sha256_text(content),
+        temporal_bounds=temporal_bounds,
+        metadata={"evidence": "lowered", "semantics": "non_vacuous", "claim_class": claim_class},
+    )
+
+
+def _lower_skeleton(ir: RequirementIRV2) -> LoweredFormalArtifact:
+    """Legacy vacuous skeleton lowering (deprecated for claim kinds with non-vacuous support)."""
     diagnostics = _unsupported_nodes(ir.semantic_ir)
     temporal_bounds = _temporal_bounds(ir.semantic_ir)
     source_ir_hash = sha256_json(ir)

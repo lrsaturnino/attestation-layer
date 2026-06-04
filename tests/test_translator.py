@@ -5,6 +5,7 @@ import pytest
 
 from nlreq.cli import main
 from nlreq.dsl_v2 import DslV2Parser
+from nlreq.dsl_v3 import DslV3Parser
 from nlreq.models import RequirementIRV2
 from nlreq.translator import (
     ControlledDraft,
@@ -147,6 +148,84 @@ def test_translator_cli_draft_approve_parse_and_lower(tmp_path: Path, capsys) ->
     assert "Lowered formal artifact:" in output
     assert ControlledDraft.model_validate_json(approved_path.read_text()).approval.status == "approved"
     assert json.loads(lowered_path.read_text())["status"] == "lowered"
+
+
+def test_lower_authorization_precondition_is_non_vacuous() -> None:
+    ir = _auth_precondition_ir()
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "lowered"
+    assert artifact.content is not None
+    assert "CONSTANT Pred_not_authorized(_)" in artifact.content
+    assert "Pred_not_authorized(actor)" in artifact.content
+    assert "== TRUE" not in artifact.content
+    assert "== 0" not in artifact.content
+    assert artifact.metadata.get("semantics") == "non_vacuous"
+    assert artifact.metadata.get("evidence") == "lowered"
+
+
+def test_lower_authorization_precondition_structural_discrimination() -> None:
+    """Requirement and negation lower to modules whose Obligation bodies differ.
+
+    This is a structural proxy for checker-distinguishability: the obligation is
+    conditioned on the actual predicate, not a vacuous TRUE. A vacuous lowering
+    that emitted Pred_not_authorized(actor) == TRUE would also emit
+    Obligation == TRUE => NLRState /= "accepted", failing the assertion below
+    that the predicate name appears inside the Obligation expression.
+
+    Full checker-distinguishability (Apalache finding a counterexample for one
+    but not the other) requires a live TLC/Apalache binary (PB-4) not available
+    in this environment.
+    """
+    ir_pos = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope op "
+        "when actor is not authorized then operation must reject before state_change.",
+        requirement_id="AUTH-POS",
+        title="Not authorized",
+    )
+    ir_neg = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope op "
+        "when actor is authorized then operation must reject before state_change.",
+        requirement_id="AUTH-NEG",
+        title="Authorized",
+    )
+
+    art_pos = lower_ir_v2_to_tla(ir_pos)
+    art_neg = lower_ir_v2_to_tla(ir_neg)
+
+    assert art_pos.status == "lowered"
+    assert art_neg.status == "lowered"
+    assert art_pos.content != art_neg.content
+    # The Obligation line must be conditioned on the actual predicate name,
+    # not TRUE. Extract the Obligation line and check the predicate appears in it.
+    pos_obligation_line = next(
+        (line for line in art_pos.content.splitlines() if line.startswith("Obligation ==")), ""
+    )
+    neg_obligation_line = next(
+        (line for line in art_neg.content.splitlines() if line.startswith("Obligation ==")), ""
+    )
+    assert "Pred_not_authorized" in pos_obligation_line
+    assert "Pred_authorized" in neg_obligation_line
+    assert "Pred_not_authorized" not in neg_obligation_line
+
+
+def test_dsl_v2_redemption_still_uses_skeleton_lowering() -> None:
+    """Routing to non-vacuous path must not affect the legacy DSL-v2 skeleton path."""
+    ir = _dsl_v2_ir()
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.metadata.get("evidence") == "not_checked"
+    assert artifact.status == "lowered"
+
+
+def _auth_precondition_ir() -> RequirementIRV2:
+    return DslV3Parser().parse_ir(
+        (FIXTURES / "authorization_precondition_v3.nlreq").read_text(),
+        requirement_id="AUTH-001",
+        title="Authorization precondition",
+    )
 
 
 def _draft() -> ControlledDraft:

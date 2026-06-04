@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from .controlled_semantics import ClaimClass, build_controlled_requirement_semantics_reference
 from .jsonutil import canonical_json, sha256_json
 from .models import EvidenceLevel, RequirementIRV2, SemanticNode, SourceSpan, TemporalBound, ValueRef
+from .proof_closure import ProofPremiseRoute
 
 
 FORMAL_CLAIM_SCHEMA_VERSION = "0.1"
@@ -282,6 +283,51 @@ def formal_claim_signature(
         payload["premises"] = sorted(payload["premises"], key=repr)
         payload["obligations"] = sorted(payload["obligations"], key=repr)
     return canonical_json(payload)
+
+
+def formal_claim_to_proof_premise_routes(
+    claim: FormalClaim,
+    *,
+    backend_id: str = "system_checker",
+) -> list[ProofPremiseRoute]:
+    """Map FormalClaim fragments to ProofPremiseRoute entries for backend dispatch.
+
+    Each non-scope fragment becomes a typed route carrying the evidence level
+    required for its kind. The caller feeds routes into build_proof_dispatch_plan
+    rather than receiving a generic system-consistency route.
+    """
+    routes: list[ProofPremiseRoute] = []
+    for fragment in [*claim.premises, *claim.obligations]:
+        role: str = fragment.role if fragment.role in {"premise", "obligation"} else "obligation"
+        routes.append(
+            ProofPremiseRoute(
+                premise_id=fragment.fragment_id,
+                node_id=fragment.source_node_id,
+                node_kind=fragment.kind,
+                role=role,  # type: ignore[arg-type]
+                backend_id=backend_id,
+                required_evidence=_evidence_for_fragment_kind(fragment.kind),
+                reason=f"formal claim fragment {fragment.kind} routed to {backend_id}",
+            )
+        )
+    return routes
+
+
+def _evidence_for_fragment_kind(kind: FormalClaimFragmentKind) -> EvidenceLevel:
+    _map: dict[FormalClaimFragmentKind, EvidenceLevel] = {
+        "predicate": EvidenceLevel.SMT_CHECKED,
+        "comparison": EvidenceLevel.SMT_CHECKED,
+        "membership": EvidenceLevel.SMT_CHECKED,
+        "post_state": EvidenceLevel.TRACE_VALIDATED,
+        "event_emission": EvidenceLevel.TRACE_VALIDATED,
+        "state_invariant": EvidenceLevel.BOUNDED_CHECKED,
+        "causal_transition": EvidenceLevel.BOUNDED_CHECKED,
+        "rejection_order": EvidenceLevel.BOUNDED_CHECKED,
+        "success": EvidenceLevel.TEST_VALIDATED,
+        "scope": EvidenceLevel.CONSISTENCY_CHECKED,
+        "action": EvidenceLevel.CONSISTENCY_CHECKED,
+    }
+    return _map.get(kind, EvidenceLevel.CONSISTENCY_CHECKED)
 
 
 def _claim_class(requirement: RequirementIRV2) -> ClaimClass | None:

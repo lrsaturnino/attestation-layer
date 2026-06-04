@@ -1,0 +1,1 @@
+requirement authorization_precondition: scope operation_request when actor is not authorized then operation must reject before state_change.
