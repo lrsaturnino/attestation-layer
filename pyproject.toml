@@ -19,6 +19,9 @@ dependencies = [
 dev = [
   "pytest>=8.0",
 ]
+llm = [
+  "anthropic>=0.25",
+]
 
 [project.scripts]
 nlreq = "nlreq.cli:main"

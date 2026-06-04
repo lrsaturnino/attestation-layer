@@ -3,6 +3,7 @@ from pathlib import Path
 
 from nlreq.cli import main
 from nlreq.dsl_v2 import DslV2Parser
+from nlreq.dsl_v3 import DslV3Parser
 from nlreq.models import Approval, RequirementIRV2
 from nlreq.translator_agreement import (
     TranslationAgreementInput,
@@ -151,6 +152,149 @@ def test_structural_signature_ignores_provenance_noise() -> None:
     )
 
     assert structural_signature_json(first) == structural_signature_json(second)
+
+
+# ---------------------------------------------------------------------------
+# FormalClaim-signature based comparison (PA-5)
+# Uses DSL v3 requirements that lower to a FormalClaim for alpha+commutative comparison.
+# ---------------------------------------------------------------------------
+
+
+_DSL_V3_AUTH = (
+    "requirement authorization_precondition:\n"
+    "scope operation\n"
+    "when actor is not authorized\n"
+    "then operation must reject before state_change\n"
+)
+
+# Same scope/action/target structure as _DSL_V3_AUTH; only the operand identifier
+# names differ (actor→user, state_change→state_update). alpha_identifiers=True
+# normalises operand identifiers to positional placeholders, so these are alpha-equivalent.
+_DSL_V3_AUTH_OPERAND_RENAMED = (
+    "requirement authorization_precondition:\n"
+    "scope operation\n"
+    "when user is not authorized\n"
+    "then operation must reject before state_update\n"
+)
+
+
+def test_translation_agreement_agrees_on_alpha_equivalent_formal_claims() -> None:
+    """Two v3 requirements that differ only in operand identifier names produce equal signatures.
+
+    alpha_identifiers=True normalises operand identifier values to positional
+    placeholders (id1, id2, …). Requirements that share scope/action/target
+    but use different identifier names in predicate operand positions should agree.
+    """
+    req_a = DslV3Parser().parse_ir(_DSL_V3_AUTH, requirement_id="REQ-SIG-001", title="Auth A")
+    req_b = DslV3Parser().parse_ir(
+        _DSL_V3_AUTH_OPERAND_RENAMED, requirement_id="REQ-SIG-001", title="Auth B"
+    )
+    from nlreq.formal_claim import build_formal_claim, formal_claim_signature
+
+    claim_a = build_formal_claim(req_a)
+    claim_b = build_formal_claim(req_b)
+    # Both must lower successfully for the test to be valid.
+    assert claim_a.result == "lowered", f"Expected claim A to lower, got {claim_a.result}"
+    assert claim_b.result == "lowered", f"Expected claim B to lower, got {claim_b.result}"
+    # Signatures must be equal under alpha-renaming.
+    sig_a = formal_claim_signature(claim_a.formal_claim, alpha_identifiers=True, commutative=True)
+    sig_b = formal_claim_signature(claim_b.formal_claim, alpha_identifiers=True, commutative=True)
+    assert sig_a == sig_b, "Alpha-equivalent formal claims should have equal signatures"
+
+    # Now verify the agreement report agrees on these two candidates.
+    report = build_translation_agreement_report(
+        TranslationAgreementInput(
+            candidates=[
+                TranslationCandidate(
+                    translator_id="parser-a",
+                    method="deterministic",
+                    requirement=req_a,
+                ),
+                TranslationCandidate(
+                    translator_id="parser-b",
+                    method="deterministic",
+                    requirement=req_b,
+                ),
+            ]
+        )
+    )
+    assert report.status == "agreed", (
+        f"Alpha-equivalent formal claims must agree, got {report.status!r}: {report.disagreements}"
+    )
+
+
+def test_translation_agreement_uses_formal_claim_signature_for_v3_requirements() -> None:
+    """Two structurally distinct v3 requirements with different claim classes disagree.
+
+    Uses a numeric_invariant vs. authorization_precondition — different claim_class
+    values produce different FormalClaim signatures, so the signature-based comparator
+    detects disagreement.
+    """
+    _DSL_V3_NUMERIC = (
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when reserve is confirmed\n"
+        "then keep collateral >= 100\n"
+    )
+    req_auth = DslV3Parser().parse_ir(
+        _DSL_V3_AUTH, requirement_id="REQ-SIG-002", title="Auth"
+    )
+    req_num = DslV3Parser().parse_ir(
+        _DSL_V3_NUMERIC, requirement_id="REQ-SIG-002", title="Numeric"
+    )
+    report = build_translation_agreement_report(
+        TranslationAgreementInput(
+            candidates=[
+                TranslationCandidate(
+                    translator_id="candidate-auth",
+                    method="deterministic",
+                    requirement=req_auth,
+                ),
+                TranslationCandidate(
+                    translator_id="candidate-numeric",
+                    method="deterministic",
+                    requirement=req_num,
+                ),
+            ]
+        )
+    )
+    assert report.status == "disagreed", (
+        f"Semantically distinct requirements must disagree, got {report.status!r}"
+    )
+    assert len(report.disagreements) >= 1
+    # The disagreement reason must mention the formal-claim signature diff.
+    assert any("formal-claim" in d.reason or "differ" in d.reason for d in report.disagreements), (
+        f"Expected formal-claim signature context in disagreement reason, got: {report.disagreements}"
+    )
+    # Clarification questions must be generated for the disagreeing paths.
+    assert len(report.clarifications) >= 1
+
+
+def test_refuse_ambiguous_ensemble_emits_refused_ambiguous_code() -> None:
+    """refuse_ambiguous_ensemble returns a SemanticTranslationReport with NLR-REFUSED-AMBIGUOUS."""
+    from nlreq.semantic_translation import refuse_ambiguous_ensemble
+    from nlreq.translator_agreement import TranslationDisagreement
+
+    disagreements = [
+        TranslationDisagreement(
+            left_translator_id="t1",
+            right_translator_id="t2",
+            path="semantic_ir.premise",
+            reason="formal-claim signatures differ: baseline=abc… candidate=def…",
+        )
+    ]
+    report = refuse_ambiguous_ensemble(
+        requirement_id="REQ-AMBIG-001",
+        disagreements=disagreements,
+    )
+
+    assert report.result == "refused"
+    assert report.refusal_code == "NLR-REFUSED-AMBIGUOUS"
+    assert report.syntactically_valid is True
+    assert len(report.ambiguity_findings) == 1
+    assert len(report.clarification_questions) == 1
+    assert "t1" in report.clarification_questions[0]
+    assert "t2" in report.clarification_questions[0]
 
 
 def _ir() -> RequirementIRV2:

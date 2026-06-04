@@ -232,17 +232,12 @@ def run_end_to_end_requirement_gate(
 
     if requirement_ir is not None:
         requirement = requirement_ir
-        # Two identical candidates — agreement is trivially satisfied for pre-parsed IR.
+        # Single-source IR: we have no independent second candidate to compare against,
+        # so translation agreement cannot be established — record needs_review, not agreed.
         translation_input = TranslationAgreementInput(
             candidates=[
                 TranslationCandidate(
-                    translator_id="provided-ir-primary",
-                    method="deterministic",
-                    requirement=requirement,
-                    provenance={"source": "caller_provided_ir"},
-                ),
-                TranslationCandidate(
-                    translator_id="provided-ir-verify",
+                    translator_id="provided-ir-single-source",
                     method="deterministic",
                     requirement=requirement,
                     provenance={"source": "caller_provided_ir"},

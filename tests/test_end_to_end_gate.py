@@ -242,6 +242,47 @@ def test_end_to_end_requirement_gate_cli_writes_report(tmp_path: Path, capsys) -
     assert read_json(out)["decision"] == "accepted"
 
 
+def test_gate_single_source_ir_yields_needs_review_not_agreed(tmp_path: Path) -> None:
+    """When a single pre-parsed IR is supplied, translation agreement must be needs_review.
+
+    The old implementation fabricated two identical candidates so the agreement was
+    trivially 'agreed'. A single source cannot produce ensemble agreement — it should
+    be 'needs_review' instead.
+    """
+    manifest, registry = _project(tmp_path)
+    ir = DslV3Parser().parse_ir(
+        FIXTURES.joinpath("authorization_precondition_v3.nlreq").read_text(),
+        requirement_id="GATE-SINGLE-001",
+        title="Single source gate test",
+    )
+
+    report = run_end_to_end_requirement_gate(
+        controlled_text="when actor is not authorized then operation must reject before state_change.",
+        requirement_id="GATE-SINGLE-001",
+        title="Single source gate test",
+        source_adapter=PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["operation"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-single-artifacts",
+        execution=_execution(tmp_path),
+        requirement_ir=ir,
+    )
+
+    # Locate the translation_agreement artifact and assert it is needs_review.
+    agreement_artifact = next(
+        (a for a in report.artifacts if a.name == "translation_agreement"), None
+    )
+    assert agreement_artifact is not None, "translation_agreement artifact must be recorded"
+    from nlreq.translator_agreement import TranslationAgreementReport
+
+    agreement = TranslationAgreementReport.model_validate(read_json(Path(agreement_artifact.path)))
+    assert agreement.status == "needs_review", (
+        f"Single-source IR must yield needs_review, not {agreement.status!r}"
+    )
+
+
 def _project(
     tmp_path: Path,
     *,

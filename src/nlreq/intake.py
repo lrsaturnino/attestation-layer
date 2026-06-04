@@ -561,11 +561,6 @@ def draft_controlled_rewrite_with_llm(
     ``needs_approval``; callers must gate it through the human
     approval/hash-binding step before passing to the parser.
 
-    PA-4.T2 TODO: wire a real anthropic.Anthropic() client here once the
-    'anthropic' package is added to pyproject.toml dependencies.  Until then,
-    supply a RecordedLlmClient for offline use or UnavailableLlmClient for
-    graceful failure.
-
     Args:
         intake: The free-form intake artifact the proposal is linked to.
         client: An LlmClient-compatible object; use RecordedLlmClient for

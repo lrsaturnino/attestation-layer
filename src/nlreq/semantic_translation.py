@@ -8,6 +8,7 @@ from .dsl_v3 import DslV3ParseError, DslV3Parser
 from .formal_claim import FormalClaimLoweringReport, build_formal_claim
 from .jsonutil import sha256_json, sha256_text
 from .models import RequirementIRV2, SemanticNode, SourceSpan
+from .translator_agreement import TranslationDisagreement
 
 
 SEMANTIC_TRANSLATION_SCHEMA_VERSION = "0.1"
@@ -271,6 +272,54 @@ def _semantic_node_label(node: SemanticNode) -> str:
     if node.kind == "within" and node.temporal_bound is not None:
         return f"within {node.temporal_bound.value} {node.temporal_bound.unit}"
     return node.kind
+
+
+def refuse_ambiguous_ensemble(
+    *,
+    requirement_id: str,
+    translation_id: str | None = None,
+    disagreements: list[TranslationDisagreement],
+) -> SemanticTranslationReport:
+    """Return a REFUSED_AMBIGUOUS report for ensemble signature disagreement.
+
+    Use this when ≥2 independent translation candidates produce FormalClaim
+    signatures that do not agree under alpha-renaming and commutativity
+    normalisation. The report carries source spans and clarification questions
+    mapped from the disagreement paths.
+    """
+    effective_id = translation_id or f"semantic-translation-{requirement_id}"
+    findings = [
+        SemanticAmbiguityFinding(
+            finding_id=f"ensemble-disagreement-{i}",
+            reason=d.reason,
+            source_spans=d.source_spans,
+            clarification_question=(
+                f"Clarify the intended formal structure at '{d.path}': "
+                f"translator '{d.left_translator_id}' and '{d.right_translator_id}' disagree."
+            ),
+        )
+        for i, d in enumerate(disagreements, start=1)
+    ]
+    clarification_questions = [f.clarification_question for f in findings]
+    return SemanticTranslationReport(
+        translation_id=effective_id,
+        requirement_id=requirement_id,
+        result="refused",
+        syntactically_valid=True,
+        refusal_code="NLR-REFUSED-AMBIGUOUS",
+        ambiguity_findings=findings,
+        clarification_questions=clarification_questions,
+        stages=[
+            SemanticTranslationStage(
+                stage="lower_formal_claim",
+                status="failed",
+                message=(
+                    f"ensemble translation disagreement: {len(disagreements)} disagreement(s) "
+                    "across independent candidates; require clarification before accepting"
+                ),
+            )
+        ],
+    )
 
 
 def _parse_repair_question(exc: DslV3ParseError) -> str:

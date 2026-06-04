@@ -477,7 +477,7 @@ def main(argv: list[str] | None = None) -> int:
     draft_cmd.add_argument("--suggested", type=Path, required=True)
     draft_cmd.add_argument("--out", type=Path, required=True)
     draft_cmd.add_argument("--timestamp", default="2026-06-01T00:00:00Z")
-    draft_cmd.add_argument("--method", choices=["manual", "llm"], default="manual")
+    draft_cmd.add_argument("--method", choices=["manual"], default="manual")
     draft_cmd.add_argument("--model")
     draft_cmd.add_argument("--prompt")
 
@@ -2025,12 +2025,12 @@ def main(argv: list[str] | None = None) -> int:
                 submitted_at=args.submitted_at,
             )
             if args.method == "llm":
-                from .llm_client import RecordedLlmClient, UnavailableLlmClient
+                from .llm_client import AnthropicLlmClient, RecordedLlmClient
 
                 if args.fixture is not None:
                     client = RecordedLlmClient(args.fixture.read_text())
                 else:
-                    client = UnavailableLlmClient()
+                    client = AnthropicLlmClient(model=args.model or "claude-haiku-4-5-20251001")
                 proposal = draft_controlled_rewrite_with_llm(
                     intake=intake,
                     client=client,

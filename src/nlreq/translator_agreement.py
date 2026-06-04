@@ -4,6 +4,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from .formal_claim import build_formal_claim, formal_claim_signature
 from .jsonutil import canonical_json, sha256_json
 from .models import Approval, RequirementIRV2, SemanticNode, SourceSpan, ValueRef
 
@@ -121,17 +122,47 @@ def build_translation_agreement_report(
     )
 
 
+def _formal_claim_sig(requirement: RequirementIRV2) -> str | None:
+    """Return the normalised FormalClaim signature for a requirement, or None on failure."""
+    try:
+        report = build_formal_claim(requirement)
+        if report.formal_claim is not None:
+            return formal_claim_signature(
+                report.formal_claim,
+                alpha_identifiers=True,
+                commutative=True,
+            )
+    except Exception:
+        pass
+    return None
+
+
 def _disagreements(candidates: list[TranslationCandidate]) -> list[TranslationDisagreement]:
     if len(candidates) < 2:
         return []
     baseline = candidates[0]
-    baseline_signature = _node_signature(baseline.requirement.semantic_ir)
+    baseline_fc_sig = _formal_claim_sig(baseline.requirement)
     disagreements: list[TranslationDisagreement] = []
     for candidate in candidates[1:]:
-        signature = _node_signature(candidate.requirement.semantic_ir)
-        diff = _first_diff(baseline_signature, signature, path="semantic_ir")
-        if diff is not None:
-            path, left_fragment, right_fragment, reason = diff
+        candidate_fc_sig = _formal_claim_sig(candidate.requirement)
+
+        # When both candidates lower to a FormalClaim, use the normalised signature
+        # (alpha-renamed, commutative) as the primary agreement predicate.  Fall back
+        # to the structural SemanticNode diff to find spans when the signatures differ.
+        if baseline_fc_sig is not None and candidate_fc_sig is not None:
+            if baseline_fc_sig == candidate_fc_sig:
+                continue
+            # Signatures differ — locate source spans via structural diff for UX.
+            baseline_struct = _node_signature(baseline.requirement.semantic_ir)
+            candidate_struct = _node_signature(candidate.requirement.semantic_ir)
+            diff = _first_diff(baseline_struct, candidate_struct, path="semantic_ir")
+            path = diff[0] if diff else "semantic_ir"
+            left_fragment = diff[1] if diff else None
+            right_fragment = diff[2] if diff else None
+            reason = (
+                f"formal-claim signatures differ (alpha-renamed, commutative): "
+                f"baseline={baseline_fc_sig[:40]}… candidate={candidate_fc_sig[:40]}…"
+            )
             disagreements.append(
                 TranslationDisagreement(
                     left_translator_id=baseline.translator_id,
@@ -143,6 +174,25 @@ def _disagreements(candidates: list[TranslationCandidate]) -> list[TranslationDi
                     source_spans=_spans_for_path(candidate.requirement.semantic_ir, path),
                 )
             )
+        else:
+            # One or both candidates did not lower to a FormalClaim.  Fall back to
+            # structural SemanticNode comparison so we do not silently agree.
+            baseline_signature = _node_signature(baseline.requirement.semantic_ir)
+            candidate_signature = _node_signature(candidate.requirement.semantic_ir)
+            diff = _first_diff(baseline_signature, candidate_signature, path="semantic_ir")
+            if diff is not None:
+                path, left_fragment, right_fragment, reason = diff
+                disagreements.append(
+                    TranslationDisagreement(
+                        left_translator_id=baseline.translator_id,
+                        right_translator_id=candidate.translator_id,
+                        path=path,
+                        reason=reason,
+                        left_fragment=left_fragment,
+                        right_fragment=right_fragment,
+                        source_spans=_spans_for_path(candidate.requirement.semantic_ir, path),
+                    )
+                )
     return disagreements
 
 

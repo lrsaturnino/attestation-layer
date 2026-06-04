@@ -528,3 +528,102 @@ def test_offline_llm_draft_full_roundtrip(tmp_path: Path) -> None:
 
     ir = DslV3Parser().parse_ir(text, requirement_id="REQ-RT-1", title="roundtrip")
     assert ir.semantic_ir.metadata["requirement_class"] == "authorization_precondition"
+
+
+# ---------------------------------------------------------------------------
+# AnthropicLlmClient — real client construction (no network calls)
+# ---------------------------------------------------------------------------
+
+
+def test_anthropic_llm_client_constructs_without_key_in_env(monkeypatch) -> None:
+    """AnthropicLlmClient construction does not read the key — only propose_controlled_rewrite does."""
+    from nlreq.llm_client import AnthropicLlmClient
+
+    monkeypatch.delenv("NLREQ_ANTHROPIC_API_KEY", raising=False)
+    # Construction must not raise — the key is read lazily on the first call.
+    client = AnthropicLlmClient()
+    assert client is not None
+
+
+def test_anthropic_llm_client_raises_on_missing_key(monkeypatch) -> None:
+    """propose_controlled_rewrite raises EnvironmentError when NLREQ_ANTHROPIC_API_KEY is absent."""
+    import pytest
+    from nlreq.llm_client import AnthropicLlmClient
+
+    monkeypatch.delenv("NLREQ_ANTHROPIC_API_KEY", raising=False)
+    client = AnthropicLlmClient()
+    with pytest.raises(EnvironmentError, match="NLREQ_ANTHROPIC_API_KEY"):
+        client.propose_controlled_rewrite("prose", "grammar")
+
+
+def test_anthropic_llm_client_raises_on_empty_key(monkeypatch) -> None:
+    """propose_controlled_rewrite raises EnvironmentError when NLREQ_ANTHROPIC_API_KEY is empty."""
+    import pytest
+    from nlreq.llm_client import AnthropicLlmClient
+
+    monkeypatch.setenv("NLREQ_ANTHROPIC_API_KEY", "  ")
+    client = AnthropicLlmClient()
+    with pytest.raises(EnvironmentError, match="NLREQ_ANTHROPIC_API_KEY"):
+        client.propose_controlled_rewrite("prose", "grammar")
+
+
+def test_anthropic_llm_client_is_llm_client_protocol() -> None:
+    """AnthropicLlmClient satisfies the LlmClient Protocol (checked at runtime)."""
+    from nlreq.llm_client import AnthropicLlmClient, LlmClient
+
+    client = AnthropicLlmClient()
+    assert isinstance(client, LlmClient)
+
+
+def test_intake_draft_llm_no_fixture_constructs_real_client(monkeypatch, tmp_path: Path, capsys) -> None:
+    """intake-draft --method llm without --fixture uses AnthropicLlmClient (missing key → non-zero, not silent stub).
+
+    The real client raises EnvironmentError on missing credentials; the CLI catches it and
+    returns 1 with a message to stderr. This proves the non-fixture path is wired to
+    AnthropicLlmClient, not UnavailableLlmClient (which raises NotImplementedError, not EnvironmentError).
+    """
+    from nlreq.cli import main
+
+    monkeypatch.delenv("NLREQ_ANTHROPIC_API_KEY", raising=False)
+    original = tmp_path / "original.txt"
+    original.write_text(_PROSE)
+
+    exit_code = main(
+        [
+            "intake-draft",
+            str(original),
+            "--method",
+            "llm",
+            "--intake-id",
+            "INTAKE-REAL-1",
+            "--proposal-id",
+            "PROP-REAL-1",
+            "--out",
+            str(tmp_path / "proposal.json"),
+        ]
+    )
+    captured = capsys.readouterr()
+    # The CLI must exit with a non-zero code (not succeed silently) and surface
+    # the credential variable name so the operator knows what to fix.
+    assert exit_code != 0, "Missing credential must produce a non-zero exit code"
+    assert "NLREQ_ANTHROPIC_API_KEY" in captured.err, (
+        f"Expected credential variable name in stderr, got: {captured.err!r}"
+    )
+
+
+def test_load_api_key_requires_env_var(monkeypatch) -> None:
+    """load_api_key() raises EnvironmentError with the expected variable name when unset."""
+    from nlreq.llm_client import load_api_key, NLREQ_API_KEY_ENV
+    import pytest
+
+    monkeypatch.delenv(NLREQ_API_KEY_ENV, raising=False)
+    with pytest.raises(EnvironmentError, match=NLREQ_API_KEY_ENV):
+        load_api_key()
+
+
+def test_load_api_key_returns_key_from_env(monkeypatch) -> None:
+    """load_api_key() returns the key when NLREQ_ANTHROPIC_API_KEY is set."""
+    from nlreq.llm_client import load_api_key, NLREQ_API_KEY_ENV
+
+    monkeypatch.setenv(NLREQ_API_KEY_ENV, "sk-test-key")
+    assert load_api_key() == "sk-test-key"

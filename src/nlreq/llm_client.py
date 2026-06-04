@@ -1,6 +1,30 @@
 from __future__ import annotations
 
+import os
 from typing import Protocol, runtime_checkable
+
+
+NLREQ_API_KEY_ENV = "NLREQ_ANTHROPIC_API_KEY"
+
+# Model used for controlled-rewrite drafting. Temperature=0 for best-effort
+# reproducibility; callers must still treat output as untrusted.
+_DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+
+
+def load_api_key() -> str:
+    """Load the Anthropic API key from the environment.
+
+    Reads NLREQ_ANTHROPIC_API_KEY. Raises EnvironmentError with a clear
+    message if the variable is absent or empty so callers get a useful error
+    rather than an opaque SDK failure.
+    """
+    key = os.environ.get(NLREQ_API_KEY_ENV, "").strip()
+    if not key:
+        raise EnvironmentError(
+            f"Real LLM drafting requires {NLREQ_API_KEY_ENV} to be set. "
+            "Set it to an Anthropic API key or pass --fixture for offline use."
+        )
+    return key
 
 
 @runtime_checkable
@@ -9,9 +33,8 @@ class LlmClient(Protocol):
 
     The returned text is UNTRUSTED — callers must route it through the
     human approval and hash-binding gate before the parser sees it.
-    Implementations must be pure and deterministic for a fixed input (i.e.
-    not call time(), random(), or maintain mutable state across calls) so
-    that offline golden tests are reproducible.
+    RecordedLlmClient is deterministic; real clients set temperature=0 for
+    best-effort reproducibility but are not guaranteed to be deterministic.
     """
 
     def propose_controlled_rewrite(self, prose: str, grammar_summary: str) -> str:
@@ -40,6 +63,56 @@ class RecordedLlmClient:
 
     def propose_controlled_rewrite(self, prose: str, grammar_summary: str) -> str:
         return self._fixture
+
+
+class AnthropicLlmClient:
+    """Real Anthropic SDK client for controlled-rewrite drafting.
+
+    Constructs lazily — the 'anthropic' package is imported inside
+    propose_controlled_rewrite, not at module load time, so the absence of the
+    package raises a clear error only when a live call is attempted.
+
+    Credentials are loaded from NLREQ_ANTHROPIC_API_KEY via load_api_key().
+    Never hardcode keys; the key is read fresh on each call so rotating the
+    environment variable takes effect without a process restart.
+    """
+
+    def __init__(self, model: str = _DEFAULT_MODEL) -> None:
+        self._model = model
+
+    def propose_controlled_rewrite(self, prose: str, grammar_summary: str) -> str:
+        # Credential check first so a missing key surfaces as EnvironmentError
+        # even when the 'anthropic' package is not installed.
+        api_key = load_api_key()
+
+        try:
+            import anthropic
+        except ImportError as exc:
+            raise ImportError(
+                "Real LLM drafting requires the 'anthropic' package. "
+                "Install it via: pip install anthropic  (or uv add anthropic)"
+            ) from exc
+        client = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model=self._model,
+            max_tokens=1024,
+            temperature=0,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        "You are a precise technical writer converting free-form requirement prose "
+                        "into a controlled DSL v3 requirement.\n\n"
+                        "GRAMMAR:\n"
+                        + grammar_summary
+                        + "\nPROSE:\n"
+                        + prose.strip()
+                        + "\n\nProduce ONLY the controlled DSL v3 text, no explanation or commentary."
+                    ),
+                }
+            ],
+        )
+        return message.content[0].text
 
 
 class UnavailableLlmClient:
