@@ -6,3 +6,11 @@ __pycache__/
 .ruff_cache/
 .mypy_cache/
 .nlreq-formal-artifacts/
+.ralph/
+node_modules/
+*.pyc
+venv/
+target/
+dist/
+build/
+.DS_Store
