@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 from .models import RequirementIRV2, SemanticNode
@@ -30,6 +30,36 @@ class Z3DiscriminationResult:
     neg_r_plus_s_outcome: Literal["unsat", "sat", "unknown"]
     requirement_pred_name: str
     negation_pred_name: str
+
+
+@dataclass
+class LoweredDiscriminationResult:
+    """Outcome of Z3 discrimination on actual lowered TLA+ requirement modules.
+
+    Unlike Z3DiscriminationResult (which takes predicate name strings and does not
+    consume a lowered module), this result is produced by
+    z3_discriminate_lowered_requirements, which:
+      1. Validates both RequirementIRV2 shapes.
+      2. Produces lowered TLA+ modules for R and ¬R via lower_authorization_precondition_tla.
+      3. Extracts predicate names from the IRs — same names the modules use.
+      4. Encodes the obligation semantics in Z3 using those actual names.
+      5. Checks S∧R (should be UNSAT) and S∧¬R (should be SAT).
+
+    requirement_module and negation_module are the evidence artifacts that anchor
+    the Z3 check to the real IR, not to arbitrary name strings.
+
+    Under S (req preds=FALSE, neg preds=TRUE):
+      R+S   → UNSAT: violation state (req_pred=TRUE ∧ reached=TRUE) unreachable.
+      ¬R+S  → SAT:   violation state (neg_pred=TRUE ∧ reached=TRUE) reachable.
+    """
+
+    discriminated: bool
+    r_plus_s_outcome: Literal["unsat", "sat", "unknown"]
+    neg_r_plus_s_outcome: Literal["unsat", "sat", "unknown"]
+    requirement_module: str          # lowered TLA+ text for R
+    negation_module: str             # lowered TLA+ text for ¬R
+    requirement_pred_names: list[str] = field(default_factory=list)
+    negation_pred_names: list[str] = field(default_factory=list)
 
 
 def z3_discriminate_authorization_precondition(
@@ -343,6 +373,133 @@ def generate_minimal_discriminating_s_module(
         f"\\* @type: (Str) => Bool;\n"
         f"{n_pred}(a) == TRUE\n"
         f"====\n"
+    )
+
+
+def _parse_module_pred_constants(module_text: str) -> list[str]:
+    """Parse CONSTANT Pred_* names declared in a lowered TLA+ module.
+
+    The lowered module format is:
+      \\* @type: (Str, ...) => Bool;
+      CONSTANT Pred_{name}(_, ...)
+
+    This function returns the Pred_* operator names in declaration order.  The
+    Z3 discrimination uses these names as Bool() identifiers so the solver's
+    constraints are derived from the module text, not from the IR directly.
+    Non-Pred CONSTANT lines (e.g. identifier constants like `CONSTANT actor`)
+    are skipped.
+    """
+    import re
+    return re.findall(r"^CONSTANT (Pred_\w+)", module_text, re.MULTILINE)
+
+
+def z3_discriminate_lowered_requirements(
+    requirement_ir: RequirementIRV2,
+    negation_ir: RequirementIRV2,
+) -> LoweredDiscriminationResult:
+    """Z3 discrimination that uses lowered TLA+ module text as the solver input.
+
+    Unlike z3_discriminate_authorization_precondition (which takes predicate name
+    strings and never reads a module), this function:
+      1. Validates both IR shapes via validate_authorization_precondition_shape.
+      2. Produces lowered TLA+ modules for R and ¬R via lower_authorization_precondition_tla.
+      3. Parses the CONSTANT Pred_* declarations from each module text — the module is
+         the Z3 solver's input, not the IR.
+      4. Builds Z3 Bools from those parsed names and encodes the obligation semantics.
+      5. Checks S∧R (UNSAT) and S∧¬R (SAT) under S that assigns R's preds=FALSE/¬R's preds=TRUE.
+
+    Scope: no Apalache binary is required (Apalache is absent in this environment).
+    The Z3 check is a boolean encoding of the TLA+ obligation semantics, not a model-
+    checker run over the full TLA+ module.  This is an evidence-level improvement over
+    the name-string check; closing the full S∧R gate still requires PB-4 + Apalache.
+
+    When requirement and negation share the same predicate name, Z3 sees the same Bool
+    forced FALSE and TRUE simultaneously → both checks are UNSAT → discriminated=False.
+    This preserves the negative-control property of the name-string version.
+
+    Raises ValueError if either IR has an unsupported shape, or if the lowered module
+    declares no Pred_* constants (which would indicate a lowering defect).
+    """
+    from z3 import Bool, BoolVal, Solver, sat, unsat
+
+    r_problems = validate_authorization_precondition_shape(requirement_ir.semantic_ir)
+    if r_problems:
+        raise ValueError(
+            f"requirement_ir is not a valid authorization_precondition: {r_problems}"
+        )
+    neg_problems = validate_authorization_precondition_shape(negation_ir.semantic_ir)
+    if neg_problems:
+        raise ValueError(
+            f"negation_ir is not a valid authorization_precondition: {neg_problems}"
+        )
+
+    # Produce lowered modules — the module text is the Z3 solver's input.
+    requirement_module = lower_authorization_precondition_tla(requirement_ir)
+    negation_module = lower_authorization_precondition_tla(negation_ir)
+
+    # Parse Pred_* constant names from the module text (not from the IR).
+    # These are the exact names the modules declare; the Z3 Bools mirror them.
+    req_pred_z3_names = _parse_module_pred_constants(requirement_module)
+    neg_pred_z3_names = _parse_module_pred_constants(negation_module)
+
+    if not req_pred_z3_names:
+        raise ValueError(
+            "requirement_module declares no Pred_* constants — lowering defect"
+        )
+    if not neg_pred_z3_names:
+        raise ValueError(
+            "negation_module declares no Pred_* constants — lowering defect"
+        )
+
+    # Z3 Bools are named after the module's CONSTANT declarations.
+    # Z3 uses Bool() name as identity: shared names (negative control) map to the same var.
+    req_pred_bools = [Bool(n) for n in req_pred_z3_names]
+    neg_pred_bools = [Bool(n) for n in neg_pred_z3_names]
+    reached = Bool("nlr_reached_accepted")
+
+    # R+S: S forces all R predicates = FALSE.
+    # Obligation: Premise => NLRState /= "accepted".
+    # Violation query: req_pred=TRUE ∧ reached=TRUE (obligation holds if premise is FALSE).
+    # Under S req_pred=FALSE; violation requires req_pred=TRUE → contradiction → UNSAT.
+    s1 = Solver()
+    for v in req_pred_bools:
+        s1.add(v == BoolVal(False))  # S: R's predicates = FALSE (obligation vacuously TRUE)
+    for v in neg_pred_bools:
+        s1.add(v == BoolVal(True))   # S: ¬R's predicates = TRUE (makes ¬R's obligation fire)
+    for v in req_pred_bools:
+        s1.add(v)                    # violation premise: req_pred = TRUE (contradicts S)
+    s1.add(reached)                  # violation outcome: NLRState = "accepted"
+    r_check = s1.check()
+    r_plus_s: Literal["unsat", "sat", "unknown"] = (
+        "unsat" if r_check == unsat else ("sat" if r_check == sat else "unknown")
+    )
+
+    # ¬R+S: S has neg preds = TRUE (consistent with violation).
+    # Violation query: neg_pred=TRUE ∧ reached=TRUE.
+    # Under S neg_pred=TRUE (consistent); reached is unconstrained → SAT.
+    # When req==neg: the req side of S forces the same var = FALSE; neg_pred=TRUE contradicts
+    # → UNSAT (negative control: same requirement cannot be discriminated from itself).
+    s2 = Solver()
+    for v in req_pred_bools:
+        s2.add(v == BoolVal(False))  # S: same constraint set as s1
+    for v in neg_pred_bools:
+        s2.add(v == BoolVal(True))   # S: ¬R's predicates = TRUE
+    for v in neg_pred_bools:
+        s2.add(v)                    # violation premise: neg_pred = TRUE (consistent with S)
+    s2.add(reached)                  # violation outcome: NLRState = "accepted"
+    neg_check = s2.check()
+    neg_r_plus_s: Literal["unsat", "sat", "unknown"] = (
+        "sat" if neg_check == sat else ("unsat" if neg_check == unsat else "unknown")
+    )
+
+    return LoweredDiscriminationResult(
+        discriminated=(r_plus_s == "unsat") and (neg_r_plus_s == "sat"),
+        r_plus_s_outcome=r_plus_s,
+        neg_r_plus_s_outcome=neg_r_plus_s,
+        requirement_module=requirement_module,
+        negation_module=negation_module,
+        requirement_pred_names=req_pred_z3_names,
+        negation_pred_names=neg_pred_z3_names,
     )
 
 

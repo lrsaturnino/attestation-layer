@@ -3,6 +3,11 @@ from __future__ import annotations
 from .formal_claim import FormalClaim, FormalClaimFragment
 from .models import BackendResult, EvidenceLevel
 
+# Evidence honesty: "unsupported" results carry no evidence level.
+# _producer_blockers skips results with evidence_level=None, preventing spurious
+# producer-mapping blockers for fragments that are intentionally not checked at this layer.
+_UNSUPPORTED_EVIDENCE: EvidenceLevel | None = None
+
 
 FORMAL_CLAIM_SMT_VERSION = "0.1"
 
@@ -43,7 +48,9 @@ def _check_fragment(fragment: FormalClaimFragment) -> BackendResult:
         # Named uninterpreted predicates require Apalache/Pillar B model-level checking.
         # Returning "unsupported" causes proof_closure to set the premise status to
         # "blocked" with an explicit reason rather than leaving it silently "open".
-        status, evidence = "unsupported", EvidenceLevel.CONSISTENCY_CHECKED
+        # evidence_level=None so _producer_blockers skips this result and emits no spurious
+        # producer-mapping blocker (core_smt is only registered for SMT_CHECKED).
+        status, evidence = "unsupported", _UNSUPPORTED_EVIDENCE
         check_label = "fragment_satisfiability:predicate"
         span_text = fragment.source_spans[0].text if fragment.source_spans else fragment.canonical
         extra = {"reason": (
@@ -59,7 +66,7 @@ def _check_fragment(fragment: FormalClaimFragment) -> BackendResult:
         return BackendResult(
             backend="apalache",
             status="unsupported",
-            evidence_level=EvidenceLevel.CONSISTENCY_CHECKED,
+            evidence_level=_UNSUPPORTED_EVIDENCE,
             details={
                 "covered_fragment_ids": [fragment.fragment_id],
                 "check": "fragment_satisfiability:rejection_order",

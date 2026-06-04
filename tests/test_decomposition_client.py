@@ -876,3 +876,109 @@ def test_cli_recorded_fixture_preserves_provenance_in_decomposition(tmp_path: Pa
         assert cp.get("replay_marker") == "recorded_fixture", (
             f"candidate_provenances[{i}] must carry the replay_marker, got {cp}"
         )
+
+
+def test_recorded_decomposition_client_refuses_wrong_input_when_hash_bound() -> None:
+    """RecordedDecompositionClient must raise ValueError when replayed against different text.
+
+    The fixture's source_text_hash is recorded at capture time.  If a caller provides
+    expected_source_text_hash and then calls decompose_controlled_to_ir with different
+    controlled text, the client must refuse — silently accepting would produce a result
+    that appears hash-bound to the new text but carries the old (wrong-input) IR.
+    """
+    ir = _parse_ir()
+    original_hash = sha256_text(_CONTROLLED_TEXT)
+    client = RecordedDecompositionClient(
+        ir,
+        candidate_id="hash-bound-test",
+        expected_source_text_hash=original_hash,
+    )
+
+    # Replaying against the original text must succeed.
+    result = client.decompose_controlled_to_ir(_CONTROLLED_TEXT, _REQUIREMENT_ID, _TITLE)
+    assert result.source_text_hash == original_hash
+
+    # Replaying against different text must raise ValueError.
+    different_text = "when actor is admin then operation must reject before finalized."
+    assert different_text != _CONTROLLED_TEXT
+    with pytest.raises(ValueError, match="does not match fixture's expected hash"):
+        client.decompose_controlled_to_ir(different_text, _REQUIREMENT_ID, _TITLE)
+
+
+def test_recorded_decomposition_client_without_hash_binding_accepts_any_text() -> None:
+    """RecordedDecompositionClient without expected_source_text_hash accepts any controlled text.
+
+    Existing tests and golden-test fixtures that do not bind to a specific hash must
+    continue to work unchanged — hash binding is opt-in via expected_source_text_hash.
+    """
+    ir = _parse_ir()
+    client = RecordedDecompositionClient(ir, candidate_id="no-hash-bind")
+
+    different_text = "when actor is admin then operation must reject before finalized."
+    # Must not raise; source_text_hash is derived from the supplied text.
+    result = client.decompose_controlled_to_ir(different_text, _REQUIREMENT_ID, _TITLE)
+    assert result.source_text_hash == sha256_text(different_text)
+
+
+def test_cli_recorded_fixture_hash_mismatch_produces_clean_error(tmp_path: Path) -> None:
+    """CLI recorded:<path> must print a clean error (not a traceback) on hash mismatch.
+
+    The fixture's source_text_hash is passed as expected_source_text_hash to
+    RecordedDecompositionClient.  When the CLI's --file content differs from the
+    fixture's original input, the ValueError must be caught and rendered as a
+    'nlreq: translation error: ...' message with exit code 2.
+
+    Both texts must be valid DSL v3 so parsing succeeds and the decompose call is
+    reached (if parsing fails first the hash check is never triggered).
+    """
+    import sys
+    from io import StringIO
+
+    original_text = _CONTROLLED_TEXT  # fixture was captured against this text
+    # A different, syntactically valid DSL v3 text — parses OK but has a different hash.
+    different_text = (
+        "requirement authorization_precondition: scope payment "
+        "when actor is authorized then payment must reject before finalized."
+    )
+    assert different_text != original_text
+
+    # Two fixtures both bound to original_text's hash.  The ensemble check requires ≥2 clients,
+    # so both are needed to reach decompose_controlled_to_ir.
+    fixture_result = DecompositionResult(
+        requirement=_parse_ir(),
+        candidate_id="cli-hash-mismatch",
+        source_text_hash=sha256_text(original_text),
+    )
+    fixture_path_a = tmp_path / "fixture_mismatch_a.json"
+    fixture_path_b = tmp_path / "fixture_mismatch_b.json"
+    fixture_path_a.write_text(fixture_result.model_dump_json())
+    fixture_path_b.write_text(fixture_result.model_dump_json())
+
+    # Write the DIFFERENT valid text to --file so the hash won't match the fixture.
+    different_req_file = tmp_path / "different.nlreq"
+    different_req_file.write_text(different_text)
+
+    captured_stderr = StringIO()
+    original_stderr = sys.stderr
+    sys.stderr = captured_stderr
+    try:
+        exit_code = main([
+            "semantic-translate", str(different_req_file),
+            "--requirement-id", _REQUIREMENT_ID,
+            "--title", _TITLE,
+            "--ensemble-client", f"recorded:{fixture_path_a}",
+            "--ensemble-client", f"recorded:{fixture_path_b}",
+        ])
+    finally:
+        sys.stderr = original_stderr
+
+    assert exit_code == 2, (
+        f"CLI must return exit code 2 on hash mismatch, got {exit_code}"
+    )
+    stderr_output = captured_stderr.getvalue()
+    assert "nlreq: translation error:" in stderr_output, (
+        f"CLI must print a clean error message, not a traceback. Got: {stderr_output!r}"
+    )
+    assert "does not match fixture's expected hash" in stderr_output, (
+        f"Error message must explain the hash mismatch. Got: {stderr_output!r}"
+    )

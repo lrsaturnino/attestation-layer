@@ -91,6 +91,31 @@ def test_predicate_fragments_produce_unsupported_results_with_covered_ids() -> N
         )
 
 
+def test_unsupported_fragment_results_carry_no_evidence_level() -> None:
+    """Unsupported fragment results must have evidence_level=None.
+
+    Predicate and rejection_order fragments are intentionally unsupported at the
+    fragment-level SMT layer (they require Apalache/Pillar B). Setting evidence_level=None
+    prevents _producer_blockers in proof_closure from emitting spurious producer-mapping
+    blockers — core_smt is only registered for SMT_CHECKED and apalache only for
+    BOUNDED_CHECKED; claiming CONSISTENCY_CHECKED from either backend would violate the
+    evidence honesty contract.
+    """
+    report = build_formal_claim(_auth_ir())
+    assert report.formal_claim is not None
+
+    results = smt_check_formal_claim_predicate_fragments(report.formal_claim)
+
+    unsupported_results = [r for r in results if r.status == "unsupported"]
+    assert unsupported_results, "auth fixture must produce at least one unsupported result"
+    for r in unsupported_results:
+        assert r.evidence_level is None, (
+            f"unsupported BackendResult must have evidence_level=None to avoid "
+            f"spurious producer-mapping blockers, got evidence_level={r.evidence_level!r} "
+            f"for backend={r.backend!r}"
+        )
+
+
 def test_ground_true_comparison_returns_valid_smt_checked() -> None:
     """Concrete-number comparison that is true must emit valid/SMT_CHECKED."""
     frag = _make_comparison_fragment("number", 5, "number", 10, "lt")

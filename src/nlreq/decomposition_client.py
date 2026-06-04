@@ -99,6 +99,11 @@ class RecordedDecompositionClient:
     refused-ambiguous path in tests, pass approval=Approval(status="approved", …)
     and is_audited=True.  To exercise the needs-review / unaudited path, leave both
     at their defaults (None / False).
+
+    Pass expected_source_text_hash (typically fixture_result.source_text_hash from the
+    saved fixture) to bind the replay to the original input.  When set, replaying against
+    a different controlled_text raises ValueError — this prevents a stale or wrong-input
+    fixture from being silently accepted and appearing hash-bound to new text.
     """
 
     def __init__(
@@ -112,6 +117,7 @@ class RecordedDecompositionClient:
         prompt_hash: str | None = None,
         fixture_provenance: dict[str, str] | None = None,
         source_spans: list[SourceSpan] | None = None,
+        expected_source_text_hash: str | None = None,
     ) -> None:
         self._fixture = fixture
         self._candidate_id = candidate_id
@@ -121,6 +127,7 @@ class RecordedDecompositionClient:
         self._prompt_hash = prompt_hash
         self._fixture_provenance: dict[str, str] = fixture_provenance or {}
         self._source_spans: list[SourceSpan] = source_spans or []
+        self._expected_source_text_hash = expected_source_text_hash
 
     def decompose_controlled_to_ir(
         self,
@@ -128,10 +135,21 @@ class RecordedDecompositionClient:
         requirement_id: str,
         title: str,
     ) -> DecompositionResult:
+        actual_hash = sha256_text(controlled_text)
+        if (
+            self._expected_source_text_hash is not None
+            and actual_hash != self._expected_source_text_hash
+        ):
+            raise ValueError(
+                f"RecordedDecompositionClient: controlled_text hash {actual_hash!r} "
+                f"does not match fixture's expected hash {self._expected_source_text_hash!r}. "
+                "Replaying a fixture against different input text would produce a result "
+                "that appears hash-bound to new text but carries the old IR."
+            )
         return DecompositionResult(
             requirement=self._fixture,
             candidate_id=self._candidate_id,
-            source_text_hash=sha256_text(controlled_text),
+            source_text_hash=actual_hash,
             model_id=self._model_id,
             prompt_hash=self._prompt_hash,
             source_spans=self._source_spans,

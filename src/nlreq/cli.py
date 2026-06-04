@@ -2199,6 +2199,7 @@ def main(argv: list[str] | None = None) -> int:
                                 prompt_hash=fixture_result.prompt_hash,
                                 fixture_provenance=fixture_result.provenance,
                                 source_spans=fixture_result.source_spans,
+                                expected_source_text_hash=fixture_result.source_text_hash,
                             )
                         )
                     else:
@@ -2209,13 +2210,17 @@ def main(argv: list[str] | None = None) -> int:
                         )
                         return 2
 
-            report = translate_controlled_requirement_to_formal_claim(
-                controlled_text=args.file.read_text(),
-                requirement_id=args.requirement_id,
-                title=args.title,
-                translation_id=args.translation_id,
-                decomposition_clients=decomposition_clients,
-            )
+            try:
+                report = translate_controlled_requirement_to_formal_claim(
+                    controlled_text=args.file.read_text(),
+                    requirement_id=args.requirement_id,
+                    title=args.title,
+                    translation_id=args.translation_id,
+                    decomposition_clients=decomposition_clients,
+                )
+            except ValueError as exc:
+                print(f"nlreq: translation error: {exc}", file=sys.stderr)
+                return 2
             if args.out:
                 write_json(args.out, report)
                 print(f"Semantic translation report: {args.out}")

@@ -7,10 +7,12 @@ from nlreq.cli import main
 from nlreq.dsl_v2 import DslV2Parser
 from nlreq.dsl_v3 import DslV3Parser
 from nlreq.formal_lowering import (
+    LoweredDiscriminationResult,
     Z3DiscriminationResult,
     generate_minimal_discriminating_s_module,
     validate_authorization_precondition_shape,
     z3_discriminate_authorization_precondition,
+    z3_discriminate_lowered_requirements,
 )
 from nlreq.models import RequirementIRV2
 from nlreq.translator import (
@@ -683,6 +685,105 @@ def test_z3_discrimination_negative_control_same_pred_not_discriminated() -> Non
     assert result.neg_r_plus_s_outcome == "unsat", (
         "when the same predicate is used for both R and ¬R, ¬R+S must also be UNSAT "
         "(S is self-contradictory), proving the discriminator depends on req≠neg"
+    )
+
+
+def test_z3_discriminate_lowered_requirements_consumes_real_ir() -> None:
+    """z3_discriminate_lowered_requirements derives Z3 constraints from parsed module text.
+
+    Unlike z3_discriminate_authorization_precondition (which takes predicate name strings
+    and never reads a module), this function produces lowered TLA+ modules and then
+    parses their CONSTANT Pred_* declarations to build the Z3 Bool variables.  The module
+    text is the solver's input — the predicate names come from _parse_module_pred_constants,
+    not from _premise_predicates(ir).
+
+    Scope: Z3 boolean encoding of the TLA+ obligation semantics.  Apalache binary absent;
+    full S∧R gate evidence blocked on PB-4 + apalache.  This is an anchoring improvement
+    over the name-string check — module-parsed names, not test-string arguments.
+    """
+    ir_pos = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope op "
+        "when actor is not authorized then operation must reject before state_change.",
+        requirement_id="LOWERED-DISCRIM-POS",
+        title="Not authorized (lowered)",
+    )
+    ir_neg = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope op "
+        "when actor is authorized then operation must reject before state_change.",
+        requirement_id="LOWERED-DISCRIM-NEG",
+        title="Authorized (lowered)",
+    )
+
+    result = z3_discriminate_lowered_requirements(ir_pos, ir_neg)
+
+    assert isinstance(result, LoweredDiscriminationResult)
+
+    # The lowered modules are non-empty TLA+ text — the Z3 inputs.
+    assert "MODULE Req_LOWERED_DISCRIM_POS" in result.requirement_module, (
+        "requirement_module must be the lowered TLA+ text for ir_pos"
+    )
+    assert "MODULE Req_LOWERED_DISCRIM_NEG" in result.negation_module, (
+        "negation_module must be the lowered TLA+ text for ir_neg"
+    )
+
+    # requirement_pred_names are parsed from the module's CONSTANT Pred_* declarations,
+    # not from the IR.  They are the full TLA+ operator names (e.g. "Pred_not_authorized").
+    assert result.requirement_pred_names, "requirement_pred_names must not be empty"
+    assert result.negation_pred_names, "negation_pred_names must not be empty"
+    assert all(n.startswith("Pred_") for n in result.requirement_pred_names), (
+        "requirement_pred_names must be Pred_* names parsed from the module CONSTANT declarations"
+    )
+    assert all(n.startswith("Pred_") for n in result.negation_pred_names), (
+        "negation_pred_names must be Pred_* names parsed from the module CONSTANT declarations"
+    )
+    assert result.requirement_pred_names != result.negation_pred_names, (
+        "requirement and negation must declare different Pred_* constants "
+        "(Pred_not_authorized vs Pred_authorized)"
+    )
+    # The Pred_* names from the modules must appear in the module text itself.
+    for pred_name in result.requirement_pred_names:
+        assert f"CONSTANT {pred_name}" in result.requirement_module, (
+            f"{pred_name!r} parsed as a requirement predicate but not found in requirement_module"
+        )
+    for pred_name in result.negation_pred_names:
+        assert f"CONSTANT {pred_name}" in result.negation_module, (
+            f"{pred_name!r} parsed as a negation predicate but not found in negation_module"
+        )
+
+    assert result.r_plus_s_outcome == "unsat", (
+        f"R+S must be UNSAT (R holds under S), got {result.r_plus_s_outcome!r}"
+    )
+    assert result.neg_r_plus_s_outcome == "sat", (
+        f"¬R+S must be SAT (counterexample: ¬R fails under S), got {result.neg_r_plus_s_outcome!r}"
+    )
+    assert result.discriminated, (
+        "z3_discriminate_lowered_requirements must report discriminated=True for R≠¬R"
+    )
+
+
+def test_z3_discriminate_lowered_requirements_negative_control_same_ir() -> None:
+    """z3_discriminate_lowered_requirements(R, R) must return discriminated=False.
+
+    When the same IR is used for both R and ¬R, the predicate names are identical.
+    Z3 sees the same Bool forced FALSE and TRUE simultaneously → both checks UNSAT
+    → discriminated=False.  This mirrors the negative control in the name-string version.
+    """
+    ir = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope op "
+        "when actor is authorized then operation must reject before state_change.",
+        requirement_id="LOWERED-SAME",
+        title="Same IR negative control",
+    )
+
+    result = z3_discriminate_lowered_requirements(ir, ir)
+
+    assert not result.discriminated, (
+        f"z3_discriminate_lowered_requirements(R, R) must return discriminated=False; "
+        f"got r_plus_s={result.r_plus_s_outcome!r}, neg_r_plus_s={result.neg_r_plus_s_outcome!r}"
+    )
+    assert result.neg_r_plus_s_outcome == "unsat", (
+        "when the same IR is used for both R and ¬R, ¬R+S must also be UNSAT "
+        "(same predicate name → same Z3 Bool → S self-contradictory)"
     )
 
 

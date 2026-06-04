@@ -176,6 +176,18 @@ def test_end_to_end_gate_with_v3_requirement_has_formal_claim_fragment_ids(tmp_p
         f"{rejection_order}"
     )
 
+    # No producer-mapping blockers from intentionally-unsupported fragments.
+    # Unsupported BackendResults must carry evidence_level=None so _producer_blockers
+    # skips them, rather than emitting spurious "producer is not allowed to emit this
+    # evidence level" blockers for core_smt / apalache backends.
+    producer_mapping_blockers = [
+        b for b in proof.blockers if b.category == "producer_mapping"
+    ]
+    assert not producer_mapping_blockers, (
+        f"No producer-mapping blockers expected for intentionally-unsupported fragments, "
+        f"got: {producer_mapping_blockers}"
+    )
+
 
 def test_end_to_end_gate_refuses_trace_replay_violation(tmp_path: Path) -> None:
     manifest, registry = _project(tmp_path, trace_actions=["finalize_redemption"])
