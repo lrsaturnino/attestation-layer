@@ -283,6 +283,82 @@ def test_gate_single_source_ir_yields_needs_review_not_agreed(tmp_path: Path) ->
     )
 
 
+def test_gate_refuses_on_disagreeing_translation_agreement_input(tmp_path: Path) -> None:
+    """When a TranslationAgreementInput with genuinely different candidates is supplied,
+    the gate must produce decision='refused' (not 'unknown' or 'accepted') and record
+    a translation_refusal artifact with NLR-REFUSED-AMBIGUOUS.
+
+    This exercises the full refuse_ambiguous_ensemble wiring: the gate calls it on
+    disagreement and the decision propagates as a blocker.
+    """
+    from nlreq.dsl_v3 import DslV3Parser
+    from nlreq.translator_agreement import TranslationAgreementInput, TranslationCandidate
+
+    manifest, registry = _project(tmp_path)
+
+    auth_req = DslV3Parser().parse_ir(
+        FIXTURES.joinpath("authorization_precondition_v3.nlreq").read_text(),
+        requirement_id="GATE-DISAGREE-001",
+        title="Auth candidate",
+    )
+    # A structurally distinct requirement (numeric_invariant has different claim_class).
+    numeric_req = DslV3Parser().parse_ir(
+        "requirement numeric_invariant:\nscope reserve\nwhen reserve is confirmed\nthen keep collateral >= 100\n",
+        requirement_id="GATE-DISAGREE-001",
+        title="Numeric candidate",
+    )
+    disagreeing_input = TranslationAgreementInput(
+        candidates=[
+            TranslationCandidate(
+                translator_id="candidate-auth",
+                method="deterministic",
+                requirement=auth_req,
+                provenance={"source": "test"},
+            ),
+            TranslationCandidate(
+                translator_id="candidate-numeric",
+                method="deterministic",
+                requirement=numeric_req,
+                provenance={"source": "test"},
+            ),
+        ]
+    )
+
+    report = run_end_to_end_requirement_gate(
+        controlled_text="when actor is not authorized then operation must reject before state_change.",
+        requirement_id="GATE-DISAGREE-001",
+        title="Disagree gate test",
+        source_adapter=PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["operation"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-disagree-artifacts",
+        execution=_execution(tmp_path),
+        requirement_ir=auth_req,
+        translation_agreement=disagreeing_input,
+    )
+
+    # Gate must be refused, not unknown or accepted.
+    assert report.decision == "refused", (
+        f"Disagreeing translation must produce refused decision, got {report.decision!r}"
+    )
+    assert report.downstream_action_allowed is False
+
+    # A translation_refusal artifact with NLR-REFUSED-AMBIGUOUS must be recorded.
+    refusal_artifact = next(
+        (a for a in report.artifacts if a.name == "translation_refusal"), None
+    )
+    assert refusal_artifact is not None, "translation_refusal artifact must be recorded on disagreement"
+    from nlreq.semantic_translation import SemanticTranslationReport
+
+    refusal = SemanticTranslationReport.model_validate(read_json(Path(refusal_artifact.path)))
+    assert refusal.refusal_code == "NLR-REFUSED-AMBIGUOUS", (
+        f"Expected NLR-REFUSED-AMBIGUOUS, got {refusal.refusal_code!r}"
+    )
+    assert len(refusal.clarification_questions) >= 1
+
+
 def _project(
     tmp_path: Path,
     *,

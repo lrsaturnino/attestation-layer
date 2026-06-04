@@ -627,3 +627,36 @@ def test_load_api_key_returns_key_from_env(monkeypatch) -> None:
 
     monkeypatch.setenv(NLREQ_API_KEY_ENV, "sk-test-key")
     assert load_api_key() == "sk-test-key"
+
+
+def test_anthropic_llm_client_response_parsing(monkeypatch, tmp_path: Path) -> None:
+    """AnthropicLlmClient extracts the text from message.content[0].text correctly.
+
+    Uses a fake 'anthropic' module injected via sys.modules so no real network call
+    is made. Verifies that the response-parsing path message.content[0].text works.
+    """
+    import sys
+    import types
+    from nlreq.llm_client import AnthropicLlmClient, NLREQ_API_KEY_ENV
+
+    monkeypatch.setenv(NLREQ_API_KEY_ENV, "sk-test-key")
+
+    # Build a fake anthropic module with a Messages client that returns a fixed response.
+    fake_content = types.SimpleNamespace(text="requirement authorization_precondition:\nscope op\nwhen actor is not authorized\nthen op must reject before state_change\n")
+    fake_message = types.SimpleNamespace(content=[fake_content])
+    fake_messages = types.SimpleNamespace(create=lambda **kwargs: fake_message)
+    fake_client_instance = types.SimpleNamespace(messages=fake_messages)
+
+    class FakeAnthropic:
+        def __init__(self, api_key):
+            pass
+        def __new__(cls, api_key):
+            return fake_client_instance
+
+    fake_anthropic = types.ModuleType("anthropic")
+    fake_anthropic.Anthropic = FakeAnthropic
+    monkeypatch.setitem(sys.modules, "anthropic", fake_anthropic)
+
+    client = AnthropicLlmClient()
+    result = client.propose_controlled_rewrite("prose", "grammar")
+    assert "authorization_precondition" in result

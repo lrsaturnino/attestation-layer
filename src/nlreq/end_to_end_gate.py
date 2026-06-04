@@ -35,6 +35,7 @@ from .system_checker import check_system_consistency
 from .system_spec import SystemSpecRegistry
 from .trace_replay import build_trace_replay_report
 from .translator import lower_ir_v2_to_tla
+from .semantic_translation import refuse_ambiguous_ensemble
 from .translator_agreement import (
     TranslationAgreementInput,
     TranslationCandidate,
@@ -208,6 +209,7 @@ def run_end_to_end_requirement_gate(
     budget: FormalBackendBudget | None = None,
     execution: FormalBackendExecution | None = None,
     requirement_ir: RequirementIRV2 | None = None,
+    translation_agreement: TranslationAgreementInput | None = None,
 ) -> EndToEndRequirementGateReport:
     """Run the full end-to-end requirement gate.
 
@@ -215,6 +217,12 @@ def run_end_to_end_requirement_gate(
     uses the supplied IR directly. This enables callers holding a DSL v3 or
     otherwise pre-parsed RequirementIRV2 to exercise the full gate including
     FormalClaim dispatch without re-encoding through the v2 DSL parser.
+
+    When translation_agreement is provided, the gate uses the supplied
+    TranslationAgreementInput instead of constructing its own candidates. When
+    the resulting report status is "disagreed", the gate records a
+    SemanticTranslationReport with refusal_code NLR-REFUSED-AMBIGUOUS and
+    adds a blocker so the gate decision is "refused".
     """
     artifact_dir.mkdir(parents=True, exist_ok=True)
     artifacts: list[EndToEndGateArtifactRef] = []
@@ -232,8 +240,15 @@ def run_end_to_end_requirement_gate(
 
     if requirement_ir is not None:
         requirement = requirement_ir
-        # Single-source IR: we have no independent second candidate to compare against,
-        # so translation agreement cannot be established — record needs_review, not agreed.
+    else:
+        parser = DslV2Parser()
+        requirement = parser.parse_ir(controlled_text, requirement_id=requirement_id, title=title)
+
+    if translation_agreement is not None:
+        # Use the caller-supplied multi-candidate input for real ensemble comparison.
+        translation_input = translation_agreement
+    elif requirement_ir is not None:
+        # Single-source IR: no independent second candidate available.
         translation_input = TranslationAgreementInput(
             candidates=[
                 TranslationCandidate(
@@ -245,9 +260,12 @@ def run_end_to_end_requirement_gate(
             ]
         )
     else:
-        parser = DslV2Parser()
-        requirement = parser.parse_ir(controlled_text, requirement_id=requirement_id, title=title)
-        reparsed = parser.parse_ir(controlled_text, requirement_id=requirement_id, title=title)
+        # Two independent parse invocations of the same deterministic DSL v2 text.
+        # These will always agree for a deterministic parser, but they are genuinely
+        # separate calls — not the same object reference duplicated.
+        reparsed = DslV2Parser().parse_ir(
+            controlled_text, requirement_id=requirement_id, title=title
+        )
         translation_input = TranslationAgreementInput(
             candidates=[
                 TranslationCandidate(
@@ -268,6 +286,13 @@ def run_end_to_end_requirement_gate(
     record("translation_agreement_input", "translation-agreement-input.json", translation_input)
     translation = build_translation_agreement_report(translation_input)
     record("translation_agreement", "translation-agreement.json", translation)
+
+    if translation.status == "disagreed":
+        ambiguous_refusal = refuse_ambiguous_ensemble(
+            requirement_id=requirement_id,
+            disagreements=translation.disagreements,
+        )
+        record("translation_refusal", "translation-refusal.json", ambiguous_refusal)
 
     lowered = lower_ir_v2_to_tla(requirement)
     record("lowered_formal", "lowered-formal.json", lowered)
