@@ -169,27 +169,32 @@ def _reviewed_s_registry(
     *,
     spec_text: str | None = None,
     invariants: tuple[str, ...] = ("SystemDefaultsClosed",),
+    init_op: str | None = None,
+    next_op: str | None = None,
 ) -> SystemSpecRegistry:
     specs = tmp_path / "specs"
     specs.mkdir(exist_ok=True)
     (specs / "RedemptionSystem.tla").write_text(
         spec_text if spec_text is not None else _reviewed_s_spec_text()
     )
+    entry: dict[str, object] = {
+        "spec_id": "spec:redemption",
+        "module_ids": ["redemption"],
+        "formalism": "tla",
+        "path": "specs/RedemptionSystem.tla",
+        "version": "1",
+        "review_status": "reviewed",
+        "freshness": "fresh",
+        "invariants": list(invariants),
+    }
+    if init_op is not None:
+        entry["init_op"] = init_op
+    if next_op is not None:
+        entry["next_op"] = next_op
     return SystemSpecRegistry.model_validate(
         {
             "schema_version": "0.1",
-            "specs": [
-                {
-                    "spec_id": "spec:redemption",
-                    "module_ids": ["redemption"],
-                    "formalism": "tla",
-                    "path": "specs/RedemptionSystem.tla",
-                    "version": "1",
-                    "review_status": "reviewed",
-                    "freshness": "fresh",
-                    "invariants": list(invariants),
-                }
-            ],
+            "specs": [entry],
         }
     )
 
@@ -344,6 +349,32 @@ def test_solver_backed_refuses_operator_name_collision(tmp_path: Path) -> None:
 
     assert result.result.status == "unsupported"
     assert result.result.details["refusal_kind"] == "operator_name_collision"
+    assert not (tmp_path / "artifacts").exists()
+
+
+def test_solver_backed_refuses_spec_with_own_transition_system(tmp_path: Path) -> None:
+    """A reviewed S whose entry declares init_op/next_op is refused end-to-end.
+
+    Composing the requirement as a narrowing of the spec's own transition relation is
+    not yet implemented; the spec metadata threads through to the composition, which
+    refuses rather than silently dropping the spec's transitions.
+    """
+    ir = _authz_ir()
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(tmp_path, next_op="Next"),
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        execution=FormalBackendExecution(
+            checker_id="custom",
+            command=[sys.executable, "-c", "print('verification successful')"],
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.status == "unsupported"
+    assert result.result.details["refusal_kind"] == "unsupported_spec_transition_system"
     assert not (tmp_path / "artifacts").exists()
 
 
@@ -956,3 +987,18 @@ def test_compose_s_and_r_module_refuses_operator_name_collision() -> None:
 
     assert composed.status == "refused"
     assert composed.refusal_kind == "operator_name_collision"
+
+
+def test_compose_s_and_r_module_refuses_spec_with_own_transition_system() -> None:
+    """A reviewed spec that brings its own transition operators (init_op/next_op) is
+    refused: narrowing the spec's transition relation is not yet composable, so the
+    spec's transitions are not silently dropped in favour of the requirement's."""
+    contribution = build_system_spec_contribution(
+        "spec:sys", _GOLDEN_SPEC, ["SystemDefaultsClosed"], init_op="Init", next_op="Next"
+    )
+    composed = compose_s_and_r_module("Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution])
+
+    assert composed.status == "refused"
+    assert composed.module_text is None
+    assert composed.refusal_kind == "unsupported_spec_transition_system"
+    assert "spec:sys" in composed.refusal_reason

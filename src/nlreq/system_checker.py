@@ -493,7 +493,13 @@ def _system_spec_contributions(specs, spec_texts: list[tuple[str, str]]):
     """
     text_by_id = dict(spec_texts)
     return [
-        build_system_spec_contribution(spec.spec_id, text_by_id[spec.spec_id], spec.invariants)
+        build_system_spec_contribution(
+            spec.spec_id,
+            text_by_id[spec.spec_id],
+            spec.invariants,
+            init_op=spec.init_op,
+            next_op=spec.next_op,
+        )
         for spec in specs
         if spec.spec_id in text_by_id
     ]

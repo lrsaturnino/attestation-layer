@@ -726,6 +726,13 @@ class SystemSpecContribution:
     invariants: list[str] = field(default_factory=list)
     defined_operators: list[str] = field(default_factory=list)
     defined_predicates: list[str] = field(default_factory=list)
+    # When a reviewed spec carries its own state machine (its own Init/Next), the
+    # requirement must narrow that transition relation rather than provide its own.
+    # That composition is not implemented yet, so these are load-bearing: a spec that
+    # declares them is refused (unsupported_spec_transition_system) rather than having
+    # its transitions silently dropped.
+    init_op: str | None = None
+    next_op: str | None = None
 
 
 @dataclass
@@ -734,9 +741,9 @@ class ComposedSandRModule:
 
     A refusal is honest non-evidence — the composition declines rather than
     emitting a module that would prove a tautology. refusal_kind is one of
-    ``no_system_invariant``, ``undefined_predicate``, ``operator_name_collision``,
-    ``undefined_invariant``, ``unsupported_spec_shape``, or
-    ``unsupported_requirement_shape``.
+    ``unsupported_requirement_shape``, ``unsupported_spec_transition_system``,
+    ``no_system_invariant``, ``operator_name_collision``, ``undefined_predicate``,
+    or ``undefined_invariant`` (listed in the order the composition checks them).
     """
 
     status: Literal["composed", "refused"]
@@ -752,14 +759,20 @@ _COMPOSITION_RESERVED_OPERATORS = frozenset({"Inv", "ConstInit"})
 
 
 def build_system_spec_contribution(
-    spec_id: str, spec_text: str, invariants: list[str]
+    spec_id: str,
+    spec_text: str,
+    invariants: list[str],
+    *,
+    init_op: str | None = None,
+    next_op: str | None = None,
 ) -> SystemSpecContribution:
     """Parse one reviewed system spec into its inlinable operator contribution.
 
     Strips the module wrapper and any EXTENDS line (the composed module supplies
     Naturals/TLC) so only operator definitions remain, then records the operator
     and predicate names declared so the caller can bind predicates and detect
-    collisions.
+    collisions. init_op/next_op are carried through so the composition can refuse a
+    spec that brings its own transition system (not yet composable).
     """
     body = _strip_spec_operator_body(spec_text)
     defined = parse_operator_definition_names(body)
@@ -770,6 +783,8 @@ def build_system_spec_contribution(
         invariants=list(invariants),
         defined_operators=defined,
         defined_predicates=predicates,
+        init_op=init_op,
+        next_op=next_op,
     )
 
 
@@ -803,6 +818,23 @@ def compose_s_and_r_module(
 
     requirement_operators = set(parse_operator_definition_names(logic_body))
     reserved = requirement_operators | _COMPOSITION_RESERVED_OPERATORS
+
+    spec_with_transitions = [
+        contribution.spec_id
+        for contribution in contributions
+        if contribution.init_op is not None or contribution.next_op is not None
+    ]
+    if spec_with_transitions:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="unsupported_spec_transition_system",
+            refusal_reason=(
+                "reviewed system specs declare their own transition operators "
+                f"(init_op/next_op): {sorted(spec_with_transitions)}; composing the "
+                "requirement as a narrowing of the spec's transition relation is not yet "
+                "implemented, so the spec's transitions are not silently dropped"
+            ),
+        )
 
     invariants: list[str] = []
     for contribution in contributions:

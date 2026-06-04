@@ -23,11 +23,13 @@ class SystemSpecEntry(BaseModel):
     review_status: Literal["draft", "reviewed", "rejected"]
     freshness: Literal["fresh", "stale", "unknown"] = "unknown"
     recorded_hash: str | None = None
-    # Operator metadata the S∧R composition needs to conjoin the real reviewed spec S.
-    # init_op/next_op name the spec's own transition operators when the spec carries its
-    # own state machine; invariants names the spec's safety operators that the composed
-    # module must preserve. The composition refuses (no vacuous pass) when a relevant spec
-    # declares no invariants — an S that asserts nothing cannot make S∧R non-trivial.
+    # Operator metadata the S∧R composition reads from the reviewed spec S. invariants
+    # names the spec's safety operators the composed module must preserve; the composition
+    # refuses (no vacuous pass) when a relevant spec declares none. init_op/next_op name the
+    # spec's own transition operators when S carries its own state machine — composing the
+    # requirement as a narrowing of that relation is not yet implemented, so a spec that
+    # declares them is currently refused (unsupported_spec_transition_system) rather than
+    # having its transitions silently dropped.
     init_op: str | None = None
     next_op: str | None = None
     invariants: list[str] = Field(default_factory=list)
