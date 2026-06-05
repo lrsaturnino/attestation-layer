@@ -250,12 +250,16 @@ def test_partial_encoding_collapses_to_non_deciding() -> None:
 @requires_cvc5
 def test_builder_partial_encoding_is_not_a_false_agreement() -> None:
     """End-to-end: with BOTH real backends each deciding only the comparison and leaving the
-    membership unencodable, the agreement report must NOT be agreed/allow.
+    membership unencodable, the agreement report must NOT be a false ``agreed``.
 
     Collapsing each backend's partial coverage to a whole-question verdict would let two backends
-    that each answered only half the antecedent be paired as a false ``agreed allow``. Each backend's
+    that each answered only half the antecedent be paired as a false ``agreed``. Each backend's
     partial result is instead non-deciding, so the pair is non_overlap — an honest "the question was
-    not fully answered", never a false agreement."""
+    not fully answered". A non_overlap is non-blocking (closure_effect="allow") because the agreement
+    is additive: these premises are discharged independently by the per-premise SMT path. The guard
+    that matters is that the status is non_overlap, never ``agreed`` — so the agreement provides no
+    false confirmation the proof could close on."""
     report = build_premise_consistency_agreement(_claim("amount is in {APPROVED} and amount >= 5"))
-    assert report.status != "agreed"
-    assert report.closure_effect != "allow"
+    assert report.status == "non_overlap"
+    assert all(comparison.status == "non_overlap" for comparison in report.comparisons)
+    assert report.closure_effect == "allow"

@@ -67,18 +67,37 @@ def test_backend_agreement_blocks_counterexample_disagreement() -> None:
 
 
 def test_backend_agreement_records_non_overlap_without_comparison() -> None:
+    """Two backends that declare different questions (different overlap_keys) do not overlap. That
+    is the absence of a shared question, not a disagreement, so the report is non-blocking
+    (closure_effect="allow") with no blockers — the reason lives on the comparison itself."""
     report = build_backend_agreement_report(
         [
             _bounded_result("tla-runner", overlap_key="bounded-safety"),
             _bounded_result("lean-runner", overlap_key="inductive-safety"),
+        ]
+    )
+
+    assert report.status == "non_overlap"
+    assert report.closure_effect == "allow"
+    assert report.blockers == []
+    assert report.comparisons[0].status == "non_overlap"
+    assert "overlap_key differs" in report.comparisons[0].reasons[0]
+
+
+def test_report_only_policy_downgrades_disagreement_to_report() -> None:
+    """Under report_only, even a real disagreement does not block: closure_effect is "report_only"
+    rather than "block", so a consumer that honors closure_effect records it without refusing."""
+    report = build_backend_agreement_report(
+        [
+            _bounded_result("tla-runner", max_depth=8),
+            _bounded_result("alloy-runner", status="counterexample", max_depth=6),
         ],
         policy="report_only",
     )
 
-    assert report.status == "non_overlap"
+    assert report.status == "disagreed"
     assert report.closure_effect == "report_only"
-    assert report.comparisons[0].status == "non_overlap"
-    assert report.blockers == ["no backend result pair declared overlapping semantics"]
+    assert report.blockers  # the disagreement reasons are still recorded for the report
 
 
 def test_backend_agreement_cli_writes_report_from_formal_responses(
@@ -183,11 +202,11 @@ def _proof_with_agreement(requirement_id: str, agreement):
 def test_proof_object_does_not_block_non_overlap_backend_agreement() -> None:
     """A non_overlap agreement report must NOT block proof closure (PB-6.T3 production policy).
 
-    The default "blocking" policy sets closure_effect="block" for a non_overlap report (the pair
-    declared no shared question), but that is not a disagreement. A requirement with no
-    comparison/membership premise poses no cross-backend question — its overlap_key is None — and
-    refusing it for that would over-block every such requirement. Only an opposite-verdict
-    "disagreed" gates closure; this is the deliberate mirror of
+    A non_overlap report (the pair declared no shared question) is the absence of a cross-backend
+    question, not a disagreement, so build_backend_agreement_report marks it closure_effect="allow".
+    A requirement with no comparison/membership premise poses no cross-backend question — its
+    overlap_key is None — and refusing it for that would over-block every such requirement. Only an
+    opposite-verdict "disagreed" gates closure; this is the deliberate mirror of
     test_proof_object_blocks_supplied_backend_disagreement."""
     non_overlap = build_backend_agreement_report(
         [
@@ -196,7 +215,7 @@ def test_proof_object_does_not_block_non_overlap_backend_agreement() -> None:
         ]
     )
     assert non_overlap.status == "non_overlap"
-    assert non_overlap.closure_effect == "block"
+    assert non_overlap.closure_effect == "allow"
 
     proof = _proof_with_agreement("REQ-NON-OVERLAP", non_overlap)
 
@@ -211,7 +230,7 @@ def test_proof_object_does_not_block_needs_review_backend_agreement() -> None:
     closure, so the absent cross-check is additive, not a missing discharge."""
     needs_review = build_backend_agreement_report([_bounded_result("tla-runner")])
     assert needs_review.status == "needs_review"
-    assert needs_review.closure_effect == "block"
+    assert needs_review.closure_effect == "allow"
 
     proof = _proof_with_agreement("REQ-NEEDS-REVIEW", needs_review)
 

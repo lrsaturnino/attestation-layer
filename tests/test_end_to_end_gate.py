@@ -597,6 +597,80 @@ def test_end_to_end_gate_wires_premise_consistency_agreement(tmp_path: Path) -> 
     assert not any(b.category == "backend_agreement" for b in proof.blockers)
 
 
+def test_end_to_end_gate_refuses_on_premise_consistency_disagreement(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A real opposite-verdict divergence between the two SMT encoders refuses the production gate.
+
+    The mirror of test_end_to_end_gate_wires_premise_consistency_agreement: there the encoders agree
+    and the agreement adds no blocker; here build_premise_consistency_agreement is forced to return a
+    "disagreed" report (two backends reaching opposite verdicts on the same overlap_key), and the
+    refusal must propagate through every layer — the ProofObject blocks with a backend_agreement
+    blocker, the closure gate blocks, and the final decision refuses. Forcing the report lets this run
+    without cvc5: it proves the wiring refuses on disagreement, not that cvc5 produces one."""
+    from nlreq.backend_agreement import build_backend_agreement_report
+    from nlreq.models import BackendResult, EvidenceLevel
+    from nlreq.proof_closure import ProofObject
+
+    def _forced_disagreement(_claim, **_kwargs):
+        opposite_verdicts = [
+            BackendResult(
+                backend="core_smt",
+                status="valid",
+                evidence_level=EvidenceLevel.SMT_CHECKED,
+                details={"overlap_key": "planted-question", "agreement_compare": "verdict"},
+            ),
+            BackendResult(
+                backend="cvc5",
+                status="invalid",
+                evidence_level=EvidenceLevel.SMT_CHECKED,
+                details={"overlap_key": "planted-question", "agreement_compare": "verdict"},
+            ),
+        ]
+        return build_backend_agreement_report(opposite_verdicts, mode="verdict")
+
+    monkeypatch.setattr(
+        "nlreq.end_to_end_gate.build_premise_consistency_agreement", _forced_disagreement
+    )
+
+    manifest, registry = _project(tmp_path)
+    ir = DslV3Parser().parse_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when collateral >= 10 and collateral <= 50\n"
+        "then keep collateral >= 1\n",
+        requirement_id="REQ-DISAGREE-E2E-001",
+        title="Premise consistency disagreement (e2e)",
+    )
+
+    report = run_end_to_end_requirement_gate(
+        controlled_text="when collateral >= 10 and collateral <= 50 then keep collateral >= 1.",
+        requirement_id="REQ-DISAGREE-E2E-001",
+        title="Premise consistency disagreement (e2e)",
+        source_adapter=PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["operation"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-artifacts-disagree",
+        execution=_execution(tmp_path),
+        requirement_ir=ir,
+    )
+
+    # The disagreement reaches the ProofObject and blocks it with a backend_agreement blocker.
+    proof_path = Path(next(a.path for a in report.artifacts if a.name == "proof_object"))
+    proof = ProofObject.model_validate(read_json(proof_path))
+    assert proof.backend_agreement is not None
+    assert proof.backend_agreement.status == "disagreed"
+    assert proof.status == "blocked"
+    assert any(b.category == "backend_agreement" for b in proof.blockers)
+
+    # The closure gate and the final decision both refuse on the back of that block.
+    assert report.closure_result == "blocked"
+    assert report.decision == "refused"
+    assert report.downstream_action_allowed is False
+
+
 def test_end_to_end_gate_refuses_trace_replay_violation(tmp_path: Path) -> None:
     manifest, registry = _project(tmp_path, trace_actions=["finalize_redemption"])
 

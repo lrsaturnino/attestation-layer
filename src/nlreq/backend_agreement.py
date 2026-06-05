@@ -80,38 +80,45 @@ def build_backend_agreement_report(
         _observation(result, override_overlap_key=overlap_key) for result in backend_results
     ]
     if len(observations) < 2:
-        blockers = ["backend agreement requires at least two backend results"]
+        # Fewer than two backends ran, so there is no second opinion to cross-check. The absence of
+        # a cross-check is not a disagreement — it is additive and must never block closure — so the
+        # status records that no comparison happened while closure_effect stays "allow".
         return BackendAgreementReport(
             policy=policy,
             status="needs_review",
-            closure_effect=_closure_effect(policy, blocked=True),
+            closure_effect=_closure_effect(policy, blocked=False),
             observations=observations,
-            blockers=blockers,
         )
 
     comparisons = [
         _compare_observations(left, right, mode=mode)
         for left, right in combinations(observations, 2)
     ]
+    disagreements = [comparison for comparison in comparisons if comparison.status == "disagreed"]
     blockers = [
         f"{comparison.left_backend} disagrees with {comparison.right_backend}: "
         + "; ".join(comparison.reasons)
-        for comparison in comparisons
-        if comparison.status == "disagreed"
+        for comparison in disagreements
     ]
     overlapping = [comparison for comparison in comparisons if comparison.status != "non_overlap"]
-    if blockers:
+    if disagreements:
         status: Literal["agreed", "disagreed", "non_overlap", "needs_review"] = "disagreed"
     elif overlapping:
         status = "agreed"
     else:
         status = "non_overlap"
-        blockers.append("no backend result pair declared overlapping semantics")
 
+    # Only a real disagreement — two backends reaching opposite conclusions on the same question —
+    # blocks closure. non_overlap (the pair declared no shared question) and the single-backend
+    # needs_review above are the *absence* of a cross-check, not a disagreement, so they carry
+    # closure_effect="allow" and no blockers; each non_overlap comparison still records *why* it did
+    # not overlap on its own reasons. This keeps closure_effect authoritative: a consumer honors it
+    # directly instead of re-deriving which statuses block. report_only downgrades even a real
+    # disagreement to a report rather than a block.
     return BackendAgreementReport(
         policy=policy,
         status=status,
-        closure_effect=_closure_effect(policy, blocked=bool(blockers)),
+        closure_effect=_closure_effect(policy, blocked=bool(disagreements)),
         observations=observations,
         comparisons=comparisons,
         blockers=blockers,
