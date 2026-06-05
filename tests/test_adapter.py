@@ -234,6 +234,119 @@ def test_generate_tasks_routes_set_membership_premise_to_cvc5() -> None:
     assert premise.backend == "cvc5"
 
 
+def _comparison_ir(args: list[ValueRef]) -> RequirementIR:
+    # A numeric_invariant requirement whose single premise compares ``args``. The op and source span are
+    # held fixed so the only thing that can move the premise task's hash is the operands themselves.
+    return RequirementIR(
+        requirement_id="REQ-OPERAND-HASH-001",
+        title="Operand hashing",
+        source=RequirementSource(controlled_text="controlled requirement"),
+        claim=Claim(
+            kind="numeric_invariant",
+            action="operation",
+            forall=[],
+            condition=[Predicate(op="lte", args=args, source_span=_span("counter is at most limit"))],
+            expected=ExpectedResult(
+                kind="increase",
+                target="counter",
+                value=ValueRef(kind="number", value=1),
+                source_span=_span("increase counter by 1"),
+            ),
+        ),
+    )
+
+
+def _set_obligation_ir(*, target: str, value: ValueRef) -> RequirementIR:
+    # A state_postcondition whose obligation is ``set <target> to <value>``. The expected kind and source
+    # span are held fixed so the only thing that can move the obligation task's hash is target/value.
+    return RequirementIR(
+        requirement_id="REQ-OBLIGATION-HASH-001",
+        title="Obligation hashing",
+        source=RequirementSource(controlled_text="controlled requirement"),
+        claim=Claim(
+            kind="state_postcondition",
+            action="operation",
+            forall=[],
+            condition=[],
+            expected=ExpectedResult(kind="set", target=target, value=value, source_span=_span("set status")),
+        ),
+    )
+
+
+def test_per_premise_task_input_hash_binds_operands() -> None:
+    adapter = default_generic_adapter()
+    base_args = [ValueRef(kind="identifier", value="counter"), ValueRef(kind="identifier", value="limit")]
+    changed_args = [ValueRef(kind="identifier", value="counter"), ValueRef(kind="identifier", value="other")]
+
+    base = next(t for t in adapter.generate_tasks(_comparison_ir(base_args)) if t.id == "P1")
+    changed = next(t for t in adapter.generate_tasks(_comparison_ir(changed_args)) if t.id == "P1")
+    repeat = next(t for t in adapter.generate_tasks(_comparison_ir(base_args)) if t.id == "P1")
+
+    # The payload carries the operands themselves, so the task is a self-contained backend input — not a
+    # route that forces the backend to re-read requirement.ir.json to recover the operands.
+    assert base.payload["args"] == [
+        {"kind": "identifier", "value": "counter"},
+        {"kind": "identifier", "value": "limit"},
+    ]
+    # Only the second operand changed (limit -> other); op and source span are byte-identical, so a
+    # differing input_hash can only come from the operands being bound into the task identity.
+    assert base.payload["op"] == changed.payload["op"]
+    assert base.payload["source_span"] == changed.payload["source_span"]
+    assert base.input_hash != changed.input_hash
+    # Identical content hashes identically — the task identity is deterministic, not incidental.
+    assert base.input_hash == repeat.input_hash
+
+
+def test_obligation_task_input_hash_binds_target_and_value() -> None:
+    adapter = default_generic_adapter()
+    accepted = ValueRef(kind="string", value="accepted")
+    rejected = ValueRef(kind="string", value="rejected")
+
+    base = next(t for t in adapter.generate_tasks(_set_obligation_ir(target="operation_status", value=accepted)) if t.id == "O1")
+    other_target = next(t for t in adapter.generate_tasks(_set_obligation_ir(target="other_status", value=accepted)) if t.id == "O1")
+    other_value = next(t for t in adapter.generate_tasks(_set_obligation_ir(target="operation_status", value=rejected)) if t.id == "O1")
+    repeat = next(t for t in adapter.generate_tasks(_set_obligation_ir(target="operation_status", value=accepted)) if t.id == "O1")
+
+    # The obligation's effect lives in the payload (action it constrains, the target it writes, the value
+    # it writes), so a backend has the whole obligation without re-parsing the requirement.
+    assert base.payload["action"] == "operation"
+    assert base.payload["target"] == "operation_status"
+    assert base.payload["value"] == {"kind": "string", "value": "accepted"}
+    # Expected kind and source span are identical across all four; only target or value varies, so a
+    # differing input_hash proves both are bound into the obligation task's identity.
+    assert base.payload["expected_kind"] == other_target.payload["expected_kind"] == other_value.payload["expected_kind"]
+    assert base.payload["source_span"] == other_target.payload["source_span"] == other_value.payload["source_span"]
+    assert base.input_hash != other_target.input_hash
+    assert base.input_hash != other_value.input_hash
+    assert base.input_hash == repeat.input_hash
+
+
+def test_obligation_payload_omits_absent_target_and_value() -> None:
+    # ``succeed`` defines neither target nor value; the payload mirrors the source model's optional
+    # fields and omits them rather than emitting nulls, so the stored task round-trips byte-for-byte.
+    adapter = default_generic_adapter()
+    ir = RequirementIR(
+        requirement_id="REQ-OBLIGATION-OMIT-001",
+        title="Obligation omits absent fields",
+        source=RequirementSource(controlled_text="controlled requirement"),
+        claim=Claim(
+            kind="authorization_precondition",
+            action="operation",
+            forall=[],
+            condition=[],
+            expected=ExpectedResult(kind="succeed", source_span=_span("succeed")),
+        ),
+    )
+
+    o1 = next(t for t in adapter.generate_tasks(ir) if t.id == "O1")
+
+    assert "target" not in o1.payload
+    assert "value" not in o1.payload
+    # Action and source span are always present — they are defined for every obligation kind.
+    assert o1.payload["action"] == "operation"
+    assert "source_span" in o1.payload
+
+
 def test_generate_tasks_only_emits_backends_the_proof_router_can_route() -> None:
     # Every backend the generic adapter stamps on a task must be a real output of the per-premise
     # router, so a task's named backend is always a producer that could discharge it. Exercised over

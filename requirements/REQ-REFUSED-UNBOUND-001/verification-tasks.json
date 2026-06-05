@@ -13,25 +13,45 @@
     "backend": "core_smt",
     "description": "Check condition premise 0 (not_authorized) of REQ-REFUSED-UNBOUND-001 via core_smt.",
     "id": "P1",
-    "input_hash": "sha256:7b074b593040581f2042282f2c7c3b7be075d72b69ca2482ef7ceb595ed8cf96",
+    "input_hash": "sha256:85a7292a0c8948af2629073418449389dee503837e850c48b63716e9a59a4ed9",
     "payload": {
+      "args": [
+        {
+          "kind": "identifier",
+          "value": "operator"
+        }
+      ],
       "node_kind": "predicate",
       "op": "not_authorized",
       "premise_index": 0,
       "requirement_id": "REQ-REFUSED-UNBOUND-001",
-      "role": "premise"
+      "role": "premise",
+      "source_span": {
+        "document": "controlled_requirement",
+        "end_char": 58,
+        "start_char": 32,
+        "text": "operator is not authorized"
+      }
     }
   },
   {
     "backend": "apalache",
     "description": "Check the rejected_before obligation of REQ-REFUSED-UNBOUND-001 via apalache.",
     "id": "O1",
-    "input_hash": "sha256:46cc97a6e0050f5c54340e88beecadcd021b0e153356d3c84b639fbbc26c4c58",
+    "input_hash": "sha256:ff4591e3dc8dc2023e985e9364c4366c520f29de52ed6fbdc4dae77af8f30b3c",
     "payload": {
+      "action": "operation",
       "expected_kind": "rejected_before",
       "node_kind": "before",
       "requirement_id": "REQ-REFUSED-UNBOUND-001",
-      "role": "obligation"
+      "role": "obligation",
+      "source_span": {
+        "document": "controlled_requirement",
+        "end_char": 110,
+        "start_char": 79,
+        "text": "be rejected before state_change"
+      },
+      "target": "state_change"
     }
   }
 ]

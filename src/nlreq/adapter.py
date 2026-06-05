@@ -206,12 +206,23 @@ class GenericAdapter(Adapter):
         for index, predicate in enumerate(ir.claim.condition):
             node_kind = _node_kind_for_predicate_op(predicate.op)
             backend = backend_for_proof_node("premise", node_kind)
+            # The payload is the self-contained backend input for this one premise: its operator, the
+            # canonical operands, and the source span. ``input_hash`` therefore binds the fragment's
+            # own content, so changing an operand (``counter <= limit`` -> ``counter <= other``) changes
+            # the hash and two semantically distinct premises can never collide on identity. The hash is
+            # over this fragment, NOT the whole requirement IR: a premise task's identity intentionally
+            # does not shift when an unrelated premise elsewhere in the same requirement changes.
+            # Operands/span are dumped to plain JSON (not left as pydantic objects) so the stored task
+            # round-trips byte-for-byte through ``VerificationTasksArtifact`` and the package
+            # ``tasks.root == generate_tasks(ir)`` equality check holds.
             payload = {
                 "requirement_id": ir.requirement_id,
                 "role": "premise",
                 "premise_index": index,
                 "op": predicate.op,
                 "node_kind": node_kind,
+                "args": [arg.model_dump(mode="json") for arg in predicate.args],
+                "source_span": predicate.source_span.model_dump(mode="json"),
             }
             tasks.append(
                 VerificationTask(
@@ -227,12 +238,25 @@ class GenericAdapter(Adapter):
             )
         obligation_kind = _node_kind_for_expected_kind(ir.claim.expected.kind)
         obligation_backend = backend_for_proof_node("obligation", obligation_kind)
+        expected = ir.claim.expected
+        # Same content-binding contract as the premises: the obligation payload carries the action it
+        # constrains plus the expected result's target/value/span, so ``input_hash`` changes when the
+        # obligation's effect changes (``set operation_status`` -> ``set other_status``, or ``increase
+        # by 1`` -> ``by 2``). ``target``/``value`` are included only when the expected kind defines
+        # them (``rejected``/``succeed`` have neither), mirroring the source model's optional fields and
+        # keeping the payload free of null clutter so the stored task round-trips byte-for-byte.
         obligation_payload = {
             "requirement_id": ir.requirement_id,
             "role": "obligation",
-            "expected_kind": ir.claim.expected.kind,
+            "expected_kind": expected.kind,
             "node_kind": obligation_kind,
+            "action": ir.claim.action,
+            "source_span": expected.source_span.model_dump(mode="json"),
         }
+        if expected.target is not None:
+            obligation_payload["target"] = expected.target
+        if expected.value is not None:
+            obligation_payload["value"] = expected.value.model_dump(mode="json")
         tasks.append(
             VerificationTask(
                 id="O1",

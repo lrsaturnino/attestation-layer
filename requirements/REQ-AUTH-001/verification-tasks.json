@@ -13,25 +13,45 @@
     "backend": "core_smt",
     "description": "Check condition premise 0 (not_authorized) of REQ-AUTH-001 via core_smt.",
     "id": "P1",
-    "input_hash": "sha256:f1ab65d1a85cb4d1ebb575c73482b63a926a211b185e85289e5983ce868ddb0a",
+    "input_hash": "sha256:46bde267d7cdc5400d6dc5b045c25bc97e7a06b9833d8fec42f74fa24a2931fe",
     "payload": {
+      "args": [
+        {
+          "kind": "identifier",
+          "value": "actor"
+        }
+      ],
       "node_kind": "predicate",
       "op": "not_authorized",
       "premise_index": 0,
       "requirement_id": "REQ-AUTH-001",
-      "role": "premise"
+      "role": "premise",
+      "source_span": {
+        "document": "controlled_requirement",
+        "end_char": 55,
+        "start_char": 32,
+        "text": "actor is not authorized"
+      }
     }
   },
   {
     "backend": "apalache",
     "description": "Check the rejected_before obligation of REQ-AUTH-001 via apalache.",
     "id": "O1",
-    "input_hash": "sha256:72a51d6bc32c1d11712d240a9be6b8ae4a8a42e8ecda2fabf0249cda00a4140a",
+    "input_hash": "sha256:708b0ef06b567a92167bbb5ac5936db27d7a81a5dc601df2b808b7b8557c348c",
     "payload": {
+      "action": "operation",
       "expected_kind": "rejected_before",
       "node_kind": "before",
       "requirement_id": "REQ-AUTH-001",
-      "role": "obligation"
+      "role": "obligation",
+      "source_span": {
+        "document": "controlled_requirement",
+        "end_char": 107,
+        "start_char": 76,
+        "text": "be rejected before state_change"
+      },
+      "target": "state_change"
     }
   }
 ]
