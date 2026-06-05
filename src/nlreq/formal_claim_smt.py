@@ -27,11 +27,18 @@ from .premise_consistency import is_set_literal_membership, premise_consistency_
 # membership, or a sort clash). Claiming CONSISTENCY_CHECKED for a premise the solver never saw would
 # overstate the evidence — the honest level is None. _producer_blockers skips results with
 # evidence_level=None, so an unchecked route stays cleanly open rather than tripping a spurious
-# producer-mapping blocker (core_smt is registered for SMT_CHECKED only).
+# producer-mapping blocker (smt-theories is registered for SMT_CHECKED only).
 _UNCHECKED_EVIDENCE: EvidenceLevel | None = None
 
 
 FORMAL_CLAIM_SMT_VERSION = "0.1"
+
+# The producer id every result here carries (PB-7). This is the theory-aware z3 backend — Int/Real
+# linear arithmetic plus an uninterpreted member sort — registered in proof_closure distinctly from
+# the propositional ``core_smt`` (nlreq.smt). Tagging the theory discharge with its own producer id
+# is what lets proof closure route comparison/membership premises to it without conflating them with
+# the propositional encoder that drops those ops.
+SMT_THEORIES_BACKEND_ID = "smt-theories"
 
 # The Z3 logic the premise consistency check runs in: quantifier-free linear real arithmetic.
 # The IR declares no sorts for identifiers, so the reals are the honest (most permissive) domain —
@@ -191,7 +198,7 @@ def _premise_consistency(premises: list[FormalClaimFragment]) -> list[BackendRes
         for fragment in encoded:
             results.append(
                 BackendResult(
-                    backend="core_smt",
+                    backend=SMT_THEORIES_BACKEND_ID,
                     status=status,
                     evidence_level=EvidenceLevel.SMT_CHECKED,
                     details={
@@ -212,7 +219,7 @@ def _premise_consistency(premises: list[FormalClaimFragment]) -> list[BackendRes
     for fragment, reason in unencodable:
         results.append(
             BackendResult(
-                backend="core_smt",
+                backend=SMT_THEORIES_BACKEND_ID,
                 status="needs_review",
                 # No evidence level: an unencodable premise never entered the solver, so it was not
                 # checked. None keeps the route open without claiming a consistency result (and
@@ -350,10 +357,10 @@ def _check_fragment(fragment: FormalClaimFragment) -> BackendResult:
         # Returning "unsupported" causes proof_closure to set the premise status to
         # "blocked" with an explicit reason rather than leaving it silently "open".
         # evidence_level=None so _producer_blockers skips this result and emits no spurious
-        # producer-mapping blocker (core_smt is only registered for SMT_CHECKED).
+        # producer-mapping blocker (smt-theories is only registered for SMT_CHECKED).
         span_text = fragment.source_spans[0].text if fragment.source_spans else fragment.canonical
         return BackendResult(
-            backend="core_smt",
+            backend=SMT_THEORIES_BACKEND_ID,
             status="unsupported",
             evidence_level=_UNCHECKED_EVIDENCE,
             details={
@@ -389,7 +396,7 @@ def _check_fragment(fragment: FormalClaimFragment) -> BackendResult:
     # keeps the route open rather than discharging it falsely; no evidence level, because nothing was
     # checked (an opaque set cannot be encoded here) — see _UNCHECKED_EVIDENCE.
     return BackendResult(
-        backend="core_smt",
+        backend=SMT_THEORIES_BACKEND_ID,
         status="needs_review",
         evidence_level=_UNCHECKED_EVIDENCE,
         details={

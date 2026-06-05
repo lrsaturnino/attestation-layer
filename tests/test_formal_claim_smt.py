@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
+from nlreq.cvc5_backend import cvc5_available, cvc5_check_formal_claim_premises
 from nlreq.dsl_v3 import DslV3Parser
 from nlreq.formal_claim import build_formal_claim, build_proof_dispatch_plan_from_formal_claim
 from nlreq.formal_claim_smt import (
@@ -15,6 +18,11 @@ from nlreq.proof_closure import build_proof_object
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "requirements"
+
+requires_cvc5 = pytest.mark.skipif(
+    not cvc5_available(),
+    reason="cvc5 optional dependency not installed (run under `uv run --extra formal`)",
+)
 
 
 def _auth_ir():
@@ -338,7 +346,13 @@ def _numeric_invariant_proof(premise_clause: str):
     report = build_formal_claim(ir)
     assert report.formal_claim is not None
     plan = build_proof_dispatch_plan_from_formal_claim(report.formal_claim)
-    results = smt_check_formal_claim_predicate_fragments(report.formal_claim)
+    # Feed both theory backends, mirroring the production gate: comparison premises route to and are
+    # discharged by smt-theories (z3), set-membership premises by cvc5. cvc5 results are inert for
+    # comparison-only claims (comparison routes to smt-theories), so comparison tests need no cvc5.
+    results = [
+        *smt_check_formal_claim_predicate_fragments(report.formal_claim),
+        *cvc5_check_formal_claim_premises(report.formal_claim),
+    ]
     return build_proof_object(requirement=ir, backend_results=results, dispatch=plan)
 
 
@@ -376,16 +390,20 @@ def test_large_integer_contradiction_survives_exact_encoding() -> None:
     assert all(p.status == "blocked" and p.backend_status == "invalid" for p in comparison)
 
 
+@requires_cvc5
 def test_set_membership_premise_discharges_through_proof_object() -> None:
     """Wiring: a consistent set-literal membership premise is actually discharged at SMT_CHECKED in
     the proof object — the producer is wired behind the proof contract, not a unit-tested island.
-    This is what closes 'membership remains review-only' where the producer is observed."""
+    This is what closes 'membership remains review-only' where the producer is observed. Membership
+    routes to cvc5 (its native finite-set theory, PB-7), so the discharge is by the cvc5 producer."""
     proof = _numeric_invariant_proof("status is in {APPROVED, REJECTED}")
     membership = [p for p in proof.premises if p.node_kind == "membership"]
     assert membership, "requirement must have a membership premise"
     assert all(p.status == "discharged" and p.backend_status == "valid" for p in membership)
+    assert all(p.routed_backend == "cvc5" and p.producer_id == "cvc5" for p in membership)
 
 
+@requires_cvc5
 def test_disjoint_set_membership_premises_block_through_proof_object() -> None:
     """The negation: a disjoint-set antecedent (`x in {A}` and `x in {B}`) blocks the membership
     premises (backend status invalid), so the proof cannot close on a vacuously-true antecedent."""

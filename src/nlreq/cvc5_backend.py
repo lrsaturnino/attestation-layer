@@ -57,8 +57,9 @@ except Exception as exc:  # pragma: no cover - exercised only in cvc5-absent env
     _CVC5_IMPORT_ERROR = repr(exc)
 
 
-# Stable backend identifier — the producer id registered in proof_closure and the BackendResult.backend
-# every result carries, so proof closure can route to and match cvc5 results distinctly from core_smt.
+# Stable backend identifier — the producer id registered in proof_closure and the
+# BackendResult.backend every result carries, so proof closure can route to and match cvc5 results
+# distinctly from smt-theories (the z3 theory backend) and core_smt (the propositional encoder).
 CVC5_BACKEND_ID = "cvc5"
 CVC5_BACKEND_VERSION = "0.1"
 

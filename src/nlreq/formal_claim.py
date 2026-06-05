@@ -378,15 +378,31 @@ _S_AND_R_DISCHARGED_KINDS: frozenset[FormalClaimFragmentKind] = frozenset(
     {"predicate", "rejection_order"}
 )
 
+# Per-premise theory routing (PB-7). Comparison premises are discharged by the z3 Int/Real
+# linear-arithmetic backend (``smt-theories``, formal_claim_smt); set-membership premises by cvc5's
+# native finite-set theory (``cvc5``, cvc5_backend). Two independent solvers, each its own producer:
+# a theory-checked premise is therefore never tagged with the propositional ``core_smt`` encoder that
+# drops comparison/membership ops, and the two backends' verdicts also feed the cross-backend
+# agreement check. An opaque named-set membership has no concrete members to encode, so cvc5 supplies
+# no result and its route stays open — the honest outcome for a premise nothing here can discharge.
+_SMT_THEORY_DISCHARGED_KINDS: dict[FormalClaimFragmentKind, str] = {
+    "comparison": "smt-theories",
+    "membership": "cvc5",
+}
+
 
 def _backend_for_fragment_kind(kind: FormalClaimFragmentKind, evidence: EvidenceLevel) -> str:
-    """Return the backend_id that discharges a fragment of this kind at ``evidence``.
+    """Return the backend_id that discharges a fragment of this kind at ``evidence`` (PB-7 routing).
 
-    Fragments the S ∧ R composition checks (``_S_AND_R_DISCHARGED_KINDS``) route to
-    ``solver_system_checker``; everything else falls back to the evidence-level default.
+    Predicate/rejection-order fragments the S ∧ R composition checks route to
+    ``solver_system_checker``; comparison/membership premises route to their theory-aware SMT backend
+    (``smt-theories``/``cvc5``); everything else falls back to the evidence-level default.
     """
     if kind in _S_AND_R_DISCHARGED_KINDS:
         return "solver_system_checker"
+    theory_backend = _SMT_THEORY_DISCHARGED_KINDS.get(kind)
+    if theory_backend is not None:
+        return theory_backend
     return _backend_for_evidence(evidence)
 
 

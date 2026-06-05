@@ -9,7 +9,7 @@ SMT backends through the model-checker shape, this module defines a small, paral
 over the already-versioned ``FormalClaim`` (request) and ``BackendResult`` (response) types:
 
   - :class:`FormalClaimConsistencyBackend` — the protocol: ``check(claim) -> list[BackendResult]``.
-  - two registered backends posing the *same* question through independent encoders: ``core_smt``
+  - two registered backends posing the *same* question through independent encoders: ``smt-theories``
     (z3, ``formal_claim_smt``) and ``cvc5`` (``cvc5_backend``), discoverable via
     :func:`formal_claim_consistency_backends` / :func:`formal_claim_consistency_backend_for_id`.
   - :func:`build_premise_consistency_agreement` — runs the registered backends on one claim and
@@ -33,7 +33,7 @@ from .backend_agreement import (
 )
 from .cvc5_backend import CVC5_BACKEND_ID, cvc5_check_formal_claim_premises
 from .formal_claim import FormalClaim
-from .formal_claim_smt import smt_check_formal_claim_premise_consistency
+from .formal_claim_smt import SMT_THEORIES_BACKEND_ID, smt_check_formal_claim_premise_consistency
 from .models import BackendResult, EvidenceLevel
 from .premise_consistency import contributing_premises, premise_consistency_overlap_key
 
@@ -42,8 +42,6 @@ from .premise_consistency import contributing_premises, premise_consistency_over
 # (FORMAL_CLAIM_SCHEMA_VERSION) and the response is a list of BackendResult (the backend-results
 # schema). This constant version-stamps the protocol/registry contract itself.
 FORMAL_CLAIM_BACKEND_VERSION = "0.1"
-
-CORE_SMT_BACKEND_ID = "core_smt"
 
 
 @runtime_checkable
@@ -62,10 +60,10 @@ class FormalClaimConsistencyBackend(Protocol):
         ...
 
 
-class CoreSmtConsistencyBackend:
-    """z3 premise-consistency backend (``formal_claim_smt``), registered as ``core_smt``."""
+class SmtTheoriesConsistencyBackend:
+    """z3 premise-consistency backend (``formal_claim_smt``), registered as ``smt-theories``."""
 
-    backend_id = CORE_SMT_BACKEND_ID
+    backend_id = SMT_THEORIES_BACKEND_ID
 
     def check(self, claim: FormalClaim) -> list[BackendResult]:
         return smt_check_formal_claim_premise_consistency(claim)
@@ -90,7 +88,7 @@ def formal_claim_consistency_backends() -> list[FormalClaimConsistencyBackend]:
     Both pose the same question through independent encoders, so cross-backend agreement over their
     verdicts is a real check on encoder divergence, not solver bugs.
     """
-    return [CoreSmtConsistencyBackend(), Cvc5ConsistencyBackend()]
+    return [SmtTheoriesConsistencyBackend(), Cvc5ConsistencyBackend()]
 
 
 def formal_claim_consistency_backend_for_id(backend_id: str) -> FormalClaimConsistencyBackend:

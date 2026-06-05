@@ -6,6 +6,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .coverage_alignment import build_spec_coverage_report, build_trace_alignment_report
+from .cvc5_backend import cvc5_check_formal_claim_premises
 from .delta_extractor import build_delta_report
 from .dsl_v2 import DslV2Parser
 from .formal_backend import FormalBackendBudget, FormalBackendExecution
@@ -546,13 +547,26 @@ def run_end_to_end_requirement_gate(
     # comparison/membership premise, so no shared question) and needs_review (one backend) do not.
     backend_agreement: BackendAgreementReport | None = None
     if formal_claim_preview.result == "lowered" and formal_claim_preview.formal_claim is not None:
-        # This still emits real SMT_CHECKED results for ground comparison fragments. Its
-        # predicate/rejection_order "unsupported" results are now inert: those fragments route
-        # to solver_system_checker (the S ∧ R discharge below), so a core_smt/apalache result
-        # matches no route. They are harmless to closure (evidence_level=None, no producer
-        # blocker) but linger in backend_results as dead provenance — a future cleanup should
-        # scope this producer to the comparison/membership SMT kinds it actually checks.
+        # The theory-aware backends discharge the SMT premises per the PB-7 routing
+        # (formal_claim._backend_for_fragment_kind): comparison premises route to ``smt-theories``
+        # (the z3 Int/Real results below) and set-membership premises to ``cvc5`` (its native
+        # finite-set theory). Both backends produce one result per contributing premise carrying
+        # ``covered_fragment_ids``, so each routed premise is discharged by the distinct producer its
+        # kind needs — not all funneled through one backend.
+        #
+        # smt_check_formal_claim_predicate_fragments still emits real SMT_CHECKED results for ground
+        # comparison fragments. Its predicate/rejection_order "unsupported" results are inert: those
+        # fragments route to solver_system_checker (the S ∧ R discharge below), so an
+        # smt-theories/apalache result matches no route. They are harmless to closure
+        # (evidence_level=None, no producer blocker) but linger in backend_results as dead provenance.
         smt_fragment_results = smt_check_formal_claim_predicate_fragments(
+            formal_claim_preview.formal_claim
+        )
+        # cvc5 discharges set-literal-membership premises (and re-checks comparisons, whose results
+        # are inert since comparison routes to smt-theories). When cvc5 is not installed these degrade
+        # to ``unsupported`` results carrying no evidence level, so a membership premise stays
+        # undischarged and the gate blocks rather than silently passing — never a faked discharge.
+        cvc5_fragment_results = cvc5_check_formal_claim_premises(
             formal_claim_preview.formal_claim
         )
         backend_agreement = build_premise_consistency_agreement(
@@ -575,7 +589,8 @@ def run_end_to_end_requirement_gate(
         ]
     else:
         smt_fragment_results = []
-    all_backend_results = [*system_backend_results, *smt_fragment_results]
+        cvc5_fragment_results = []
+    all_backend_results = [*system_backend_results, *smt_fragment_results, *cvc5_fragment_results]
 
     proof, formal_claim_report = build_proof_with_formal_claim_dispatch(
         requirement=requirement,

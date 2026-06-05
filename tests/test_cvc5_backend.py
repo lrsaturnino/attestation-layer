@@ -1,7 +1,7 @@
 """PB-6.T2 — the independent cvc5 second backend over the FormalClaim premise question.
 
 The headline acceptance ("the same FormalClaim projects into ≥2 backends") is
-``test_cvc5_matches_z3_verdict_on_same_formal_claim``: z3 (core_smt) and cvc5 encode the same
+``test_cvc5_matches_z3_verdict_on_same_formal_claim``: z3 (smt-theories) and cvc5 encode the same
 premise-consistency question through independent encoders and decide the same verdict. The
 remaining tests pin the honest-degradation and producer-registration contracts, and run whether or
 not cvc5 is installed (cvc5 is an optional dependency; the real-run tests skip cleanly when absent).
@@ -83,7 +83,7 @@ _PARITY_CASES = [
 def test_cvc5_matches_z3_verdict_on_same_formal_claim(clause: str, expected: str) -> None:
     """The same FormalClaim projects into two backends and they agree on every premise verdict.
 
-    z3 (core_smt) encodes set membership as DeclareSort + Distinct + a disjunction of equalities;
+    z3 (smt-theories) encodes set membership as DeclareSort + Distinct + a disjunction of equalities;
     cvc5 encodes it through the native finite-set theory (set.member / set.insert). The two encoders
     share only the FormalClaim, yet decide the same sat/unsat verdict for every contributing
     premise — the '≥2 backends, same question' acceptance, and the substrate a non-vacuous agreement

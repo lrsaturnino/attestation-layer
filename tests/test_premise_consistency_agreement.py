@@ -1,6 +1,6 @@
 """PB-6.T3 — the cross-backend premise-consistency agreement gate over the FormalClaim backends.
 
-The two SMT backends (z3 as ``core_smt``, cvc5) answer the same premise-consistency question through
+The two SMT backends (z3 as ``smt-theories``, cvc5) answer the same premise-consistency question through
 independent encoders. These tests pin the verdict-first agreement gate that judges them: they share a
 solver-independent ``overlap_key`` for the question, agreement is decided on the verdict alone, an
 opposite-verdict divergence blocks (a planted encoder disagreement), and a backend that cannot decide
@@ -16,9 +16,9 @@ from nlreq.cvc5_backend import CVC5_BACKEND_ID, cvc5_available, cvc5_check_forma
 from nlreq.dsl_v3 import DslV3Parser
 from nlreq.formal_claim import build_formal_claim
 from nlreq.formal_claim_backend import (
-    CORE_SMT_BACKEND_ID,
+    SMT_THEORIES_BACKEND_ID,
     Cvc5ConsistencyBackend,
-    CoreSmtConsistencyBackend,
+    SmtTheoriesConsistencyBackend,
     _collapse_backend_verdict,
     build_premise_consistency_agreement,
     formal_claim_consistency_backend_for_id,
@@ -91,8 +91,8 @@ def test_backends_discoverable_via_registry() -> None:
     """Both SMT backends are discoverable through the shared FormalClaim backend registry."""
     backends = formal_claim_consistency_backends()
     ids = {backend.backend_id for backend in backends}
-    assert ids == {CORE_SMT_BACKEND_ID, CVC5_BACKEND_ID}
-    assert isinstance(formal_claim_consistency_backend_for_id(CORE_SMT_BACKEND_ID), CoreSmtConsistencyBackend)
+    assert ids == {SMT_THEORIES_BACKEND_ID, CVC5_BACKEND_ID}
+    assert isinstance(formal_claim_consistency_backend_for_id(SMT_THEORIES_BACKEND_ID), SmtTheoriesConsistencyBackend)
     assert isinstance(formal_claim_consistency_backend_for_id(CVC5_BACKEND_ID), Cvc5ConsistencyBackend)
     with pytest.raises(ValueError):
         formal_claim_consistency_backend_for_id("does-not-exist")
@@ -190,9 +190,9 @@ def test_builder_non_overlap_when_a_backend_cannot_decide() -> None:
 # --- evidence honesty: non-encodable premises raise no producer blocker (PB-6.T3 / GAP-X4) ---------
 
 
-def test_core_smt_unencodable_premise_raises_no_producer_blocker() -> None:
-    """A core_smt premise that could not be encoded (sort clash) emits no evidence level, so it
-    raises no spurious producer-mapping blocker — the route stays cleanly open."""
+def test_smt_theories_unencodable_premise_raises_no_producer_blocker() -> None:
+    """An smt-theories (z3) premise that could not be encoded (sort clash) emits no evidence level,
+    so it raises no spurious producer-mapping blocker — the route stays cleanly open."""
     claim = _claim("amount is in {APPROVED} and amount >= 5")
     results = smt_check_formal_claim_premise_consistency(claim)
     unencodable = [r for r in results if r.status == "needs_review"]
@@ -231,7 +231,7 @@ def test_partial_encoding_collapses_to_non_deciding() -> None:
     claim = _claim("amount is in {APPROVED} and amount >= 5")
     overlap_key = premise_consistency_overlap_key(claim.premises)
 
-    collapsed = _collapse_backend_verdict(CoreSmtConsistencyBackend(), claim, overlap_key)
+    collapsed = _collapse_backend_verdict(SmtTheoriesConsistencyBackend(), claim, overlap_key)
 
     assert collapsed.evidence_level is None
     assert collapsed.status not in {"valid", "invalid"}
