@@ -8,5 +8,30 @@
       "claim_kind": "authorization_precondition",
       "requirement_id": "REQ-AUTH-001"
     }
+  },
+  {
+    "backend": "core_smt",
+    "description": "Check condition premise 0 (not_authorized) of REQ-AUTH-001 via core_smt.",
+    "id": "P1",
+    "input_hash": "sha256:f1ab65d1a85cb4d1ebb575c73482b63a926a211b185e85289e5983ce868ddb0a",
+    "payload": {
+      "node_kind": "predicate",
+      "op": "not_authorized",
+      "premise_index": 0,
+      "requirement_id": "REQ-AUTH-001",
+      "role": "premise"
+    }
+  },
+  {
+    "backend": "apalache",
+    "description": "Check the rejected_before obligation of REQ-AUTH-001 via apalache.",
+    "id": "O1",
+    "input_hash": "sha256:72a51d6bc32c1d11712d240a9be6b8ae4a8a42e8ecda2fabf0249cda00a4140a",
+    "payload": {
+      "expected_kind": "rejected_before",
+      "node_kind": "before",
+      "requirement_id": "REQ-AUTH-001",
+      "role": "obligation"
+    }
   }
 ]

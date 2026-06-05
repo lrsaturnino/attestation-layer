@@ -8,6 +8,7 @@ from .models import (
     EvidenceCapability,
     EvidenceLevel,
     RequirementIR,
+    SemanticNodeKind,
     Symbol,
     SymbolBinding,
     SymbolRef,
@@ -15,6 +16,64 @@ from .models import (
     ValidationResult,
     VerificationTask,
 )
+from .proof_closure import backend_for_proof_node
+
+
+# v1 ``Predicate.op`` -> the proof-node kind the generic adapter routes that premise on. The op
+# carries the encodable content, so comparisons keep their fine-grained kind (lt/lte/.../eq/neq) and
+# reach the theory-aware SMT backend, ``in`` becomes ``membership`` and reaches cvc5's finite-set
+# theory, and the authorization/approval predicates collapse to ``predicate`` for the core SMT
+# consistency checker. This is intentionally FINER than the v1->v2 migration's
+# ``compositional_ir._predicate_node`` (which collapses every op to ``predicate``): that migration is
+# the coarse legacy lift, while this routing follows the authoritative per-premise policy (comparison
+# -> smt-theories, membership -> cvc5). No contract compares the two artifacts, and a comparison
+# premise is more honestly a theory query than a free boolean. Exhaustive over ``Predicate.op``; an
+# unmapped op raises (``_node_kind_for_predicate_op``) rather than silently defaulting to a backend.
+_PREDICATE_OP_NODE_KIND: dict[str, SemanticNodeKind] = {
+    "authorized": "predicate",
+    "not_authorized": "predicate",
+    "approved": "predicate",
+    "not_approved": "predicate",
+    "eq": "eq",
+    "neq": "neq",
+    "gt": "gt",
+    "lt": "lt",
+    "gte": "gte",
+    "lte": "lte",
+    "in": "membership",
+}
+
+# v1 ``ExpectedResult.kind`` -> the proof-node kind of the obligation. This MIRRORS the authoritative
+# migration ``compositional_ir._expected_node`` (rejected_before -> before, set/increase/decrease ->
+# state_delta, not_change -> invariant, rejected/succeed -> predicate, emit -> event) so the
+# obligation routes exactly as a migrated requirement's ``obligation.must`` node would; a drift test
+# pins this map to that function. ``emit`` -> ``event`` currently routes to core_smt, weaker than a
+# trace check — refine when an emit-obligation requirement with a real trace producer lands.
+# Exhaustive over ``ExpectedResult.kind``; an unmapped kind raises rather than silently defaulting.
+_EXPECTED_KIND_NODE_KIND: dict[str, SemanticNodeKind] = {
+    "rejected": "predicate",
+    "rejected_before": "before",
+    "succeed": "predicate",
+    "emit": "event",
+    "not_change": "invariant",
+    "set": "state_delta",
+    "increase": "state_delta",
+    "decrease": "state_delta",
+}
+
+
+def _node_kind_for_predicate_op(op: str) -> SemanticNodeKind:
+    node_kind = _PREDICATE_OP_NODE_KIND.get(op)
+    if node_kind is None:
+        raise ValueError(f"no proof-node routing for premise predicate op {op!r}")
+    return node_kind
+
+
+def _node_kind_for_expected_kind(kind: str) -> SemanticNodeKind:
+    node_kind = _EXPECTED_KIND_NODE_KIND.get(kind)
+    if node_kind is None:
+        raise ValueError(f"no proof-node routing for obligation expected kind {kind!r}")
+    return node_kind
 
 
 class Adapter(ABC):
@@ -128,7 +187,14 @@ class GenericAdapter(Adapter):
         ]
 
     def generate_tasks(self, ir: RequirementIR) -> list[VerificationTask]:
-        return [
+        # C1 is the whole-requirement self-consistency query (its SMT lives in smt/C1.smt2): one
+        # core_smt check that the claim as a whole is satisfiable and supported. The per-premise tasks
+        # below are a DIFFERENT granularity — one routed task per condition premise plus the
+        # obligation, each sent via ``backend_for_proof_node`` to the backend that can actually
+        # discharge its kind, so the verification plan names smt-theories/cvc5/apalache where the
+        # propositional core_smt cannot encode the premise. C1 and any ``predicate`` premise both read
+        # ``core_smt`` but are not duplicates: C1 is whole-requirement, the premise task is per-node.
+        tasks: list[VerificationTask] = [
             VerificationTask(
                 id="C1",
                 backend="core_smt",
@@ -137,6 +203,49 @@ class GenericAdapter(Adapter):
                 payload={"requirement_id": ir.requirement_id, "claim_kind": ir.claim.kind},
             )
         ]
+        for index, predicate in enumerate(ir.claim.condition):
+            node_kind = _node_kind_for_predicate_op(predicate.op)
+            backend = backend_for_proof_node("premise", node_kind)
+            payload = {
+                "requirement_id": ir.requirement_id,
+                "role": "premise",
+                "premise_index": index,
+                "op": predicate.op,
+                "node_kind": node_kind,
+            }
+            tasks.append(
+                VerificationTask(
+                    id=f"P{index + 1}",
+                    backend=backend,
+                    description=(
+                        f"Check condition premise {index} ({predicate.op}) of "
+                        f"{ir.requirement_id} via {backend}."
+                    ),
+                    input_hash=sha256_json(payload),
+                    payload=payload,
+                )
+            )
+        obligation_kind = _node_kind_for_expected_kind(ir.claim.expected.kind)
+        obligation_backend = backend_for_proof_node("obligation", obligation_kind)
+        obligation_payload = {
+            "requirement_id": ir.requirement_id,
+            "role": "obligation",
+            "expected_kind": ir.claim.expected.kind,
+            "node_kind": obligation_kind,
+        }
+        tasks.append(
+            VerificationTask(
+                id="O1",
+                backend=obligation_backend,
+                description=(
+                    f"Check the {ir.claim.expected.kind} obligation of "
+                    f"{ir.requirement_id} via {obligation_backend}."
+                ),
+                input_hash=sha256_json(obligation_payload),
+                payload=obligation_payload,
+            )
+        )
+        return tasks
 
     def collect_evidence(self, task_results: list[object]) -> list[object]:
         return task_results

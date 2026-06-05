@@ -6,7 +6,10 @@
         "backend": {
           "enum": [
             "core_smt",
-            "adapter"
+            "adapter",
+            "smt-theories",
+            "cvc5",
+            "apalache"
           ],
           "title": "Backend",
           "type": "string"

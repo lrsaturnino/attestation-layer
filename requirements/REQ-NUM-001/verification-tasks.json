@@ -8,5 +8,30 @@
       "claim_kind": "numeric_invariant",
       "requirement_id": "REQ-NUM-001"
     }
+  },
+  {
+    "backend": "smt-theories",
+    "description": "Check condition premise 0 (lte) of REQ-NUM-001 via smt-theories.",
+    "id": "P1",
+    "input_hash": "sha256:81f4f86067c9015c49090a5fffb82fb79ba9581762ead1a330111f78937c0fc4",
+    "payload": {
+      "node_kind": "lte",
+      "op": "lte",
+      "premise_index": 0,
+      "requirement_id": "REQ-NUM-001",
+      "role": "premise"
+    }
+  },
+  {
+    "backend": "apalache",
+    "description": "Check the increase obligation of REQ-NUM-001 via apalache.",
+    "id": "O1",
+    "input_hash": "sha256:aa1845735e8984458d16855cceb252f788dae3504db3c4234d35a88119303013",
+    "payload": {
+      "expected_kind": "increase",
+      "node_kind": "state_delta",
+      "requirement_id": "REQ-NUM-001",
+      "role": "obligation"
+    }
   }
 ]

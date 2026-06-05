@@ -415,7 +415,15 @@ class VerificationTask(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     id: str
-    backend: Literal["core_smt", "adapter"]
+    # The backend a task is routed to. ``core_smt`` is the propositional/whole-requirement SMT
+    # consistency check and ``adapter`` is a source-adapter symbol/claim shape check (the source
+    # adapters' own tasks). The remaining values are the per-premise routing backends the generic
+    # adapter emits: ``smt-theories`` (z3 Int/Real comparison premises), ``cvc5`` (set-literal
+    # membership premises), and ``apalache`` (state/temporal obligations via the S ∧ R model check).
+    # They are exactly the discharging backends ``proof_closure.backend_for_proof_node`` routes a
+    # proof node to, so a task's named backend is the producer that can actually discharge it — never
+    # a blanket ``core_smt`` for a premise the propositional encoder cannot encode.
+    backend: Literal["core_smt", "adapter", "smt-theories", "cvc5", "apalache"]
     description: str
     input_hash: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)

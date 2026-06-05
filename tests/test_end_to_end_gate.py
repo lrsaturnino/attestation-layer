@@ -349,6 +349,30 @@ _MULTI_BACKEND_CONTRADICTORY_COMPARISON = (
 )
 
 
+def test_gate_dispatch_routes_mixed_requirement_across_distinct_backends() -> None:
+    """The production evidence path routes per-fragment, never via the single-backend default.
+
+    ``build_proof_with_formal_claim_dispatch`` is the gate's entry point. For a mixed requirement it
+    builds the ProofObject's dispatch from the FormalClaim per-fragment router, so the proof that
+    gates action carries the distinct backends each premise kind needs — and never the single-backend
+    ``system_checker`` default that ``build_proof_dispatch_plan`` falls back to. This asserts the
+    ROUTING alone (no backend results, so it runs without any solver installed);
+    ``test_multi_backend_proof_closes_across_distinct_producers`` covers the real cross-producer
+    discharge under installed Apalache + cvc5.
+    """
+    requirement = DslV3Parser().parse_ir(
+        _MULTI_BACKEND_REQUIREMENT, requirement_id="REQ-MB-ROUTE", title="mixed routing"
+    )
+
+    proof, report = build_proof_with_formal_claim_dispatch(requirement=requirement, backend_results=[])
+
+    assert report.result == "lowered"
+    backends = {route.backend_id for route in proof.dispatch.routes}
+    assert backends == {"solver_system_checker", "smt-theories", "cvc5"}
+    assert "system_checker" not in backends
+    assert {route.routing_mode for route in proof.dispatch.routes} == {"formal_claim"}
+
+
 @pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
 @requires_cvc5
 def test_multi_backend_proof_closes_across_distinct_producers(tmp_path: Path) -> None:

@@ -8,5 +8,30 @@
       "claim_kind": "state_postcondition",
       "requirement_id": "REQ-STATE-001"
     }
+  },
+  {
+    "backend": "core_smt",
+    "description": "Check condition premise 0 (approved) of REQ-STATE-001 via core_smt.",
+    "id": "P1",
+    "input_hash": "sha256:67f1bfb3c77a3222ad36b33f8899e9d8382c4ae62a343f319267cde2caf67dcc",
+    "payload": {
+      "node_kind": "predicate",
+      "op": "approved",
+      "premise_index": 0,
+      "requirement_id": "REQ-STATE-001",
+      "role": "premise"
+    }
+  },
+  {
+    "backend": "apalache",
+    "description": "Check the set obligation of REQ-STATE-001 via apalache.",
+    "id": "O1",
+    "input_hash": "sha256:7cccf0d9dfa857ee720ac4ad09083916f14d05486b6504edbd85fd021d651987",
+    "payload": {
+      "expected_kind": "set",
+      "node_kind": "state_delta",
+      "requirement_id": "REQ-STATE-001",
+      "role": "obligation"
+    }
   }
 ]
