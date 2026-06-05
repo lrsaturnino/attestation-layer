@@ -435,8 +435,19 @@ class TlcProductionBackend(ProductionTlaBackend):
     checker_id = "tlc"
     evidence_flavor = "explicit_state_bounded"
 
+    # TLC is a Java class in tla2tools.jar, not a standalone launcher like apalache-mc, so both
+    # the check and the version probe invoke it through `java -cp tla2tools.jar tlc2.TLC` — the
+    # exact form pinned in docs/formal-backend-guide.md. Sharing the `java` launcher across both
+    # commands keeps the version probe attributable to the run under the runner's same-executable
+    # provenance guard (a `tlc2.TLC` run with a `java …` probe would be suppressed as a different
+    # binary). The relative `tla2tools.jar` resolves from the run's cwd, mirroring the guide.
     def default_command(self, budget: FormalBackendBudget | None) -> list[str]:
-        return ["tlc2.TLC", "-config", "{config}", "{module}"]
+        return ["java", "-cp", "tla2tools.jar", "tlc2.TLC", "-config", "{config}", "{module}"]
+
+    def default_version_command(self) -> list[str] | None:
+        # `java -cp tla2tools.jar tlc2.TLC` (no model) prints the pinned TLC version banner; the
+        # runner records it in the run's reproducibility metadata (PB-3). Symmetric with Apalache.
+        return ["java", "-cp", "tla2tools.jar", "tlc2.TLC"]
 
 
 def formal_backend_for_id(backend_id: str) -> FormalBackend:

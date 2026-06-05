@@ -1,6 +1,9 @@
 import hashlib
+import shutil
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+
+import pytest
 
 from nlreq.adapter_certification import certify_adapter
 from nlreq.artifact_store import ArtifactStoreManifest, lookup_artifact, put_artifact
@@ -18,6 +21,7 @@ from nlreq.formal_backend import (
 )
 from nlreq.gate import GatePolicy, GatePolicyWaiverRules, GateWaiver
 from nlreq.jsonutil import write_json
+from nlreq.model_checker_runner import ModelCheckerCommand, run_model_checker
 from nlreq.models import NormalizedTrace, NormalizedTraceArtifact, SymbolRef, TraceEvent
 from nlreq.policy_governance import build_waiver_audit_report
 from nlreq.production_source_adapters import SoliditySourceAdapter
@@ -85,6 +89,48 @@ def test_tlc_production_backend_accepts_custom_checker_command(tmp_path: Path) -
 
     assert response.result.status == "valid"
     assert response.result.evidence_level.value == "BOUNDED_CHECKED"
+
+
+# The install script (scripts/install_formal_backends.sh) places the pinned tla2tools.jar here.
+_TLC_JAR = Path.home() / ".local" / "lib" / "tla2tools.jar"
+
+
+def test_tlc_default_commands_use_the_pinned_java_launcher() -> None:
+    """TLC's check and version commands both invoke the guide's `java -cp tla2tools.jar tlc2.TLC`.
+
+    A standalone `tlc2.TLC` is not a real binary (TLC is a Java class), so symmetry with the
+    pinning guide requires the java launcher. Both commands must share that launcher so the
+    version probe stays attributable to the run under the runner's same-executable guard.
+    """
+    backend = TlcProductionBackend()
+    assert backend.default_version_command() == ["java", "-cp", "tla2tools.jar", "tlc2.TLC"]
+    assert backend.default_command(None) == [
+        "java", "-cp", "tla2tools.jar", "tlc2.TLC", "-config", "{config}", "{module}"
+    ]
+
+
+@pytest.mark.skipif(not _TLC_JAR.exists(), reason="pinned tla2tools.jar not installed")
+def test_tlc_default_version_command_records_a_version(tmp_path: Path) -> None:
+    """A TLC run records the pinned tool version from its default version command (PB-3).
+
+    Symmetric with Apalache, which records a non-null version on every run. The relative
+    `tla2tools.jar` resolves from the run's cwd, so the jar is copied there; the probe shares
+    the `java` launcher with the run command, so the runner attributes the version. Skips
+    (never silently passes) when the pinned jar is absent — e.g. in the Apalache-only CI.
+    """
+    shutil.copy(_TLC_JAR, tmp_path / "tla2tools.jar")
+    result = run_model_checker(
+        ModelCheckerCommand(
+            run_id="tlc-version",
+            checker_id="tlc",
+            command=["java", "-version"],
+            cwd=tmp_path.as_posix(),
+            tool_version_command=TlcProductionBackend().default_version_command(),
+        )
+    )
+
+    assert result.reproducibility.tool_version is not None
+    assert "TLC2 Version" in result.reproducibility.tool_version
 
 
 def test_tla_projection_records_bounds_and_refuses_unsupported_fragments() -> None:
