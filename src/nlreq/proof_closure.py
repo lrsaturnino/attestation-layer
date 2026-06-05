@@ -250,22 +250,88 @@ def default_evidence_producer_mapping() -> EvidenceProducerMapping:
     )
 
 
+# PB-7.T1 — per-premise backend routing table. The plan's Decision routes each proof premise to
+# the backend that can actually discharge its kind, instead of sending every premise to one
+# backend. Encoded as data + a pure function so the routing decision is executable and tested; it
+# is opt-in (see ``route_by_kind`` below) and NOT the default, because wiring it as the default and
+# supplying multi-backend results is PB-7.T3 — that needs the second SMT-with-theories backend
+# (PB-6) registered first, or premises route to a producer with no result and never discharge.
+_ROUTE_BACKEND_CORE_SMT = "core_smt"
+_ROUTE_BACKEND_SMT_THEORIES = "smt-theories"
+_ROUTE_BACKEND_APALACHE = "apalache"
+_ROUTE_BACKEND_TRACE = "trace_validation"
+
+# Numeric, comparison, and set-membership fragments → SMT with Int/Real/set theories (PB-6).
+_SMT_THEORY_NODE_KINDS = frozenset(
+    {"comparison", "eq", "neq", "lt", "lte", "gt", "gte", "increase", "decrease", "membership"}
+)
+# State and temporal fragments → the Apalache S ∧ R model check.
+_STATE_TEMPORAL_NODE_KINDS = frozenset(
+    {
+        "transition",
+        "pre_state",
+        "post_state",
+        "invariant",
+        "state_delta",
+        "state_ref",
+        "always",
+        "eventually",
+        "until",
+        "before",
+        "within",
+    }
+)
+# Fragments grounded in observed execution → trace validation.
+_TRACE_NODE_KINDS = frozenset({"trace_ref"})
+
+
+def backend_for_proof_node(role: str, node_kind: str) -> str:
+    """The backend that can discharge a proof premise of ``node_kind`` (PB-7 routing decision).
+
+    Numeric/comparison/membership route to SMT with theories, state and temporal fragments to the
+    Apalache S ∧ R model check, trace-grounded fragments to trace validation, and everything else
+    (authorization and propositional structure) to the core SMT consistency checker. ``role``
+    ("premise"/"obligation") is accepted for future role-sensitive routing; today routing is by
+    kind alone. This is the routing *decision* only — discharging a route still requires the
+    matching producer to be registered and to have produced a result (PB-7.T3 / PB-6).
+    """
+    if node_kind in _SMT_THEORY_NODE_KINDS:
+        return _ROUTE_BACKEND_SMT_THEORIES
+    if node_kind in _STATE_TEMPORAL_NODE_KINDS:
+        return _ROUTE_BACKEND_APALACHE
+    if node_kind in _TRACE_NODE_KINDS:
+        return _ROUTE_BACKEND_TRACE
+    return _ROUTE_BACKEND_CORE_SMT
+
+
 def build_proof_dispatch_plan(
     requirement: RequirementIRV2,
     *,
     backend_id: str = "system_checker",
     required_evidence: EvidenceLevel = EvidenceLevel.CONSISTENCY_CHECKED,
     policy_id: str = "default-system-consistency",
+    route_by_kind: bool = False,
 ) -> ProofDispatchPlan:
+    """Build the per-premise dispatch plan for a requirement's compositional proof.
+
+    By default every premise routes to ``backend_id`` (the single-backend plan today's closure path
+    expects). With ``route_by_kind=True`` each premise instead routes to the backend its kind needs
+    (:func:`backend_for_proof_node`) — the PB-7 multi-backend plan. The opt-in keeps the default
+    path's behavior byte-stable until the per-kind producers are wired (PB-7.T3).
+    """
     routes = [
         ProofPremiseRoute(
             premise_id=f"{requirement.requirement_id}:{role}:{node.node_id}",
             node_id=node.node_id,
             node_kind=node.kind,
             role=role,
-            backend_id=backend_id,
+            backend_id=backend_for_proof_node(role, node.kind) if route_by_kind else backend_id,
             required_evidence=required_evidence,
-            reason="default route for compositional proof fragment",
+            reason=(
+                f"routed by fragment kind '{node.kind}'"
+                if route_by_kind
+                else "default route for compositional proof fragment"
+            ),
         )
         for role, node in _proof_nodes(requirement.semantic_ir)
     ]

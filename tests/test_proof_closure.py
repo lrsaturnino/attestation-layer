@@ -14,6 +14,7 @@ from nlreq.proof_closure import (
     EvidenceProducerMapping,
     ProofDispatchPlan,
     ProofPremiseRoute,
+    backend_for_proof_node,
     backend_results_from_system_consistency,
     build_proof_dispatch_plan,
     build_proof_object,
@@ -279,6 +280,33 @@ def test_proof_object_and_closure_gate_cli(tmp_path: Path, capsys) -> None:
     assert "Closure gate report:" in output
     assert json.loads(proof_path.read_text())["status"] == "closed"
     assert json.loads(gate_path.read_text())["result"] == "passed"
+
+
+def test_backend_for_proof_node_routes_each_kind_to_its_discharging_backend() -> None:
+    # The PB-7 routing decision: each premise kind goes to the backend that can discharge it.
+    assert backend_for_proof_node("premise", "predicate") == "core_smt"
+    assert backend_for_proof_node("premise", "comparison") == "smt-theories"
+    assert backend_for_proof_node("premise", "lte") == "smt-theories"
+    assert backend_for_proof_node("premise", "membership") == "smt-theories"
+    assert backend_for_proof_node("obligation", "invariant") == "apalache"
+    assert backend_for_proof_node("obligation", "eventually") == "apalache"
+    assert backend_for_proof_node("obligation", "trace_ref") == "trace_validation"
+    # Unclassified / propositional structure falls back to the core SMT consistency checker.
+    assert backend_for_proof_node("premise", "and") == "core_smt"
+
+
+def test_dispatch_plan_route_by_kind_sends_premises_to_distinct_backends() -> None:
+    ir = _ir()
+    default_plan = build_proof_dispatch_plan(ir, backend_id="system_checker")
+    routed_plan = build_proof_dispatch_plan(ir, route_by_kind=True)
+
+    # Default (opt-out): every premise still routes to the single backend — zero behavior change.
+    assert {route.backend_id for route in default_plan.routes} == {"system_checker"}
+    # Opt-in: each route goes to the backend its kind needs, and the comparison premise
+    # (requested_amount <= spendable_balance) routes somewhere other than the propositional default.
+    for route in routed_plan.routes:
+        assert route.backend_id == backend_for_proof_node(route.role, route.node_kind)
+    assert {route.backend_id for route in routed_plan.routes} != {"system_checker"}
 
 
 def _ir():
