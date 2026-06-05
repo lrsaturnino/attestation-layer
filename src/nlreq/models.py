@@ -626,7 +626,14 @@ class BackendResult(BaseModel):
           and stays in the evidence boundary as defense-in-depth; construction enforces the
           metadata a producer must carry, the boundary enforces that the producer is real.)
         - BOUNDED_CHECKED is the output of a bounded model check, so it may not be claimed without
-          the bounds the check ran under (a non-empty ``details['bounds']``).
+          the full backing such a check records: the bounds it searched (a non-empty
+          ``details['bounds']``), the checker command (``details['command']``), and a checker
+          version recorded from the run (``details['tool_version']``, or where the solver path
+          records it, ``details['reproducibility']['tool_version']`` — never a producer's static
+          catalog version). This is the single definition of bounded backing,
+          ``bounded_evidence_backing_complete``, that the producers self-gate on and the
+          proof-closure / evidence-producer layer enforces, so an unbacked bounded claim cannot
+          be held in memory, not merely rejected downstream.
         - TRACE_VALIDATED asserts observed behavior was mapped onto a formal fragment, so it may
           not be claimed without a non-lossy mapping under ``details['trace_mapping']``: the
           stable schema of validator id, requirement id, trace content + source hashes, the
@@ -660,12 +667,26 @@ class BackendResult(BaseModel):
                 )
         if (
             self.evidence_level == EvidenceLevel.BOUNDED_CHECKED
-            and not _has_recorded_bounds(self.details)
+            and not bounded_evidence_backing_complete(self.details)
         ):
+            missing: list[str] = []
+            if not _has_recorded_bounds(self.details):
+                missing.append("the bounds it searched (a non-empty details['bounds'])")
+            if not _has_command_metadata(self.details):
+                missing.append("the checker command (details['command'])")
+            if _recorded_tool_version(self.details) is None:
+                missing.append(
+                    "a checker version recorded from the run (details['tool_version'] or "
+                    "details['reproducibility']['tool_version'])"
+                )
             raise ValueError(
-                "BackendResult claiming BOUNDED_CHECKED requires the bounds it was checked under "
-                "in a non-empty details['bounds']; a bounded model check cannot claim its evidence "
-                "level without recording the bound"
+                "BackendResult claiming BOUNDED_CHECKED requires the full backing a bounded model "
+                "check records, missing: "
+                + "; ".join(missing)
+                + ". A bounded result cannot claim its evidence level without recording what it "
+                "searched, how, and with which checker version, so the verdict is reproducible. To "
+                "inject a deliberately-unbacked result for downstream-layer tests, bypass "
+                "validation with BackendResult.model_construct(...)."
             )
         if (
             self.evidence_level == EvidenceLevel.TRACE_VALIDATED

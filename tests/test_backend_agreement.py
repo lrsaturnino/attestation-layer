@@ -166,6 +166,10 @@ def _bounded_result(
     details = {
         "overlap_key": overlap_key,
         "bounds": {"max_depth": max_depth},
+        # A BOUNDED_CHECKED result carries its full run backing (bounds + command + a
+        # run-recorded version); these are real backed results compared for agreement.
+        "command": ["apalache-mc", "check", "Model.tla"],
+        "tool_version": "apalache 0.58.0",
         "unsupported_constructs": [],
     }
     if counterexample is not None:

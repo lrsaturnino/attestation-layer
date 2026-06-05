@@ -33,9 +33,10 @@ def test_real_evidence_producer_validation_blocks_forged_high_assurance() -> Non
             )
         ]
     )
-    # Bounds recorded (passes the construction guard) but the producer is not real and no tool
-    # version is recorded; the real-evidence-producer validation must still block the claim.
-    result = BackendResult(
+    # Bounds + command but no run version, and the producer is not real. Construction now rejects
+    # an unbacked bounded claim, so build it via model_construct to exercise the real-evidence-
+    # producer validation's independent backing check (defense in depth beyond construction).
+    result = BackendResult.model_construct(
         backend="fake",
         status="valid",
         evidence_level=EvidenceLevel.BOUNDED_CHECKED,
@@ -50,9 +51,10 @@ def test_real_evidence_producer_validation_blocks_forged_high_assurance() -> Non
 
 
 def test_real_evidence_producer_validation_blocks_missing_reproducibility() -> None:
-    # Bounds recorded (passes the construction guard) but command metadata and output/artifact
-    # hashes are missing; the real-evidence-producer validation must still block the claim.
-    result = BackendResult(
+    # Bounds + version but no command, and output/artifact hashes missing. Construction now rejects
+    # an unbacked bounded claim, so build it via model_construct to exercise the real-evidence-
+    # producer validation's independent backing check (defense in depth beyond construction).
+    result = BackendResult.model_construct(
         backend="tla-runner",
         status="valid",
         evidence_level=EvidenceLevel.BOUNDED_CHECKED,

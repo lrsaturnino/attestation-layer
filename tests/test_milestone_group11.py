@@ -334,7 +334,11 @@ def test_phase130_proof_producing_boundary_blocks_fake_inductive_claims() -> Non
             backend="tlc",
             status="valid",
             evidence_level=EvidenceLevel.BOUNDED_CHECKED,
-            details={"bounds": {"max_depth": 10}},
+            details={
+                "bounds": {"max_depth": 10},
+                "command": ["java", "-cp", "tla2tools.jar", "tlc2.TLC", "Model.tla"],
+                "tool_version": "tlc 2.18",
+            },
         ),
         producer_mapping=mapping,
     )

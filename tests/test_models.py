@@ -107,31 +107,76 @@ def test_proven_inductive_accepts_a_checked_proof_artifact_entry() -> None:
 
 
 def test_bounded_checked_without_bounds_is_rejected_at_construction() -> None:
-    with pytest.raises(ValidationError, match="BOUNDED_CHECKED requires the bounds"):
+    with pytest.raises(ValidationError, match="the bounds it searched"):
         BackendResult(
             backend="tla-runner",
             status="valid",
             evidence_level=EvidenceLevel.BOUNDED_CHECKED,
-            details={"tool_version": "tlc 1.0"},
+            details={"command": ["tlc2.TLC"], "tool_version": "tlc 1.0"},
         )
 
 
 def test_bounded_checked_with_empty_bounds_is_rejected_at_construction() -> None:
-    with pytest.raises(ValidationError, match="BOUNDED_CHECKED requires the bounds"):
+    with pytest.raises(ValidationError, match="the bounds it searched"):
         BackendResult(
             backend="tla-runner",
             status="valid",
             evidence_level=EvidenceLevel.BOUNDED_CHECKED,
-            details={"bounds": {}},
+            details={"bounds": {}, "command": ["tlc2.TLC"], "tool_version": "tlc 1.0"},
         )
 
 
-def test_bounded_checked_accepts_recorded_bounds() -> None:
+def test_bounded_checked_with_bounds_alone_is_rejected_at_construction() -> None:
+    """Bounds alone is not bounded backing: the checker command and a run-recorded version are
+    required too, so a result carrying only details['bounds'] cannot claim the level."""
+    with pytest.raises(ValidationError, match="the checker command"):
+        BackendResult(
+            backend="tla-runner",
+            status="valid",
+            evidence_level=EvidenceLevel.BOUNDED_CHECKED,
+            details={"bounds": {"max_depth": 8}},
+        )
+
+
+def test_bounded_checked_without_run_version_is_rejected_at_construction() -> None:
+    """Bounds + command but no run-recorded version is still unbacked: a bounded verdict is not
+    reproducible without the version of the checker that produced it."""
+    with pytest.raises(ValidationError, match="a checker version recorded from the run"):
+        BackendResult(
+            backend="tla-runner",
+            status="valid",
+            evidence_level=EvidenceLevel.BOUNDED_CHECKED,
+            details={"bounds": {"max_depth": 8}, "command": ["tlc2.TLC", "Model.tla"]},
+        )
+
+
+def test_bounded_checked_accepts_full_backing() -> None:
     result = BackendResult(
         backend="tla-runner",
         status="valid",
         evidence_level=EvidenceLevel.BOUNDED_CHECKED,
-        details={"bounds": {"max_depth": 8}},
+        details={
+            "bounds": {"max_depth": 8},
+            "command": ["tlc2.TLC", "-config", "Model.cfg", "Model.tla"],
+            "tool_version": "tlc 2.18",
+        },
+    )
+
+    assert result.evidence_level == EvidenceLevel.BOUNDED_CHECKED
+
+
+def test_bounded_checked_accepts_nested_reproducibility_version() -> None:
+    """The run version may be recorded nested under reproducibility (the solver-backed S ∧ R path
+    records it there under exclude_none), not only top-level."""
+    result = BackendResult(
+        backend="solver_system_checker",
+        status="valid",
+        evidence_level=EvidenceLevel.BOUNDED_CHECKED,
+        details={
+            "bounds": {"max_depth": 6},
+            "command": ["apalache-mc", "check", "Module.tla"],
+            "reproducibility": {"tool_version": "apalache 0.58.0"},
+        },
     )
 
     assert result.evidence_level == EvidenceLevel.BOUNDED_CHECKED

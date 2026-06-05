@@ -4,6 +4,9 @@ from pathlib import Path
 import json
 from pathlib import Path
 
+import pytest
+from pydantic import ValidationError
+
 from nlreq.cli import main
 from nlreq.coverage_alignment import build_spec_coverage_report, build_trace_alignment_report
 from nlreq.dsl_v2 import DslV2Parser
@@ -74,37 +77,44 @@ def _consistency(tmp_path: Path):
     )
 
 
-def test_unbacked_bounded_evidence_blocks_closure(tmp_path: Path) -> None:
-    """A BOUNDED_CHECKED result that records bounds but no command/version cannot close a proof.
+def test_unbacked_bounded_evidence_cannot_enter_a_proof(tmp_path: Path) -> None:
+    """An unbacked BOUNDED_CHECKED result cannot enter a proof, even built via model_construct.
 
-    PB-9: the construction guard rejects a bounded claim with no recorded bounds, but real bounded
-    backing is bounds *and* the checker command *and* a run-recorded tool version. A result that
-    passes the guard with bounds alone still lacks real backing, and the proof-closure layer must
-    block it (defense in depth beyond the type-level construction guard). The premises here
-    discharge on the system_checker floor, so the only thing that can block is the unbacked claim.
+    PB-9: real bounded backing is bounds *and* the checker command *and* a run-recorded tool
+    version. The construction guard now rejects an unbacked bounded claim outright, so a genuine
+    producer can never emit one. A result injected via model_construct (bypassing the BackendResult
+    guard) with bounds alone -- no command, no version -- is re-validated when it is placed in a
+    ProofObject, so build_proof_object raises rather than return a proof that holds unbacked
+    bounded evidence. The premises here discharge on the system_checker floor, so the unbacked
+    claim is the only thing that could carry the proof, and it cannot.
     """
     ir = _ir()
     coverage = _coverage(tmp_path)
     alignment = _alignment(ir, coverage)
-    # Bounds recorded (passes the construction guard) but no command or tool version: not real
-    # bounded backing, so the proof-closure layer must still block it.
-    unbacked = BackendResult(
+    # Bounds alone is not real bounded backing. The BackendResult guard rejects this, so build it
+    # via model_construct to get an unbacked result past construction and into build_proof_object.
+    unbacked = BackendResult.model_construct(
         backend="apalache",
         status="valid",
         evidence_level=EvidenceLevel.BOUNDED_CHECKED,
         details={"bounds": {"max_depth": 5}},
     )
 
-    proof = build_proof_object(
-        requirement=ir,
-        backend_results=[*backend_results_from_system_consistency(_consistency(tmp_path)), unbacked],
-        coverage=coverage,
-        trace_alignment=alignment,
-    )
-
-    assert proof.status == "blocked"
-    assert any("bounded evidence is not backed" in blocker.message for blocker in proof.blockers)
-    assert evaluate_closure_gate(proof).result == "blocked"
+    # The construction guard now bars an unbacked bounded result from being held in a proof at
+    # all: ProofObject re-validates its backend_results, so build_proof_object raises rather than
+    # return a proof that smuggles in unbacked bounded evidence. The closure layer keeps the same
+    # backing check as defense in depth (bounded_backing_problems, covered via
+    # test_evidence_producers), but the type boundary now rejects the result before closure could.
+    with pytest.raises(ValidationError, match="BOUNDED_CHECKED requires the full backing"):
+        build_proof_object(
+            requirement=ir,
+            backend_results=[
+                *backend_results_from_system_consistency(_consistency(tmp_path)),
+                unbacked,
+            ],
+            coverage=coverage,
+            trace_alignment=alignment,
+        )
 
 
 def test_backed_bounded_evidence_does_not_block_closure(tmp_path: Path) -> None:
