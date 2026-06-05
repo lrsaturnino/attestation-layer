@@ -14,6 +14,14 @@ from .models import (
 )
 
 
+# The Phase 0 SMT encoder (``smt2_for_ir`` and the ``check_self_consistency`` solver) is
+# propositional: it represents only these authorization/approval boolean predicate ops. Comparison
+# (eq/neq/gt/lt/gte/lte) and set-membership (in) predicates are NOT theory-encoded here — the
+# theory-aware encoder lives on the FormalClaim path (``formal_claim_smt``). Naming the encodable set
+# once lets both the query writer and the check refuse to over-claim for the predicates they drop.
+_SMT_ENCODABLE_OPS = frozenset({"authorized", "not_authorized", "approved", "not_approved"})
+
+
 def check_self_consistency(ir: RequirementIR) -> BackendResult:
     contradictions = _direct_contradictions(ir.claim.condition)
     if contradictions:
@@ -43,6 +51,26 @@ def smt_check_requirement(ir: RequirementIR) -> BackendResult:
     consistency = check_self_consistency(ir)
     if consistency.status != "valid":
         return consistency.model_copy(update={"evidence_level": EvidenceLevel.SMT_CHECKED})
+    unencoded = _unencoded_predicate_ops(ir)
+    if unencoded:
+        # The Phase 0 query (smt2_for_ir) and the self-consistency solver encode only
+        # authorization/approval booleans, so any comparison, numeric, or set-membership predicate
+        # was silently dropped. Emitting SMT_CHECKED on top of a query that never represented those
+        # predicates would claim a check that did not run. Refuse the level instead: report an honest
+        # non-checked result (no evidence level) naming the unencoded predicate ops, so the evidence
+        # builders treat C-smt as undischarged rather than a false pass. The theory-aware encoder on
+        # the FormalClaim path is where such predicates are actually checked.
+        return BackendResult(
+            backend="core_smt",
+            status="unsupported",
+            evidence_level=None,
+            details={
+                "checked": "supported_phase_0_claim_shape",
+                "unencoded_predicate_ops": unencoded,
+                "reason": "Phase 0 SMT encodes only authorization/approval booleans",
+                "query_hash": sha256_text(smt2_for_ir(ir)),
+            },
+        )
     return BackendResult(
         backend="core_smt",
         status="valid",
@@ -140,7 +168,7 @@ def smt2_for_ir(ir: RequirementIR) -> str:
     assertions: list[str] = []
     declared: set[str] = set()
     for predicate in ir.claim.condition:
-        if predicate.op not in {"authorized", "not_authorized", "approved", "not_approved"}:
+        if predicate.op not in _SMT_ENCODABLE_OPS:
             continue
         name = _smt_atom_name(predicate)
         if name not in declared:
@@ -148,8 +176,31 @@ def smt2_for_ir(ir: RequirementIR) -> str:
             declared.add(name)
         assertions.append(f"(assert {'(not ' + name + ')' if predicate.op.startswith('not_') else name})")
 
-    body = "\n".join(declarations + assertions + ["(check-sat)"])
-    return f"; Phase 0 SMT query for {ir.requirement_id}\n{body}\n"
+    header = [f"; Phase 0 SMT query for {ir.requirement_id}"]
+    unencoded = _unencoded_predicate_ops(ir)
+    if unencoded:
+        # Keep the .smt2 file honest: the propositional Phase 0 encoder does not represent these
+        # predicates, so name them rather than presenting an empty (check-sat) as a complete query.
+        header.append(
+            "; UNENCODED by Phase 0 (propositional only; not represented in this query): "
+            + ", ".join(unencoded)
+        )
+    body = "\n".join([*declarations, *assertions, "(check-sat)"])
+    return "\n".join([*header, body]) + "\n"
+
+
+def _unencoded_predicate_ops(ir: RequirementIR) -> list[str]:
+    """Distinct condition predicate ops the Phase 0 SMT encoder cannot represent, in first-seen order.
+
+    These are the comparison and set-membership ops ``smt2_for_ir`` and the self-consistency solver
+    silently drop; naming them is what lets the check refuse to over-claim SMT_CHECKED and the query
+    file disclose what it omits.
+    """
+    unencoded: list[str] = []
+    for predicate in ir.claim.condition:
+        if predicate.op not in _SMT_ENCODABLE_OPS and predicate.op not in unencoded:
+            unencoded.append(predicate.op)
+    return unencoded
 
 
 def _direct_contradictions(predicates: list[Predicate]) -> list[str]:

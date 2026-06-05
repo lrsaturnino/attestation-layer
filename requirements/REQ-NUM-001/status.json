@@ -1,5 +1,7 @@
 {
-  "next_actions": [],
-  "reason": "All required evidence levels are satisfied.",
-  "status": "ACCEPTED_WITH_EVIDENCE"
+  "next_actions": [
+    "Inspect backend evidence and revise the requirement or assumptions."
+  ],
+  "reason": "Failed checks: C-smt.",
+  "status": "REFUSED_FAILED_CHECK"
 }

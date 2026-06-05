@@ -71,12 +71,12 @@
       "artifacts": {
         "assumptions.json": "sha256:37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
         "bindings.json": "sha256:0f9135b906dacdd7ced39ee7435f07909ee5fa2999399f3e073a78a4389285af",
-        "evidence.json": "sha256:ab8d211edb37a0f1b51bb95c483f4135c1a481484a17e4d7eaafebe2b4871a76",
-        "implementation-spec.md": "sha256:28b41c1f94f554e12180028c4191ef00ccc5eddad456a0b2222ee4489fed0d21",
+        "evidence.json": "sha256:b5cf3c2312c04b712799a9a72cab45e88c4c925ea12b0d7846f456031c616241",
+        "implementation-spec.md": "sha256:c3d6401c17cc6adae42f45c6dabf0a2e4f3e54971a455b1480ce1d98b9cd7e61",
         "requirement.ir.json": "sha256:b2553c9c2029d4b1983a1f9011acd40568d68e9b2425ce76d789aaecd5ba9f05",
         "review.json": "sha256:2e24bfc5aeb2276ac7a86197f20d2abb635bc71af16662e55c9ad1df0f8efad7",
-        "smt/C1.smt2": "sha256:2d688a4ac5ac6ee3e58390821e10722392d02ac866da9744faee1d867254014d",
-        "status.json": "sha256:33746cec9bb3775488dfd6bd9d4934b48834b0fcfb10dd5607342eb5db7aad09",
+        "smt/C1.smt2": "sha256:33fb73aea8e812a7846c7eccbc74eadf55930cf1138a30713586d8f7fd97551d",
+        "status.json": "sha256:2939acaae814df260d74fc370d2119a50928a52a77bd4e745020dd21068c6d92",
         "verification-tasks.json": "sha256:41e3d3ec02dd7dfca1fa3ac91a67c33e557a1c61e87468da98301b4ef2882262"
       },
       "claim_kind": "numeric_invariant",
@@ -94,12 +94,14 @@
             "required_evidence": "CONSISTENCY_CHECKED"
           },
           {
-            "achieved_evidence": "SMT_CHECKED",
+            "achieved_evidence": null,
             "id": "C-smt",
             "required_evidence": "SMT_CHECKED"
           }
         ],
-        "failed_checks": [],
+        "failed_checks": [
+          "C-smt"
+        ],
         "ir_hash": "sha256:b2553c9c2029d4b1983a1f9011acd40568d68e9b2425ce76d789aaecd5ba9f05",
         "needs_spec_coverage": false,
         "pending_reviews": [],
@@ -124,8 +126,8 @@
         "self_audit": false,
         "timestamp": "2026-05-26T00:00:00Z"
       },
-      "status": "ACCEPTED_WITH_EVIDENCE",
-      "status_reason": "All required evidence levels are satisfied.",
+      "status": "REFUSED_FAILED_CHECK",
+      "status_reason": "Failed checks: C-smt.",
       "title": "Counter increments within limit",
       "validation_errors": [],
       "validation_kind": "generic",
@@ -268,13 +270,13 @@
   ],
   "packages_root": "requirements",
   "summary": {
-    "accepted": 3,
+    "accepted": 2,
     "ambiguous_bindings": 0,
-    "failed_checks": 1,
+    "failed_checks": 2,
     "invalid": 0,
     "needs_spec_coverage": 0,
     "pending_reviews": 0,
-    "refused": 1,
+    "refused": 2,
     "total": 4,
     "unresolved_bindings": 1,
     "unsupported_claims": 0,

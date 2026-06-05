@@ -40,16 +40,18 @@
       "required_evidence": "CONSISTENCY_CHECKED"
     },
     {
-      "achieved_evidence": "SMT_CHECKED",
       "backend_results": [
         {
           "backend": "core_smt",
           "details": {
             "checked": "supported_phase_0_claim_shape",
-            "query_hash": "sha256:2d688a4ac5ac6ee3e58390821e10722392d02ac866da9744faee1d867254014d"
+            "query_hash": "sha256:33fb73aea8e812a7846c7eccbc74eadf55930cf1138a30713586d8f7fd97551d",
+            "reason": "Phase 0 SMT encodes only authorization/approval booleans",
+            "unencoded_predicate_ops": [
+              "lte"
+            ]
           },
-          "evidence_level": "SMT_CHECKED",
-          "status": "valid"
+          "status": "unsupported"
         }
       ],
       "description": "Supported claim shape is SMT-checked under declared assumptions.",
@@ -57,7 +59,9 @@
       "required_evidence": "SMT_CHECKED"
     }
   ],
-  "failed_checks": [],
+  "failed_checks": [
+    "C-smt"
+  ],
   "ir_hash": "sha256:b2553c9c2029d4b1983a1f9011acd40568d68e9b2425ce76d789aaecd5ba9f05",
   "needs_spec_coverage": false,
   "pending_reviews": [],

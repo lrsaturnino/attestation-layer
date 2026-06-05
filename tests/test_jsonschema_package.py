@@ -55,7 +55,10 @@ def test_build_json_schema_package_records_numeric_delta_evidence(tmp_path: Path
 
     _ir, evidence, status = validate_json_schema_package(out, adapter)
 
-    assert status.status == FinalStatus.ACCEPTED_WITH_EVIDENCE
+    # The numeric delta is genuinely type-checked against the schema, so that evidence is recorded.
+    # The package still refuses: the propositional Phase 0 SMT check cannot encode the comparison
+    # premise (counter <= limit), so C-smt is undischarged rather than a false SMT_CHECKED pass.
+    assert status.status == FinalStatus.REFUSED_FAILED_CHECK
     assert evidence.claims[-1].id == "JSON-SCHEMA-NUMERIC-DELTA"
     assert evidence.claims[-1].achieved_evidence == EvidenceLevel.TYPE_CHECKED
 
