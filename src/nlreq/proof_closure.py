@@ -283,21 +283,31 @@ def default_evidence_producer_mapping() -> EvidenceProducerMapping:
     )
 
 
-# PB-7.T1 — per-premise backend routing table. The plan's Decision routes each proof premise to
-# the backend that can actually discharge its kind, instead of sending every premise to one
-# backend. Encoded as data + a pure function so the routing decision is executable and tested; it
-# is opt-in (see ``route_by_kind`` below) and NOT the default, because wiring it as the default and
-# supplying multi-backend results is PB-7.T3 — that needs the second SMT-with-theories backend
-# (PB-6) registered first, or premises route to a producer with no result and never discharge.
+# Per-premise backend routing table over generic SemanticNode kinds. Encoded as data + a pure
+# function so the routing decision is executable and tested; it is opt-in (see ``route_by_kind``
+# below) and NOT the default. The AUTHORITATIVE production routing is
+# ``formal_claim._backend_for_fragment_kind``, which routes the FormalClaim fragments the gate
+# actually dispatches. This coarse generic router aligns its THEORY-routed kinds with that policy:
+# comparison -> smt-theories and set-membership -> cvc5 on both surfaces, so a theory premise never
+# routes to two different backends across the two APIs. It deliberately does NOT mirror
+# predicate/rejection_order, which the authoritative router discharges via the S ∧ R model check
+# (solver_system_checker) — a discharge concept this kind-only router does not model; here they fall
+# to the core SMT checker. Membership in particular routes to cvc5's native finite-set theory, never
+# the linear-arithmetic ``smt-theories`` backend that cannot encode a set literal.
 _ROUTE_BACKEND_CORE_SMT = "core_smt"
 _ROUTE_BACKEND_SMT_THEORIES = "smt-theories"
+_ROUTE_BACKEND_CVC5 = "cvc5"
 _ROUTE_BACKEND_APALACHE = "apalache"
 _ROUTE_BACKEND_TRACE = "trace_validation"
 
-# Numeric, comparison, and set-membership fragments → SMT with Int/Real/set theories (PB-6).
+# Numeric and comparison fragments → SMT with Int/Real theories (smt-theories).
 _SMT_THEORY_NODE_KINDS = frozenset(
-    {"comparison", "eq", "neq", "lt", "lte", "gt", "gte", "increase", "decrease", "membership"}
+    {"comparison", "eq", "neq", "lt", "lte", "gt", "gte", "increase", "decrease"}
 )
+# Set-membership fragments → cvc5's native finite-set theory, matching the authoritative FormalClaim
+# routing (``membership`` -> cvc5). The linear-arithmetic smt-theories backend cannot encode a
+# set-literal membership, so routing it there would name a producer that never discharges it.
+_SET_MEMBERSHIP_NODE_KINDS = frozenset({"membership"})
 # State and temporal fragments → the Apalache S ∧ R model check.
 _STATE_TEMPORAL_NODE_KINDS = frozenset(
     {
@@ -319,17 +329,23 @@ _TRACE_NODE_KINDS = frozenset({"trace_ref"})
 
 
 def backend_for_proof_node(role: str, node_kind: str) -> str:
-    """The backend that can discharge a proof premise of ``node_kind`` (PB-7 routing decision).
+    """The backend that can discharge a proof premise of ``node_kind`` (per-premise routing decision).
 
-    Numeric/comparison/membership route to SMT with theories, state and temporal fragments to the
-    Apalache S ∧ R model check, trace-grounded fragments to trace validation, and everything else
-    (authorization and propositional structure) to the core SMT consistency checker. ``role``
-    ("premise"/"obligation") is accepted for future role-sensitive routing; today routing is by
-    kind alone. This is the routing *decision* only — discharging a route still requires the
-    matching producer to be registered and to have produced a result (PB-7.T3 / PB-6).
+    Numeric/comparison route to SMT with theories (smt-theories), set-membership to cvc5, state and
+    temporal fragments to the Apalache S ∧ R model check, trace-grounded fragments to trace
+    validation, and everything else (authorization and propositional structure) to the core SMT
+    consistency checker. The comparison → smt-theories and membership → cvc5 choices align with the
+    authoritative FormalClaim routing (``formal_claim._backend_for_fragment_kind``); predicate and
+    rejection_order intentionally differ — the authoritative router discharges them via the S ∧ R
+    model check (solver_system_checker), a concept this coarse kind-only router does not model.
+    ``role`` ("premise"/"obligation") is accepted for future role-sensitive routing; today routing is
+    by kind alone. This is the routing *decision* only — discharging a route still requires the
+    matching producer to be registered and to have produced a result.
     """
     if node_kind in _SMT_THEORY_NODE_KINDS:
         return _ROUTE_BACKEND_SMT_THEORIES
+    if node_kind in _SET_MEMBERSHIP_NODE_KINDS:
+        return _ROUTE_BACKEND_CVC5
     if node_kind in _STATE_TEMPORAL_NODE_KINDS:
         return _ROUTE_BACKEND_APALACHE
     if node_kind in _TRACE_NODE_KINDS:

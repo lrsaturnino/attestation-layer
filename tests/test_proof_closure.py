@@ -298,11 +298,13 @@ def test_proof_object_and_closure_gate_cli(tmp_path: Path, capsys) -> None:
 
 
 def test_backend_for_proof_node_routes_each_kind_to_its_discharging_backend() -> None:
-    # The PB-7 routing decision: each premise kind goes to the backend that can discharge it.
+    # The per-premise routing decision: each premise kind goes to the backend that can discharge it.
     assert backend_for_proof_node("premise", "predicate") == "core_smt"
     assert backend_for_proof_node("premise", "comparison") == "smt-theories"
     assert backend_for_proof_node("premise", "lte") == "smt-theories"
-    assert backend_for_proof_node("premise", "membership") == "smt-theories"
+    # Set-membership routes to cvc5 (its native finite-set theory), matching the authoritative
+    # FormalClaim routing — never to the linear-arithmetic smt-theories backend that cannot encode it.
+    assert backend_for_proof_node("premise", "membership") == "cvc5"
     assert backend_for_proof_node("obligation", "invariant") == "apalache"
     assert backend_for_proof_node("obligation", "eventually") == "apalache"
     assert backend_for_proof_node("obligation", "trace_ref") == "trace_validation"
