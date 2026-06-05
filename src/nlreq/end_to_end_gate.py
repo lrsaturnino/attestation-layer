@@ -533,7 +533,7 @@ def run_end_to_end_requirement_gate(
     if floor_baseline is not None:
         system_backend_results = [*system_backend_results, floor_baseline]
     # When the FormalClaim report is lowered, also SMT-check predicate/comparison
-    # fragments. These produce core_smt BackendResults with per-fragment covered_fragment_ids
+    # fragments. These produce smt-theories BackendResults with per-fragment covered_fragment_ids
     # so formal_claim-routed premises can be discharged without relying on the system-
     # consistency result (which only covers system_checker routes).
     formal_claim_preview = build_formal_claim(requirement)

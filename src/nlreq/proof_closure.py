@@ -189,11 +189,14 @@ def default_evidence_producer_mapping() -> EvidenceProducerMapping:
                 producer_kind="smt_solver",
                 # The theory-aware FormalClaim SMT producer (PB-6/PB-7): z3 with Int/Real linear
                 # arithmetic and an uninterpreted member sort (formal_claim_smt), distinct from the
-                # propositional core_smt above. Comparison and set-literal-membership premises route
-                # here and are discharged at SMT_CHECKED by the joint premise-consistency query —
-                # the discharge core_smt's propositional encoder cannot perform (it drops those ops).
-                # Naming it as its own producer is what keeps a theory-checked premise from being
-                # tagged with the propositional producer that never encoded it.
+                # propositional core_smt above. Comparison premises route here and are discharged at
+                # SMT_CHECKED by the joint premise-consistency query — the discharge core_smt's
+                # propositional encoder cannot perform (it drops those ops). Set-literal-membership
+                # premises route to the cvc5 producer below, not here (see _SMT_THEORY_DISCHARGED_KINDS
+                # in formal_claim): formal_claim_smt can co-encode a membership in its joint query, but
+                # the routed discharge for membership is cvc5's native finite-set theory. Naming this
+                # as its own producer is what keeps a theory-checked premise from being tagged with the
+                # propositional producer that never encoded it.
                 allowed_evidence_levels=[EvidenceLevel.SMT_CHECKED],
                 tool="nlreq.formal_claim_smt",
                 tool_version="0.1",
