@@ -155,6 +155,89 @@ def test_proof_object_blocks_supplied_backend_disagreement() -> None:
     assert any(blocker.category == "backend_agreement" for blocker in proof.blockers)
 
 
+def test_verdict_mode_agrees_on_matching_verdict() -> None:
+    """Two backends that decide the same question the same way (both valid) agree and allow closure —
+    even though they are different backends with different evidence metadata."""
+    report = build_backend_agreement_report(
+        [_verdict_result("core_smt", "valid"), _verdict_result("cvc5", "valid")],
+        mode="verdict",
+    )
+    assert report.status == "agreed"
+    assert report.closure_effect == "allow"
+    assert report.comparisons[0].compared_fields == ["status"]
+
+
+def test_verdict_mode_blocks_opposite_verdict() -> None:
+    """The PB-6.T3 gate: opposite verdicts on the same question (the same overlap_key) is a real
+    encoder divergence — it blocks, and the reason is the verdict mismatch, nothing else."""
+    report = build_backend_agreement_report(
+        [_verdict_result("core_smt", "valid"), _verdict_result("cvc5", "invalid")],
+        mode="verdict",
+    )
+    assert report.status == "disagreed"
+    assert report.closure_effect == "block"
+    assert report.comparisons[0].status == "disagreed"
+    assert "verdict differs" in report.comparisons[0].reasons[0]
+    assert report.comparisons[0].compared_fields == ["status"]
+
+
+def test_verdict_mode_ignores_evidence_and_bounds_when_verdict_agrees() -> None:
+    """Verdict-first: when the verdict agrees, an evidence-level or bounds difference does NOT block.
+
+    The same two observations under the bounded comparison DO block on those differences — so this
+    pins that the gate fails only on a semantic verdict mismatch, not on encoder incidentals, which
+    is the whole point of judging two independent SMT encoders on the same decidable question."""
+    left = _verdict_result(
+        "core_smt", "valid", evidence=EvidenceLevel.SMT_CHECKED, bounds={"max_depth": 5}
+    )
+    right = _verdict_result(
+        "cvc5", "valid", evidence=EvidenceLevel.CONSISTENCY_CHECKED, bounds={"max_depth": 99}
+    )
+
+    verdict = build_backend_agreement_report([left, right], mode="verdict")
+    assert verdict.status == "agreed"
+    assert verdict.closure_effect == "allow"
+
+    bounded = build_backend_agreement_report([left, right], mode="bounded")
+    assert bounded.status == "disagreed"
+    assert any("evidence_level differs" in reason for reason in bounded.comparisons[0].reasons)
+    assert "bounds differ" in bounded.comparisons[0].reasons
+
+
+def test_verdict_mode_non_overlap_when_a_backend_did_not_decide() -> None:
+    """A backend that did not decide a verdict (needs_review / unsupported) is not a disagreement —
+    there is nothing to agree about, so the pair is non_overlap, never a false block."""
+    report = build_backend_agreement_report(
+        [_verdict_result("core_smt", "valid"), _verdict_result("cvc5", "unsupported", evidence=None)],
+        mode="verdict",
+    )
+    assert report.comparisons[0].status == "non_overlap"
+    assert "did not decide a verdict" in report.comparisons[0].reasons[0]
+
+
+def _verdict_result(
+    backend: str,
+    status: str,
+    *,
+    overlap_key: str = "premise-consistency-question",
+    evidence: EvidenceLevel | None = EvidenceLevel.SMT_CHECKED,
+    bounds: dict[str, int] | None = None,
+) -> BackendResult:
+    details: dict = {
+        "overlap_key": overlap_key,
+        "agreement_compare": "verdict",
+        "check": "premise_consistency",
+    }
+    if bounds is not None:
+        details["bounds"] = bounds
+    return BackendResult(
+        backend=backend,
+        status=status,  # type: ignore[arg-type]
+        evidence_level=evidence,
+        details=details,
+    )
+
+
 def _bounded_result(
     backend: str,
     *,

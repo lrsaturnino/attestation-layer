@@ -40,6 +40,11 @@ from .formal_claim import FormalClaim, FormalClaimFragment, FormalClaimOperand
 from .jsonutil import sha256_text
 from .models import BackendResult, EvidenceLevel
 from .numeric_literal import exact_fraction
+from .premise_consistency import (
+    is_set_literal_membership,
+    premise_consistency_fragment_signature,
+    premise_consistency_overlap_key,
+)
 
 try:  # cvc5 is an optional dependency — see module docstring.
     import cvc5
@@ -105,7 +110,7 @@ def cvc5_check_formal_claim_premises(claim: FormalClaim) -> list[BackendResult]:
     set_memberships = [
         fragment
         for fragment in claim.premises
-        if fragment.kind == "membership" and _is_set_literal_membership(fragment)
+        if fragment.kind == "membership" and is_set_literal_membership(fragment)
     ]
     contributing = [*comparisons, *set_memberships]
     if not contributing:
@@ -161,6 +166,11 @@ def _check_with_cvc5(
             solver.assertFormula(term)
             encoded.append(fragment)
 
+    # The shared, solver-independent identity of this premise-consistency question (PB-6.T3): z3
+    # computes the same key from the same claim, so the agreement check pairs the two verdicts.
+    # ``question_hash`` below is cvc5's own encoded-form hash (over its finite-set encoding) and
+    # stays as metadata — the agreement compares the verdict, not the encoding.
+    overlap_key = premise_consistency_overlap_key([*comparisons, *set_memberships])
     results: list[BackendResult] = []
     if encoded:
         outcome = solver.checkSat()
@@ -174,22 +184,13 @@ def _check_with_cvc5(
             question_hash = _question_hash(encoded, logic)
             cvc5_result = str(outcome)
             results.extend(
-                _checked_result(fragment, status, logic, cvc5_result, participating, question_hash)
+                _checked_result(
+                    fragment, status, logic, cvc5_result, participating, question_hash, overlap_key
+                )
                 for fragment in encoded
             )
     results.extend(_unencodable_result(fragment, reason) for fragment, reason in unencodable)
     return results
-
-
-def _is_set_literal_membership(fragment: FormalClaimFragment) -> bool:
-    """Whether a membership fragment enumerates concrete members (``x is in {A, B}``).
-
-    Mirrors the ``metadata['membership'] == 'set_literal'`` marker set at lowering (dsl_v3 →
-    formal_claim) and shared by the z3 path: a set-literal membership carries its members as concrete
-    operands after the element, while an opaque named-set membership (``x is in S``) lacks the marker
-    and has no enumerable contents to encode.
-    """
-    return fragment.metadata.get("membership") == "set_literal" and len(fragment.operands) >= 2
 
 
 def _encode_comparison(
@@ -310,19 +311,15 @@ def _encoded_logic(encoded: list[FormalClaimFragment]) -> str:
     return "LRA"
 
 
-def _fragment_signature(fragment: FormalClaimFragment) -> str:
-    """A backend-independent signature of a fragment's encoded meaning (kind, operator, operands).
-
-    Derived from the ``FormalClaim`` rather than any cvc5 term, so it is the same identity the z3
-    path could compute for the same fragment — the natural key for pairing the two backends'
-    verdicts on one shared question in the agreement check.
-    """
-    operands = ",".join(f"{operand.kind}:{operand.value}" for operand in fragment.operands)
-    return f"{fragment.kind}|{fragment.operator}|{operands}"
-
-
 def _question_hash(encoded: list[FormalClaimFragment], logic: str) -> str:
-    signatures = sorted(_fragment_signature(fragment) for fragment in encoded)
+    """cvc5's own encoded-form hash: the encoded fragment signatures plus the encoded logic label.
+
+    This is intentionally NOT the shared ``overlap_key`` — it includes the logic label and is over
+    the *encoded* fragments, so it captures cvc5's specific encoding and serves as reproducibility
+    metadata. The shared, solver-independent identity used to pair backends is ``overlap_key`` (see
+    :func:`nlreq.premise_consistency.premise_consistency_overlap_key`).
+    """
+    signatures = sorted(premise_consistency_fragment_signature(fragment) for fragment in encoded)
     return sha256_text(f"{logic}\n" + "\n".join(signatures))
 
 
@@ -333,6 +330,7 @@ def _checked_result(
     cvc5_result: str,
     participating: list[str],
     question_hash: str,
+    overlap_key: str | None,
 ) -> BackendResult:
     return BackendResult(
         backend=CVC5_BACKEND_ID,
@@ -347,6 +345,10 @@ def _checked_result(
             "cvc5_result": cvc5_result,
             "premise_constraint_fragment_ids": participating,
             "question_hash": question_hash,
+            "overlap_key": overlap_key,
+            # Tell the agreement check to judge this result on its verdict, not on encoder
+            # incidentals (the finite-set encoding, the logic label): the question is decidable.
+            "agreement_compare": "verdict",
         },
     )
 
@@ -355,7 +357,10 @@ def _unencodable_result(fragment: FormalClaimFragment, reason: str) -> BackendRe
     return BackendResult(
         backend=CVC5_BACKEND_ID,
         status="needs_review",
-        evidence_level=EvidenceLevel.CONSISTENCY_CHECKED,
+        # No evidence level: an unencodable premise never entered the solver, so it was not checked.
+        # None keeps the route open without claiming a result (and without tripping the
+        # SMT_CHECKED-only producer mapping), mirroring the z3 path's _UNCHECKED_EVIDENCE.
+        evidence_level=None,
         details={
             "covered_fragment_ids": [fragment.fragment_id],
             "check": "premise_consistency:unencodable",
@@ -370,7 +375,9 @@ def _unknown_result(fragment: FormalClaimFragment) -> BackendResult:
     return BackendResult(
         backend=CVC5_BACKEND_ID,
         status="needs_review",
-        evidence_level=EvidenceLevel.CONSISTENCY_CHECKED,
+        # cvc5 returned 'unknown' — no decided verdict, so nothing was checked: no evidence level
+        # (same honesty policy as the unencodable and absent paths).
+        evidence_level=None,
         details={
             "covered_fragment_ids": [fragment.fragment_id],
             "check": "premise_consistency:unknown",

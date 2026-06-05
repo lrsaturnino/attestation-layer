@@ -14,6 +14,23 @@ BACKEND_AGREEMENT_SCHEMA_VERSION = "0.1"
 
 BackendAgreementPolicy = Literal["blocking", "report_only"]
 
+# How two overlapping results are judged to agree (PB-6.T3):
+#   "bounded" — model-checker results: status AND the bounded evidence (bounds, evidence level,
+#       counterexamples, unsupported constructs) are all semantic. A depth-6 "valid" and a depth-8
+#       "valid" are not the same assurance, so a bounds difference is a real disagreement.
+#   "verdict" — decidable-question results (the FormalClaim premise-consistency check answered by two
+#       independent SMT backends): only the verdict (valid/invalid) is semantic. The two encoders
+#       legitimately differ on logic label, encoded form, and evidence metadata for the *same* yes/no
+#       answer, so those are recorded but never themselves a disagreement; only opposite verdicts on
+#       the same question (the same overlap_key) block. This is the verdict-first redesign: a planted
+#       z3-vs-cvc5 divergence fails the gate for a semantic verdict mismatch, not for incidentals.
+BackendAgreementMode = Literal["bounded", "verdict"]
+
+# The decided verdicts of a decidable consistency question; any other status (needs_review,
+# unsupported, timeout, counterexample) means a backend did not decide it, so there is nothing to
+# agree or disagree about — the pair is non_overlap rather than a false disagreement.
+_DECIDED_VERDICTS = frozenset({"valid", "invalid"})
+
 
 class BackendAgreementObservation(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -57,6 +74,7 @@ def build_backend_agreement_report(
     *,
     policy: BackendAgreementPolicy = "blocking",
     overlap_key: str | None = None,
+    mode: BackendAgreementMode = "bounded",
 ) -> BackendAgreementReport:
     observations = [
         _observation(result, override_overlap_key=overlap_key) for result in backend_results
@@ -72,7 +90,8 @@ def build_backend_agreement_report(
         )
 
     comparisons = [
-        _compare_observations(left, right) for left, right in combinations(observations, 2)
+        _compare_observations(left, right, mode=mode)
+        for left, right in combinations(observations, 2)
     ]
     blockers = [
         f"{comparison.left_backend} disagrees with {comparison.right_backend}: "
@@ -117,7 +136,10 @@ def _observation(
 
 
 def _compare_observations(
-    left: BackendAgreementObservation, right: BackendAgreementObservation
+    left: BackendAgreementObservation,
+    right: BackendAgreementObservation,
+    *,
+    mode: BackendAgreementMode = "bounded",
 ) -> BackendAgreementComparison:
     if left.overlap_key is None or right.overlap_key is None:
         return BackendAgreementComparison(
@@ -135,6 +157,9 @@ def _compare_observations(
                 f"overlap_key differs: {left.overlap_key!r} vs {right.overlap_key!r}"
             ],
         )
+
+    if mode == "verdict":
+        return _compare_verdicts(left, right)
 
     compared_fields = ["status", "evidence_level", "bounds", "unsupported_constructs"]
     reasons: list[str] = []
@@ -161,6 +186,49 @@ def _compare_observations(
         status="disagreed" if reasons else "agreed",
         reasons=reasons,
         compared_fields=compared_fields,
+    )
+
+
+def _compare_verdicts(
+    left: BackendAgreementObservation, right: BackendAgreementObservation
+) -> BackendAgreementComparison:
+    """Verdict-first comparison of two results on the same decidable question (same overlap_key).
+
+    Only the verdict is semantic. Two independent SMT backends encode the same premise-consistency
+    question differently (different logic label, different evidence metadata, different encoded form)
+    yet must reach the same yes/no answer; those incidentals are recorded but never a disagreement.
+
+      - both decided (valid/invalid) and equal     -> agreed
+      - both decided and opposite                  -> disagreed (a real encoder divergence: block)
+      - one or both did not decide the verdict     -> non_overlap (nothing to agree about)
+    """
+    if left.status in _DECIDED_VERDICTS and right.status in _DECIDED_VERDICTS:
+        if left.status == right.status:
+            return BackendAgreementComparison(
+                left_backend=left.backend,
+                right_backend=right.backend,
+                overlap_key=left.overlap_key,
+                status="agreed",
+                compared_fields=["status"],
+            )
+        return BackendAgreementComparison(
+            left_backend=left.backend,
+            right_backend=right.backend,
+            overlap_key=left.overlap_key,
+            status="disagreed",
+            reasons=[f"verdict differs: {left.status!r} vs {right.status!r}"],
+            compared_fields=["status"],
+        )
+    return BackendAgreementComparison(
+        left_backend=left.backend,
+        right_backend=right.backend,
+        overlap_key=left.overlap_key,
+        status="non_overlap",
+        reasons=[
+            "a backend did not decide a verdict on the shared question "
+            f"(left {left.status!r}, right {right.status!r})"
+        ],
+        compared_fields=["status"],
     )
 
 

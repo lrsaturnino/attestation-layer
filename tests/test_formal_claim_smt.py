@@ -186,14 +186,16 @@ def test_cross_variable_contradiction_caught_by_z3() -> None:
     assert {r.status for r in results} == {"invalid"}
 
 
-def test_membership_fragment_returns_needs_review_consistency_checked() -> None:
-    """An opaque named-set membership needs a concrete finite set to encode — emits
-    needs_review/CONSISTENCY_CHECKED (the set operand is a single opaque identifier)."""
+def test_membership_fragment_returns_needs_review_no_evidence_level() -> None:
+    """An opaque named-set membership needs a concrete finite set to encode (the set operand is a
+    single opaque identifier). It was not checked here, so it emits needs_review with NO evidence
+    level — claiming CONSISTENCY_CHECKED for a premise the solver never saw would overstate it, and
+    None keeps the route open without tripping the SMT_CHECKED-only producer mapping."""
     from nlreq.formal_claim_smt import _check_fragment
     frag = _make_membership_fragment()
     result = _check_fragment(frag)
     assert result.status == "needs_review"
-    assert result.evidence_level == EvidenceLevel.CONSISTENCY_CHECKED
+    assert result.evidence_level is None
 
 
 def _make_set_membership_fragment(
@@ -268,7 +270,8 @@ def test_membership_element_also_used_as_numeric_operand_needs_review() -> None:
     results = _premise_consistency([membership, comparison])
     by_id = {r.details["covered_fragment_ids"][0]: r for r in results}
     assert by_id[membership.fragment_id].status == "needs_review"
-    assert by_id[membership.fragment_id].evidence_level == EvidenceLevel.CONSISTENCY_CHECKED
+    # Not encoded -> not checked -> no evidence level (route stays open without a producer blocker).
+    assert by_id[membership.fragment_id].evidence_level is None
     assert by_id[comparison.fragment_id].status == "valid"
 
 
@@ -402,7 +405,8 @@ def test_set_membership_member_also_used_as_numeric_operand_needs_review() -> No
     results = _premise_consistency([membership, comparison])
     by_id = {r.details["covered_fragment_ids"][0]: r for r in results}
     assert by_id[membership.fragment_id].status == "needs_review"
-    assert by_id[membership.fragment_id].evidence_level == EvidenceLevel.CONSISTENCY_CHECKED
+    # Not encoded -> not checked -> no evidence level (route stays open without a producer blocker).
+    assert by_id[membership.fragment_id].evidence_level is None
     assert by_id[comparison.fragment_id].status == "valid"
 
 

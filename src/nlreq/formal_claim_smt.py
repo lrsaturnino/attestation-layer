@@ -19,11 +19,16 @@ from .formal_claim import FormalClaim, FormalClaimFragment, FormalClaimOperand
 from .jsonutil import sha256_text
 from .models import BackendResult, EvidenceLevel
 from .numeric_literal import exact_fraction
+from .premise_consistency import is_set_literal_membership, premise_consistency_overlap_key
 
-# Evidence honesty: "unsupported" results carry no evidence level.
-# _producer_blockers skips results with evidence_level=None, preventing spurious
-# producer-mapping blockers for fragments that are intentionally not checked at this layer.
-_UNSUPPORTED_EVIDENCE: EvidenceLevel | None = None
+# Evidence honesty: a fragment that was *not checked here* carries no evidence level. This covers
+# both an "unsupported" predicate/order fragment (needs a model checker) and a "needs_review"
+# fragment that could not enter the joint encoding (a non-arithmetic comparison, an opaque named-set
+# membership, or a sort clash). Claiming CONSISTENCY_CHECKED for a premise the solver never saw would
+# overstate the evidence — the honest level is None. _producer_blockers skips results with
+# evidence_level=None, so an unchecked route stays cleanly open rather than tripping a spurious
+# producer-mapping blocker (core_smt is registered for SMT_CHECKED only).
+_UNCHECKED_EVIDENCE: EvidenceLevel | None = None
 
 
 FORMAL_CLAIM_SMT_VERSION = "0.1"
@@ -61,8 +66,8 @@ def smt_check_formal_claim_predicate_fragments(claim: FormalClaim) -> list[Backe
         concrete operands, so it joins the claim-level premise-consistency query as a disjunction of
         equalities over distinct named members and discharges at SMT_CHECKED — a disjoint-set antecedent
         (``x in {A}`` and ``x in {B}``) is a catchable contradiction. An opaque named-set membership
-        (``x is in S``) has no concrete collection to encode, so it emits CONSISTENCY_CHECKED /
-        needs_review and the route stays open.
+        (``x is in S``) has no concrete collection to encode, so it was not checked: it emits
+        needs_review with no evidence level and the route stays open.
       - rejection_order fragments: bounded-reachability ordering requires a model checker
         (Apalache). Emits "unsupported" so routes become "blocked".
 
@@ -71,13 +76,26 @@ def smt_check_formal_claim_predicate_fragments(claim: FormalClaim) -> list[Backe
     """
     results = list(_premise_consistency(claim.premises))
     for fragment in [*claim.premises, *claim.obligations]:
-        if fragment.kind == "membership" and _is_set_literal_membership(fragment):
+        if fragment.kind == "membership" and is_set_literal_membership(fragment):
             # Set-literal membership is enumerated into the joint premise-consistency query above,
             # not re-checked vacuously per fragment; skip it here so it is not double-emitted.
             continue
         if fragment.kind in {"predicate", "rejection_order", "membership"}:
             results.append(_check_fragment(fragment))
     return results
+
+
+def smt_check_formal_claim_premise_consistency(claim: FormalClaim) -> list[BackendResult]:
+    """Check only the premise-consistency question with z3, one result per contributing premise.
+
+    This is the exact question cvc5 answers in ``cvc5_check_formal_claim_premises`` — the joint
+    satisfiability of a claim's comparison and set-literal-membership premises — and nothing else
+    (no predicate/rejection_order fragments). Exposing it as a public function gives the
+    cross-backend agreement registry a z3 backend that poses the *same* question as the cvc5 backend,
+    so their verdicts are directly comparable. Returns an empty list when the claim poses no such
+    question (no contributing premise).
+    """
+    return _premise_consistency(claim.premises)
 
 
 def _premise_consistency(premises: list[FormalClaimFragment]) -> list[BackendResult]:
@@ -108,7 +126,7 @@ def _premise_consistency(premises: list[FormalClaimFragment]) -> list[BackendRes
     set_memberships = [
         fragment
         for fragment in premises
-        if fragment.kind == "membership" and _is_set_literal_membership(fragment)
+        if fragment.kind == "membership" and is_set_literal_membership(fragment)
     ]
     if not comparisons and not set_memberships:
         return []
@@ -157,6 +175,11 @@ def _premise_consistency(premises: list[FormalClaimFragment]) -> list[BackendRes
             encoded.append(fragment)
             constraint_texts.append(str(constraint))
 
+    # The shared, solver-independent identity of this premise-consistency question (PB-6.T3). cvc5
+    # computes the same key from the same claim, so the cross-backend agreement check can pair the
+    # two verdicts. ``query_hash`` below is the z3-specific encoded form (the constraint strings) and
+    # stays as metadata — the agreement compares the verdict, not the encoding.
+    overlap_key = premise_consistency_overlap_key(premises)
     results: list[BackendResult] = []
     if encoded:
         outcome = solver.check()
@@ -179,6 +202,10 @@ def _premise_consistency(premises: list[FormalClaimFragment]) -> list[BackendRes
                         "z3_result": str(outcome),
                         "premise_constraint_fragment_ids": participating,
                         "query_hash": query_hash,
+                        "overlap_key": overlap_key,
+                        # Tell the agreement check to judge this result on its verdict, not on
+                        # encoder incidentals (logic label, bounds): the question is decidable.
+                        "agreement_compare": "verdict",
                     },
                 )
             )
@@ -187,7 +214,10 @@ def _premise_consistency(premises: list[FormalClaimFragment]) -> list[BackendRes
             BackendResult(
                 backend="core_smt",
                 status="needs_review",
-                evidence_level=EvidenceLevel.CONSISTENCY_CHECKED,
+                # No evidence level: an unencodable premise never entered the solver, so it was not
+                # checked. None keeps the route open without claiming a consistency result (and
+                # without tripping the SMT_CHECKED-only producer mapping) — see _UNCHECKED_EVIDENCE.
+                evidence_level=_UNCHECKED_EVIDENCE,
                 details={
                     "covered_fragment_ids": [fragment.fragment_id],
                     "check": "premise_consistency:unencodable",
@@ -207,19 +237,6 @@ _UNENCODABLE_MEMBERSHIP_REASON = (
     "set-literal membership element is also used as a numeric operand in this claim; an identifier "
     "cannot be both a real and a member value in one model, so the route stays open"
 )
-
-
-def _is_set_literal_membership(fragment: FormalClaimFragment) -> bool:
-    """Whether a membership fragment enumerates concrete members (``x is in {A, B}``).
-
-    A set-literal membership is marked at lowering and carries its members as concrete operands
-    after the element (``operands[1:]``). An opaque named-set membership (``x is in S``) lacks the
-    marker — its set is a single opaque identifier with no enumerable contents — so it is not
-    encoded here and stays a needs_review/model-level check.
-    """
-    return (
-        fragment.metadata.get("membership") == "set_literal" and len(fragment.operands) >= 2
-    )
 
 
 def _encode_set_membership(
@@ -338,7 +355,7 @@ def _check_fragment(fragment: FormalClaimFragment) -> BackendResult:
         return BackendResult(
             backend="core_smt",
             status="unsupported",
-            evidence_level=_UNSUPPORTED_EVIDENCE,
+            evidence_level=_UNCHECKED_EVIDENCE,
             details={
                 "covered_fragment_ids": [fragment.fragment_id],
                 "check": "fragment_satisfiability:predicate",
@@ -358,7 +375,7 @@ def _check_fragment(fragment: FormalClaimFragment) -> BackendResult:
         return BackendResult(
             backend="apalache",
             status="unsupported",
-            evidence_level=_UNSUPPORTED_EVIDENCE,
+            evidence_level=_UNCHECKED_EVIDENCE,
             details={
                 "covered_fragment_ids": [fragment.fragment_id],
                 "check": "fragment_satisfiability:rejection_order",
@@ -369,11 +386,12 @@ def _check_fragment(fragment: FormalClaimFragment) -> BackendResult:
     # membership (opaque named set, e.g. `x is in S`) — its set is a single opaque identifier with
     # no enumerable contents, so a fragment-level query is vacuous (a set-literal membership with
     # concrete members is enumerated by _premise_consistency and never reaches here). needs_review
-    # keeps the route open rather than discharging it falsely.
+    # keeps the route open rather than discharging it falsely; no evidence level, because nothing was
+    # checked (an opaque set cannot be encoded here) — see _UNCHECKED_EVIDENCE.
     return BackendResult(
         backend="core_smt",
         status="needs_review",
-        evidence_level=EvidenceLevel.CONSISTENCY_CHECKED,
+        evidence_level=_UNCHECKED_EVIDENCE,
         details={
             "covered_fragment_ids": [fragment.fragment_id],
             "check": f"fragment_satisfiability:{fragment.kind}",
