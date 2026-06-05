@@ -368,10 +368,13 @@ def _tla_evidence_for_ir(
 
 def _claim_for_tla_task(task: VerificationTask, result: BackendResult | None) -> EvidenceClaim:
     required = EvidenceLevel.BOUNDED_CHECKED
+    # A missing TLA result bound-checked nothing, so it cannot carry bounded evidence: the
+    # placeholder records no level (not an unbacked BOUNDED_CHECKED). Achievement is decided below
+    # from a real result's status and backed level, so this stand-in stays unachieved regardless.
     backend_result = result or BackendResult(
         backend="tla",
         status="invalid",
-        evidence_level=required,
+        evidence_level=None,
         details={
             "task_id": task.id,
             "task_input_hash": task.input_hash,

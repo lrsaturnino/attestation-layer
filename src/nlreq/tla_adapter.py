@@ -20,6 +20,7 @@ from .models import (
     SymbolResolution,
     ValidationResult,
     VerificationTask,
+    bounded_evidence_backing_complete,
 )
 
 
@@ -147,6 +148,17 @@ class TlaAdapter(Adapter):
         return collected
 
     def run_task(self, task: VerificationTask) -> BackendResult:
+        """Run a reviewed TLA model check and report its evidence honestly.
+
+        BOUNDED_CHECKED is emitted only when the run completed (valid/counterexample) AND
+        recorded its full backing — bounds, the checker command, and the version of the checker
+        the run resolved (see ``models.bounded_evidence_backing_complete``). This adapter runs the
+        reviewed model through a raw subprocess and records no checker version, so a completed run
+        self-gates to ``None`` rather than over-claim bounded evidence it cannot back; a missing
+        module, a timeout, or an OS error did not complete a bounded search and is likewise
+        ``None``. (Recording a run version — a version probe, as the runner-harness backends do —
+        is the enhancement that would let a completed reviewed check earn BOUNDED_CHECKED.)
+        """
         if task.payload.get("task") != "tla_model_check":
             return BackendResult(
                 backend=self.adapter_id,
@@ -158,7 +170,7 @@ class TlaAdapter(Adapter):
             return BackendResult(
                 backend=self.adapter_id,
                 status="invalid",
-                evidence_level=EvidenceLevel.BOUNDED_CHECKED,
+                evidence_level=None,
                 details={
                     **_base_details(task),
                     "reason": "declared TLA module or config is missing",
@@ -184,7 +196,7 @@ class TlaAdapter(Adapter):
             return BackendResult(
                 backend=self.adapter_id,
                 status="timeout",
-                evidence_level=EvidenceLevel.BOUNDED_CHECKED,
+                evidence_level=None,
                 details={
                     **_base_details(task),
                     "timed_out": True,
@@ -199,7 +211,7 @@ class TlaAdapter(Adapter):
             return BackendResult(
                 backend=self.adapter_id,
                 status="invalid",
-                evidence_level=EvidenceLevel.BOUNDED_CHECKED,
+                evidence_level=None,
                 details={**_base_details(task), "reason": str(exc)},
             )
 
@@ -207,21 +219,30 @@ class TlaAdapter(Adapter):
         violation = _model_violation_reason(combined_output)
         expected_exit_code = int(task.payload.get("expected_exit_code", 0))
         valid = completed.returncode == expected_exit_code and violation is None
+        details = {
+            **_base_details(task),
+            "timed_out": False,
+            "exit_code": completed.returncode,
+            "expected_exit_code": expected_exit_code,
+            "violation_reason": violation,
+            "stdout_hash": _sha256_output(completed.stdout),
+            "stderr_hash": _sha256_output(completed.stderr),
+            "stdout_tail": _bounded_tail(completed.stdout, output_limit),
+            "stderr_tail": _bounded_tail(completed.stderr, output_limit),
+        }
+        # A completed reviewed check earns BOUNDED_CHECKED only if it recorded its full backing
+        # (bounds + command + a run-recorded version). This adapter records no checker version, so
+        # the level self-gates to None today; gating on the predicate keeps the claim honest and
+        # lights up automatically if a version probe is ever added to _base_details.
         return BackendResult(
             backend=self.adapter_id,
             status="valid" if valid else "counterexample",
-            evidence_level=EvidenceLevel.BOUNDED_CHECKED,
-            details={
-                **_base_details(task),
-                "timed_out": False,
-                "exit_code": completed.returncode,
-                "expected_exit_code": expected_exit_code,
-                "violation_reason": violation,
-                "stdout_hash": _sha256_output(completed.stdout),
-                "stderr_hash": _sha256_output(completed.stderr),
-                "stdout_tail": _bounded_tail(completed.stdout, output_limit),
-                "stderr_tail": _bounded_tail(completed.stderr, output_limit),
-            },
+            evidence_level=(
+                EvidenceLevel.BOUNDED_CHECKED
+                if bounded_evidence_backing_complete(details)
+                else None
+            ),
+            details=details,
         )
 
     def models_for_requirement(self, requirement_id: str) -> list[TlaModelCheck]:

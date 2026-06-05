@@ -19,7 +19,16 @@ REQUIREMENT_TEXT = (
 )
 
 
-def test_build_tla_package_records_bounded_checked_evidence(tmp_path: Path) -> None:
+def test_build_tla_package_refuses_when_check_records_no_version(tmp_path: Path) -> None:
+    """A reviewed TLA check that records no checker version earns no bounded evidence.
+
+    The adapter runs the reviewed model but records no run version, so its bounded claim is
+    unbacked and self-gates to None (achieved_evidence None). A package whose required bounded
+    evidence is unachieved cannot be accepted on it, so validation refuses
+    (REFUSED_FAILED_CHECK) rather than accept on evidence it cannot reproduce. A version probe —
+    recording the checker version from the run — is the enhancement that would let a backed
+    reviewed check be accepted; the runner-harness formal backends already cover backed
+    BOUNDED_CHECKED."""
     project = _project(tmp_path)
     adapter = _adapter(project)
     out = tmp_path / "requirements" / "REQ-TLA-001"
@@ -36,10 +45,10 @@ def test_build_tla_package_records_bounded_checked_evidence(tmp_path: Path) -> N
     ir, evidence, status = validate_tla_package(out, adapter)
 
     assert ir.bindings["operation"].adapter == "tla"
-    assert status.status == FinalStatus.ACCEPTED_WITH_EVIDENCE
+    assert status.status == FinalStatus.REFUSED_FAILED_CHECK
     assert evidence.claims[-1].id == "authorization-state-machine"
     assert evidence.claims[-1].required_evidence == EvidenceLevel.BOUNDED_CHECKED
-    assert evidence.claims[-1].achieved_evidence == EvidenceLevel.BOUNDED_CHECKED
+    assert evidence.claims[-1].achieved_evidence is None
     assert read_json(out / "counterexamples.json") == []
 
 
@@ -128,7 +137,10 @@ def test_run_tla_checks_returns_result_artifact(tmp_path: Path) -> None:
 
     assert results.adapter == "tla"
     assert results.results[0].status == "valid"
-    assert results.results[0].evidence_level == EvidenceLevel.BOUNDED_CHECKED
+    # The reviewed check ran to a valid outcome but recorded no checker version, so its bounded
+    # claim is unbacked and the adapter self-gates the evidence level to None (a version probe
+    # would let a backed reviewed check earn BOUNDED_CHECKED).
+    assert results.results[0].evidence_level is None
 
 
 def test_tla_cli_builds_validates_and_runs_checks(tmp_path: Path, capsys) -> None:
