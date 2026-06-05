@@ -83,7 +83,7 @@ def test_tlc_production_backend_accepts_custom_checker_command(tmp_path: Path) -
         backend_id=TlcProductionBackend.backend_id,
         execution=FormalBackendExecution(
             checker_id="custom-tlc",
-            command=["python", "-c", "print('verification successful')"],
+            command=[sys.executable, "-c", "print('verification successful')"],
             artifact_dir=tmp_path.as_posix(),
         ),
     )
