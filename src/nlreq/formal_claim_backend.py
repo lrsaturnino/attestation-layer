@@ -35,7 +35,7 @@ from .cvc5_backend import CVC5_BACKEND_ID, cvc5_check_formal_claim_premises
 from .formal_claim import FormalClaim
 from .formal_claim_smt import smt_check_formal_claim_premise_consistency
 from .models import BackendResult, EvidenceLevel
-from .premise_consistency import premise_consistency_overlap_key
+from .premise_consistency import contributing_premises, premise_consistency_overlap_key
 
 
 # The backend surface is versioned by the types it carries: the request is a FormalClaim
@@ -132,33 +132,51 @@ def _collapse_backend_verdict(
 ) -> BackendResult:
     """Collapse a backend's per-premise results to one verdict observation on the shared question.
 
-    The joint premise-consistency query yields a single verdict for all the premises a backend
-    encoded, so the decided verdict is the unique ``valid``/``invalid`` status among its checked
-    results. A backend that decided nothing (all premises unencodable, or the solver unavailable)
-    contributes its degradation status (``unsupported`` if the tool was absent, else ``needs_review``)
-    with no evidence level — a non-deciding observation, not a verdict.
+    The shared question is the conjunction of *every* contributing premise — the comparison and
+    set-literal-membership fragments :func:`contributing_premises` selects, the same set the
+    ``overlap_key`` is hashed over. A backend has decided that question only when it discharged
+    *every* contributing premise at ``SMT_CHECKED`` with a single ``valid``/``invalid`` verdict from
+    the joint query. If any contributing fragment came back ``needs_review``/``unsupported`` (it could
+    not be encoded, or the solver was unavailable) — or is missing from the results entirely — the
+    backend answered only part of the question; collapsing that to a whole-question verdict would
+    turn partial encoding into a false agreement (e.g. ``amount in {APPROVED} and amount >= 5``: the
+    comparison checks ``valid`` while the membership is an unencodable sort clash, yet the antecedent
+    as a whole was never decided). A partial or empty result is therefore non-deciding: it carries
+    the degradation status (``unsupported`` if the tool was absent, else ``needs_review``), no
+    evidence level, and lists the undecided contributing fragment IDs, so the agreement gate pairs it
+    as non_overlap rather than a verdict.
     """
     results = backend.check(claim)
-    checked_verdicts = {
-        result.status
+
+    # The full premise set that poses the shared question — the authoritative contributing set the
+    # overlap_key is computed over, so a fragment the backend dropped entirely still counts as
+    # undecided rather than silently vanishing from the coverage check.
+    contributing_ids = {fragment.fragment_id for fragment in contributing_premises(claim.premises)}
+    # The contributing fragments this backend actually decided at SMT_CHECKED with a verdict.
+    decided_results = [
+        result
         for result in results
         if result.evidence_level == EvidenceLevel.SMT_CHECKED
         and result.status in {"valid", "invalid"}
+    ]
+    decided_ids = {
+        fragment_id
+        for result in decided_results
+        for fragment_id in result.details.get("covered_fragment_ids", [])
     }
-    covered = sorted(
-        {
-            fragment_id
-            for result in results
-            for fragment_id in result.details.get("covered_fragment_ids", [])
-        }
-    )
-    if len(checked_verdicts) == 1:
+    checked_verdicts = {result.status for result in decided_results}
+    undecided_ids = sorted(contributing_ids - decided_ids)
+
+    # Decided only when there IS a question and every contributing premise reached one verdict.
+    fully_decided = bool(contributing_ids) and not undecided_ids and len(checked_verdicts) == 1
+    if fully_decided:
         status = next(iter(checked_verdicts))
         evidence_level: EvidenceLevel | None = EvidenceLevel.SMT_CHECKED
         decided = True
     else:
-        # No decided verdict (or — defensively — a split that a single joint query should never
-        # produce): report a non-deciding status so the pair is non_overlap, never a false verdict.
+        # Either the backend decided no verdict, decided only part of the question, or — defensively
+        # — returned a split that a single joint query should never produce. Report a non-deciding
+        # status so the pair is non_overlap, never a false whole-question verdict.
         status = "unsupported" if _any_unsupported(results) else "needs_review"
         evidence_level = None
         decided = False
@@ -171,7 +189,12 @@ def _collapse_backend_verdict(
             "overlap_key": overlap_key,
             # Judge this collapsed result on its verdict, not on encoder incidentals.
             "agreement_compare": "verdict",
-            "covered_fragment_ids": covered,
+            # Only the contributing premises actually discharged at SMT_CHECKED — partial coverage is
+            # never reported as whole-question coverage.
+            "covered_fragment_ids": sorted(decided_ids & contributing_ids),
+            # Contributing premises this backend did not decide; non-empty here is exactly why the
+            # result is non-deciding.
+            "undecided_fragment_ids": undecided_ids,
             "decided": decided,
             "result_count": len(results),
         },
