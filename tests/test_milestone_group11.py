@@ -285,16 +285,20 @@ def test_phase129_budget_outcomes_have_closure_effects() -> None:
 
 def test_phase130_proof_producing_boundary_blocks_fake_inductive_claims() -> None:
     mapping = default_evidence_producer_mapping()
-    # The result references a well-formed checked-proof hash (passes the construction guard) but
-    # its producer is not a proof assistant and no retained checked_proof artifact or checker
-    # command is supplied to the boundary; the emission-boundary report must still block the claim
-    # (defense in depth).
+    # The result carries well-formed checked-proof + proof-assistant + command metadata (passes the
+    # construction guard) but its producer is not a registered proof assistant and no retained
+    # checked_proof artifact or checker command is supplied to the boundary; the emission-boundary
+    # report must still block the claim (defense in depth).
     fake = build_proof_producing_backend_boundary_report(
         backend_result=BackendResult(
             backend="apalache",
             status="valid",
             evidence_level=EvidenceLevel.PROVEN_INDUCTIVE,
-            details={"proof_artifact_sha256": "sha256:" + "a" * 64},
+            details={
+                "proof_artifact_sha256": "sha256:" + "a" * 64,
+                "proof_assistant": "apalache",
+                "command": ["apalache-mc", "check", "--inductive-invariant=Inv", "Spec.tla"],
+            },
         ),
         producer_mapping=mapping,
     )
@@ -303,7 +307,11 @@ def test_phase130_proof_producing_boundary_blocks_fake_inductive_claims() -> Non
             backend="tlaps",
             status="valid",
             evidence_level=EvidenceLevel.PROVEN_INDUCTIVE,
-            details={"proof_artifact_sha256": "sha256:" + "c" * 64},
+            details={
+                "proof_artifact_sha256": "sha256:" + "c" * 64,
+                "proof_assistant": "tlaps",
+                "command": ["tlapm", "Proof.tla"],
+            },
         ),
         producer_mapping=mapping,
         proof_artifacts=[

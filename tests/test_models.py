@@ -9,6 +9,11 @@ from nlreq.models import BackendResult, EvidenceLevel
 # A well-formed, canonical ``sha256:<64 hex>`` digest (the shape ``jsonutil.sha256_json`` emits).
 VALID_PROOF_HASH = "sha256:" + "a1" * 32
 
+# The non-artifact backing a checked inductive proof must also record: which proof assistant
+# accepted it and how it was invoked (so the claim is replayable). See
+# ``BackendResult._validate_evidence_backing``.
+PROOF_CHECK_BACKING = {"proof_assistant": "tlaps", "command": ["tlapm", "Proof.tla"]}
+
 
 def test_proven_inductive_without_proof_artifact_is_rejected_at_construction() -> None:
     with pytest.raises(ValidationError, match="PROVEN_INDUCTIVE requires a checked-proof artifact"):
@@ -53,12 +58,35 @@ def test_proven_inductive_rejects_a_non_valid_status() -> None:
         )
 
 
+def test_proven_inductive_without_proof_assistant_is_rejected_at_construction() -> None:
+    # A checked-proof artifact alone does not name the checker that accepted it; the claim must
+    # record the proof assistant so it is traceable to a real producer.
+    with pytest.raises(ValidationError, match="PROVEN_INDUCTIVE requires the proof assistant"):
+        BackendResult(
+            backend="tlaps",
+            status="valid",
+            evidence_level=EvidenceLevel.PROVEN_INDUCTIVE,
+            details={"proof_artifact_sha256": VALID_PROOF_HASH, "command": ["tlapm", "Proof.tla"]},
+        )
+
+
+def test_proven_inductive_without_command_is_rejected_at_construction() -> None:
+    # A checked proof must record how the checker was invoked so the result is replayable.
+    with pytest.raises(ValidationError, match="PROVEN_INDUCTIVE requires the proof-check command"):
+        BackendResult(
+            backend="tlaps",
+            status="valid",
+            evidence_level=EvidenceLevel.PROVEN_INDUCTIVE,
+            details={"proof_artifact_sha256": VALID_PROOF_HASH, "proof_assistant": "tlaps"},
+        )
+
+
 def test_proven_inductive_accepts_a_checked_proof_hash() -> None:
     result = BackendResult(
         backend="tlaps",
         status="valid",
         evidence_level=EvidenceLevel.PROVEN_INDUCTIVE,
-        details={"proof_artifact_sha256": VALID_PROOF_HASH},
+        details={"proof_artifact_sha256": VALID_PROOF_HASH, **PROOF_CHECK_BACKING},
     )
 
     assert result.evidence_level == EvidenceLevel.PROVEN_INDUCTIVE
@@ -69,7 +97,10 @@ def test_proven_inductive_accepts_a_checked_proof_artifact_entry() -> None:
         backend="tlaps",
         status="valid",
         evidence_level=EvidenceLevel.PROVEN_INDUCTIVE,
-        details={"proof_artifacts": [{"kind": "checked_proof", "sha256": VALID_PROOF_HASH}]},
+        details={
+            "proof_artifacts": [{"kind": "checked_proof", "sha256": VALID_PROOF_HASH}],
+            **PROOF_CHECK_BACKING,
+        },
     )
 
     assert result.evidence_level == EvidenceLevel.PROVEN_INDUCTIVE

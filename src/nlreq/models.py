@@ -484,6 +484,30 @@ def _has_proof_artifact(details: dict[str, Any]) -> bool:
     )
 
 
+def _has_proof_assistant_identity(details: dict[str, Any]) -> bool:
+    """Whether ``details`` names the proof assistant that checked a PROVEN_INDUCTIVE claim.
+
+    A checked inductive proof was accepted by a specific proof assistant (a TLAPS obligation, an
+    Apalache inductive-invariant check). Recording which one — under ``details['proof_assistant']``
+    — is what lets the evidence boundary match the claim to a registered ``proof_assistant``
+    producer and what makes "an inductive proof exists" traceable to the checker that accepted it;
+    an anonymous proof artifact names no checker and cannot be traced to one.
+    """
+    assistant = details.get("proof_assistant")
+    return isinstance(assistant, str) and bool(assistant.strip())
+
+
+def _has_proof_check_command(details: dict[str, Any]) -> bool:
+    """Whether ``details`` records the command that ran the proof check backing PROVEN_INDUCTIVE.
+
+    The honest backing for a checked proof includes how the proof assistant was invoked, so the
+    result is replayable — the same command metadata a BOUNDED_CHECKED claim records under
+    ``details['command']``. A non-empty command list or string qualifies.
+    """
+    command = details.get("command")
+    return bool(command) and isinstance(command, (list, str))
+
+
 def _has_recorded_bounds(details: dict[str, Any]) -> bool:
     """Whether ``details`` records the bounds a BOUNDED_CHECKED claim was checked under."""
     bounds = details.get("bounds")
@@ -522,11 +546,14 @@ class BackendResult(BaseModel):
         bypass validation with ``BackendResult.model_construct(...)``.
 
         - PROVEN_INDUCTIVE has no real inductive-proof producer yet, so it may not be claimed
-          without (a) a ``valid`` status — a proof that did not check is not a proof — and (b) a
+          without all of: (a) a ``valid`` status — a proof that did not check is not a proof; (b) a
           checked-proof artifact: a canonical ``proof_artifact_sha256`` digest or a
-          ``proof_artifacts`` entry of kind ``checked_proof`` carrying a well-formed ``sha256``.
-          (The registered-proof-assistant-producer half of the contract needs the producer
-          registry and stays in the evidence boundary as defense-in-depth.)
+          ``proof_artifacts`` entry of kind ``checked_proof`` carrying a well-formed ``sha256``;
+          (c) the proof assistant that accepted it, in ``details['proof_assistant']``; and (d) the
+          proof-check command, in ``details['command']``, so the result is replayable. (The
+          *registered*-proof-assistant-producer half of the contract needs the producer registry
+          and stays in the evidence boundary as defense-in-depth; construction enforces the
+          metadata a producer must carry, the boundary enforces that the producer is real.)
         - BOUNDED_CHECKED is the output of a bounded model check, so it may not be claimed without
           the bounds the check ran under (a non-empty ``details['bounds']``).
         - TRACE_VALIDATED asserts observed behavior was mapped onto a formal fragment, so it may
@@ -544,6 +571,19 @@ class BackendResult(BaseModel):
                     "details (a canonical 'proof_artifact_sha256' digest, or a 'proof_artifacts' "
                     "entry of kind 'checked_proof' with a well-formed 'sha256'); no inductive-proof "
                     "producer exists, so the level cannot be emitted without one"
+                )
+            if not _has_proof_assistant_identity(self.details):
+                raise ValueError(
+                    "BackendResult claiming PROVEN_INDUCTIVE requires the proof assistant that "
+                    "checked the artifact in details['proof_assistant'] (e.g. 'tlaps' or an "
+                    "Apalache inductive-invariant check); a checked proof must name the checker "
+                    "that accepted it"
+                )
+            if not _has_proof_check_command(self.details):
+                raise ValueError(
+                    "BackendResult claiming PROVEN_INDUCTIVE requires the proof-check command in "
+                    "details['command']; a checked proof must record how the checker was invoked "
+                    "so the result is replayable"
                 )
         if (
             self.evidence_level == EvidenceLevel.BOUNDED_CHECKED

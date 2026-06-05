@@ -200,14 +200,19 @@ def test_proof_object_rejects_high_assurance_from_non_real_producer(
     proof = build_proof_object(
         requirement=ir,
         backend_results=[
-            # References a well-formed checked-proof hash (passes the construction guard) but the
-            # producer is not a real one; the proof-closure producer mapping must still reject the
-            # high-assurance claim (defense in depth beyond the type-level construction guard).
+            # Carries well-formed checked-proof + proof-assistant + command metadata (passes the
+            # construction guard) but the producer is not a real one; the proof-closure producer
+            # mapping must still reject the high-assurance claim (defense in depth beyond the
+            # type-level construction guard).
             BackendResult(
                 backend="drafting-tool",
                 status="valid",
                 evidence_level=EvidenceLevel.PROVEN_INDUCTIVE,
-                details={"proof_artifact_sha256": "sha256:" + "d" * 64},
+                details={
+                    "proof_artifact_sha256": "sha256:" + "d" * 64,
+                    "proof_assistant": "tlaps",
+                    "command": ["tlapm", "Draft.tla"],
+                },
             )
         ],
         coverage=_coverage(tmp_path),
