@@ -1,5 +1,6 @@
 import hashlib
 import shutil
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from nlreq.conclusion_certification import build_conclusion_certification_report
 from nlreq.dsl_v2 import DslV2Parser
 from nlreq.formal_backend import (
     ApalacheBackend,
+    FormalBackendBudget,
     FormalBackendExecution,
     TlcProductionBackend,
     build_formal_backend_request,
@@ -23,6 +25,7 @@ from nlreq.gate import GatePolicy, GatePolicyWaiverRules, GateWaiver
 from nlreq.jsonutil import write_json
 from nlreq.model_checker_runner import ModelCheckerCommand, run_model_checker
 from nlreq.models import NormalizedTrace, NormalizedTraceArtifact, SymbolRef, TraceEvent
+from nlreq.proof_closure import bounded_backing_problems
 from nlreq.policy_governance import build_waiver_audit_report
 from nlreq.production_source_adapters import SoliditySourceAdapter
 from nlreq.public_sdk import build_default_public_documentation_index
@@ -131,6 +134,49 @@ def test_tlc_default_version_command_records_a_version(tmp_path: Path) -> None:
 
     assert result.reproducibility.tool_version is not None
     assert "TLC2 Version" in result.reproducibility.tool_version
+
+
+def test_production_backend_surfaces_recorded_version_so_real_run_is_backed(tmp_path: Path) -> None:
+    """A production-backend BOUNDED_CHECKED result fed into proof closure carries its real backing.
+
+    The proof-object CLI routes formal-backend responses into build_proof_object, which now
+    requires BOUNDED_CHECKED evidence to be backed (bounds + command + a run-recorded version).
+    Production backends record the version inside the runner result but used not to surface it in
+    details, so a genuine run would have been false-blocked as 'tool version is missing'. With the
+    version surfaced, a run that recorded one is backed; a stub that recorded none stays unbacked.
+    """
+    backed = check_formal_backend(
+        build_formal_backend_request(
+            _dsl_v2_ir(),
+            backend_id=ApalacheBackend.backend_id,
+            budget=FormalBackendBudget(timeout_seconds=5, max_depth=6),
+            execution=FormalBackendExecution(
+                checker_id="apalache",
+                command=[sys.executable, "-c", "print('The outcome is: NoError')"],
+                tool_version="apalache 0.58.0",
+                artifact_dir=(tmp_path / "backed").as_posix(),
+            ),
+        )
+    )
+    assert backed.result.evidence_level.value == "BOUNDED_CHECKED"
+    assert backed.result.details["tool_version"] == "apalache 0.58.0"
+    assert bounded_backing_problems(backed.result) == []
+
+    stub = check_formal_backend(
+        build_formal_backend_request(
+            _dsl_v2_ir(),
+            backend_id=ApalacheBackend.backend_id,
+            budget=FormalBackendBudget(timeout_seconds=5, max_depth=6),
+            execution=FormalBackendExecution(
+                checker_id="custom-apalache",
+                command=[sys.executable, "-c", "print('The outcome is: NoError')"],
+                artifact_dir=(tmp_path / "stub").as_posix(),
+            ),
+        )
+    )
+    assert stub.result.evidence_level.value == "BOUNDED_CHECKED"
+    assert stub.result.details["tool_version"] is None
+    assert "tool version is missing" in bounded_backing_problems(stub.result)
 
 
 def test_tla_projection_records_bounds_and_refuses_unsupported_fragments() -> None:

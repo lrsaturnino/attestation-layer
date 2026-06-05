@@ -5,7 +5,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .models import BackendResult, EvidenceLevel
-from .proof_closure import EvidenceProducerMapping
+from .proof_closure import EvidenceProducerMapping, bounded_backing_problems
 
 
 EVIDENCE_PRODUCER_VALIDATION_SCHEMA_VERSION = "0.1"
@@ -54,10 +54,11 @@ def validate_real_evidence_producers(
                 reasons.append("producer is not allowed to emit this evidence level")
             if not producer.real_producer:
                 reasons.append("high-assurance evidence requires a real producer")
-            if not (producer.tool_version or result.details.get("tool_version")):
-                reasons.append("tool version is missing")
-        if not _has_command_metadata(result):
-            reasons.append("command metadata is missing")
+        # BOUNDED_CHECKED backing — recorded bounds, command, and a version recorded from the
+        # run (not the producer's static catalog version) — uses the single definition the
+        # closure gate enforces. PROVEN_INDUCTIVE's proof-artifact backing is gated by the
+        # evidence-boundary report; here it still must carry reproducibility hashes.
+        reasons.extend(bounded_backing_problems(result))
         if not _has_reproducibility_hashes(result):
             reasons.append("input/output or artifact hashes are missing")
         statuses.append(
@@ -73,15 +74,6 @@ def validate_real_evidence_producers(
         result="blocked" if blocked else "valid",
         statuses=statuses,
     )
-
-
-def _has_command_metadata(result: BackendResult) -> bool:
-    command = result.details.get("command")
-    if isinstance(command, list) and command:
-        return True
-    if isinstance(command, str) and command:
-        return True
-    return False
 
 
 def _has_reproducibility_hashes(result: BackendResult) -> bool:

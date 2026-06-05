@@ -111,6 +111,7 @@ def _bounded_result() -> BackendResult:
         details={
             "command": ["tlc2.TLC", "Model.tla"],
             "tool_version": "tlc 2.18",
+            "bounds": {"max_depth": 10},
             "module_hash": "sha256:model",
             "config_hash": "sha256:config",
             "runner_result_hash": "sha256:runner",

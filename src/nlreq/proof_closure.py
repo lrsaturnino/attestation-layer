@@ -543,6 +543,16 @@ def _evaluate_premise(
             achieved_evidence=result.evidence_level,
             reason="high-assurance evidence requires a real producer",
         )
+    backing = bounded_backing_problems(result)
+    if backing:
+        return _premise_from_route(
+            route,
+            status="blocked",
+            backend_status=result.status,
+            producer_id=result.backend,
+            achieved_evidence=result.evidence_level,
+            reason=f"bounded evidence is not backed: {'; '.join(backing)}",
+        )
 
     return _premise_from_route(
         route,
@@ -615,11 +625,70 @@ def _producer_blockers(
                     message="high-assurance evidence requires a real producer",
                 )
             )
+        for problem in bounded_backing_problems(result):
+            blockers.append(
+                ProofClosureBlocker(
+                    category="producer_mapping",
+                    backend=result.backend,
+                    evidence_level=result.evidence_level,
+                    message=f"bounded evidence is not backed: {problem}",
+                )
+            )
     return blockers
 
 
 def _producer_by_id(mapping: EvidenceProducerMapping) -> dict[str, EvidenceProducer]:
     return {producer.producer_id: producer for producer in mapping.producers}
+
+
+def bounded_backing_problems(result: BackendResult) -> list[str]:
+    """Reasons a BOUNDED_CHECKED result is not backed by a real bounded model check.
+
+    BOUNDED_CHECKED asserts a bounded checker actually searched the model to a recorded depth.
+    The honest backing for that claim is: recorded bounds, the checker command, and a tool
+    version recorded *from the run that produced it* (not a producer's static placeholder). A
+    stub or custom command that emits BOUNDED_CHECKED without these did not produce bounded
+    evidence and must not discharge or be accepted into a proof — this is the single definition
+    of "backed" shared by the closure gate and the evidence-producer validator. Returns the
+    empty list for any non-BOUNDED_CHECKED result (it makes no claim about other levels).
+    """
+    if result.evidence_level != EvidenceLevel.BOUNDED_CHECKED:
+        return []
+    problems: list[str] = []
+    if not _has_bounds(result):
+        problems.append("recorded bounds are missing")
+    if not _has_command_metadata(result):
+        problems.append("command metadata is missing")
+    if _recorded_tool_version(result) is None:
+        problems.append("tool version is missing")
+    return problems
+
+
+def _has_bounds(result: BackendResult) -> bool:
+    bounds = result.details.get("bounds")
+    return isinstance(bounds, dict) and bool(bounds)
+
+
+def _has_command_metadata(result: BackendResult) -> bool:
+    command = result.details.get("command")
+    return bool(command) and isinstance(command, (list, str))
+
+
+def _recorded_tool_version(result: BackendResult) -> str | None:
+    """The tool version recorded by the run, top-level or nested under reproducibility.
+
+    The solver-backed S ∧ R producer records it under ``details["reproducibility"]
+    ["tool_version"]``; some backends/fixtures record it top-level. Either counts; a producer's
+    static catalog version does not (that is the loophole this closes)."""
+    direct = result.details.get("tool_version")
+    if isinstance(direct, str) and direct:
+        return direct
+    repro = result.details.get("reproducibility")
+    if isinstance(repro, dict):
+        nested = repro.get("tool_version")
+        if isinstance(nested, str) and nested:
+            return nested
+    return None
 
 
 def _proof_nodes(root: SemanticNode) -> list[tuple[Literal["premise", "obligation"], SemanticNode]]:

@@ -261,6 +261,9 @@ class TlaRunnerBackend:
                     "checker_id": execution.checker_id,
                     "runner_outcome": runner_result.outcome,
                     "runner_result_hash": sha256_json(runner_result),
+                    # Surface the run-recorded version (null for a stub) so a BOUNDED_CHECKED
+                    # result fed into proof closure carries its real backing (see ProductionTla).
+                    "tool_version": runner_result.reproducibility.tool_version,
                     "artifact_dir": artifact_dir.as_posix(),
                     "module": module_path.name,
                     "module_hash": _sha256_file(module_path),
@@ -390,6 +393,10 @@ class ProductionTlaBackend:
                     "evidence_flavor": self.evidence_flavor,
                     "runner_outcome": runner_result.outcome,
                     "runner_result_hash": sha256_json(runner_result),
+                    # Surface the version the run recorded (null for a stub/absent binary) so a
+                    # BOUNDED_CHECKED result fed into proof closure carries its real backing — the
+                    # closure gate requires a run-recorded version, not the producer's static one.
+                    "tool_version": runner_result.reproducibility.tool_version,
                     "tool_missing": (
                         runner_result.outcome == "tool_error"
                         and runner_result.reproducibility.executable_resolved is None

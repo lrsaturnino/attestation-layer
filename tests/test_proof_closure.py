@@ -62,6 +62,74 @@ def test_proof_object_closes_when_all_context_and_premises_are_discharged(
     assert gate.result == "passed"
 
 
+def _consistency(tmp_path: Path):
+    ir = _ir()
+    return check_system_consistency_fixture(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_registry(tmp_path),
+        impact=_impact(),
+        project_root=tmp_path,
+    )
+
+
+def test_unbacked_bounded_evidence_blocks_closure(tmp_path: Path) -> None:
+    """A BOUNDED_CHECKED result with no recorded bounds/command/version cannot close a proof.
+
+    PB-9: a stub or custom checker that emits BOUNDED_CHECKED without real bounded backing must
+    not buy high-assurance closure. The premises here discharge on the system_checker floor, so
+    the only thing that can block is the unbacked bounded claim — and it must.
+    """
+    ir = _ir()
+    coverage = _coverage(tmp_path)
+    alignment = _alignment(ir, coverage)
+    unbacked = BackendResult(
+        backend="apalache",
+        status="valid",
+        evidence_level=EvidenceLevel.BOUNDED_CHECKED,
+        details={},
+    )
+
+    proof = build_proof_object(
+        requirement=ir,
+        backend_results=[*backend_results_from_system_consistency(_consistency(tmp_path)), unbacked],
+        coverage=coverage,
+        trace_alignment=alignment,
+    )
+
+    assert proof.status == "blocked"
+    assert any("bounded evidence is not backed" in blocker.message for blocker in proof.blockers)
+    assert evaluate_closure_gate(proof).result == "blocked"
+
+
+def test_backed_bounded_evidence_does_not_block_closure(tmp_path: Path) -> None:
+    """The same BOUNDED_CHECKED result, carrying recorded bounds + command + a run-recorded
+    version, is accepted — the contract gates on real backing, not on the checker's name."""
+    ir = _ir()
+    coverage = _coverage(tmp_path)
+    alignment = _alignment(ir, coverage)
+    backed = BackendResult(
+        backend="apalache",
+        status="valid",
+        evidence_level=EvidenceLevel.BOUNDED_CHECKED,
+        details={
+            "bounds": {"max_depth": 6},
+            "command": ["apalache-mc", "check", "Model.tla"],
+            "reproducibility": {"tool_version": "0.58.0"},
+        },
+    )
+
+    proof = build_proof_object(
+        requirement=ir,
+        backend_results=[*backend_results_from_system_consistency(_consistency(tmp_path)), backed],
+        coverage=coverage,
+        trace_alignment=alignment,
+    )
+
+    assert proof.status == "closed"
+    assert not any("not backed" in blocker.message for blocker in proof.blockers)
+
+
 def test_proof_object_blocks_when_coverage_or_trace_alignment_blocks(
     tmp_path: Path,
 ) -> None:

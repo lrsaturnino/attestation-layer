@@ -52,6 +52,14 @@ def test_agnostic_wedge_passes_for_closed_cross_formalism_proof() -> None:
                 backend="tla",
                 status="valid",
                 evidence_level=EvidenceLevel.BOUNDED_CHECKED,
+                # A real bounded check carries its backing: recorded bounds, the checker
+                # command, and a version recorded from the run. Without it the closure gate
+                # rejects the BOUNDED_CHECKED claim as unbacked (PB-9).
+                details={
+                    "bounds": {"max_depth": 10},
+                    "command": ["apalache-mc", "check", "Model.tla"],
+                    "tool_version": "0.44.0",
+                },
             ),
         ),
     ]

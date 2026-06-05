@@ -112,6 +112,16 @@ def test_end_to_end_gate_composes_real_s_and_r_valid(tmp_path: Path) -> None:
     assert system_consistency["result"]["details"]["checker_id"] == "apalache"
     assert system_consistency["result"]["evidence_level"] == "BOUNDED_CHECKED"
     assert system_consistency["result"]["details"]["reproducibility"]["tool_version"]
+    # The real bounded result carries its backing (bounds + command + a run-recorded version
+    # nested under reproducibility), so the closure gate must accept it — no premise or producer
+    # blocker may flag it as unbacked bounded evidence (PB-9). A regression in the nested-version
+    # extraction would surface here as a spurious "not backed" blocker on a genuinely real run.
+    proof_object = read_json(
+        Path(next(a.path for a in report.artifacts if a.name == "proof_object"))
+    )
+    assert not any(
+        "not backed" in blocker["message"] for blocker in proof_object["blockers"]
+    ), proof_object["blockers"]
     assert report.statuses["spec_coverage"] == "passed"
     assert report.statuses["translation_agreement"] == "agreed"
     assert report.statuses["formal_claim"] == "lowered"
