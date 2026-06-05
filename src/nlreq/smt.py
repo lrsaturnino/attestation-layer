@@ -48,18 +48,19 @@ def check_self_consistency(ir: RequirementIR) -> BackendResult:
 
 def smt_check_requirement(ir: RequirementIR) -> BackendResult:
     """Phase 0 check: supported claim shape is encodable and conditions are satisfiable."""
-    consistency = check_self_consistency(ir)
-    if consistency.status != "valid":
-        return consistency.model_copy(update={"evidence_level": EvidenceLevel.SMT_CHECKED})
     unencoded = _unencoded_predicate_ops(ir)
     if unencoded:
         # The Phase 0 query (smt2_for_ir) and the self-consistency solver encode only
         # authorization/approval booleans, so any comparison, numeric, or set-membership predicate
-        # was silently dropped. Emitting SMT_CHECKED on top of a query that never represented those
-        # predicates would claim a check that did not run. Refuse the level instead: report an honest
-        # non-checked result (no evidence level) naming the unencoded predicate ops, so the evidence
-        # builders treat C-smt as undischarged rather than a false pass. The theory-aware encoder on
-        # the FormalClaim path is where such predicates are actually checked.
+        # is silently dropped. This refusal is checked BEFORE consulting self-consistency on
+        # purpose: _direct_contradictions flags eq/neq opposites *syntactically* (e.g. `counter is
+        # limit` plus `counter is not limit`), so an invalid consistency verdict can rest entirely on
+        # ops smt2_for_ir never encoded. Upgrading that verdict to SMT_CHECKED would label a check
+        # the query did not run. Gating the level on the whole condition being propositionally
+        # encodable keeps SMT_CHECKED honest: emit an explicit non-checked result (no evidence level)
+        # naming the unencoded ops so the evidence builders treat C-smt as undischarged rather than a
+        # false pass. The theory-aware encoder on the FormalClaim path (formal_claim_smt) is where
+        # comparison/membership predicates are actually checked.
         return BackendResult(
             backend="core_smt",
             status="unsupported",
@@ -71,6 +72,12 @@ def smt_check_requirement(ir: RequirementIR) -> BackendResult:
                 "query_hash": sha256_text(smt2_for_ir(ir)),
             },
         )
+    consistency = check_self_consistency(ir)
+    if consistency.status != "valid":
+        # Every condition predicate is propositionally encodable here (the unencoded guard above
+        # already returned), so an invalid verdict — including an authorization/approval
+        # contradiction — was genuinely represented in the SMT query: SMT_CHECKED is honest.
+        return consistency.model_copy(update={"evidence_level": EvidenceLevel.SMT_CHECKED})
     return BackendResult(
         backend="core_smt",
         status="valid",
