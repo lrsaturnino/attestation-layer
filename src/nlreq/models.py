@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from enum import Enum
 from typing import Any, Literal
 
@@ -448,19 +449,57 @@ class ReviewArtifact(BaseModel):
     timestamp: str
 
 
+_SHA256_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+
+def _is_checked_proof_hash(value: Any) -> bool:
+    """Whether ``value`` is a well-formed content hash of a checked proof artifact.
+
+    A checked-proof reference must be the canonical ``sha256:<64 hex>`` digest the rest of the
+    pipeline emits (see ``jsonutil.sha256_json``). A placeholder string such as
+    ``"sha256:checked-proof"`` is not a hash of anything and cannot stand in for a proof.
+    """
+    return isinstance(value, str) and bool(_SHA256_DIGEST.match(value))
+
+
 def _has_proof_artifact(details: dict[str, Any]) -> bool:
-    """Whether ``details`` references a checked-proof artifact backing a PROVEN_INDUCTIVE claim."""
-    artifact_hash = details.get("proof_artifact_sha256")
-    if isinstance(artifact_hash, str) and artifact_hash.strip():
+    """Whether ``details`` references a *checked* proof artifact backing a PROVEN_INDUCTIVE claim.
+
+    The honest backing for an inductive-proof claim is a retained, content-addressed proof that a
+    checker accepted — not merely the presence of some artifact. So this requires either a
+    top-level ``proof_artifact_sha256`` digest, or a ``proof_artifacts`` entry whose ``kind`` is
+    ``"checked_proof"`` carrying a well-formed ``sha256``. An arbitrary non-empty list (a theorem
+    statement or proof script with no checked result) does not qualify.
+    """
+    if _is_checked_proof_hash(details.get("proof_artifact_sha256")):
         return True
     artifacts = details.get("proof_artifacts")
-    return isinstance(artifacts, list) and len(artifacts) > 0
+    if not isinstance(artifacts, list):
+        return False
+    return any(
+        isinstance(artifact, dict)
+        and artifact.get("kind") == "checked_proof"
+        and _is_checked_proof_hash(artifact.get("sha256"))
+        for artifact in artifacts
+    )
 
 
 def _has_recorded_bounds(details: dict[str, Any]) -> bool:
     """Whether ``details`` records the bounds a BOUNDED_CHECKED claim was checked under."""
     bounds = details.get("bounds")
     return isinstance(bounds, dict) and len(bounds) > 0
+
+
+def _has_trace_mapping(details: dict[str, Any]) -> bool:
+    """Whether ``details`` records the observed→fragment mapping a TRACE_VALIDATED claim used.
+
+    TRACE_VALIDATED asserts observed runtime behavior was mapped onto the requirement's formal
+    fragment. A result that mapped nothing — a redaction-blocked or unsupported trace — has no
+    such mapping and must not claim the level; the producer records the concrete mapping under a
+    non-empty ``details['trace_mapping']`` (validator, fragment, observed events).
+    """
+    mapping = details.get("trace_mapping")
+    return isinstance(mapping, dict) and len(mapping) > 0
 
 
 class BackendResult(BaseModel):
@@ -483,20 +522,29 @@ class BackendResult(BaseModel):
         bypass validation with ``BackendResult.model_construct(...)``.
 
         - PROVEN_INDUCTIVE has no real inductive-proof producer yet, so it may not be claimed
-          without referencing a checked-proof artifact (a ``proof_artifact_sha256`` hash or a
-          non-empty ``proof_artifacts`` list in ``details``).
+          without (a) a ``valid`` status — a proof that did not check is not a proof — and (b) a
+          checked-proof artifact: a canonical ``proof_artifact_sha256`` digest or a
+          ``proof_artifacts`` entry of kind ``checked_proof`` carrying a well-formed ``sha256``.
+          (The registered-proof-assistant-producer half of the contract needs the producer
+          registry and stays in the evidence boundary as defense-in-depth.)
         - BOUNDED_CHECKED is the output of a bounded model check, so it may not be claimed without
           the bounds the check ran under (a non-empty ``details['bounds']``).
+        - TRACE_VALIDATED asserts observed behavior was mapped onto a formal fragment, so it may
+          not be claimed without that mapping (a non-empty ``details['trace_mapping']``).
         """
-        if (
-            self.evidence_level == EvidenceLevel.PROVEN_INDUCTIVE
-            and not _has_proof_artifact(self.details)
-        ):
-            raise ValueError(
-                "BackendResult claiming PROVEN_INDUCTIVE requires a checked-proof artifact in "
-                "details (a 'proof_artifact_sha256' hash or a non-empty 'proof_artifacts' list); "
-                "no inductive-proof producer exists, so the level cannot be emitted without one"
-            )
+        if self.evidence_level == EvidenceLevel.PROVEN_INDUCTIVE:
+            if self.status != "valid":
+                raise ValueError(
+                    "BackendResult claiming PROVEN_INDUCTIVE requires a 'valid' status; a proof "
+                    f"that did not check (status '{self.status}') is not an inductive proof"
+                )
+            if not _has_proof_artifact(self.details):
+                raise ValueError(
+                    "BackendResult claiming PROVEN_INDUCTIVE requires a checked-proof artifact in "
+                    "details (a canonical 'proof_artifact_sha256' digest, or a 'proof_artifacts' "
+                    "entry of kind 'checked_proof' with a well-formed 'sha256'); no inductive-proof "
+                    "producer exists, so the level cannot be emitted without one"
+                )
         if (
             self.evidence_level == EvidenceLevel.BOUNDED_CHECKED
             and not _has_recorded_bounds(self.details)
@@ -505,6 +553,15 @@ class BackendResult(BaseModel):
                 "BackendResult claiming BOUNDED_CHECKED requires the bounds it was checked under "
                 "in a non-empty details['bounds']; a bounded model check cannot claim its evidence "
                 "level without recording the bound"
+            )
+        if (
+            self.evidence_level == EvidenceLevel.TRACE_VALIDATED
+            and not _has_trace_mapping(self.details)
+        ):
+            raise ValueError(
+                "BackendResult claiming TRACE_VALIDATED requires the observed→fragment mapping it "
+                "validated in a non-empty details['trace_mapping']; a trace result that mapped no "
+                "observed behavior to the requirement cannot claim trace-validated evidence"
             )
         return self
 

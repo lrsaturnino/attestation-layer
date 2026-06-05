@@ -335,7 +335,9 @@ def _validate_trace_for_requirement(
             BackendResult(
                 backend="trace",
                 status="needs_review",
-                evidence_level=EvidenceLevel.TRACE_VALIDATED,
+                # No trace was validated — a non-gateable redaction status blocks before any
+                # observed→fragment mapping is built — so this result claims no evidence level.
+                evidence_level=None,
                 details={
                     **base_details,
                     "reason": "trace redaction status is not gateable",
@@ -356,7 +358,9 @@ def _validate_trace_for_requirement(
         BackendResult(
             backend="trace",
             status="unsupported",
-            evidence_level=EvidenceLevel.TRACE_VALIDATED,
+            # No validator ran for this claim shape, so nothing was mapped from the trace; the
+            # result carries no evidence level rather than over-claim TRACE_VALIDATED.
+            evidence_level=None,
             details={
                 **base_details,
                 "reason": "requirement claim shape has no trace validator",
@@ -387,6 +391,12 @@ def _validate_auth_rejection_before_state_change(
                     "validator_id": "authorization-before-state-change",
                     "observed_events": [event.action for event in trace.events],
                     "forbidden_events_absent": [state_change],
+                    "trace_mapping": _trace_mapping(
+                        validator_id="authorization-before-state-change",
+                        trace=trace,
+                        ir=ir,
+                        fragment={"forbidden_events_absent": [state_change]},
+                    ),
                 },
             ),
             None,
@@ -417,6 +427,12 @@ def _validate_auth_rejection_before_state_change(
                 "validator_id": "authorization-before-state-change",
                 "reason": reason,
                 "counterexample_id": counterexample.counterexample_id,
+                "trace_mapping": _trace_mapping(
+                    validator_id="authorization-before-state-change",
+                    trace=trace,
+                    ir=ir,
+                    fragment={"forbidden_events_absent": [state_change]},
+                ),
             },
         ),
         counterexample,
@@ -452,6 +468,12 @@ def _validate_success_emits_event(
                     "validator_id": "successful-operation-emits-required-event",
                     "observed_events": [event.action for event in trace.events],
                     "required_event": required_event,
+                    "trace_mapping": _trace_mapping(
+                        validator_id="successful-operation-emits-required-event",
+                        trace=trace,
+                        ir=ir,
+                        fragment={"required_event": required_event},
+                    ),
                 },
             ),
             None,
@@ -475,6 +497,12 @@ def _validate_success_emits_event(
                 "validator_id": "successful-operation-emits-required-event",
                 "reason": reason,
                 "counterexample_id": counterexample.counterexample_id,
+                "trace_mapping": _trace_mapping(
+                    validator_id="successful-operation-emits-required-event",
+                    trace=trace,
+                    ir=ir,
+                    fragment={"required_event": required_event},
+                ),
             },
         ),
         counterexample,
@@ -500,6 +528,12 @@ def _validate_forbidden_event_absent(
                     "validator_id": "forbidden-event-absent",
                     "observed_events": [event.action for event in trace.events],
                     "forbidden_events_absent": [forbidden_event],
+                    "trace_mapping": _trace_mapping(
+                        validator_id="forbidden-event-absent",
+                        trace=trace,
+                        ir=ir,
+                        fragment={"forbidden_events_absent": [forbidden_event]},
+                    ),
                 },
             ),
             None,
@@ -523,6 +557,12 @@ def _validate_forbidden_event_absent(
                 "validator_id": "forbidden-event-absent",
                 "reason": reason,
                 "counterexample_id": counterexample.counterexample_id,
+                "trace_mapping": _trace_mapping(
+                    validator_id="forbidden-event-absent",
+                    trace=trace,
+                    ir=ir,
+                    fragment={"forbidden_events_absent": [forbidden_event]},
+                ),
             },
         ),
         counterexample,
@@ -562,6 +602,30 @@ def _base_details(
         "trace_source_hash": trace.source_hash,
         "package_hash": package_hash,
         "event_count": len(trace.events),
+    }
+
+
+def _trace_mapping(
+    *,
+    validator_id: str,
+    trace: NormalizedTrace,
+    ir: RequirementIR,
+    fragment: dict[str, Any],
+) -> dict[str, Any]:
+    """The observed→fragment mapping a trace validator used to reach its verdict.
+
+    A TRACE_VALIDATED result asserts observed runtime behavior was mapped onto the requirement's
+    formal fragment. Recording that mapping — the validator that ran, the requirement fragment it
+    covers, and the concrete events it read — is what makes the claim non-lossy and replayable;
+    the BackendResult guard refuses TRACE_VALIDATED without it.
+    """
+    return {
+        "validator_id": validator_id,
+        "requirement_id": ir.requirement_id,
+        "claim_kind": ir.claim.kind,
+        "expected_kind": ir.claim.expected.kind,
+        "observed_events": [event.action for event in trace.events],
+        "fragment": fragment,
     }
 
 

@@ -29,6 +29,11 @@ def test_trace_validation_accepts_observed_auth_rejection(tmp_path: Path) -> Non
     assert result["evidence_level"] == "TRACE_VALIDATED"
     assert result["details"]["validator_id"] == "authorization-before-state-change"
     assert result["details"]["forbidden_events_absent"] == ["state_change"]
+    # The TRACE_VALIDATED claim is backed by the observed→fragment mapping it validated.
+    trace_mapping = result["details"]["trace_mapping"]
+    assert trace_mapping["validator_id"] == "authorization-before-state-change"
+    assert trace_mapping["fragment"] == {"forbidden_events_absent": ["state_change"]}
+    assert "request_received" in trace_mapping["observed_events"]
 
 
 def test_trace_validation_records_counterexample_for_forbidden_event(tmp_path: Path) -> None:
@@ -61,6 +66,9 @@ def test_trace_validation_requires_acceptable_redaction(tmp_path: Path) -> None:
 
     assert report["summary"]["needs_review"] == 1
     assert report["findings"][0]["category"] == "trace_validation_needs_review"
+    # A redaction-blocked trace validated nothing, so the result claims no evidence level rather
+    # than over-claiming TRACE_VALIDATED (dumped with exclude_none, so the key is absent).
+    assert "evidence_level" not in report["results"][0]
 
 
 def test_trace_validate_cli_writes_json_and_markdown(tmp_path: Path, capsys) -> None:
