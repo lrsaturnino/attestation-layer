@@ -114,7 +114,18 @@ class ModelCheckerRunArtifact(BaseModel):
 def run_model_checker(request: ModelCheckerCommand, *, project_root: Path | None = None) -> ModelCheckerRunResult:
     cwd = _resolve_cwd(project_root, request.cwd)
     version = request.tool_version
-    if version is None and request.tool_version_command is not None:
+    if (
+        version is None
+        and request.tool_version_command is not None
+        and _same_executable(request.command[0], request.tool_version_command[0])
+    ):
+        # A version probe only testifies to the executable it shares with the run. When the
+        # configured tool_version_command targets a *different* binary than request.command
+        # (e.g. a real `apalache-mc version` probe while the run executes an absent
+        # `apalache-mc-not-installed`), its reported version belongs to a different binary and
+        # must never be attributed to this run — the version stays null. Compare basenames so a
+        # bare name and an absolute path to the same tool still match while genuinely different
+        # binaries do not. An explicit request.tool_version (a caller assertion) is untouched.
         version = _run_tool_version(request.tool_version_command, cwd=cwd, limit=request.output_limit_bytes)
 
     try:
@@ -184,6 +195,16 @@ def _resolve_cwd(project_root: Path | None, cwd_text: str) -> Path:
         return cwd.resolve(strict=False)
     root = Path(project_root) if project_root is not None else Path.cwd()
     return (root / cwd).resolve(strict=False)
+
+
+def _same_executable(command_exe: str, version_exe: str) -> bool:
+    """Whether a version probe targets the same binary as the run it documents.
+
+    Compared by basename so a bare ``apalache-mc`` and an absolute ``/x/apalache-mc`` are the
+    same tool, while ``apalache-mc`` and ``apalache-mc-not-installed`` are not. Guards version
+    provenance: a probe of a different binary must not lend its version to this run.
+    """
+    return Path(command_exe).name == Path(version_exe).name
 
 
 def _run_tool_version(command: list[str], *, cwd: Path, limit: int) -> str | None:

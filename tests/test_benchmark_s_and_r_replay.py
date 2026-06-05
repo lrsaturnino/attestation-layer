@@ -148,6 +148,16 @@ def test_committed_run_statuses_match_manifest() -> None:
         assert record["status"] == spec["expect_status"], (outcome, record["status"])
 
 
+def test_missing_tool_record_does_not_misattribute_a_version() -> None:
+    """The absent-binary run records no tool version — a version belongs to the executable that
+    actually ran. The run executes an absent ``apalache-mc-not-installed`` while the configured
+    probe targets a different binary, so the retained record must carry ``tool_version: null``
+    rather than the installed Apalache's version for a checker that never executed."""
+    record = _run_record("missing-tool")
+    assert record["command"][0] == "apalache-mc-not-installed"
+    assert record["tool_version"] is None
+
+
 def test_manifest_command_equals_centralized_source_of_truth() -> None:
     """The retained corpus and the default gate must run the *same* Apalache command.
 

@@ -84,6 +84,48 @@ def test_model_checker_runner_timeouts_never_approve() -> None:
     assert result.exit_code is None
 
 
+def test_version_probe_of_a_different_binary_is_not_attributed(tmp_path: Path) -> None:
+    """A version belongs to the executable being run, never to a different probed binary.
+
+    Regression for missing-tool provenance: the run executes an absent binary while the
+    version probe points at a *different*, runnable one (here the Python interpreter, which
+    would happily print its version). Because the probe targets a different executable than the
+    run, the runner must not lend that version to this run — tool_version stays null even though
+    the probe itself would succeed.
+    """
+    request = ModelCheckerCommand(
+        run_id="run-missing-tool",
+        checker_id="apalache",
+        command=["nlreq-absent-checker-binary", "check"],
+        cwd=tmp_path.as_posix(),
+        tool_version_command=[sys.executable, "--version"],
+    )
+
+    result = run_model_checker(request)
+
+    assert result.outcome == "tool_error"
+    assert result.reproducibility.executable_resolved is None
+    assert result.reproducibility.tool_version is None
+
+
+def test_version_probe_of_the_same_binary_is_recorded(tmp_path: Path) -> None:
+    """When the version probe shares the run's executable (same basename), its version is
+    recorded — the guard suppresses only cross-binary attribution, not legitimate probes."""
+    request = ModelCheckerCommand(
+        run_id="run-same-binary",
+        checker_id="custom",
+        command=[sys.executable, "-c", "print('verification successful')"],
+        cwd=tmp_path.as_posix(),
+        tool_version_command=[sys.executable, "--version"],
+    )
+
+    result = run_model_checker(request)
+
+    assert result.outcome == "valid"
+    assert result.reproducibility.tool_version is not None
+    assert "Python" in result.reproducibility.tool_version
+
+
 def test_model_checker_runner_cli_outputs_schema_backed_json(capsys) -> None:
     exit_code = main(
         [
