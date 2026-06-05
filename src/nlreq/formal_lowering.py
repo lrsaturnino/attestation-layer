@@ -1023,6 +1023,31 @@ def compose_s_and_r_module(
     const_init = _render_const_init(identifier_constants)
     bound_predicates = sorted(set(abstract_predicates) & defined_predicates)
 
+    # Vacuity guard: the stateless-S composition couples S and R entirely through the predicates
+    # S interprets for R (bound_predicates). When R binds none, the conjoined
+    # Inv == RequirementHolds /\ <system invariants> leaves RequirementHolds evaluated over R's
+    # own disconnected harness state, so a model check would verify S alone and say nothing about
+    # the requirement. This is the shape a claim class with no non-vacuous S ∧ R lowering produces
+    # (e.g. a numeric_invariant, whose comparisons range over no predicate S defines, lowers to a
+    # skeleton with no CONSTANT Pred_*). Refuse rather than emit such a module: the run is vacuous
+    # and its outcome — an incidental skeleton type error, or a stray `valid` for a differently
+    # shaped skeleton — is not S ∧ R evidence. Comparison/membership premises are discharged by the
+    # SMT backends on their own route, not here. (The narrowing path, Case B, has no analogue: it
+    # refuses earlier on a missing outcome predicate, which a non-authorization claim never supplies.)
+    # An authorization_precondition always binds >=1 Pred_* (its lowering refuses a predicate-free
+    # premise), and a spec that fails to interpret a bound predicate already refuses above as
+    # undefined_predicate — so this can only fire on a predicate-free projection, never a real auth case.
+    if not bound_predicates:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="vacuous_requirement_projection",
+            refusal_reason=(
+                "the requirement projection binds no predicate that any reviewed system spec "
+                "interprets, so S ∧ R would reduce to checking S alone; refuse rather than run a "
+                "vacuous check (such requirements are discharged by the SMT backends, not S ∧ R)"
+            ),
+        )
+
     module_text = (
         f"---- MODULE {module_name} ----\n"
         f"EXTENDS Naturals, TLC\n\n"

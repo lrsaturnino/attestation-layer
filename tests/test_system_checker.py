@@ -404,6 +404,46 @@ def test_solver_backed_refuses_operator_name_collision(tmp_path: Path) -> None:
     assert not (tmp_path / "artifacts").exists()
 
 
+def test_solver_backed_refuses_vacuous_requirement_projection(tmp_path: Path) -> None:
+    """A non-authorization requirement that binds no predicate S interprets makes the default
+    solver-backed S ∧ R refuse (unsupported), inheriting the composition's vacuity guard.
+
+    A numeric_invariant lowers to a skeleton with no CONSTANT Pred_*, so against a reviewed,
+    stateless S that declares an invariant the composition would check S alone — a vacuous run
+    whose outcome (a stray ``valid``, or an incidental skeleton type error) is not S ∧ R evidence.
+    The gate path must refuse rather than surface such a result; numeric comparisons are discharged
+    by the SMT backends on their own route. No checker binary is needed: the refusal happens at
+    composition, before any command runs.
+    """
+    from nlreq.dsl_v3 import DslV3Parser
+
+    ir = DslV3Parser().parse_ir(
+        "requirement numeric_invariant:\n"
+        "scope redemption\n"
+        "when collateral >= 10 and collateral <= 50\n"
+        "then keep collateral >= 1\n",
+        requirement_id="REQ-SYS-NUMERIC",
+        title="Numeric invariant",
+    )
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(tmp_path),
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        execution=FormalBackendExecution(
+            checker_id="custom",
+            command=[sys.executable, "-c", "print('verification successful')"],
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.status == "unsupported"
+    assert result.result.details["refusal_kind"] == "vacuous_requirement_projection"
+    # Refusal happens at composition, before the checker runs — no artifacts written.
+    assert not (tmp_path / "artifacts").exists()
+
+
 def _stateful_s_registry(tmp_path: Path) -> SystemSpecRegistry:
     """Registry with the reviewed stateful S (Case B: its own SInit/SNext)."""
     return _reviewed_s_registry(
@@ -1130,6 +1170,23 @@ _GOLDEN_COMPOSED = (
     "====\n"
 )
 
+# A requirement projection that binds NO CONSTANT Pred_* — the shape a claim class with no
+# non-vacuous S ∧ R lowering produces (e.g. a numeric_invariant, whose comparisons range over no
+# predicate S interprets, lowers to translator._tla_skeleton). It declares a VARIABLE and a
+# transition body, so it clears the structural-shape guards, but it shares no predicate with any S.
+_VACUOUS_LOWERED = (
+    "---- MODULE Req_VACUOUS ----\n"
+    "EXTENDS Naturals, TLC\n\n"
+    "VARIABLE NLRState\n\n"
+    "Init == NLRState = 0\n"
+    "Next == UNCHANGED NLRState\n\n"
+    "collateral == 0\n\n"
+    "Premise == (collateral >= 10) /\\ (collateral <= 50)\n\n"
+    "Obligation == collateral >= 1\n\n"
+    "RequirementHolds == Premise => Obligation\n\n"
+    "====\n"
+)
+
 
 # A reviewed S that brings its OWN transition system (Case B). authPhase walks
 # "init" -> "denied" (unauthorized) -> "finalized" (the redemption is executed while
@@ -1270,6 +1327,26 @@ def test_compose_s_and_r_module_refuses_operator_name_collision() -> None:
 
     assert composed.status == "refused"
     assert composed.refusal_kind == "operator_name_collision"
+
+
+def test_compose_s_and_r_module_refuses_vacuous_requirement_projection() -> None:
+    """A requirement projection that binds no predicate S interprets is refused, not composed.
+
+    S declares an invariant and even interprets ``Pred_authorized``, but the vacuous projection
+    binds nothing — so the composed ``Inv == RequirementHolds /\\ SystemDefaultsClosed`` would
+    leave ``RequirementHolds`` evaluated over R's disconnected harness state, checking S alone.
+    The same inputs compose without this guard (the structural shape guards all pass); with it they
+    refuse, so a vacuous run can never be mistaken for S ∧ R evidence. Comparison/membership
+    premises are discharged by the SMT backends on their own route, not here.
+    """
+    contribution = build_system_spec_contribution(
+        "spec:sys", _GOLDEN_SPEC, ["SystemDefaultsClosed"]
+    )
+    composed = compose_s_and_r_module("Req_VACUOUS_S_AND_R", _VACUOUS_LOWERED, [contribution])
+
+    assert composed.status == "refused"
+    assert composed.module_text is None
+    assert composed.refusal_kind == "vacuous_requirement_projection"
 
 
 def test_compose_s_and_r_narrowing_module_is_byte_stable() -> None:
