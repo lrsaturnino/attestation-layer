@@ -226,12 +226,15 @@ def test_dsl_v2_redemption_still_uses_skeleton_lowering() -> None:
     assert artifact.status == "lowered"
 
 
-def test_lower_authorization_precondition_refuses_comparison_premise() -> None:
-    """Comparison premises in authorization_precondition must refuse, not silently emit TRUE.
+def test_lower_authorization_precondition_refuses_comparison_only_premise() -> None:
+    """A comparison-ONLY premise must refuse — projecting it out leaves Premise == TRUE.
 
-    DSL v3 allows comparison clauses (e.g. balance >= 5) under any claim kind.
-    formal_lowering only supports predicate nodes; silently skipping a comparison
-    and emitting Premise == TRUE would violate the non-vacuous contract.
+    DSL v3 allows comparison clauses (e.g. balance >= 5) under any claim kind. The
+    authorization_precondition lowering now accepts a comparison premise but projects it out of
+    the S ∧ R obligation (it is discharged by the SMT backends, not the model check). A premise
+    built *only* from a comparison therefore has no authorization predicate to check against S, so
+    the projected Premise would be the vacuous TRUE. The non-vacuity guard refuses it rather than
+    emitting a meaningless module.
     """
     ir = DslV3Parser().parse_ir(
         "requirement authorization_precondition: scope op "
@@ -244,9 +247,49 @@ def test_lower_authorization_precondition_refuses_comparison_premise() -> None:
 
     assert artifact.status == "refused"
     assert artifact.content is None
-    assert any(d.kind == "gte" for d in artifact.diagnostics)
-    assert any("unsupported premise node kind" in d.reason for d in artifact.diagnostics)
+    assert any(d.kind == "no_predicate_premise" for d in artifact.diagnostics)
+    assert any("no named predicate clause" in d.reason for d in artifact.diagnostics)
     assert artifact.metadata.get("refusal_code") == "NLR-LOWERING-UNSUPPORTED-SHAPE"
+
+
+def test_lower_authorization_precondition_projects_comparison_and_membership() -> None:
+    """A mixed premise (predicate + comparison + membership) lowers, projecting the SMT premises out.
+
+    The authorization_precondition lowering keeps the S ∧ R obligation over the auth predicate
+    alone; comparison and set-membership premises are discharged by the theory-aware SMT backends
+    (smt-theories / cvc5) and must NOT appear in the lowered module. The projected module is
+    byte-identical to the auth-only requirement's, so it composes and model-checks identically —
+    this is what lets the full gate close a mixed multi-backend requirement (PB-4).
+    """
+    mixed = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope redemption "
+        "when wallet is not authorized and requested_amount <= spendable_balance "
+        "and tier is in {gold, silver} then finalize_redemption must reject before rejected.",
+        requirement_id="AUTH-MIXED",
+        title="Mixed premise",
+    )
+    auth_only = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope redemption "
+        "when wallet is not authorized then finalize_redemption must reject before rejected.",
+        requirement_id="AUTH-MIXED",
+        title="Auth only",
+    )
+
+    mixed_artifact = lower_ir_v2_to_tla(mixed)
+    auth_artifact = lower_ir_v2_to_tla(auth_only)
+
+    assert mixed_artifact.status == "lowered"
+    content = mixed_artifact.content
+    assert content is not None
+    # The S ∧ R Premise is the auth predicate alone — the comparison/membership operands are
+    # projected out, never declared as constants nor referenced in the obligation.
+    premise_line = next(line for line in content.splitlines() if line.startswith("Premise =="))
+    assert premise_line == "Premise == Pred_not_authorized(wallet)"
+    assert "requested_amount" not in content
+    assert "spendable_balance" not in content
+    assert "tier" not in content
+    # Projecting yields exactly the auth-only module: same composition, same checker outcome.
+    assert mixed_artifact.content == auth_artifact.content
 
 
 def test_lower_authorization_precondition_refuses_non_before_obligation() -> None:
@@ -302,7 +345,8 @@ def test_validate_authorization_precondition_shape_catches_all_errors() -> None:
     """Validator returns problems for both premise and obligation in a single call."""
     ir = _auth_precondition_ir()
     root = ir.semantic_ir
-    # Synthesize bad premise (comparison) AND bad obligation (not before) simultaneously
+    # Synthesize a comparison-only premise (the lone predicate replaced by a comparison, so no
+    # predicate remains -> vacuous) AND a bad obligation (not 'before') simultaneously.
     premise_node = root.premise
     bad_child = premise_node.children[0].model_copy(update={"kind": "gte"}) if premise_node.children else premise_node
     bad_premise = premise_node.model_copy(update={"children": [bad_child]})
@@ -313,7 +357,9 @@ def test_validate_authorization_precondition_shape_catches_all_errors() -> None:
     problems = validate_authorization_precondition_shape(bad_root)
 
     kinds = {k for k, _, _ in problems}
-    assert "gte" in kinds
+    # The comparison itself is accepted (projected out), but a premise with no predicate is
+    # refused by the non-vacuity guard; the bad obligation is reported in the same call.
+    assert "no_predicate_premise" in kinds
     assert "always" in kinds
 
 
@@ -426,9 +472,10 @@ def test_lowering_diagnostic_carries_offending_node_span() -> None:
     artifact = lower_ir_v2_to_tla(ir)
 
     assert artifact.status == "refused"
-    comp_diag = next((d for d in artifact.diagnostics if d.kind == "gte"), None)
+    # A comparison-only premise refuses via the non-vacuity guard; the diagnostic must point at the
+    # offending premise node (here the bare comparison), not the root rule node.
+    comp_diag = next((d for d in artifact.diagnostics if d.kind == "no_predicate_premise"), None)
     assert comp_diag is not None
-    # The offending node is the 'gte' premise child, not the root rule node
     assert comp_diag.node_id != ir.semantic_ir.node_id
 
 

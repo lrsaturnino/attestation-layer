@@ -9,6 +9,15 @@ from .models import RequirementIRV2, SemanticNode
 FORMAL_LOWERING_VERSION = "0.2"
 
 
+# Premise node kinds an authorization_precondition accepts but PROJECTS OUT of the S ∧ R
+# obligation: comparisons (eq/neq/lt/lte/gt/gte) and set-membership. They introduce only
+# R-side constants that are disconnected from a reviewed S's transition system, so the model
+# check gains nothing from them; they are discharged instead by the theory-aware SMT backends
+# (smt-theories / cvc5) per the PB-7 per-premise routing. See
+# validate_authorization_precondition_shape for the soundness and non-vacuity rationale.
+_PROJECTED_PREMISE_KINDS = frozenset({"eq", "neq", "lt", "lte", "gt", "gte", "membership"})
+
+
 @dataclass
 class Z3DiscriminationResult:
     """Outcome of a Z3 reachability check that discriminates R from ¬R under system constraint S.
@@ -159,33 +168,70 @@ def validate_authorization_precondition_shape(
             premise,
         ))
     else:
+        predicate_count = 0
         for node in nodes:
-            if node.kind != "predicate":
+            if node.kind == "predicate":
+                predicate_count += 1
+                if not node.name:
+                    problems.append((
+                        "nameless_predicate",
+                        "authorization_precondition premise predicate requires a name",
+                        node,
+                    ))
+                elif not any(arg.kind == "identifier" for arg in node.args):
+                    problems.append((
+                        "empty_predicate_args",
+                        (
+                            f"authorization_precondition premise predicate '{node.name}' must have "
+                            f"at least one identifier argument — the TLA+ declaration requires it "
+                            f"(e.g. 'when actor is authorized', not 'when is_authorized')"
+                        ),
+                        node,
+                    ))
+            elif node.kind in _PROJECTED_PREMISE_KINDS:
+                # Comparison and set-membership premises are accepted but PROJECTED OUT of the
+                # S ∧ R obligation rather than lowered into the TLA+ module. The
+                # authorization_precondition obligation stays `<predicate conjunction> => ~outcome`;
+                # these fragments are discharged independently by the theory-aware SMT backends
+                # (comparison -> smt-theories, set-membership -> cvc5) per the PB-7 routing.
+                # Projecting them is sound: under any witness that satisfies them,
+                # `(auth /\ extra) => ~outcome` follows a fortiori from `auth => ~outcome`, and the
+                # SMT backends confirm the extra antecedents are realizable. They lower to R-side
+                # CONSTANTs disconnected from S's transitions, so encoding them into the module
+                # would add no checkable content to S ∧ R — only a vacuity-risk surface (pin the
+                # witness wrong -> a false `valid`). Faithful comparison lowering is deferred to
+                # obligations whose comparison ranges over S's OWN state (PB-4.T2, e.g.
+                # numeric_invariant), where the comparison interacts with S's transitions and
+                # projection is impossible; that path has no S ∧ R consumer today.
+                continue
+            else:
                 problems.append((
                     node.kind,
                     (
                         f"unsupported premise node kind '{node.kind}' in "
-                        f"authorization_precondition; only named predicate nodes are supported "
-                        f"(e.g. 'when actor is authorized'), not comparisons or membership checks"
+                        f"authorization_precondition; supported premise nodes are named predicates "
+                        f"(e.g. 'when actor is authorized'), comparisons, and set-membership checks"
                     ),
                     node,
                 ))
-            elif not node.name:
-                problems.append((
-                    "nameless_predicate",
-                    "authorization_precondition premise predicate requires a name",
-                    node,
-                ))
-            elif not any(arg.kind == "identifier" for arg in node.args):
-                problems.append((
-                    "empty_predicate_args",
-                    (
-                        f"authorization_precondition premise predicate '{node.name}' must have "
-                        f"at least one identifier argument — the TLA+ declaration requires it "
-                        f"(e.g. 'when actor is authorized', not 'when is_authorized')"
-                    ),
-                    node,
-                ))
+        if predicate_count == 0:
+            # Non-vacuity guard: the projected S ∧ R obligation is
+            # `<predicate conjunction> => ~outcome`. With no predicate premise the antecedent is
+            # TRUE and the obligation degenerates to "the forbidden outcome is never reachable" — a
+            # vacuous/over-strong check that does not encode the requirement. A premise built only
+            # from comparison/membership clauses carries no authorization predicate for S ∧ R to
+            # discharge, so refuse rather than emit a meaningless module; the SMT backends still
+            # check those clauses on their own route.
+            problems.append((
+                "no_predicate_premise",
+                (
+                    "authorization_precondition premise has no named predicate clause; the S ∧ R "
+                    "obligation would be vacuous. At least one predicate premise is required "
+                    "(e.g. 'when actor is not authorized') — comparison and set-membership premises "
+                    "are discharged by the SMT backends and do not constrain S ∧ R."
+                ),
+                premise,
+            ))
 
     if root.obligation is None:
         problems.append(("missing_obligation", "authorization_precondition requires an obligation clause (must ...)", None))
@@ -690,7 +736,14 @@ def derive_outcome_predicate(root: SemanticNode) -> OutcomePredicate:
 
 
 def _scope_identifiers(root: SemanticNode) -> set[str]:
-    """Collect identifier names from scope nodes and premise predicate args."""
+    """Collect identifier names from scope nodes and premise PREDICATE args.
+
+    Only predicate-premise identifiers are collected. The authorization_precondition lowering
+    projects comparison/membership premises out of the module (they are discharged by the SMT
+    backends — see validate_authorization_precondition_shape), so their operands (e.g.
+    ``requested_amount``, ``tier``) are never referenced by the emitted Premise/Obligation and
+    must not be declared as unused CONSTANTs the composition would then have to pin.
+    """
     identifiers: set[str] = set()
     for scope_node in root.scope:
         if scope_node.name:
@@ -699,6 +752,8 @@ def _scope_identifiers(root: SemanticNode) -> set[str]:
         premise = root.premise
         nodes = premise.children if premise.kind == "and" else [premise]
         for node in nodes:
+            if node.kind != "predicate":
+                continue
             for arg in node.args:
                 if arg.kind == "identifier":
                     identifiers.add(str(arg.value))

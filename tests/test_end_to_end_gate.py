@@ -319,12 +319,14 @@ def test_end_to_end_gate_narrowing_s_and_r_counterexample_refuses(tmp_path: Path
     assert system_consistency["counterexamples"]
 
 
-# The two faces of one requirement used by the multi-backend closure test below: the full
-# requirement carries an authorization premise, a numeric comparison premise, a set-membership
-# premise, and a rejection-order obligation; the auth projection drops the SMT premises so it
-# lowers to TLA+ (the translator refuses comparison/membership today — the PB-4 boundary) and binds
-# the SAME Pred_not_authorized / Pred_finalize_redemption operators the full claim's auth premise
-# and rejection obligation map to.
+# The two faces of one requirement used by the multi-backend tests below: the full requirement
+# carries an authorization premise, a numeric comparison premise, a set-membership premise, and a
+# rejection-order obligation; the auth projection keeps only the authorization premise. Both lower
+# to the SAME TLA+ module — the authorization_precondition lowering projects the comparison/
+# membership premises out of S ∧ R (they are discharged by smt-theories / cvc5; PB-4) — binding the
+# Pred_not_authorized / Pred_finalize_redemption operators the auth premise and rejection
+# obligation map to. The dispatch-builder test assembles backend results by hand; the full-gate
+# test closes the same requirement end to end.
 _MULTI_BACKEND_REQUIREMENT = (
     "requirement authorization_precondition: scope redemption "
     "when wallet is not authorized and requested_amount <= spendable_balance "
@@ -352,9 +354,9 @@ def test_multi_backend_proof_closes_across_distinct_producers(tmp_path: Path) ->
       - the set-membership premise -> ``cvc5``, a real cvc5 finite-set query (SMT_CHECKED).
 
     No premise is funneled to the propositional ``core_smt`` that drops comparison/membership ops —
-    the conflation this closes. The S ∧ R verdict comes from the requirement's *auth projection*
-    (the translator still refuses a requirement that mixes a comparison/membership premise into the
-    TLA+ lowering — the PB-4 boundary), which binds exactly the Pred_not_authorized /
+    the conflation this closes. The S ∧ R verdict comes from the requirement's *auth projection* —
+    identical to the full requirement's own lowering, which projects the comparison/membership
+    premises out of S ∧ R (PB-4) — binding exactly the Pred_not_authorized /
     Pred_finalize_redemption operators the full claim's auth premise and rejection obligation map to.
     The decomposition is sound: S never reaches the forbidden outcome while ``not_authorized`` holds,
     so the obligation holds a fortiori under the stronger antecedent that also requires the numeric
@@ -433,19 +435,30 @@ def test_multi_backend_proof_closes_across_distinct_producers(tmp_path: Path) ->
     assert discharging_producers == {"solver_system_checker", "smt-theories", "cvc5"}
 
 
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
 @requires_cvc5
-def test_end_to_end_gate_discharges_smt_premises_through_distinct_producers(tmp_path: Path) -> None:
-    """The real ``run_end_to_end_requirement_gate`` routes SMT premises to distinct theory producers.
+def test_end_to_end_gate_closes_mixed_requirement_across_distinct_producers(tmp_path: Path) -> None:
+    """The full gate closes one mixed requirement across THREE distinct real producers (PB-4 capstone).
 
-    Complement to the closure test above: this runs the *full* production gate (not the dispatch
-    builder in isolation) on the four-fragment requirement and reads the proof_object artifact it
-    writes. The comparison premise is discharged by ``smt-theories`` (z3) and the membership premise
-    by ``cvc5`` — two distinct real producers, neither the propositional ``core_smt``. The predicate
-    and rejection-order premises stay undischarged here because the translator refuses a TLA+ lowering
-    that mixes comparison/membership premises (the PB-4 boundary), so the gate's S ∧ R stage is
-    ``unsupported`` and the gate does not accept — the honest state until the lowering is extended.
-    The point this pins is the production wiring: the gate feeds both theory backends and each SMT
-    premise discharges under the distinct producer its kind routed to.
+    This runs the *full* production gate (not the dispatch builder in isolation) on the
+    four-fragment requirement and reads the proof_object artifact it writes. Every premise is
+    discharged by the real verification engine its kind routes to, and three genuinely distinct
+    engines close this one requirement:
+
+      - the authorization predicate and the rejection-order obligation -> ``solver_system_checker``,
+        a real Apalache bounded S ∧ R check (BOUNDED_CHECKED);
+      - the numeric comparison premise -> ``smt-theories`` (z3 Int/Real, SMT_CHECKED);
+      - the set-membership premise -> ``cvc5`` (native finite-set theory, SMT_CHECKED).
+
+    Before PB-4 the gate's S ∧ R stage was ``unsupported`` here: the translator refused any TLA+
+    lowering that mixed a comparison/membership premise, so the predicate/rejection premises stayed
+    open and the gate could not accept. The authorization_precondition lowering now PROJECTS the
+    comparison/membership premises out of the obligation (they are discharged independently by the
+    SMT backends above) and lowers the auth obligation, so the same reviewed stateful S that closes
+    the pure-auth requirement (test_end_to_end_gate_narrowing_s_and_r_closes_and_accepts) now closes
+    this mixed one. No premise is funneled to the propositional ``core_smt`` that drops
+    comparison/membership ops — the conflation this closes. Every premise rests on a real solver
+    result, not a fixture.
     """
     manifest, registry = _project(tmp_path, narrowing=True)
     requirement = DslV3Parser().parse_ir(
@@ -474,18 +487,99 @@ def test_end_to_end_gate_discharges_smt_premises_through_distinct_producers(tmp_
         translation_agreement=agreement,
     )
 
+    # S ∧ R now runs (the mixed requirement lowers) and the gate accepts end to end.
+    assert report.statuses["system_consistency"] == "valid", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    assert report.decision == "accepted", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    assert report.proof_status == "closed"
+    assert report.closure_result == "passed"
+    assert report.downstream_action_allowed is True
+
     proof = read_json(Path(next(a.path for a in report.artifacts if a.name == "proof_object")))
+    assert proof["status"] == "closed"
     by_kind = {premise["node_kind"]: premise for premise in proof["premises"]}
+    assert all(premise["status"] == "discharged" for premise in proof["premises"]), proof["premises"]
+    # Auth predicate + rejection-order obligation: real Apalache S ∧ R, BOUNDED_CHECKED.
+    assert by_kind["predicate"]["producer_id"] == "solver_system_checker"
+    assert by_kind["predicate"]["achieved_evidence"] == "BOUNDED_CHECKED"
+    assert by_kind["rejection_order"]["producer_id"] == "solver_system_checker"
     # The two SMT premises are discharged by distinct theory producers — the de-conflation.
+    assert by_kind["comparison"]["producer_id"] == "smt-theories"
+    assert by_kind["comparison"]["achieved_evidence"] == "SMT_CHECKED"
+    assert by_kind["membership"]["producer_id"] == "cvc5"
+    assert by_kind["membership"]["achieved_evidence"] == "SMT_CHECKED"
+    # The headline property: three genuinely distinct producers closed this one requirement.
+    assert {p["producer_id"] for p in proof["premises"]} == {
+        "solver_system_checker", "smt-theories", "cvc5",
+    }
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+@requires_cvc5
+def test_end_to_end_gate_mixed_requirement_refuses_on_s_and_r_counterexample(tmp_path: Path) -> None:
+    """SMT-discharged premises must NOT mask a blocked S ∧ R — the mixed false-accept guard.
+
+    The negative twin of the capstone above, and the property that matters most for PB-4: when the
+    reviewed stateful S CAN reach the forbidden outcome while the premise holds, the auth predicate
+    and rejection-order obligation BLOCK on a real Apalache counterexample — even though the
+    comparison and set-membership premises are independently discharged by smt-theories / cvc5. The
+    projection routes those SMT premises away from S ∧ R, so a naive reading could let two green SMT
+    verdicts mask the blocked model check. They do not: closure requires EVERY premise discharged,
+    so the blocked predicate/rejection premises keep the proof open and the gate refuses. This is
+    the same false-accept this codebase guards everywhere — never trust generic closure logic for
+    the refuse direction; prove it against a real counterexample.
+    """
+    manifest, registry = _project(tmp_path, narrowing_counterexample=True)
+    requirement = DslV3Parser().parse_ir(
+        _MULTI_BACKEND_REQUIREMENT, requirement_id="REQ-MB-GATE-CE", title="multi-backend ce"
+    )
+    agreement = TranslationAgreementInput(
+        candidates=[
+            TranslationCandidate(translator_id="primary", method="deterministic",
+                                 requirement=requirement, provenance={"source": "test"}),
+            TranslationCandidate(translator_id="replica", method="deterministic",
+                                 requirement=requirement, provenance={"source": "test"}),
+        ]
+    )
+    report = run_end_to_end_requirement_gate(
+        controlled_text=_MULTI_BACKEND_REQUIREMENT,
+        requirement_id="REQ-MB-GATE-CE",
+        title="multi-backend ce",
+        source_adapter=PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["finalize_redemption"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-artifacts",
+        execution=_execution(tmp_path),
+        requirement_ir=requirement,
+        translation_agreement=agreement,
+    )
+
+    assert report.statuses["system_consistency"] == "counterexample", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    assert report.decision == "refused"
+    assert report.proof_status != "closed"
+    assert report.closure_result != "passed"
+    assert report.downstream_action_allowed is False
+
+    proof = read_json(Path(next(a.path for a in report.artifacts if a.name == "proof_object")))
+    assert proof["status"] != "closed"
+    by_kind = {premise["node_kind"]: premise for premise in proof["premises"]}
+    # Auth predicate + rejection-order BLOCKED on the real Apalache counterexample (covered by the
+    # S ∧ R result, so the route matched, but refused because the verdict is a counterexample).
+    assert by_kind["predicate"]["status"] == "blocked", by_kind["predicate"]
+    assert by_kind["predicate"]["routed_backend"] == "solver_system_checker"
+    assert by_kind["rejection_order"]["status"] == "blocked", by_kind["rejection_order"]
+    # The SMT premises ARE discharged — yet cannot rescue closure while S ∧ R is blocked.
     assert by_kind["comparison"]["status"] == "discharged"
     assert by_kind["comparison"]["producer_id"] == "smt-theories"
     assert by_kind["membership"]["status"] == "discharged"
     assert by_kind["membership"]["producer_id"] == "cvc5"
-    # The auth/rejection premises route to the S ∧ R checker but stay open: the translator refuses to
-    # lower a comparison/membership-bearing requirement to TLA+ (PB-4), so S ∧ R is unsupported here.
-    assert report.statuses["system_consistency"] == "unsupported"
-    assert by_kind["predicate"]["routed_backend"] == "solver_system_checker"
-    assert by_kind["predicate"]["status"] != "discharged"
 
 
 def test_end_to_end_gate_s_and_r_blocks_when_checker_absent(tmp_path: Path) -> None:
