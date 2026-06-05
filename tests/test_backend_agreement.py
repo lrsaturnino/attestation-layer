@@ -155,6 +155,70 @@ def test_proof_object_blocks_supplied_backend_disagreement() -> None:
     assert any(blocker.category == "backend_agreement" for blocker in proof.blockers)
 
 
+def _proof_with_agreement(requirement_id: str, agreement):
+    """A proof object built over the DSL requirement with a passing context and the given
+    agreement report supplied — isolating whether the agreement gates closure."""
+    ir = DslV2Parser().parse_ir(DSL, requirement_id=requirement_id, title="Agreement policy")
+    return build_proof_object(
+        requirement=ir,
+        backend_results=[
+            BackendResult(
+                backend="system_checker",
+                status="valid",
+                evidence_level=EvidenceLevel.CONSISTENCY_CHECKED,
+            )
+        ],
+        coverage=SpecCoverageReport(
+            result="passed",
+            threshold=1.0,
+            covered_modules=1,
+            total_modules=1,
+            coverage_ratio=1.0,
+        ),
+        trace_alignment=TraceAlignmentReport(result="passed"),
+        backend_agreement=agreement,
+    )
+
+
+def test_proof_object_does_not_block_non_overlap_backend_agreement() -> None:
+    """A non_overlap agreement report must NOT block proof closure (PB-6.T3 production policy).
+
+    The default "blocking" policy sets closure_effect="block" for a non_overlap report (the pair
+    declared no shared question), but that is not a disagreement. A requirement with no
+    comparison/membership premise poses no cross-backend question — its overlap_key is None — and
+    refusing it for that would over-block every such requirement. Only an opposite-verdict
+    "disagreed" gates closure; this is the deliberate mirror of
+    test_proof_object_blocks_supplied_backend_disagreement."""
+    non_overlap = build_backend_agreement_report(
+        [
+            _bounded_result("tla-runner", overlap_key="left-question"),
+            _bounded_result("alloy-runner", overlap_key="right-question"),
+        ]
+    )
+    assert non_overlap.status == "non_overlap"
+    assert non_overlap.closure_effect == "block"
+
+    proof = _proof_with_agreement("REQ-NON-OVERLAP", non_overlap)
+
+    assert proof.backend_agreement is not None
+    assert not any(blocker.category == "backend_agreement" for blocker in proof.blockers)
+
+
+def test_proof_object_does_not_block_needs_review_backend_agreement() -> None:
+    """A needs_review agreement report (fewer than two backends decided — e.g. cvc5 is not
+    installed) must NOT block proof closure. There is no second opinion to cross-check, which is
+    not a disagreement; the single backend's per-premise results still flow through normal
+    closure, so the absent cross-check is additive, not a missing discharge."""
+    needs_review = build_backend_agreement_report([_bounded_result("tla-runner")])
+    assert needs_review.status == "needs_review"
+    assert needs_review.closure_effect == "block"
+
+    proof = _proof_with_agreement("REQ-NEEDS-REVIEW", needs_review)
+
+    assert proof.backend_agreement is not None
+    assert not any(blocker.category == "backend_agreement" for blocker in proof.blockers)
+
+
 def test_verdict_mode_agrees_on_matching_verdict() -> None:
     """Two backends that decide the same question the same way (both valid) agree and allow closure —
     even though they are different backends with different evidence metadata."""

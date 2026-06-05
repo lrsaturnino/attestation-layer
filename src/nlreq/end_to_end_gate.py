@@ -16,6 +16,7 @@ from .formal_claim import (
     build_proof_dispatch_plan_from_formal_claim,
     formal_claim_fragment_bound_predicate,
 )
+from .formal_claim_backend import build_premise_consistency_agreement
 from .formal_claim_smt import smt_check_formal_claim_predicate_fragments
 from .impact import analyze_source_impact
 from .source_impact import analyze_source_impact_with_context
@@ -535,6 +536,15 @@ def run_end_to_end_requirement_gate(
     # so formal_claim-routed premises can be discharged without relying on the system-
     # consistency result (which only covers system_checker routes).
     formal_claim_preview = build_formal_claim(requirement)
+    # The cross-backend premise-consistency agreement (PB-6.T3) is computed only when the claim
+    # lowered, and only as an ADDITIVE cross-check: it runs the claim's comparison/membership
+    # premises through two independent SMT encoders (z3 as core_smt, cvc5) and records whether they
+    # reach the same valid/invalid verdict. It is NOT the discharge path — those same premises are
+    # discharged independently by smt_check_formal_claim_predicate_fragments below — so when cvc5 is
+    # absent (the agreement degrades to needs_review, non-blocking) no premise is left unverified.
+    # Only a genuine opposite-verdict divergence (status "disagreed") gates closure; non_overlap (no
+    # comparison/membership premise, so no shared question) and needs_review (one backend) do not.
+    backend_agreement: BackendAgreementReport | None = None
     if formal_claim_preview.result == "lowered" and formal_claim_preview.formal_claim is not None:
         # This still emits real SMT_CHECKED results for ground comparison fragments. Its
         # predicate/rejection_order "unsupported" results are now inert: those fragments route
@@ -545,6 +555,10 @@ def run_end_to_end_requirement_gate(
         smt_fragment_results = smt_check_formal_claim_predicate_fragments(
             formal_claim_preview.formal_claim
         )
+        backend_agreement = build_premise_consistency_agreement(
+            formal_claim_preview.formal_claim
+        )
+        record("backend_agreement", "backend-agreement.json", backend_agreement)
         # Discharge the formal fragments the S ∧ R model check ACTUALLY verified. The solver
         # result (solver_system_checker, BOUNDED_CHECKED) covers a fragment only when that
         # fragment's Pred_* operator was bound into the composed module the checker ran —
@@ -568,6 +582,7 @@ def run_end_to_end_requirement_gate(
         backend_results=all_backend_results,
         coverage=coverage,
         trace_alignment=trace_alignment,
+        backend_agreement=backend_agreement,
     )
     record("formal_claim_artifact", "formal-claim.json", formal_claim_report)
     record("proof_object", "proof-object.json", proof)

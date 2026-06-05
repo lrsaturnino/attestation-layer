@@ -489,7 +489,28 @@ def _backend_agreement_result(
     backend_agreement: BackendAgreementReport | None,
     blockers: list[ProofClosureBlocker],
 ) -> None:
+    """Gate proof closure on a cross-backend agreement report — but ONLY on a real disagreement.
+
+    A ``disagreed`` report is two backends reaching opposite verdicts on the same question (the same
+    overlap_key): a genuine encoder divergence that must block. Every other status is recorded on the
+    ProofObject but never blocks closure:
+
+      - ``non_overlap`` — the backends share no comparable question. Under the default ``blocking``
+        policy ``build_backend_agreement_report`` still sets ``closure_effect="block"`` for this case
+        (it appends "no backend result pair declared overlapping semantics"), but a requirement that
+        poses no cross-backend question — e.g. one with no comparison/membership premise, so its
+        overlap_key is None — has nothing to disagree about and must not be refused for it.
+      - ``needs_review`` — fewer than two backends decided (e.g. cvc5 is not installed), so there is
+        no second opinion to cross-check. The single backend's per-premise results still flow through
+        normal closure; the absent cross-check is additive, not a missing discharge.
+
+    Blocking on those would refuse every premise-less requirement and every cvc5-absent run. The
+    ``closure_effect`` guard is retained so the ``report_only`` policy never blocks either (a
+    disagreement under ``report_only`` yields ``closure_effect="report_only"``, not ``"block"``).
+    """
     if backend_agreement is None:
+        return
+    if backend_agreement.status != "disagreed":
         return
     if backend_agreement.closure_effect != "block":
         return

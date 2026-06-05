@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from nlreq.cli import main
+from nlreq.cvc5_backend import cvc5_available
 from nlreq.dsl_v3 import DslV3Parser
 from nlreq.end_to_end_gate import build_proof_with_formal_claim_dispatch, run_end_to_end_requirement_gate
 from nlreq.formal_backend import FormalBackendExecution
@@ -19,6 +20,11 @@ from nlreq.system_spec import SystemSpecRegistry
 from nlreq.translator_agreement import TranslationAgreementInput, TranslationCandidate
 
 FIXTURES = Path(__file__).parent / "fixtures" / "requirements"
+
+requires_cvc5 = pytest.mark.skipif(
+    not cvc5_available(),
+    reason="cvc5 optional dependency not installed (run under `uv run --extra formal`)",
+)
 
 
 DSL = (
@@ -537,6 +543,58 @@ def test_end_to_end_gate_with_v3_requirement_has_formal_claim_fragment_ids(tmp_p
         f"No producer-mapping blockers expected for intentionally-unsupported fragments, "
         f"got: {producer_mapping_blockers}"
     )
+
+
+@requires_cvc5
+def test_end_to_end_gate_wires_premise_consistency_agreement(tmp_path: Path) -> None:
+    """The gate computes the cross-backend premise-consistency agreement on the lowered FormalClaim
+    and carries it into the production ProofObject (PB-6.T3 production wiring).
+
+    A numeric_invariant requirement whose premises are jointly satisfiable (collateral in [10, 50])
+    is decided 'valid' by both independent SMT encoders — z3 as core_smt and cvc5 — so the agreement
+    is 'agreed'. The assertions are scoped to the agreement, not the overall gate decision: the
+    default project's reviewed spec declares no invariant, so the S ∧ R stage blocks for that
+    unrelated reason. The point here is that the agreement is computed, persisted as its own
+    artifact, and embedded in the ProofObject — not that the requirement is accepted.
+    """
+    manifest, registry = _project(tmp_path)
+    ir = DslV3Parser().parse_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when collateral >= 10 and collateral <= 50\n"
+        "then keep collateral >= 1\n",
+        requirement_id="REQ-AGREE-E2E-001",
+        title="Premise consistency agreement (e2e)",
+    )
+
+    report = run_end_to_end_requirement_gate(
+        controlled_text="when collateral >= 10 and collateral <= 50 then keep collateral >= 1.",
+        requirement_id="REQ-AGREE-E2E-001",
+        title="Premise consistency agreement (e2e)",
+        source_adapter=PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["operation"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-artifacts-agree",
+        execution=_execution(tmp_path),
+        requirement_ir=ir,
+    )
+
+    # The agreement report is persisted as its own gate artifact.
+    assert "backend_agreement" in {artifact.name for artifact in report.artifacts}
+
+    # The agreement is carried into the production ProofObject, with the two independent SMT
+    # encoders agreeing on the satisfiable premise set.
+    from nlreq.proof_closure import ProofObject
+
+    proof_path = Path(next(a.path for a in report.artifacts if a.name == "proof_object"))
+    proof = ProofObject.model_validate(read_json(proof_path))
+    assert proof.backend_agreement is not None
+    assert proof.backend_agreement.status == "agreed"
+    # An agreement is additive: it never adds a backend_agreement blocker — only a real
+    # opposite-verdict divergence (status "disagreed") would gate closure.
+    assert not any(b.category == "backend_agreement" for b in proof.blockers)
 
 
 def test_end_to_end_gate_refuses_trace_replay_violation(tmp_path: Path) -> None:
