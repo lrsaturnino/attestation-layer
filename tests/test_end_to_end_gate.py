@@ -337,6 +337,16 @@ _MULTI_BACKEND_AUTH_PROJECTION = (
     "requirement authorization_precondition: scope redemption "
     "when wallet is not authorized then finalize_redemption must reject before rejected."
 )
+# Same auth premise + rejection obligation as the capstone (so its S ∧ R auth slice is VALID against
+# the same reviewed S), but the comparison premises are jointly UNSATISFIABLE (requested_amount <= 5
+# AND requested_amount >= 10). The projection routes those comparisons to smt-theories, which finds
+# the contradictory antecedent — so they must block closure even though S ∧ R is valid. No membership
+# premise, so no cvc5 dependency: the blocked SMT premise is isolated as the sole reason to refuse.
+_MULTI_BACKEND_CONTRADICTORY_COMPARISON = (
+    "requirement authorization_precondition: scope redemption "
+    "when wallet is not authorized and requested_amount <= 5 and requested_amount >= 10 "
+    "then finalize_redemption must reject before rejected."
+)
 
 
 @pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
@@ -580,6 +590,76 @@ def test_end_to_end_gate_mixed_requirement_refuses_on_s_and_r_counterexample(tmp
     assert by_kind["comparison"]["producer_id"] == "smt-theories"
     assert by_kind["membership"]["status"] == "discharged"
     assert by_kind["membership"]["producer_id"] == "cvc5"
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_end_to_end_gate_refuses_when_projected_smt_premise_blocks_despite_valid_s_and_r(
+    tmp_path: Path,
+) -> None:
+    """A valid S ∧ R auth slice must NOT close a requirement whose projected SMT premise blocks.
+
+    The complement of the S ∧ R-counterexample twin above: there S ∧ R blocked while the SMT premises
+    were green; here S ∧ R is VALID while a projected SMT premise blocks. The projection routes the
+    comparison premises away from S ∧ R to smt-theories, so a naive reading could let one green model
+    check mask a contradictory antecedent. It must not: the comparisons are jointly unsatisfiable
+    (requested_amount <= 5 AND requested_amount >= 10), so smt-theories returns ``invalid`` for them,
+    those premises stay blocked, and closure — which requires EVERY premise discharged — keeps the
+    proof open and the gate refuses. This proves projection cannot become a false close from the SMT
+    side. Needs Apalache for the real valid S ∧ R, but no cvc5: there is no membership premise, so the
+    blocked comparison is the sole, isolated reason the gate refuses.
+    """
+    manifest, registry = _project(tmp_path, narrowing=True)
+    requirement = DslV3Parser().parse_ir(
+        _MULTI_BACKEND_CONTRADICTORY_COMPARISON,
+        requirement_id="REQ-MB-GATE-CONTRA",
+        title="multi-backend contradictory comparison",
+    )
+    agreement = TranslationAgreementInput(
+        candidates=[
+            TranslationCandidate(translator_id="primary", method="deterministic",
+                                 requirement=requirement, provenance={"source": "test"}),
+            TranslationCandidate(translator_id="replica", method="deterministic",
+                                 requirement=requirement, provenance={"source": "test"}),
+        ]
+    )
+    report = run_end_to_end_requirement_gate(
+        controlled_text=_MULTI_BACKEND_CONTRADICTORY_COMPARISON,
+        requirement_id="REQ-MB-GATE-CONTRA",
+        title="multi-backend contradictory comparison",
+        source_adapter=PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["finalize_redemption"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-artifacts",
+        execution=_execution(tmp_path),
+        requirement_ir=requirement,
+        translation_agreement=agreement,
+    )
+
+    # S ∧ R itself is VALID (the auth slice is identical to the capstone's) — the refusal is NOT
+    # an S ∧ R block.
+    assert report.statuses["system_consistency"] == "valid", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    # ...yet the gate REFUSES, because the projected SMT premise did not discharge.
+    assert report.decision == "refused"
+    assert report.proof_status != "closed"
+    assert report.closure_result != "passed"
+    assert report.downstream_action_allowed is False
+
+    proof = read_json(Path(next(a.path for a in report.artifacts if a.name == "proof_object")))
+    assert proof["status"] != "closed"
+    by_kind = {premise["node_kind"]: premise for premise in proof["premises"]}
+    # The comparison premise is BLOCKED by its real smt-theories verdict (contradictory antecedent),
+    # and the proof names it as the open premise — projection did not silently close it.
+    assert by_kind["comparison"]["status"] == "blocked", by_kind["comparison"]
+    assert by_kind["comparison"]["routed_backend"] == "smt-theories"
+    # The auth predicate + rejection-order obligation DID discharge on the valid S ∧ R — proving the
+    # refusal is caused by the SMT premise alone, not a blocked model check.
+    assert by_kind["predicate"]["status"] == "discharged"
+    assert by_kind["predicate"]["producer_id"] == "solver_system_checker"
+    assert by_kind["rejection_order"]["status"] == "discharged"
 
 
 def test_end_to_end_gate_s_and_r_blocks_when_checker_absent(tmp_path: Path) -> None:
