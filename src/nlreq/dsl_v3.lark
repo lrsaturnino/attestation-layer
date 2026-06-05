@@ -12,6 +12,7 @@ predicate: NAME "is" "authorized"         -> authorized
          | NAME "is" "confirmed"          -> confirmed
          | NAME "state" "is" value        -> state_is
          | value comp value                -> comparison
+         | NAME "is" "in" "{" NAME ("," NAME)* "}"  -> membership_set
          | NAME "is" "in" NAME            -> membership
 
 obligation: NAME "must" "succeed"                                         -> succeed

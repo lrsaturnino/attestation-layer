@@ -149,6 +149,20 @@ def _premise(tree: Tree, text: str, index: int) -> SemanticNode:
             tree=tree,
             args=[_value(tree.children[0]), _value(tree.children[2])],
         )
+    if tree.data == "membership_set":
+        # `x is in {A, B, ...}` — a concrete, enumerable set. The grammar keeps only the NAME
+        # children (the `{`, `,`, `}` are anonymous terminals), so children[0] is the element and
+        # children[1:] are the members. The `set_literal` marker lets the SMT encoder distinguish
+        # this from the opaque named-set membership below (`x is in S`, a single identifier whose
+        # contents are unknown), which stays a model-level/needs-review check.
+        return _node(
+            f"premise.{index}",
+            "membership",
+            text=text,
+            tree=tree,
+            args=[_identifier(child) for child in tree.children],
+            metadata={"membership": "set_literal"},
+        )
     if tree.data == "membership":
         return _node(
             f"premise.{index}",

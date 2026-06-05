@@ -563,6 +563,14 @@ def _premise_fragment(node: SemanticNode) -> FormalClaimFragment:
         )
     if node.kind == "membership":
         operands = [_operand(arg) for arg in node.args]
+        # A set-literal membership (`x is in {A, B}`) carries its members as concrete operands and
+        # is marked so the SMT encoder enumerates it; an opaque named-set membership
+        # (`x is in S`) carries the set as a single opaque identifier and stays a model-level check.
+        metadata = (
+            {"membership": "set_literal"}
+            if node.metadata.get("membership") == "set_literal"
+            else {}
+        )
         return FormalClaimFragment(
             fragment_id=f"formal.{node.node_id}",
             source_node_id=node.node_id,
@@ -572,6 +580,7 @@ def _premise_fragment(node: SemanticNode) -> FormalClaimFragment:
             operator="in",
             operands=operands,
             source_spans=node.source_spans,
+            metadata=metadata,
         )
     raise ValueError(f"unsupported premise node for formal claim lowering: {node.kind}")
 
