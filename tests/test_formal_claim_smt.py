@@ -234,6 +234,27 @@ def test_contradictory_comparison_premises_block_through_proof_object() -> None:
     assert all(p.status == "blocked" and p.backend_status == "invalid" for p in comparison)
 
 
+def test_large_integer_contradiction_survives_exact_encoding() -> None:
+    """Two premises pin one variable to consecutive integers past 2**53. They contradict, so Z3 must
+    block the comparison premises. Encoding the literals through ``float()`` rounds both to the same
+    value, makes the antecedent look satisfiable, and the contradiction vanishes — the exact-rational
+    encoding catches it."""
+    proof = _numeric_invariant_proof(
+        "collateral == 9007199254740992 and collateral == 9007199254740993"
+    )
+    comparison = [p for p in proof.premises if p.node_kind == "comparison"]
+    assert comparison, "requirement must have comparison premises"
+    assert all(p.status == "blocked" and p.backend_status == "invalid" for p in comparison)
+
+
+def test_large_integer_consistent_premise_still_discharges() -> None:
+    """Discrimination control: a satisfiable large-integer premise stays discharged — the exact
+    encoding flags genuine contradictions without flipping every big-integer comparison to invalid."""
+    proof = _numeric_invariant_proof("collateral == 9007199254740993")
+    comparison_statuses = {p.status for p in proof.premises if p.node_kind == "comparison"}
+    assert comparison_statuses == {"discharged"}
+
+
 def test_smt_results_include_covered_fragment_ids() -> None:
     """Every BackendResult must carry covered_fragment_ids for proof_closure matching."""
     report = build_formal_claim(_auth_ir())

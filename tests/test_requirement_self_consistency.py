@@ -49,6 +49,43 @@ def test_requirement_self_consistency_rejects_impossible_precondition_before_bac
     assert not list(tmp_path.iterdir())
 
 
+def test_self_consistency_catches_large_integer_impossible_comparison(tmp_path: Path) -> None:
+    """`9007199254740993 <= 9007199254740992` is false, but ``float()`` rounds both operands equal
+    and the heuristic would miss the contradiction. Deciding over exact rationals reports it before
+    the backend ever runs."""
+    report = check_requirement_self_consistency(
+        _big_integer_comparison_ir(9007199254740993, 9007199254740992),
+        execution=FormalBackendExecution(
+            checker_id="custom",
+            command=[sys.executable, "-c", "raise SystemExit(99)"],
+            artifact_dir=tmp_path.as_posix(),
+        ),
+    )
+
+    assert report.status == "contradiction"
+    assert report.contradictions[0].contradiction_type == "impossible_comparison"
+    assert report.formal_backend_response is None
+
+
+def test_self_consistency_keeps_satisfiable_large_integer_comparison(tmp_path: Path) -> None:
+    """Discrimination control: `9007199254740992 <= 9007199254740993` is satisfiable, so it must NOT
+    be flagged as an impossible comparison — the exact decision does not over-reject the sibling of
+    the contradictory case."""
+    report = check_requirement_self_consistency(
+        _big_integer_comparison_ir(9007199254740992, 9007199254740993),
+        execution=FormalBackendExecution(
+            checker_id="custom",
+            command=[sys.executable, "-c", "raise SystemExit(99)"],
+            artifact_dir=tmp_path.as_posix(),
+        ),
+    )
+
+    assert not any(
+        contradiction.contradiction_type == "impossible_comparison"
+        for contradiction in report.contradictions
+    )
+
+
 def test_requirement_self_consistency_maps_backend_counterexample(tmp_path: Path) -> None:
     report = check_requirement_self_consistency(
         _ir(),
@@ -152,5 +189,17 @@ def _impossible_precondition_ir() -> RequirementIRV2:
     comparison["args"] = [
         {"kind": "number", "value": 5},
         {"kind": "number", "value": 3},
+    ]
+    return RequirementIRV2.model_validate(data)
+
+
+def _big_integer_comparison_ir(left: int, right: int) -> RequirementIRV2:
+    """The redemption IR with its `lte` comparison rewired to two large integer constants, to
+    exercise the exact-rational comparison decision that ``float()`` rounding would defeat."""
+    data = _ir().model_dump(mode="json")
+    comparison = data["semantic_ir"]["premise"]["children"][2]  # kind "lte"
+    comparison["args"] = [
+        {"kind": "number", "value": left},
+        {"kind": "number", "value": right},
     ]
     return RequirementIRV2.model_validate(data)

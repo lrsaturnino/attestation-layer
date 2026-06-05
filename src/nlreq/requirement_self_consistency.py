@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from fractions import Fraction
 from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -14,6 +15,7 @@ from .formal_backend import (
 )
 from .jsonutil import sha256_json
 from .models import BackendResult, EvidenceLevel, RequirementIRV2, SemanticNode, SourceSpan, ValueRef
+from .numeric_literal import exact_fraction
 
 
 REQUIREMENT_SELF_CONSISTENCY_SCHEMA_VERSION = "0.1"
@@ -388,8 +390,13 @@ def _impossible_comparison(node: SemanticNode) -> RequirementSelfContradiction |
     args = _node_args(node)
     if len(args) < 2 or args[0].kind != "number" or args[1].kind != "number":
         return None
-    left = float(args[0].value)
-    right = float(args[1].value)
+    # Decide the comparison over exact rationals, not float(): a constant comparison of large
+    # integers (9007199254740993 lte 9007199254740992) rounds to equal under float and the real
+    # contradiction would silently vanish. A non-finite literal is not decidable -> leave it alone.
+    left = exact_fraction(args[0].value)
+    right = exact_fraction(args[1].value)
+    if left is None or right is None:
+        return None
     valid = {
         "eq": left == right,
         "neq": left != right,
@@ -404,7 +411,7 @@ def _impossible_comparison(node: SemanticNode) -> RequirementSelfContradiction |
         contradiction_type="impossible_comparison",
         code="CONTRADICTION_IMPOSSIBLE_COMPARISON",
         node_ids=[node.node_id],
-        message=f"comparison {left:g} {node.kind} {right:g} is unsatisfiable",
+        message=f"comparison {args[0].value} {node.kind} {args[1].value} is unsatisfiable",
         source_spans=node.source_spans,
     )
 
@@ -468,7 +475,8 @@ def _duplicate_obligation_conflicts(
 def _temporal_impossibility(node: SemanticNode) -> RequirementSelfContradiction | None:
     if node.temporal_bound is None:
         return None
-    if float(node.temporal_bound.value) >= 0:
+    bound = exact_fraction(node.temporal_bound.value)
+    if bound is None or bound >= 0:
         return None
     return RequirementSelfContradiction(
         contradiction_type="temporal_impossibility",
@@ -479,14 +487,16 @@ def _temporal_impossibility(node: SemanticNode) -> RequirementSelfContradiction 
     )
 
 
-def _bound_value(node: SemanticNode) -> float | None:
+def _bound_value(node: SemanticNode) -> Fraction | None:
     args = _node_args(node)
     if len(args) < 2 or args[1].kind != "number":
         return None
-    return float(args[1].value)
+    # Exact, so a lower/upper bound conflict between large-integer bounds is not lost to float
+    # rounding (9007199254740993 as a lower bound vs 9007199254740992 as an upper bound).
+    return exact_fraction(args[1].value)
 
 
-def _bound(node: SemanticNode) -> tuple[float, bool] | None:
+def _bound(node: SemanticNode) -> tuple[Fraction, bool] | None:
     value = _bound_value(node)
     if value is None:
         return None
@@ -494,8 +504,8 @@ def _bound(node: SemanticNode) -> tuple[float, bool] | None:
 
 
 def _bounds_conflict(
-    lower_bounds: list[tuple[float, bool]],
-    upper_bounds: list[tuple[float, bool]],
+    lower_bounds: list[tuple[Fraction, bool]],
+    upper_bounds: list[tuple[Fraction, bool]],
 ) -> bool:
     strongest_lower = max(lower_bounds, key=lambda item: (item[0], not item[1]))
     strongest_upper = min(upper_bounds, key=lambda item: (item[0], item[1]))

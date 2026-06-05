@@ -5,6 +5,7 @@ from z3 import ArithRef, BoolRef, Real, RealVal, Solver, sat
 from .formal_claim import FormalClaim, FormalClaimFragment, FormalClaimOperand
 from .jsonutil import sha256_text
 from .models import BackendResult, EvidenceLevel
+from .numeric_literal import exact_fraction
 
 # Evidence honesty: "unsupported" results carry no evidence level.
 # _producer_blockers skips results with evidence_level=None, preventing spurious
@@ -173,16 +174,22 @@ def _encode_comparison(
 def _encode_operand(
     operand: FormalClaimOperand, variables: dict[str, ArithRef]
 ) -> ArithRef | None:
-    """A real literal for a number, a shared real variable for an identifier, or None otherwise.
+    """An exact Z3 real for a number operand, a shared real variable for an identifier, else None.
 
-    String operands are not linear arithmetic, so they return None and make the whole comparison
-    unencodable — encoding them as reals would invent an ordering the requirement never stated.
+    Number literals are encoded at full precision via :func:`exact_fraction` (never through
+    ``float()``, which rounds integers past 2**53 and would mask a ground-false comparison such as
+    ``9007199254740992 = 9007199254740993``); a non-finite literal (``inf`` / ``nan``) is not linear
+    arithmetic and returns None. String operands (kind ``string``) return None and make the whole
+    comparison unencodable — encoding them as reals would invent an ordering the requirement never
+    stated.
     """
     if operand.kind == "number":
-        try:
-            return RealVal(float(operand.value))
-        except (TypeError, ValueError):
+        fraction = exact_fraction(operand.value)
+        if fraction is None:
             return None
+        # An exact rational as Z3's "numerator/denominator" numeral — the literal enters the solver
+        # at the precision it was written, so equality and ordering are decided exactly.
+        return RealVal(f"{fraction.numerator}/{fraction.denominator}")
     if operand.kind == "identifier":
         name = str(operand.value)
         if name not in variables:
