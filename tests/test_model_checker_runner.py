@@ -211,6 +211,39 @@ def test_tool_identity_normalizes_launch_forms() -> None:
     assert _tool_identity(["java", "-jar", "/abs/tool.jar"]) == ("java", "jar:/abs/tool.jar")
 
 
+def test_same_tool_rejects_a_jvm_run_with_a_different_joined_classpath() -> None:
+    """A joined `--class-path=evil.jar` must split provenance exactly like the separate `-cp` form.
+    Before joined long-options were parsed, the `=value` token slipped through as an opaque JVM flag
+    and the classpath identity was lost, so two different jars under the same main class collapsed to
+    one identity — re-opening the false version-attribution hole the classpath guard exists to close."""
+    assert not _same_tool(
+        ["java", "--class-path=other.jar", "tlc2.TLC", "-config", "X.cfg", "M.tla"],
+        ["java", "--class-path=tla2tools.jar", "tlc2.TLC"],
+    )
+
+
+def test_tool_identity_treats_joined_and_separate_options_alike() -> None:
+    """The joined (`--class-path=X`) and separate (`-cp X` / `--class-path X`) spellings name the
+    same tool, and the *value* is extracted — not recorded as the whole `--class-path=X` token, which
+    would make the joined form match neither the separate form nor a differing joined path."""
+    joined = _tool_identity(["java", "--class-path=a.jar", "tlc2.TLC"])
+    assert joined == ("java", "cp:a.jar", "class:tlc2.TLC")
+    assert joined == _tool_identity(["java", "-cp", "a.jar", "tlc2.TLC"])
+    assert joined == _tool_identity(["java", "--class-path", "a.jar", "tlc2.TLC"])
+
+
+def test_tool_identity_parses_joined_module_and_module_path() -> None:
+    """`--module-path=` and `--module=` joined forms carry the same identity as their separate
+    spellings, so a module launch's path and module are not lost to opaque-flag handling: two
+    module-paths still split, and a joined module launch matches its separate spelling."""
+    assert _tool_identity(
+        ["java", "--module-path=modsA", "-m", "org.x/org.x.Main"]
+    ) != _tool_identity(["java", "--module-path=modsB", "-m", "org.x/org.x.Main"])
+    assert _tool_identity(
+        ["java", "-p", "mods", "--module=org.x/org.x.Main"]
+    ) == _tool_identity(["java", "-p", "mods", "-m", "org.x/org.x.Main"])
+
+
 @pytest.mark.skipif(shutil.which("java") is None, reason="java launcher not installed")
 def test_jvm_version_probe_of_a_different_main_class_is_not_attributed(tmp_path: Path) -> None:
     """End-to-end via the runner: a `tlc2.TLC` run never inherits a bare `java -version` probe.

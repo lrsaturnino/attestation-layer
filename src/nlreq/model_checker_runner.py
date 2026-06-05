@@ -234,6 +234,36 @@ _JAVA_CLASSPATH_OPTIONS = frozenset({"-cp", "-classpath", "--class-path"})
 _JAVA_MODULE_PATH_OPTIONS = frozenset({"-p", "--module-path"})
 
 
+def _split_long_option(token: str) -> tuple[str, str | None]:
+    """Split a joined GNU-style long option ``--name=value`` into ``("--name", "value")``.
+
+    ``java`` accepts a value-taking long option in two spellings — ``--class-path X`` (two tokens)
+    and ``--class-path=X`` (one). Only the ``--`` long form joins with ``=``; a single-dash token
+    (``-cp``, ``-Xmx512m``, ``-Dk=v``) is returned unchanged, its ``=`` being part of the JVM flag,
+    not an option/value separator. Normalizing the joined form here lets the entrypoint scan match
+    the option by its bare name, so ``--class-path=evil.jar`` is recognised as a classpath (and thus
+    part of the tool identity) instead of slipping through as an opaque flag.
+    """
+    if token.startswith("--") and "=" in token:
+        name, _, value = token.partition("=")
+        return name, value
+    return token, None
+
+
+def _option_value(args: list[str], index: int, joined_value: str | None) -> tuple[str | None, int]:
+    """The value of a value-taking option and how many tokens it spans (1 joined, 2 separate).
+
+    A joined value (``--class-path=X``) lives in this one token; a separate value
+    (``--class-path X``) is the next token and spans two. A trailing option with no following value
+    spans just itself so the scan still terminates.
+    """
+    if joined_value is not None:
+        return joined_value, 1
+    if index + 1 < len(args):
+        return args[index + 1], 2
+    return None, 1
+
+
 def _java_entrypoint(args: list[str]) -> tuple[str, ...]:
     """The program a `java` invocation runs, as an identity tuple, ignoring trailing program args.
 
@@ -246,27 +276,37 @@ def _java_entrypoint(args: list[str]) -> tuple[str, ...]:
     classpath (so does the JVM) and is identified by the jar path itself. A pure JVM invocation with
     no entrypoint (e.g. ``java -version``) returns ``()`` so it cannot be mistaken for any checker.
     Paths are compared as written, never by basename — two distinct artifacts can share a basename.
+    Joined (``--class-path=X``) and separate (``--class-path X``) spellings of the same option carry
+    the same identity — see :func:`_split_long_option`.
     """
     classpath: tuple[str, ...] = ()
     module_path: tuple[str, ...] = ()
     index = 0
     while index < len(args):
         token = args[index]
-        if token == "-jar" and index + 1 < len(args):
+        option, joined_value = _split_long_option(token)
+        if option == "-jar":
             # `java -jar X` runs X's declared Main-Class and ignores -cp; the jar path is the tool.
-            return (f"jar:{args[index + 1]}",)
-        if token in {"-m", "--module"} and index + 1 < len(args):
-            return (*module_path, f"module:{args[index + 1]}")
-        if token in _JAVA_CLASSPATH_OPTIONS and index + 1 < len(args):
-            classpath = (f"cp:{args[index + 1]}",)  # the jar(s) that provide the bare main class
-            index += 2
+            jar, _ = _option_value(args, index, joined_value)
+            return (f"jar:{jar}",) if jar is not None else ()
+        if option in {"-m", "--module"}:
+            module, _ = _option_value(args, index, joined_value)
+            return (*module_path, f"module:{module}") if module is not None else ()
+        if option in _JAVA_CLASSPATH_OPTIONS:
+            value, consumed = _option_value(args, index, joined_value)
+            if value is not None:
+                classpath = (f"cp:{value}",)  # the jar(s) that provide the bare main class
+            index += consumed
             continue
-        if token in _JAVA_MODULE_PATH_OPTIONS and index + 1 < len(args):
-            module_path = (f"mp:{args[index + 1]}",)  # the module-path that provides the module
-            index += 2
+        if option in _JAVA_MODULE_PATH_OPTIONS:
+            value, consumed = _option_value(args, index, joined_value)
+            if value is not None:
+                module_path = (f"mp:{value}",)  # the module-path that provides the module
+            index += consumed
             continue
-        if token in _JAVA_VALUE_OPTIONS:
-            index += 2  # skip the option and its value
+        if option in _JAVA_VALUE_OPTIONS:
+            _, consumed = _option_value(args, index, joined_value)
+            index += consumed  # skip the option and its value (joined or separate)
             continue
         if token.startswith("-"):
             index += 1  # a JVM flag (joined or standalone): -version, -ea, -Xmx512m, -Dk=v, …
