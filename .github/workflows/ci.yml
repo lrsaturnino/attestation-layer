@@ -14,8 +14,13 @@ jobs:
       - name: Install uv
         uses: astral-sh/setup-uv@v6
 
+      # `--extra formal` installs cvc5, the second formal backend (PB-6.T2). As with Apalache below,
+      # CI installs the real solver so the cross-backend evidence is genuine, not skipped: without it
+      # the cvc5-vs-z3 agreement tests degrade to honest skips and the second-backend projection is
+      # never exercised in CI. cvc5 ships self-contained manylinux wheels, so no separate binary step
+      # is needed.
       - name: Sync dependencies
-        run: uv sync --extra dev
+        run: uv sync --extra dev --extra formal
 
       # The default S ∧ R consistency check runs a real Apalache model check (PB-1/PB-2). Install
       # the pinned, checksum-verified binary so CI exercises the real checker — without it the

@@ -22,6 +22,12 @@ dev = [
 llm = [
   "anthropic>=0.25",
 ]
+# The optional cvc5 second formal backend (PB-6.T2). Kept out of the base install — cvc5 is a heavy
+# native solver and the backend degrades honestly to "unsupported" when it is absent. Enable with
+# `uv run --extra formal` (or `uv run --with cvc5`) to exercise the real cvc5 evidence path.
+formal = [
+  "cvc5>=1.3",
+]
 
 [project.scripts]
 nlreq = "nlreq.cli:main"

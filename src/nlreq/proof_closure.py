@@ -185,6 +185,17 @@ def default_evidence_producer_mapping() -> EvidenceProducerMapping:
                 tool_version="0.1",
             ),
             EvidenceProducer(
+                producer_id="cvc5",
+                producer_kind="smt_solver",
+                # The second SMT backend (PB-6.T2): an independent cvc5 projection of the same
+                # FormalClaim premise-consistency question core_smt checks with z3. SMT_CHECKED only;
+                # tool_version is None here and recorded per-run from the installed cvc5 (it is an
+                # optional dependency that degrades to "unsupported"/no-level when absent).
+                allowed_evidence_levels=[EvidenceLevel.SMT_CHECKED],
+                tool="cvc5",
+                tool_version=None,
+            ),
+            EvidenceProducer(
                 producer_id="tla",
                 producer_kind="model_checker",
                 allowed_evidence_levels=[EvidenceLevel.BOUNDED_CHECKED],
