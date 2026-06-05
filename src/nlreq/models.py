@@ -417,13 +417,18 @@ class VerificationTask(BaseModel):
     id: str
     # The backend a task is routed to. ``core_smt`` is the propositional/whole-requirement SMT
     # consistency check and ``adapter`` is a source-adapter symbol/claim shape check (the source
-    # adapters' own tasks). The remaining values are the per-premise routing backends the generic
-    # adapter emits: ``smt-theories`` (z3 Int/Real comparison premises), ``cvc5`` (set-literal
-    # membership premises), and ``apalache`` (state/temporal obligations via the S ∧ R model check).
-    # They are exactly the discharging backends ``proof_closure.backend_for_proof_node`` routes a
-    # proof node to, so a task's named backend is the producer that can actually discharge it — never
-    # a blanket ``core_smt`` for a premise the propositional encoder cannot encode.
-    backend: Literal["core_smt", "adapter", "smt-theories", "cvc5", "apalache"]
+    # adapters' own tasks). ``smt-theories`` (z3 Int/Real comparison premises) and ``apalache``
+    # (state/temporal obligations via the S ∧ R model check) are the per-premise discharging backends
+    # the generic adapter routes to via ``proof_closure.backend_for_proof_node`` — a routed task's
+    # named backend is a producer that can actually discharge it. ``cvc5`` is the finite-set theory
+    # backend that discharges a CONCRETE set-literal membership (``x is in {A, B}``); the generic v1
+    # adapter never emits it, because the v1 grammar admits only the OPAQUE ``value is in value`` form
+    # (no set literal), which no wired backend can discharge — such premises carry the ``unsupported``
+    # sentinel so the plan shows the premise stays OPEN rather than naming a cvc5 route that would
+    # decline 100% of the time. ``cvc5`` remains a valid value because the kind-only router maps
+    # ``membership`` -> cvc5 for the v2 dispatch path, where a v3 set-literal membership genuinely
+    # discharges on cvc5.
+    backend: Literal["core_smt", "adapter", "smt-theories", "cvc5", "apalache", "unsupported"]
     description: str
     input_hash: str | None = None
     payload: dict[str, Any] = Field(default_factory=dict)

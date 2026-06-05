@@ -7,6 +7,8 @@ from nlreq.adapter import (
     GenericAdapter,
     _EXPECTED_KIND_NODE_KIND,
     _PREDICATE_OP_NODE_KIND,
+    _UNSUPPORTED_PREMISE_BACKEND,
+    _generic_premise_backend,
     _node_kind_for_expected_kind,
     _node_kind_for_predicate_op,
     default_generic_adapter,
@@ -213,7 +215,7 @@ def test_generate_tasks_routes_comparison_premise_to_smt_theories() -> None:
     assert premise.backend == "smt-theories"
 
 
-def test_generate_tasks_routes_set_membership_premise_to_cvc5() -> None:
+def test_generate_tasks_routes_opaque_v1_membership_to_unsupported() -> None:
     adapter = default_generic_adapter()
     ir = RequirementParser().parse_ir(
         "For every operation request:\n"
@@ -229,9 +231,14 @@ def test_generate_tasks_routes_set_membership_premise_to_cvc5() -> None:
 
     premise = next(task for task in tasks if task.payload.get("role") == "premise")
     assert premise.payload["op"] == "in"
-    # Set-literal membership routes to cvc5's native finite-set theory, never the linear-arithmetic
-    # smt-theories backend that cannot encode a set literal.
-    assert premise.backend == "cvc5"
+    # The node kind IS membership, but the v1 grammar admits only the opaque ``value is in value`` form,
+    # so ``allowed_states`` is an OPAQUE named set, not a concrete set literal. cvc5 discharges only a
+    # concrete set-literal membership (``x is in {A, B}``, v3-only), so no wired backend can discharge
+    # this premise: the plan emits it OPEN with the ``unsupported`` sentinel rather than naming a cvc5
+    # route that would decline every time. (A concrete set-literal membership reaching cvc5 is covered
+    # at the cvc5 surface by ``test_cvc5_discharges_concrete_set_literal_membership``.)
+    assert premise.payload["node_kind"] == "membership"
+    assert premise.backend == _UNSUPPORTED_PREMISE_BACKEND
 
 
 def _comparison_ir(args: list[ValueRef]) -> RequirementIR:
@@ -347,9 +354,10 @@ def test_obligation_payload_omits_absent_target_and_value() -> None:
     assert "source_span" in o1.payload
 
 
-def test_generate_tasks_only_emits_backends_the_proof_router_can_route() -> None:
-    # Every backend the generic adapter stamps on a task must be a real output of the per-premise
-    # router, so a task's named backend is always a producer that could discharge it. Exercised over
+def test_generate_tasks_only_emits_dischargeable_backends_or_the_open_sentinel() -> None:
+    # Every backend the generic adapter stamps is either a real output of the per-premise router (a
+    # producer that could discharge it) OR the explicit ``unsupported`` open sentinel for a premise no
+    # wired backend discharges as the v1 grammar produces it (an opaque membership). Exercised over
     # every v1 predicate op and expected-result kind, not just the committed fixtures.
     router_backends = {
         backend_for_proof_node(role, node_kind)
@@ -358,15 +366,34 @@ def test_generate_tasks_only_emits_backends_the_proof_router_can_route() -> None
     }
     assert router_backends <= _VERIFICATION_TASK_BACKENDS
 
+    emitted_premise_backends = {
+        _generic_premise_backend(node_kind) for node_kind in _PREDICATE_OP_NODE_KIND.values()
+    }
+    assert emitted_premise_backends <= _VERIFICATION_TASK_BACKENDS
+    # The only backend the adapter emits that the router does NOT is the open sentinel — every other
+    # emitted backend is a discharging router output. This pins the override to exactly the open kinds.
+    assert _UNSUPPORTED_PREMISE_BACKEND in _VERIFICATION_TASK_BACKENDS
+    assert emitted_premise_backends - router_backends == {_UNSUPPORTED_PREMISE_BACKEND}
+
 
 def test_predicate_op_map_covers_every_op_and_routes_theories_and_membership() -> None:
     op_literals = set(typing.get_args(Predicate.model_fields["op"].annotation))
     assert set(_PREDICATE_OP_NODE_KIND) == op_literals
 
+    # ``routed`` is the KIND-ONLY router's decision per op — the shared ``backend_for_proof_node``
+    # policy, which maps ``membership`` -> cvc5 for the v2 dispatch path. The generic v1 adapter then
+    # OVERRIDES the membership case (see the emitted-task assertions below and
+    # ``test_generate_tasks_routes_opaque_v1_membership_to_unsupported``), so ``routed["in"] == "cvc5"``
+    # describes the router, NOT the task the generic adapter emits.
     routed = {op: backend_for_proof_node("premise", _node_kind_for_predicate_op(op)) for op in op_literals}
     assert routed["lte"] == "smt-theories"
     assert routed["in"] == "cvc5"
     assert routed["not_authorized"] == "core_smt"
+
+    # The override the generic adapter applies on top of that router: an opaque v1 membership is
+    # emitted OPEN (never a cvc5 task), while a comparison still routes to its theory backend.
+    assert _generic_premise_backend(_node_kind_for_predicate_op("in")) == _UNSUPPORTED_PREMISE_BACKEND
+    assert _generic_premise_backend(_node_kind_for_predicate_op("lte")) == "smt-theories"
 
 
 def test_obligation_node_kind_map_matches_v1_to_v2_migration() -> None:

@@ -19,16 +19,21 @@ from .models import (
 from .proof_closure import backend_for_proof_node
 
 
-# v1 ``Predicate.op`` -> the proof-node kind the generic adapter routes that premise on. The op
+# v1 ``Predicate.op`` -> the proof-node kind the generic adapter records for that premise. The op
 # carries the encodable content, so comparisons keep their fine-grained kind (lt/lte/.../eq/neq) and
-# reach the theory-aware SMT backend, ``in`` becomes ``membership`` and reaches cvc5's finite-set
-# theory, and the authorization/approval predicates collapse to ``predicate`` for the core SMT
-# consistency checker. This is intentionally FINER than the v1->v2 migration's
-# ``compositional_ir._predicate_node`` (which collapses every op to ``predicate``): that migration is
-# the coarse legacy lift, while this routing follows the authoritative per-premise policy (comparison
-# -> smt-theories, membership -> cvc5). No contract compares the two artifacts, and a comparison
-# premise is more honestly a theory query than a free boolean. Exhaustive over ``Predicate.op``; an
-# unmapped op raises (``_node_kind_for_predicate_op``) rather than silently defaulting to a backend.
+# reach the theory-aware SMT backend, ``in`` becomes ``membership``, and the authorization/approval
+# predicates collapse to ``predicate`` for the core SMT consistency checker. This is intentionally
+# FINER than the v1->v2 migration's ``compositional_ir._predicate_node`` (which collapses every op to
+# ``predicate``): that migration is the coarse legacy lift, while this routing follows the
+# authoritative per-premise policy (comparison -> smt-theories). No contract compares the two
+# artifacts, and a comparison premise is more honestly a theory query than a free boolean. NOTE on
+# ``in``: the node kind is ``membership``, but the v1 grammar admits ONLY the opaque ``value is in
+# value`` form (``grammar.lark``; the concrete ``x is in {A, B}`` set literal is v3-only,
+# ``dsl_v3.lark``). cvc5 discharges only a CONCRETE set-literal membership, so a v1 membership has no
+# wired discharging backend and ``generate_tasks`` emits it OPEN (see ``_generic_premise_backend``),
+# NOT routed to cvc5 — which would name a backend that declines 100% of the time. Exhaustive over
+# ``Predicate.op``; an unmapped op raises (``_node_kind_for_predicate_op``) rather than silently
+# defaulting to a backend.
 _PREDICATE_OP_NODE_KIND: dict[str, SemanticNodeKind] = {
     "authorized": "predicate",
     "not_authorized": "predicate",
@@ -74,6 +79,35 @@ def _node_kind_for_expected_kind(kind: str) -> SemanticNodeKind:
     if node_kind is None:
         raise ValueError(f"no proof-node routing for obligation expected kind {kind!r}")
     return node_kind
+
+
+# The sentinel backend for a premise no wired backend can discharge as the v1 surface produces it.
+# Stamping it keeps the verification plan HONEST: the premise is visibly OPEN (proof closure leaves a
+# route backed by no result open) rather than naming a producer that cannot discharge it.
+_UNSUPPORTED_PREMISE_BACKEND = "unsupported"
+
+# Proof-node kinds the generic v1 adapter emits OPEN, because the v1 grammar produces them only in a
+# form no wired backend discharges. ``membership``: the v1 grammar admits only the OPAQUE ``value is
+# in value`` form (``grammar.lark``), so its set is a single opaque identifier; cvc5 discharges only a
+# CONCRETE set-literal membership (``x is in {A, B}``, v3-only, ``dsl_v3.lark``), so a v1 membership
+# routed to cvc5 would name a backend that declines every time. The kind-only ``backend_for_proof_node``
+# still maps ``membership`` -> cvc5 for the v2 dispatch path (where a v3 set-literal membership
+# genuinely discharges on cvc5); this v1 surface has the STATIC knowledge that its memberships are
+# always opaque, which the kind-only router cannot see — so the override lives here, not in the router.
+_OPEN_PREMISE_NODE_KINDS: frozenset[SemanticNodeKind] = frozenset({"membership"})
+
+
+def _generic_premise_backend(node_kind: SemanticNodeKind) -> str:
+    """The backend the generic v1 adapter stamps on a premise of ``node_kind``.
+
+    Routes to the discharging backend :func:`backend_for_proof_node` selects, EXCEPT for a node kind
+    the v1 grammar can only produce in an undischargeable form (``_OPEN_PREMISE_NODE_KINDS``): those
+    carry the explicit ``unsupported`` sentinel so the plan shows the premise stays open instead of
+    naming a producer that cannot discharge it.
+    """
+    if node_kind in _OPEN_PREMISE_NODE_KINDS:
+        return _UNSUPPORTED_PREMISE_BACKEND
+    return backend_for_proof_node("premise", node_kind)
 
 
 class Adapter(ABC):
@@ -205,7 +239,7 @@ class GenericAdapter(Adapter):
         ]
         for index, predicate in enumerate(ir.claim.condition):
             node_kind = _node_kind_for_predicate_op(predicate.op)
-            backend = backend_for_proof_node("premise", node_kind)
+            backend = _generic_premise_backend(node_kind)
             # The payload is the self-contained backend input for this one premise: its operator, the
             # canonical operands, and the source span. ``input_hash`` therefore binds the fragment's
             # own content, so changing an operand (``counter <= limit`` -> ``counter <= other``) changes

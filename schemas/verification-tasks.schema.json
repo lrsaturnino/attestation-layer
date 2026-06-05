@@ -9,7 +9,8 @@
             "adapter",
             "smt-theories",
             "cvc5",
-            "apalache"
+            "apalache",
+            "unsupported"
           ],
           "title": "Backend",
           "type": "string"

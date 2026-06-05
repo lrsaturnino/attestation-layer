@@ -23,6 +23,7 @@ from nlreq.dsl_v3 import DslV3Parser
 from nlreq.formal_claim import build_formal_claim
 from nlreq.formal_claim_smt import smt_check_formal_claim_predicate_fragments
 from nlreq.models import BackendResult, EvidenceLevel
+from nlreq.premise_consistency import is_set_literal_membership
 from nlreq.proof_closure import _producer_blockers, default_evidence_producer_mapping
 
 
@@ -131,6 +132,39 @@ def test_cvc5_emits_one_result_per_contributing_premise() -> None:
     covered = {fragment_id for r in results for fragment_id in r.details["covered_fragment_ids"]}
     comparison_ids = {f.fragment_id for f in claim.premises if f.kind == "comparison"}
     assert covered == comparison_ids
+
+
+@requires_cvc5
+def test_cvc5_discharges_concrete_set_literal_membership() -> None:
+    """A CONCRETE set-literal membership (``x is in {A, B}``) is discharged by cvc5 at SMT_CHECKED.
+
+    This is the surface where a real finite set reaches cvc5: the v3 grammar's ``membership_set`` form
+    carries enumerable members and the ``set_literal`` marker, so cvc5's native finite-set theory
+    encodes it and decides a verdict — unlike an OPAQUE v1 membership (``value is in value``), which
+    has no concrete members and stays open (the generic v1 adapter emits that case ``unsupported``;
+    see ``tests/test_adapter.py::test_generate_tasks_routes_opaque_v1_membership_to_unsupported``).
+    """
+    claim = _claim("status is in {APPROVED, REJECTED}")
+    set_literal_premises = [
+        fragment
+        for fragment in claim.premises
+        if fragment.kind == "membership" and is_set_literal_membership(fragment)
+    ]
+    assert set_literal_premises, "the v3 set-literal membership must lower to a concrete-member fragment"
+
+    results = cvc5_check_formal_claim_premises(claim)
+    membership_results = [
+        result
+        for result in results
+        for fragment in set_literal_premises
+        if fragment.fragment_id in result.details.get("covered_fragment_ids", [])
+    ]
+    assert membership_results, "cvc5 must contribute a result for the concrete set-literal membership"
+    for result in membership_results:
+        assert result.backend == CVC5_BACKEND_ID
+        # Two distinct named members in one set -> the membership is satisfiable -> a real SMT verdict.
+        assert result.status == "valid"
+        assert result.evidence_level == EvidenceLevel.SMT_CHECKED
 
 
 def test_cvc5_degrades_honestly_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:

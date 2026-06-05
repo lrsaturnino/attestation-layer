@@ -309,7 +309,10 @@ _SMT_THEORY_NODE_KINDS = frozenset(
 )
 # Set-membership fragments → cvc5's native finite-set theory, matching the authoritative FormalClaim
 # routing (``membership`` -> cvc5). The linear-arithmetic smt-theories backend cannot encode a
-# set-literal membership, so routing it there would name a producer that never discharges it.
+# set-literal membership, so routing it there would name a producer that never discharges it. This is
+# the kind-only decision (correct for the v2 dispatch path, where a v3 set-literal membership really
+# discharges on cvc5); the generic v1 adapter OVERRIDES it to the ``unsupported`` open sentinel for its
+# always-opaque memberships (the v1 grammar has no set literal) — see ``adapter._generic_premise_backend``.
 _SET_MEMBERSHIP_NODE_KINDS = frozenset({"membership"})
 # State and temporal fragments → the Apalache S ∧ R model check.
 _STATE_TEMPORAL_NODE_KINDS = frozenset(
