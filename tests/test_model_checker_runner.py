@@ -163,15 +163,52 @@ def test_same_tool_rejects_a_jvm_version_probe_of_a_different_main_class() -> No
     assert _same_tool(["java", "-jar", "tool.jar", "arg"], ["java", "-jar", "tool.jar", "--version"])
 
 
+def test_same_tool_rejects_a_jvm_run_with_a_different_classpath() -> None:
+    """Same main class, different classpath = different artifact = different tool. A run that loads
+    `tlc2.TLC` from a caller-supplied or drifted jar must NOT inherit the pinned
+    `java -cp tla2tools.jar tlc2.TLC` probe's version — that would record the pinned jar's version
+    for a run of a different jar, violating PB-3 pinned-binary provenance. The classpath is part of
+    the tool identity precisely so this split happens."""
+    assert not _same_tool(
+        ["java", "-cp", "other.jar", "tlc2.TLC", "-config", "X.cfg", "M.tla"],
+        ["java", "-cp", "tla2tools.jar", "tlc2.TLC"],
+    )
+    # Positive control: the pinned classpath still matches itself, so provenance is split only when
+    # the artifact genuinely differs — not over-suppressed for the legitimate pinned run.
+    assert _same_tool(
+        ["java", "-cp", "tla2tools.jar", "tlc2.TLC", "-config", "X.cfg", "M.tla"],
+        ["java", "-cp", "tla2tools.jar", "tlc2.TLC"],
+    )
+
+
+def test_same_tool_rejects_jar_and_module_runs_that_differ_only_by_path() -> None:
+    """Two jars (or module-paths) that share a basename are different tools — identity uses the path
+    as written, never the basename, so a probe of one artifact cannot lend its version to a run of
+    another that merely shares a filename."""
+    assert not _same_tool(["java", "-jar", "/good/tool.jar"], ["java", "-jar", "/evil/tool.jar"])
+    assert not _same_tool(
+        ["java", "-p", "modsA", "-m", "org.x/org.x.Main"],
+        ["java", "-p", "modsB", "-m", "org.x/org.x.Main"],
+    )
+    # Same module-path and module match (positive control).
+    assert _same_tool(
+        ["java", "-p", "mods", "-m", "org.x/org.x.Main", "extra"],
+        ["java", "-p", "mods", "-m", "org.x/org.x.Main"],
+    )
+
+
 def test_tool_identity_normalizes_launch_forms() -> None:
-    """Tool identity ignores trailing program args and JVM flags, isolating the program named."""
+    """Tool identity ignores trailing program args and JVM flags, isolating the program named, and
+    pairs the main class / module with the classpath / module-path that provides it."""
     assert _tool_identity(["apalache-mc", "check", "M.tla"]) == ("apalache-mc",)
     assert _tool_identity(["java", "-version"]) == ("java",)
     assert _tool_identity(["java", "-Xmx512m", "-cp", "a.jar", "tlc2.TLC", "M.tla"]) == (
         "java",
+        "cp:a.jar",
         "class:tlc2.TLC",
     )
-    assert _tool_identity(["java", "-jar", "/abs/tool.jar"]) == ("java", "jar:tool.jar")
+    # The jar path is kept as written (not basenamed) so distinct jars sharing a basename split.
+    assert _tool_identity(["java", "-jar", "/abs/tool.jar"]) == ("java", "jar:/abs/tool.jar")
 
 
 @pytest.mark.skipif(shutil.which("java") is None, reason="java launcher not installed")

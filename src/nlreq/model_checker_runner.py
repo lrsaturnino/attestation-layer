@@ -212,11 +212,6 @@ _JVM_LAUNCHERS = frozenset({"java", "javaw"})
 # direction, never a false attribution.
 _JAVA_VALUE_OPTIONS = frozenset(
     {
-        "-cp",
-        "-classpath",
-        "--class-path",
-        "-p",
-        "--module-path",
         "--add-modules",
         "--add-exports",
         "--add-opens",
@@ -228,30 +223,55 @@ _JAVA_VALUE_OPTIONS = frozenset(
     }
 )
 
+# Options whose value is the *artifact* that provides the program's bytecode, so the value is part
+# of the tool's identity — captured, not skipped. The same main class loaded from two different
+# jars (`-cp good.jar tlc2.TLC` vs `-cp evil.jar tlc2.TLC`) can be two different tool versions, so
+# a version probe of one must not be attributed to a run of the other. The classpath that locates
+# a bare main class and the module-path that locates a module both carry this identity. Compared
+# textually, never by basename: two distinct artifacts can share a basename, and collapsing them
+# would re-open the false-attribution hole the provenance guard exists to close.
+_JAVA_CLASSPATH_OPTIONS = frozenset({"-cp", "-classpath", "--class-path"})
+_JAVA_MODULE_PATH_OPTIONS = frozenset({"-p", "--module-path"})
+
 
 def _java_entrypoint(args: list[str]) -> tuple[str, ...]:
     """The program a `java` invocation runs, as an identity tuple, ignoring trailing program args.
 
     Resolves the three launch forms — ``-jar <jar>``, ``-m/--module <module>``, and a bare
-    ``<MainClass>`` (after JVM options / classpath) — to the artifact that names the tool. A pure
-    JVM invocation with no entrypoint (e.g. ``java -version``) returns ``()`` so it cannot be
-    mistaken for any checker. The classpath only *locates* the class; the main class *names* the
-    program, so it is the identity.
+    ``<MainClass>`` (after JVM options / classpath) — to the artifact that names the tool, paired
+    with the artifact that *locates* it. The main class names the program, but the classpath that
+    provides it is part of the identity: the same class loaded from two different jars can be two
+    different tool versions, so ``-cp a.jar Main`` and ``-cp b.jar Main`` are distinct tools. A
+    module launch is paired with its module-path for the same reason. A ``-jar`` launch ignores the
+    classpath (so does the JVM) and is identified by the jar path itself. A pure JVM invocation with
+    no entrypoint (e.g. ``java -version``) returns ``()`` so it cannot be mistaken for any checker.
+    Paths are compared as written, never by basename — two distinct artifacts can share a basename.
     """
+    classpath: tuple[str, ...] = ()
+    module_path: tuple[str, ...] = ()
     index = 0
     while index < len(args):
         token = args[index]
         if token == "-jar" and index + 1 < len(args):
-            return (f"jar:{Path(args[index + 1]).name}",)
+            # `java -jar X` runs X's declared Main-Class and ignores -cp; the jar path is the tool.
+            return (f"jar:{args[index + 1]}",)
         if token in {"-m", "--module"} and index + 1 < len(args):
-            return (f"module:{args[index + 1]}",)
+            return (*module_path, f"module:{args[index + 1]}")
+        if token in _JAVA_CLASSPATH_OPTIONS and index + 1 < len(args):
+            classpath = (f"cp:{args[index + 1]}",)  # the jar(s) that provide the bare main class
+            index += 2
+            continue
+        if token in _JAVA_MODULE_PATH_OPTIONS and index + 1 < len(args):
+            module_path = (f"mp:{args[index + 1]}",)  # the module-path that provides the module
+            index += 2
+            continue
         if token in _JAVA_VALUE_OPTIONS:
-            index += 2  # skip the option and its value (e.g. `-cp tla2tools.jar`)
+            index += 2  # skip the option and its value
             continue
         if token.startswith("-"):
             index += 1  # a JVM flag (joined or standalone): -version, -ea, -Xmx512m, -Dk=v, …
             continue
-        return (f"class:{token}",)  # first bare token after JVM options is the main class
+        return (*classpath, f"class:{token}")  # main class, paired with the classpath that locates it
     return ()
 
 
@@ -260,8 +280,9 @@ def _tool_identity(command: list[str]) -> tuple[str, ...]:
     equal iff they invoke the same tool.
 
     For a direct binary the basename is the tool (``apalache-mc`` ≡ ``/x/apalache-mc``). For a JVM
-    launcher the identity also includes the entrypoint (main class / jar), because the launcher
-    runs different programs — and ``java -version`` reports the JVM, not the checker.
+    launcher the identity also includes the entrypoint (main class / jar / module) and the
+    classpath or module-path that provides it, because the launcher runs different programs — and
+    ``java -version`` reports the JVM, not the checker. See :func:`_java_entrypoint`.
     """
     exe = Path(command[0]).name
     if exe in _JVM_LAUNCHERS:
