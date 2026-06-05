@@ -226,6 +226,57 @@ def test_dsl_v2_redemption_still_uses_skeleton_lowering() -> None:
     assert artifact.status == "lowered"
 
 
+def test_lower_numeric_invariant_refuses_at_translation() -> None:
+    """A numeric_invariant must refuse at translation, not emit a vacuous skeleton.
+
+    The legacy skeleton would stub the invariant's identifiers to 0 and render the obligation
+    comparison (``keep collateral >= 1``) over those stubs — a module that model-checks a question
+    about nothing. Refuse here (one stage before the composition vacuity guard) with a source-
+    spanned diagnostic anchored on the obligation invariant, so no ``status="lowered"`` artifact
+    misrepresents an ungrounded state invariant as a lowered one.
+    """
+    ir = DslV3Parser().parse_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when collateral >= 10 and collateral <= 50\n"
+        "then keep collateral >= 1\n",
+        requirement_id="REQ-NUMERIC-REFUSE",
+        title="Numeric invariant",
+    )
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "refused"
+    assert artifact.content is None
+    assert artifact.metadata.get("refusal_code") == "NLR-LOWERING-UNGROUNDED-STATE-INVARIANT"
+    assert artifact.diagnostics, "refusal must carry a diagnostic"
+    diagnostic = artifact.diagnostics[0]
+    assert diagnostic.kind == "gte"
+    assert "state invariant" in diagnostic.reason
+    assert diagnostic.source_spans, "refusal diagnostic must carry a source span"
+
+
+def test_lower_state_postcondition_refuses_at_translation() -> None:
+    """The companion state-obligation class also refuses at translation (here via the post_state
+    obligation node being unsupported by the skeleton). Locks the honesty property for the pair:
+    neither state-obligation claim class emits a vacuous ``status="lowered"`` artifact.
+    """
+    ir = DslV3Parser().parse_ir(
+        "requirement state_postcondition:\n"
+        "scope operation\n"
+        "when actor is approved\n"
+        'then state operation_status must be "accepted"\n',
+        requirement_id="REQ-STATEPOST-REFUSE",
+        title="State postcondition",
+    )
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "refused"
+    assert artifact.content is None
+    assert any(diagnostic.kind == "post_state" for diagnostic in artifact.diagnostics)
+
+
 def test_lower_authorization_precondition_refuses_comparison_only_premise() -> None:
     """A comparison-ONLY premise must refuse — projecting it out leaves Premise == TRUE.
 

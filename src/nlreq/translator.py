@@ -146,11 +146,70 @@ def parse_approved_draft_ir_v2(
     )
 
 
+# Claim classes whose obligation is a numeric/state invariant the legacy skeleton can only lower
+# vacuously, so they must refuse at translation rather than emit a misleading status="lowered"
+# artifact. The skeleton stubs every identifier to ``name == 0`` and renders the obligation
+# comparison over those stubs (e.g. ``keep collateral >= 100`` becomes a check of the constant 0,
+# not the system's ``collateral``), so a model check of the skeleton answers a question about
+# nothing. A faithful S ∧ R lowering needs a reviewed system spec that DECLARES the state variable
+# for the invariant to bind against (PB-4); until such a stateful S exists, refusing here surfaces
+# the same honesty the composition-level vacuity guard enforces, one stage earlier. The companion
+# state-obligation class ``state_postcondition`` already refuses at translation: its ``post_state``
+# obligation node is rejected by ``_unsupported_nodes``. ``numeric_invariant``'s ``gte``/``lte``
+# obligation is in the skeleton's supported set, so it needs this explicit claim-class guard.
+# Comparison/membership PREMISES are unaffected — they are discharged by the theory-aware SMT
+# backends on the FormalClaim path, never this lowering.
+_UNGROUNDED_STATE_INVARIANT_CLAIM_CLASSES = frozenset({"numeric_invariant"})
+
+
 def lower_ir_v2_to_tla(ir: RequirementIRV2) -> LoweredFormalArtifact:
     claim_class = ir.semantic_ir.metadata.get("requirement_class")
     if claim_class == "authorization_precondition":
         return _lower_non_vacuous(ir, claim_class)
+    if claim_class in _UNGROUNDED_STATE_INVARIANT_CLAIM_CLASSES:
+        return _refuse_ungrounded_state_invariant(ir, claim_class)
     return _lower_skeleton(ir)
+
+
+def _refuse_ungrounded_state_invariant(
+    ir: RequirementIRV2, claim_class: str
+) -> LoweredFormalArtifact:
+    """Refuse a numeric/state-invariant claim the skeleton can only lower vacuously.
+
+    See ``_UNGROUNDED_STATE_INVARIANT_CLAIM_CLASSES``: the skeleton would stub the invariant's
+    identifiers to 0 and check the obligation comparison over those stubs, so the lowered module
+    would not be S ∧ R evidence. Refuse with a source-spanned diagnostic anchored on the obligation
+    invariant rather than emit a misleading ``status="lowered"`` artifact. The downstream backend
+    and system-checker callers already branch on ``status != "lowered"`` and surface these
+    diagnostics as ``unsupported``, so the refusal flows through the gate without a false discharge.
+    """
+    obligation = ir.semantic_ir.obligation
+    anchor = (obligation.must or obligation) if obligation is not None else ir.semantic_ir
+    return LoweredFormalArtifact(
+        requirement_id=ir.requirement_id,
+        source_ir_version=ir.ir_version,
+        source_ir_hash=sha256_json(ir),
+        status="refused",
+        temporal_bounds=_temporal_bounds(ir.semantic_ir),
+        diagnostics=[
+            LoweringDiagnostic(
+                node_id=anchor.node_id,
+                kind=anchor.kind,
+                reason=(
+                    f"{claim_class} obligation is a state invariant over identifiers the TLA "
+                    "skeleton can only stub to 0; a faithful S ∧ R lowering requires a reviewed "
+                    "system spec that declares the state variable. Refused rather than emit a "
+                    "vacuous lowered module (comparison and membership premises are discharged by "
+                    "the SMT backends, not this lowering)."
+                ),
+                source_spans=anchor.source_spans,
+            )
+        ],
+        metadata={
+            "refusal_code": "NLR-LOWERING-UNGROUNDED-STATE-INVARIANT",
+            "claim_class": claim_class,
+        },
+    )
 
 
 def _lower_non_vacuous(ir: RequirementIRV2, claim_class: str) -> LoweredFormalArtifact:

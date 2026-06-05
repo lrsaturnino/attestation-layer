@@ -404,16 +404,16 @@ def test_solver_backed_refuses_operator_name_collision(tmp_path: Path) -> None:
     assert not (tmp_path / "artifacts").exists()
 
 
-def test_solver_backed_refuses_vacuous_requirement_projection(tmp_path: Path) -> None:
-    """A non-authorization requirement that binds no predicate S interprets makes the default
-    solver-backed S ∧ R refuse (unsupported), inheriting the composition's vacuity guard.
+def test_solver_backed_refuses_ungrounded_numeric_invariant(tmp_path: Path) -> None:
+    """A numeric_invariant makes the default solver-backed S ∧ R refuse (unsupported) — the
+    requirement produces no false S ∧ R evidence.
 
-    A numeric_invariant lowers to a skeleton with no CONSTANT Pred_*, so against a reviewed,
-    stateless S that declares an invariant the composition would check S alone — a vacuous run
-    whose outcome (a stray ``valid``, or an incidental skeleton type error) is not S ∧ R evidence.
-    The gate path must refuse rather than surface such a result; numeric comparisons are discharged
-    by the SMT backends on their own route. No checker binary is needed: the refusal happens at
-    composition, before any command runs.
+    A numeric_invariant's obligation is a state invariant over identifiers the TLA skeleton can
+    only stub to 0, so lowering refuses it at translation (NLR-LOWERING-UNGROUNDED-STATE-INVARIANT)
+    rather than emit a vacuous module. The solver path sees the refused lowering and returns
+    ``unsupported`` before any checker runs; numeric comparisons are discharged by the SMT backends
+    on their own route. (The composition-level vacuity guard that previously caught this end-to-end
+    remains covered directly by ``test_compose_s_and_r_module_refuses_vacuous_requirement_projection``.)
     """
     from nlreq.dsl_v3 import DslV3Parser
 
@@ -425,9 +425,14 @@ def test_solver_backed_refuses_vacuous_requirement_projection(tmp_path: Path) ->
         requirement_id="REQ-SYS-NUMERIC",
         title="Numeric invariant",
     )
+    lowered = lower_ir_v2_to_tla(ir)
+    # The refusal originates at translation, not the composition vacuity guard.
+    assert lowered.status == "refused"
+    assert lowered.metadata.get("refusal_code") == "NLR-LOWERING-UNGROUNDED-STATE-INVARIANT"
+
     result = check_solver_backed_system_consistency(
         requirement=ir,
-        lowered=lower_ir_v2_to_tla(ir),
+        lowered=lowered,
         registry=_reviewed_s_registry(tmp_path),
         impact=_authz_impact(),
         project_root=tmp_path,
@@ -439,8 +444,9 @@ def test_solver_backed_refuses_vacuous_requirement_projection(tmp_path: Path) ->
     )
 
     assert result.result.status == "unsupported"
-    assert result.result.details["refusal_kind"] == "vacuous_requirement_projection"
-    # Refusal happens at composition, before the checker runs — no artifacts written.
+    assert result.result.details["reason"] == "lowered artifact is refused"
+    assert result.result.details["mode"] == "solver_backed"
+    # The lowering refused before the checker runs — no artifacts written.
     assert not (tmp_path / "artifacts").exists()
 
 
