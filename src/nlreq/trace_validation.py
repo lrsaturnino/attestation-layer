@@ -615,16 +615,22 @@ def _trace_mapping(
     """The observed→fragment mapping a trace validator used to reach its verdict.
 
     A TRACE_VALIDATED result asserts observed runtime behavior was mapped onto the requirement's
-    formal fragment. Recording that mapping — the validator that ran, the requirement fragment it
-    covers, and the concrete events it read — is what makes the claim non-lossy and replayable;
-    the BackendResult guard refuses TRACE_VALIDATED without it.
+    formal fragment. Recording a self-contained, replayable mapping — the validator that ran, the
+    requirement whose fragment it covers, the content + source digests of the exact trace, the
+    concrete events it read (by id, so a verdict is not lost when several events share an action),
+    and the covered fragment — is what makes the claim non-lossy; the BackendResult guard refuses
+    TRACE_VALIDATED without this schema.
     """
     return {
         "validator_id": validator_id,
         "requirement_id": ir.requirement_id,
         "claim_kind": ir.claim.kind,
         "expected_kind": ir.claim.expected.kind,
+        "trace_id": trace.trace_id,
+        "trace_hash": sha256_json(trace),
+        "trace_source_hash": trace.source_hash,
         "observed_events": [event.action for event in trace.events],
+        "observed_event_ids": [event.event_id for event in trace.events],
         "fragment": fragment,
     }
 

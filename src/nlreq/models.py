@@ -514,16 +514,45 @@ def _has_recorded_bounds(details: dict[str, Any]) -> bool:
     return isinstance(bounds, dict) and len(bounds) > 0
 
 
+def _is_nonempty_str(value: Any) -> bool:
+    """Whether ``value`` is a non-empty (non-whitespace) string."""
+    return isinstance(value, str) and bool(value.strip())
+
+
 def _has_trace_mapping(details: dict[str, Any]) -> bool:
-    """Whether ``details`` records the observed→fragment mapping a TRACE_VALIDATED claim used.
+    """Whether ``details`` records a non-lossy observed→fragment mapping for a TRACE_VALIDATED claim.
 
     TRACE_VALIDATED asserts observed runtime behavior was mapped onto the requirement's formal
-    fragment. A result that mapped nothing — a redaction-blocked or unsupported trace — has no
-    such mapping and must not claim the level; the producer records the concrete mapping under a
-    non-empty ``details['trace_mapping']`` (validator, fragment, observed events).
+    fragment. The honest, replayable backing is not merely *some* dict but a stable schema that
+    pins down what was read and what it covered, so the verdict can be reconstructed:
+
+    - ``validator_id`` and ``requirement_id`` — which validator ran, against which requirement;
+    - ``trace_hash`` and ``trace_source_hash`` — the content and source digests of the exact trace,
+      so the observations can be re-fetched and the mapping survives the trace file moving;
+    - ``observed_event_ids`` — the concrete events read, by id, not by action string (many events
+      can share an action, so an action is not an event identity). The list is empty only for an
+      empty trace (a counterexample can be reached observing nothing);
+    - ``fragment`` — the covered formal fragment (the obligation the validator discharged).
+
+    A redaction-blocked or unsupported result mapped none of this, and an arbitrary dict satisfies
+    none of the schema; either way the claim cannot be constructed.
     """
     mapping = details.get("trace_mapping")
-    return isinstance(mapping, dict) and len(mapping) > 0
+    if not isinstance(mapping, dict):
+        return False
+    if not _is_nonempty_str(mapping.get("validator_id")):
+        return False
+    if not _is_nonempty_str(mapping.get("requirement_id")):
+        return False
+    if not _is_nonempty_str(mapping.get("trace_hash")):
+        return False
+    if not _is_nonempty_str(mapping.get("trace_source_hash")):
+        return False
+    event_ids = mapping.get("observed_event_ids")
+    if not isinstance(event_ids, list) or not all(_is_nonempty_str(eid) for eid in event_ids):
+        return False
+    fragment = mapping.get("fragment")
+    return isinstance(fragment, dict) and len(fragment) > 0
 
 
 class BackendResult(BaseModel):
@@ -557,7 +586,9 @@ class BackendResult(BaseModel):
         - BOUNDED_CHECKED is the output of a bounded model check, so it may not be claimed without
           the bounds the check ran under (a non-empty ``details['bounds']``).
         - TRACE_VALIDATED asserts observed behavior was mapped onto a formal fragment, so it may
-          not be claimed without that mapping (a non-empty ``details['trace_mapping']``).
+          not be claimed without a non-lossy mapping under ``details['trace_mapping']``: the
+          stable schema of validator id, requirement id, trace content + source hashes, the
+          concrete event ids read, and the covered fragment (see ``_has_trace_mapping``).
         """
         if self.evidence_level == EvidenceLevel.PROVEN_INDUCTIVE:
             if self.status != "valid":
@@ -600,8 +631,10 @@ class BackendResult(BaseModel):
         ):
             raise ValueError(
                 "BackendResult claiming TRACE_VALIDATED requires the observed→fragment mapping it "
-                "validated in a non-empty details['trace_mapping']; a trace result that mapped no "
-                "observed behavior to the requirement cannot claim trace-validated evidence"
+                "validated in details['trace_mapping'] — a stable schema recording validator_id, "
+                "requirement_id, trace_hash, trace_source_hash, observed_event_ids, and the covered "
+                "fragment; a trace result that mapped no observed behavior, or an arbitrary dict, "
+                "cannot claim trace-validated evidence"
             )
         return self
 

@@ -171,18 +171,87 @@ def test_trace_validated_with_empty_mapping_is_rejected_at_construction() -> Non
         )
 
 
-def test_trace_validated_accepts_a_recorded_mapping() -> None:
-    result = BackendResult(
+def _valid_trace_mapping() -> dict:
+    """A schema-complete observed→fragment mapping, the shape the trace producer emits.
+
+    ``trace_source_hash`` is a non-canonical placeholder ("sha256:trace-source") on purpose: it is
+    the digest the adapter recorded for the input trace, which the validator must accept as-is
+    rather than re-deriving — the producer copies it verbatim.
+    """
+    return {
+        "validator_id": "forbidden-event-absent",
+        "requirement_id": "REQ-AUTH-001",
+        "trace_hash": "sha256:" + "b2" * 32,
+        "trace_source_hash": "sha256:trace-source",
+        "observed_events": ["request", "settle"],
+        "observed_event_ids": ["evt-1", "evt-2"],
+        "fragment": {"forbidden_events_absent": ["unauthorized_settle"]},
+    }
+
+
+def _trace_validated(mapping: dict) -> BackendResult:
+    return BackendResult(
         backend="trace",
         status="valid",
         evidence_level=EvidenceLevel.TRACE_VALIDATED,
-        details={
-            "trace_mapping": {
-                "validator_id": "forbidden-event-absent",
-                "observed_events": ["request", "settle"],
-                "fragment": {"forbidden_events_absent": ["unauthorized_settle"]},
-            }
-        },
+        details={"trace_mapping": mapping},
+    )
+
+
+def test_trace_validated_accepts_a_schema_complete_mapping() -> None:
+    result = _trace_validated(_valid_trace_mapping())
+
+    assert result.evidence_level == EvidenceLevel.TRACE_VALIDATED
+
+
+def test_trace_validated_accepts_an_empty_event_list_for_an_empty_trace() -> None:
+    # A counterexample can be reached observing nothing (an empty trace); the mapping then records
+    # zero concrete events honestly, rather than being rejected.
+    mapping = _valid_trace_mapping()
+    mapping["observed_event_ids"] = []
+    result = BackendResult(
+        backend="trace",
+        status="counterexample",
+        evidence_level=EvidenceLevel.TRACE_VALIDATED,
+        details={"trace_mapping": mapping},
     )
 
     assert result.evidence_level == EvidenceLevel.TRACE_VALIDATED
+
+
+def test_trace_validated_rejects_an_arbitrary_mapping() -> None:
+    with pytest.raises(ValidationError, match="TRACE_VALIDATED requires the observed"):
+        _trace_validated({"foo": "bar"})
+
+
+def test_trace_validated_rejects_a_mapping_without_trace_hashes() -> None:
+    # A mapping with no content/source digest cannot re-fetch the exact observations it validated.
+    no_hash = _valid_trace_mapping()
+    del no_hash["trace_hash"]
+    with pytest.raises(ValidationError, match="TRACE_VALIDATED requires the observed"):
+        _trace_validated(no_hash)
+
+    no_source = _valid_trace_mapping()
+    del no_source["trace_source_hash"]
+    with pytest.raises(ValidationError, match="TRACE_VALIDATED requires the observed"):
+        _trace_validated(no_source)
+
+
+def test_trace_validated_rejects_a_mapping_without_concrete_event_ids() -> None:
+    # Action strings alone are not event identities; the mapping must record concrete event ids.
+    no_ids = _valid_trace_mapping()
+    del no_ids["observed_event_ids"]
+    with pytest.raises(ValidationError, match="TRACE_VALIDATED requires the observed"):
+        _trace_validated(no_ids)
+
+    non_string_ids = _valid_trace_mapping()
+    non_string_ids["observed_event_ids"] = [1, 2]
+    with pytest.raises(ValidationError, match="TRACE_VALIDATED requires the observed"):
+        _trace_validated(non_string_ids)
+
+
+def test_trace_validated_rejects_a_mapping_without_a_covered_fragment() -> None:
+    no_fragment = _valid_trace_mapping()
+    no_fragment["fragment"] = {}
+    with pytest.raises(ValidationError, match="TRACE_VALIDATED requires the observed"):
+        _trace_validated(no_fragment)
