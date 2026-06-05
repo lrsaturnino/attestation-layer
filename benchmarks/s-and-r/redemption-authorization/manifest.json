@@ -6,7 +6,7 @@
     "--init=Init",
     "--next=Next",
     "--inv=Inv",
-    "--length=6",
+    "--length={max_depth}",
     "{module}"
   ],
   "budget": {

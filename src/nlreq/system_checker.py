@@ -30,6 +30,13 @@ from .translator import LoweredFormalArtifact
 SYSTEM_CHECKER_SCHEMA_VERSION = "0.1"
 
 
+# Default symbolic search depth for the S ∧ R bounded check when the caller supplies no
+# ``max_depth`` budget. Recorded into the run's ``bounds`` and rendered into ``--length`` from
+# the *same* effective budget, so the depth the checker actually searched can never disagree
+# with the depth the run claims (see check_solver_backed_system_consistency / _runner_budget).
+DEFAULT_S_AND_R_DEPTH = 6
+
+
 # Single source of truth for the Apalache command that checks a composed S ∧ R module.
 # The narrowing composition emits S's own transition system under Init/Next, the conjoined
 # S ∧ R state invariant as Inv, and pins identifier constants in ConstInit. The checker must
@@ -37,8 +44,10 @@ SYSTEM_CHECKER_SCHEMA_VERSION = "0.1"
 # one composed — e.g. with the scope identifiers left unbound — and could miss or invent a
 # counterexample. The default gate (end_to_end_gate), the retained benchmark corpus
 # (benchmarks/s-and-r/.../manifest.json), and the real-Apalache tests all reference this so
-# they cannot drift apart. ``--length`` bounds the symbolic search depth; ``{module}`` is
-# substituted with the composed module's filename by _solver_checker_command.
+# they cannot drift apart. ``--length`` bounds the symbolic search depth and is rendered from
+# the effective budget's ``max_depth`` (``{max_depth}`` token) so the searched depth equals the
+# recorded ``bounds.max_depth``; ``{module}`` is substituted with the composed module's filename.
+# Both tokens are always substituted by _solver_checker_command before execution.
 APALACHE_S_AND_R_COMMAND: tuple[str, ...] = (
     "apalache-mc",
     "check",
@@ -46,7 +55,7 @@ APALACHE_S_AND_R_COMMAND: tuple[str, ...] = (
     "--init=Init",
     "--next=Next",
     "--inv=Inv",
-    "--length=6",
+    "--length={max_depth}",
     "{module}",
 )
 
@@ -297,14 +306,19 @@ def check_solver_backed_system_consistency(
     # S ∧ R state invariant, ConstInit pinning identifier constants.
     config_path.write_text("INIT Init\nNEXT Next\nINVARIANT Inv\n")
 
-    command = _solver_checker_command(execution, module_path, config_path, module_name)
+    # One effective budget is the single source of truth: its max_depth renders the command's
+    # --length AND is recorded in bounds, so a run cannot claim a depth it did not search.
+    runner_budget = _runner_budget(budget)
+    command = _solver_checker_command(
+        execution, module_path, config_path, module_name, max_depth=runner_budget.max_depth
+    )
     runner_result = run_model_checker(
         ModelCheckerCommand(
             run_id=f"{requirement.requirement_id}:s-and-r",
             checker_id=execution.checker_id,
             command=command,
             cwd=artifact_dir.as_posix(),
-            budget=_runner_budget(budget),
+            budget=runner_budget,
             expected_exit_code=execution.expected_exit_code,
             tool_version=execution.tool_version,
             tool_version_command=(
@@ -334,7 +348,7 @@ def check_solver_backed_system_consistency(
             "reproducibility": runner_result.reproducibility.model_dump(
                 mode="json", exclude_none=True
             ),
-            "bounds": _budget_details(budget),
+            "bounds": runner_budget.model_dump(mode="json", exclude_none=True),
             "preserved_invariants": composed.preserved_invariants,
             "bound_predicates": composed.bound_predicates,
             "spec_hashes": {
@@ -685,12 +699,18 @@ def _solver_checker_command(
     module_path: Path,
     config_path: Path,
     module_name: str,
+    *,
+    max_depth: int,
 ) -> list[str]:
     command = execution.command or ["tlc2.TLC", "-config", config_path.name, module_path.name]
+    # ``{max_depth}`` renders the bounded-search depth from the *same* effective budget that is
+    # recorded in ``bounds``, so the depth the checker searches (``--length``) can never disagree
+    # with the depth the run claims. A custom command without the token simply ignores it.
     replacements = {
         "{module}": module_path.name,
         "{config}": config_path.name,
         "{module_name}": module_name,
+        "{max_depth}": str(max_depth),
     }
     rendered: list[str] = []
     for part in command:
@@ -702,19 +722,19 @@ def _solver_checker_command(
 
 
 def _runner_budget(budget: FormalBackendBudget | None) -> ModelCheckerBudget:
+    # The effective S ∧ R budget. ``max_depth`` always resolves to a concrete value
+    # (DEFAULT_S_AND_R_DEPTH when the caller supplies none) because it is the single source of
+    # truth for both the rendered ``--length`` and the recorded ``bounds.max_depth``; leaving it
+    # None would let the command's depth and the claimed depth drift apart.
     if budget is None:
-        return ModelCheckerBudget(timeout_seconds=120)
+        return ModelCheckerBudget(timeout_seconds=120, max_depth=DEFAULT_S_AND_R_DEPTH)
     return ModelCheckerBudget(
         timeout_seconds=budget.timeout_seconds or 120,
-        max_depth=budget.max_depth,
+        max_depth=budget.max_depth or DEFAULT_S_AND_R_DEPTH,
         max_states=budget.max_states,
         memory_budget_mb=budget.memory_budget_mb,
         solver_options=budget.solver_options,
     )
-
-
-def _budget_details(budget: FormalBackendBudget | None) -> dict[str, object]:
-    return _runner_budget(budget).model_dump(mode="json", exclude_none=True)
 
 
 def _solver_status_for_runner(outcome: str) -> Literal["valid", "counterexample", "timeout", "unsupported", "invalid"]:

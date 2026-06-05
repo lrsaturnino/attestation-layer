@@ -18,6 +18,7 @@ from nlreq.models import RequirementIR
 from nlreq.parser import RequirementParser
 from nlreq.system_checker import (
     APALACHE_S_AND_R_COMMAND,
+    DEFAULT_S_AND_R_DEPTH,
     check_requirement_set_consistency,
     check_solver_backed_system_consistency,
     check_system_consistency_fixture,
@@ -255,6 +256,58 @@ def test_solver_backed_s_and_r_contradicting_requirement_is_counterexample(
     assert result.result.status == "counterexample", result.result.details
     assert result.counterexamples
     assert result.counterexamples[0].backend == "solver_system_checker"
+
+
+def test_solver_backed_command_depth_matches_recorded_bounds(tmp_path: Path) -> None:
+    """The executed ``--length`` is rendered from the same budget recorded in ``bounds``.
+
+    Regression for the depth-provenance gap: the S ∧ R command used to hardcode ``--length=6``
+    while ``bounds`` recorded the caller's ``max_depth`` separately, so a run could claim one
+    depth in metadata while the checker searched another. With a non-default depth (9), the
+    rendered command and the recorded bounds must agree, and the ``{max_depth}`` token must be
+    substituted (never executed raw). Tool-free: composition succeeds and the command/bounds are
+    recorded regardless of the (deliberately absent) checker binary, so this needs no Apalache.
+    """
+    ir = _authz_ir()
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(tmp_path),
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=60, max_depth=9),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=["apalache-mc-not-installed", *list(APALACHE_S_AND_R_COMMAND)[1:]],
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    command = result.result.details["command"]
+    assert "--length=9" in command, command
+    assert "--length={max_depth}" not in command, command
+    assert result.result.details["bounds"]["max_depth"] == 9
+
+
+def test_solver_backed_default_depth_is_recorded_when_budget_omits_it(tmp_path: Path) -> None:
+    """With no caller depth, the rendered ``--length`` and recorded ``bounds`` both fall back to
+    the same DEFAULT_S_AND_R_DEPTH — never a silent depth the run does not claim."""
+    ir = _authz_ir()
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(tmp_path),
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=["apalache-mc-not-installed", *list(APALACHE_S_AND_R_COMMAND)[1:]],
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert f"--length={DEFAULT_S_AND_R_DEPTH}" in result.result.details["command"]
+    assert result.result.details["bounds"]["max_depth"] == DEFAULT_S_AND_R_DEPTH
 
 
 def test_solver_backed_refuses_spec_without_declared_invariant(tmp_path: Path) -> None:
