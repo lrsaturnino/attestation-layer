@@ -14,11 +14,12 @@ from nlreq.formal_lowering import (
     compose_s_and_r_module,
 )
 from nlreq.impact import ImpactAnalysisArtifact
-from nlreq.models import RequirementIR
+from nlreq.models import EvidenceLevel, RequirementIR
 from nlreq.parser import RequirementParser
 from nlreq.system_checker import (
     APALACHE_S_AND_R_COMMAND,
     DEFAULT_S_AND_R_DEPTH,
+    _solver_result,
     check_requirement_set_consistency,
     check_solver_backed_system_consistency,
     check_system_consistency_fixture,
@@ -1445,3 +1446,18 @@ def test_compose_s_and_r_narrowing_refuses_missing_outcome_predicate() -> None:
 
     assert composed.status == "refused"
     assert composed.refusal_kind == "missing_outcome_predicate"
+
+
+def test_solver_result_does_not_label_valid_run_bounded_without_recorded_bounds() -> None:
+    """A valid solver run defaults to BOUNDED_CHECKED only when it recorded the bounds it
+    searched. Without recorded bounds the bounded claim has no backing, so the level degrades to
+    None/unverified rather than over-claim (and rather than crash the BackendResult guard)."""
+    unbacked = _solver_result(
+        "REQ-1", "valid", ["spec:sys"], {"mode": "solver_backed"}
+    )
+    backed = _solver_result(
+        "REQ-1", "valid", ["spec:sys"], {"mode": "solver_backed", "bounds": {"max_depth": 8}}
+    )
+
+    assert unbacked.result.evidence_level is None
+    assert backed.result.evidence_level == EvidenceLevel.BOUNDED_CHECKED

@@ -448,6 +448,21 @@ class ReviewArtifact(BaseModel):
     timestamp: str
 
 
+def _has_proof_artifact(details: dict[str, Any]) -> bool:
+    """Whether ``details`` references a checked-proof artifact backing a PROVEN_INDUCTIVE claim."""
+    artifact_hash = details.get("proof_artifact_sha256")
+    if isinstance(artifact_hash, str) and artifact_hash.strip():
+        return True
+    artifacts = details.get("proof_artifacts")
+    return isinstance(artifacts, list) and len(artifacts) > 0
+
+
+def _has_recorded_bounds(details: dict[str, Any]) -> bool:
+    """Whether ``details`` records the bounds a BOUNDED_CHECKED claim was checked under."""
+    bounds = details.get("bounds")
+    return isinstance(bounds, dict) and len(bounds) > 0
+
+
 class BackendResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -455,6 +470,43 @@ class BackendResult(BaseModel):
     status: Literal["valid", "invalid", "counterexample", "timeout", "unsupported", "needs_review"]
     evidence_level: EvidenceLevel | None = None
     details: dict[str, Any] = Field(default_factory=dict)
+
+    @model_validator(mode="after")
+    def _validate_evidence_backing(self) -> BackendResult:
+        """Refuse to construct a result whose evidence level outruns its backing metadata.
+
+        A high-assurance level is a claim about *how* a result was obtained, so it cannot be
+        constructed without the metadata that backs the claim. Enforcing this at construction
+        makes a dishonest result impossible to hold in memory, not merely rejected downstream;
+        the proof-closure producer mapping and the evidence-boundary report keep the same checks
+        as defense-in-depth. To inject a deliberately-malformed result for those downstream tests,
+        bypass validation with ``BackendResult.model_construct(...)``.
+
+        - PROVEN_INDUCTIVE has no real inductive-proof producer yet, so it may not be claimed
+          without referencing a checked-proof artifact (a ``proof_artifact_sha256`` hash or a
+          non-empty ``proof_artifacts`` list in ``details``).
+        - BOUNDED_CHECKED is the output of a bounded model check, so it may not be claimed without
+          the bounds the check ran under (a non-empty ``details['bounds']``).
+        """
+        if (
+            self.evidence_level == EvidenceLevel.PROVEN_INDUCTIVE
+            and not _has_proof_artifact(self.details)
+        ):
+            raise ValueError(
+                "BackendResult claiming PROVEN_INDUCTIVE requires a checked-proof artifact in "
+                "details (a 'proof_artifact_sha256' hash or a non-empty 'proof_artifacts' list); "
+                "no inductive-proof producer exists, so the level cannot be emitted without one"
+            )
+        if (
+            self.evidence_level == EvidenceLevel.BOUNDED_CHECKED
+            and not _has_recorded_bounds(self.details)
+        ):
+            raise ValueError(
+                "BackendResult claiming BOUNDED_CHECKED requires the bounds it was checked under "
+                "in a non-empty details['bounds']; a bounded model check cannot claim its evidence "
+                "level without recording the bound"
+            )
+        return self
 
 
 class BackendResultsArtifact(RootModel[list[BackendResult]]):

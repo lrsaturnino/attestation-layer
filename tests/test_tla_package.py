@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from nlreq.adoption import build_package_index
 from nlreq.cli import main
@@ -240,3 +241,27 @@ def _config(command: list[str] | None = None) -> TlaModelConfigArtifact:
             ],
         }
     )
+
+
+def test_bounded_tla_model_check_requires_declared_bounds() -> None:
+    """A TLA model check requests BOUNDED_CHECKED evidence, so it must declare the bounds it
+    searches; an omitted bounds (defaulting to empty) emits a bounded claim with no backing."""
+    config = {
+        "schema_version": "0.1",
+        "adapter": "tla",
+        "models": [
+            {
+                "model_id": "authorization-state-machine",
+                "requirement_ids": ["REQ-TLA-001"],
+                "module": "Authorization.tla",
+                "config": "Authorization.cfg",
+                "checker": "custom",
+                "command": [sys.executable, "-c", "print('ok')"],
+                "properties": ["UnauthorizedRejectedBeforeStateChange"],
+                "requested_evidence": "BOUNDED_CHECKED",
+            }
+        ],
+    }
+
+    with pytest.raises(ValidationError, match="must declare the bounds"):
+        TlaModelConfigArtifact.model_validate(config)

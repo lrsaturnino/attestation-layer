@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from fractions import Fraction
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -189,19 +189,30 @@ def check_requirement_self_consistency(
     )
     status = _result_status(response)
     backend_counterexamples = _counterexamples_from_backend(response) if status == "contradiction" else []
+    # Surface the bounds the inner bounded check ran under at the top level so a BOUNDED_CHECKED
+    # claim carries its backing where the construction guard reads it. A bounded result is honest
+    # only when a bounded check actually recorded a bound, so the level is claimed only then.
+    backend_details = response.result.details
+    inner_bounds = backend_details.get("bounds") if isinstance(backend_details, dict) else None
+    has_bounds = isinstance(inner_bounds, dict) and len(inner_bounds) > 0
+    self_consistency_details: dict[str, Any] = {
+        "checker": backend_id,
+        "formal_backend_status": response.result.status,
+        "formal_backend_response_hash": sha256_json(response),
+        "backend_details": backend_details,
+    }
+    if has_bounds:
+        self_consistency_details["bounds"] = inner_bounds
     return RequirementSelfConsistencyResult(
         requirement_id=requirement.requirement_id,
         status=status,
         result=BackendResult(
             backend="requirement_self_consistency",
             status=_backend_result_status(status),
-            evidence_level=EvidenceLevel.BOUNDED_CHECKED if status == "valid" else None,
-            details={
-                "checker": backend_id,
-                "formal_backend_status": response.result.status,
-                "formal_backend_response_hash": sha256_json(response),
-                "backend_details": response.result.details,
-            },
+            evidence_level=(
+                EvidenceLevel.BOUNDED_CHECKED if status == "valid" and has_bounds else None
+            ),
+            details=self_consistency_details,
         ),
         checked_taxonomy_codes=checked_codes,
         contradictions=backend_counterexamples,

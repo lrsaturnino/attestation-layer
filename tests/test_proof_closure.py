@@ -74,20 +74,24 @@ def _consistency(tmp_path: Path):
 
 
 def test_unbacked_bounded_evidence_blocks_closure(tmp_path: Path) -> None:
-    """A BOUNDED_CHECKED result with no recorded bounds/command/version cannot close a proof.
+    """A BOUNDED_CHECKED result that records bounds but no command/version cannot close a proof.
 
-    PB-9: a stub or custom checker that emits BOUNDED_CHECKED without real bounded backing must
-    not buy high-assurance closure. The premises here discharge on the system_checker floor, so
-    the only thing that can block is the unbacked bounded claim — and it must.
+    PB-9: the construction guard rejects a bounded claim with no recorded bounds, but real bounded
+    backing is bounds *and* the checker command *and* a run-recorded tool version. A result that
+    passes the guard with bounds alone still lacks real backing, and the proof-closure layer must
+    block it (defense in depth beyond the type-level construction guard). The premises here
+    discharge on the system_checker floor, so the only thing that can block is the unbacked claim.
     """
     ir = _ir()
     coverage = _coverage(tmp_path)
     alignment = _alignment(ir, coverage)
+    # Bounds recorded (passes the construction guard) but no command or tool version: not real
+    # bounded backing, so the proof-closure layer must still block it.
     unbacked = BackendResult(
         backend="apalache",
         status="valid",
         evidence_level=EvidenceLevel.BOUNDED_CHECKED,
-        details={},
+        details={"bounds": {"max_depth": 5}},
     )
 
     proof = build_proof_object(
@@ -195,10 +199,14 @@ def test_proof_object_rejects_high_assurance_from_non_real_producer(
     proof = build_proof_object(
         requirement=ir,
         backend_results=[
+            # References a proof artifact (passes the construction guard) but the producer is not
+            # a real one; the proof-closure producer mapping must still reject the high-assurance
+            # claim (defense in depth beyond the type-level construction guard).
             BackendResult(
                 backend="drafting-tool",
                 status="valid",
                 evidence_level=EvidenceLevel.PROVEN_INDUCTIVE,
+                details={"proof_artifact_sha256": "sha256:drafting-placeholder"},
             )
         ],
         coverage=_coverage(tmp_path),

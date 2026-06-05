@@ -285,11 +285,15 @@ def test_phase129_budget_outcomes_have_closure_effects() -> None:
 
 def test_phase130_proof_producing_boundary_blocks_fake_inductive_claims() -> None:
     mapping = default_evidence_producer_mapping()
+    # The result references a proof artifact (passes the construction guard) but its producer is
+    # not a proof assistant and no retained checked_proof artifact or checker command is supplied
+    # to the boundary; the emission-boundary report must still block the claim (defense in depth).
     fake = build_proof_producing_backend_boundary_report(
         backend_result=BackendResult(
             backend="apalache",
             status="valid",
             evidence_level=EvidenceLevel.PROVEN_INDUCTIVE,
+            details={"proof_artifact_sha256": "sha256:apalache-placeholder"},
         ),
         producer_mapping=mapping,
     )
@@ -298,6 +302,7 @@ def test_phase130_proof_producing_boundary_blocks_fake_inductive_claims() -> Non
             backend="tlaps",
             status="valid",
             evidence_level=EvidenceLevel.PROVEN_INDUCTIVE,
+            details={"proof_artifact_sha256": "sha256:checked-proof"},
         ),
         producer_mapping=mapping,
         proof_artifacts=[
@@ -314,6 +319,7 @@ def test_phase130_proof_producing_boundary_blocks_fake_inductive_claims() -> Non
             backend="tlc",
             status="valid",
             evidence_level=EvidenceLevel.BOUNDED_CHECKED,
+            details={"bounds": {"max_depth": 10}},
         ),
         producer_mapping=mapping,
     )

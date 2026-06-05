@@ -33,11 +33,13 @@ def test_real_evidence_producer_validation_blocks_forged_high_assurance() -> Non
             )
         ]
     )
+    # Bounds recorded (passes the construction guard) but the producer is not real and no tool
+    # version is recorded; the real-evidence-producer validation must still block the claim.
     result = BackendResult(
         backend="fake",
         status="valid",
         evidence_level=EvidenceLevel.BOUNDED_CHECKED,
-        details={"command": ["manual"], "input_hashes": {"model": "sha256:x"}},
+        details={"bounds": {"max_depth": 5}, "command": ["manual"], "input_hashes": {"model": "sha256:x"}},
     )
 
     report = validate_real_evidence_producers([result], mapping)
@@ -48,11 +50,13 @@ def test_real_evidence_producer_validation_blocks_forged_high_assurance() -> Non
 
 
 def test_real_evidence_producer_validation_blocks_missing_reproducibility() -> None:
+    # Bounds recorded (passes the construction guard) but command metadata and output/artifact
+    # hashes are missing; the real-evidence-producer validation must still block the claim.
     result = BackendResult(
         backend="tla-runner",
         status="valid",
         evidence_level=EvidenceLevel.BOUNDED_CHECKED,
-        details={"tool_version": "tlc 1.0"},
+        details={"bounds": {"max_depth": 5}, "tool_version": "tlc 1.0"},
     )
 
     report = validate_real_evidence_producers(

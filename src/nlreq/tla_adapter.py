@@ -49,6 +49,11 @@ class TlaModelCheck(BaseModel):
     def validate_model(self) -> TlaModelCheck:
         if self.requested_evidence != EvidenceLevel.BOUNDED_CHECKED:
             raise ValueError("TLA checks may only request BOUNDED_CHECKED evidence")
+        if not self.bounds:
+            raise ValueError(
+                "a BOUNDED_CHECKED TLA check must declare the bounds it searches; an empty bounds "
+                "emits a bounded-evidence claim with no backing"
+            )
         if any(not part for part in self.command):
             raise ValueError("model checker command argv entries must be non-empty strings")
         _validate_relative_path(self.module, field="module")

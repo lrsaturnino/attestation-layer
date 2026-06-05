@@ -508,13 +508,21 @@ def _solver_result(
     counterexamples: list[Counterexample] | None = None,
     evidence_level: EvidenceLevel | None = None,
 ) -> SystemConsistencyResult:
-    # Default: BOUNDED_CHECKED for external model-checker runs (Apalache/TLC with depth).
-    # Callers that use an in-process SMT solver (checker_id="z3") should pass
-    # evidence_level=EvidenceLevel.SMT_CHECKED to avoid conflating bounded-MC evidence
-    # with propositional satisfiability evidence.
+    # Default: BOUNDED_CHECKED for external model-checker runs (Apalache/TLC with depth), but
+    # only when the run recorded the bounds it searched. A valid run with no recorded bounds has
+    # no backing for a bounded claim (the BackendResult guard would reject it), so it defaults to
+    # None/unverified rather than over-claim. Callers that use an in-process SMT solver
+    # (checker_id="z3") pass evidence_level=EvidenceLevel.SMT_CHECKED to avoid conflating bounded-MC
+    # evidence with propositional satisfiability evidence.
+    bounds = details.get("bounds")
+    has_recorded_bounds = isinstance(bounds, dict) and bool(bounds)
     resolved_evidence = (
         evidence_level if evidence_level is not None
-        else (EvidenceLevel.BOUNDED_CHECKED if status == "valid" else None)
+        else (
+            EvidenceLevel.BOUNDED_CHECKED
+            if status == "valid" and has_recorded_bounds
+            else None
+        )
     )
     return SystemConsistencyResult(
         requirement_id=requirement_id,
