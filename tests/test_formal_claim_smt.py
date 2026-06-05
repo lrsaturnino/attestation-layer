@@ -3,14 +3,15 @@ from __future__ import annotations
 from pathlib import Path
 
 from nlreq.dsl_v3 import DslV3Parser
-from nlreq.formal_claim import build_formal_claim
+from nlreq.formal_claim import build_formal_claim, build_proof_dispatch_plan_from_formal_claim
 from nlreq.formal_claim_smt import (
     FORMAL_CLAIM_SMT_VERSION,
-    _check_comparison,
+    _premise_numeric_consistency,
     smt_check_formal_claim_predicate_fragments,
 )
 from nlreq.formal_claim import FormalClaimFragment, FormalClaimOperand
 from nlreq.models import EvidenceLevel
+from nlreq.proof_closure import build_proof_object
 
 
 FIXTURES = Path(__file__).parent / "fixtures" / "requirements"
@@ -122,37 +123,115 @@ def test_unsupported_fragment_results_carry_no_evidence_level() -> None:
         )
 
 
-def test_ground_true_comparison_returns_valid_smt_checked() -> None:
-    """Concrete-number comparison that is true must emit valid/SMT_CHECKED."""
+def test_ground_true_comparison_discharges_at_smt_checked() -> None:
+    """A satisfiable (here ground-true) premise comparison discharges at valid/SMT_CHECKED."""
     frag = _make_comparison_fragment("number", 5, "number", 10, "lt")
-    status, evidence = _check_comparison(frag)
-    assert status == "valid"
-    assert evidence == EvidenceLevel.SMT_CHECKED
+    results = _premise_numeric_consistency([frag])
+    assert [r.status for r in results] == ["valid"]
+    assert results[0].evidence_level == EvidenceLevel.SMT_CHECKED
+    assert results[0].details["covered_fragment_ids"] == [frag.fragment_id]
 
 
-def test_ground_false_comparison_returns_invalid_smt_checked() -> None:
-    """Concrete-number comparison that is false must emit invalid/SMT_CHECKED."""
+def test_ground_false_comparison_is_invalid_smt_checked() -> None:
+    """A ground-false premise comparison is an unsatisfiable antecedent: invalid/SMT_CHECKED."""
     frag = _make_comparison_fragment("number", 10, "number", 5, "lt")
-    status, evidence = _check_comparison(frag)
-    assert status == "invalid"
-    assert evidence == EvidenceLevel.SMT_CHECKED
+    results = _premise_numeric_consistency([frag])
+    assert [r.status for r in results] == ["invalid"]
+    assert results[0].evidence_level == EvidenceLevel.SMT_CHECKED
 
 
-def test_symbolic_comparison_returns_needs_review_consistency_checked() -> None:
-    """Symbolic comparison must emit needs_review/CONSISTENCY_CHECKED — satisfiability proves nothing."""
+def test_lone_symbolic_comparison_is_consistent_smt_checked() -> None:
+    """A single symbolic comparison is a satisfiable (encodable, non-contradictory) antecedent, so
+    it discharges at SMT_CHECKED — unlike the old per-fragment path it is a real Z3 check, and a
+    ground contradiction in the same position would instead be invalid."""
     frag = _make_comparison_fragment("identifier", "balance", "identifier", "threshold", "lt")
-    status, evidence = _check_comparison(frag)
-    assert status == "needs_review"
-    assert evidence == EvidenceLevel.CONSISTENCY_CHECKED
+    results = _premise_numeric_consistency([frag])
+    assert [r.status for r in results] == ["valid"]
+    assert results[0].evidence_level == EvidenceLevel.SMT_CHECKED
+    assert results[0].details["smt_logic"] == "QF_LRA"
+
+
+def test_consistent_symbolic_premises_discharge_at_smt_checked() -> None:
+    """Two satisfiable bounds on the same variable (>=10, <=50) both discharge at SMT_CHECKED."""
+    low = _make_comparison_fragment("identifier", "collateral", "number", 10, "gte")
+    high = _make_comparison_fragment("identifier", "collateral", "number", 50, "lte")
+    high.fragment_id = "test.frag.cmp.high"
+    results = _premise_numeric_consistency([low, high])
+    assert {r.status for r in results} == {"valid"}
+    assert all(r.evidence_level == EvidenceLevel.SMT_CHECKED for r in results)
+    covered = {r.details["covered_fragment_ids"][0] for r in results}
+    assert covered == {low.fragment_id, high.fragment_id}
+
+
+def test_contradictory_symbolic_premises_are_invalid_smt_checked() -> None:
+    """Two unsatisfiable bounds on the same variable (>=10, <=5) make the antecedent contradictory:
+    every contributing premise is invalid/SMT_CHECKED. The negation of the consistent sibling above
+    yields the opposite verdict — the discrimination Z3-with-theories provides."""
+    low = _make_comparison_fragment("identifier", "collateral", "number", 10, "gte")
+    high = _make_comparison_fragment("identifier", "collateral", "number", 5, "lte")
+    high.fragment_id = "test.frag.cmp.high"
+    results = _premise_numeric_consistency([low, high])
+    assert {r.status for r in results} == {"invalid"}
+    assert all(r.evidence_level == EvidenceLevel.SMT_CHECKED for r in results)
+
+
+def test_cross_variable_contradiction_caught_by_z3() -> None:
+    """`x > y` AND `y > x` is unsatisfiable. The deterministic interval heuristic groups by the
+    first operand and so puts these in different buckets — it cannot see the conflict; the Z3
+    linear-arithmetic check does, returning invalid for both premises."""
+    a = _make_comparison_fragment("identifier", "x", "identifier", "y", "gt")
+    b = _make_comparison_fragment("identifier", "y", "identifier", "x", "gt")
+    b.fragment_id = "test.frag.cmp.b"
+    results = _premise_numeric_consistency([a, b])
+    assert {r.status for r in results} == {"invalid"}
 
 
 def test_membership_fragment_returns_needs_review_consistency_checked() -> None:
-    """Membership fragments are not yet implemented — must emit needs_review/CONSISTENCY_CHECKED."""
+    """Membership needs a concrete finite set to encode — emits needs_review/CONSISTENCY_CHECKED."""
     from nlreq.formal_claim_smt import _check_fragment
     frag = _make_membership_fragment()
     result = _check_fragment(frag)
     assert result.status == "needs_review"
     assert result.evidence_level == EvidenceLevel.CONSISTENCY_CHECKED
+
+
+def _numeric_invariant_proof(premise_clause: str):
+    """Build the proof object for a numeric_invariant requirement whose antecedent is
+    ``premise_clause``, dispatching the FormalClaim fragments and feeding only the SMT results."""
+    ir = DslV3Parser().parse_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        f"when {premise_clause}\n"
+        "then keep collateral >= 1\n",
+        requirement_id="NUMERIC-PREMISE",
+        title="Numeric premise",
+    )
+    report = build_formal_claim(ir)
+    assert report.formal_claim is not None
+    plan = build_proof_dispatch_plan_from_formal_claim(report.formal_claim)
+    results = smt_check_formal_claim_predicate_fragments(report.formal_claim)
+    return build_proof_object(requirement=ir, backend_results=results, dispatch=plan)
+
+
+def test_consistent_comparison_premises_discharge_through_proof_object() -> None:
+    """Wiring: the claim-level SMT result actually discharges the comparison premise routes in the
+    proof object (not a unit-tested island). Consistent bounds discharge; the state_invariant
+    obligation stays open for the S ∧ R model check — Z3 never claims an invariant it cannot prove."""
+    proof = _numeric_invariant_proof("collateral >= 10 and collateral <= 50")
+    by_kind = {(p.node_kind, p.premise_id): p.status for p in proof.premises}
+    comparison_statuses = {s for (kind, _), s in by_kind.items() if kind == "comparison"}
+    invariant_statuses = {s for (kind, _), s in by_kind.items() if kind == "state_invariant"}
+    assert comparison_statuses == {"discharged"}
+    assert invariant_statuses == {"open"}  # routes to Apalache S∧R, not discharged by Z3
+
+
+def test_contradictory_comparison_premises_block_through_proof_object() -> None:
+    """The negation: contradictory bounds block the comparison premises (backend status invalid),
+    so the proof cannot close on a vacuously-true antecedent — the discrimination Z3 provides."""
+    proof = _numeric_invariant_proof("collateral >= 10 and collateral <= 5")
+    comparison = [p for p in proof.premises if p.node_kind == "comparison"]
+    assert comparison, "requirement must have comparison premises"
+    assert all(p.status == "blocked" and p.backend_status == "invalid" for p in comparison)
 
 
 def test_smt_results_include_covered_fragment_ids() -> None:
