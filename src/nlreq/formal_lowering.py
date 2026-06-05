@@ -284,13 +284,13 @@ def lower_authorization_precondition_tla(
     # Predicates: arity is inferred from the identifier arg list so the CONSTANT declaration
     # and the invocation expression always have the same arity.
     pred_decls = "\n".join(
-        f"\\* @type: {_pred_type_annotation(args)};\nCONSTANT {_pred_name(name)}({', '.join('_' for _ in args)})"
+        f"\\* @type: {_pred_type_annotation(args)};\nCONSTANT {pred_name(name)}({', '.join('_' for _ in args)})"
         for name, args in predicates
         if args  # validation must have refused empty-arg predicates before reaching here
     )
 
     premise_parts = [
-        f"{_pred_name(name)}({', '.join(args)})"
+        f"{pred_name(name)}({', '.join(args)})"
         for name, args in predicates
         if args
     ]
@@ -359,8 +359,8 @@ def generate_minimal_discriminating_s_module(
     compose_s_and_r_module, which inlines a reviewed spec's predicate definitions and
     invariants; real-run evidence comes from running that composed module under Apalache.
     """
-    r_pred = _pred_name(requirement_pred_name)
-    n_pred = _pred_name(negation_pred_name)
+    r_pred = pred_name(requirement_pred_name)
+    n_pred = pred_name(negation_pred_name)
     return (
         f"---- MODULE MinimalSystemConstraint ----\n"
         f"\\* Minimal system constraint S for authorization_precondition discrimination.\n"
@@ -686,7 +686,7 @@ def derive_outcome_predicate(root: SemanticNode) -> OutcomePredicate:
         for arg in args:
             if arg not in subject:
                 subject.append(arg)
-    return OutcomePredicate(name=_pred_name(action_name), args=tuple(subject))
+    return OutcomePredicate(name=pred_name(action_name), args=tuple(subject))
 
 
 def _scope_identifiers(root: SemanticNode) -> set[str]:
@@ -705,7 +705,16 @@ def _scope_identifiers(root: SemanticNode) -> set[str]:
     return identifiers
 
 
-def _pred_name(name: str) -> str:
+def pred_name(name: str) -> str:
+    """The ``Pred_<safe-name>`` operator a predicate name lowers to.
+
+    A reviewed system spec S binds this operator with a concrete definition (e.g.
+    ``Pred_authorized(a) == FALSE``), and the composition reports every bound operator in
+    ``ComposedSandRModule.bound_predicates``. Exposed (not ``_``-private) so a consumer can
+    map a formal-claim fragment to the operator it contributes and check that operator
+    against what the composition actually bound — coverage anchored to the real module, not
+    a static kind table.
+    """
     return "Pred_" + _safe_name(name)
 
 

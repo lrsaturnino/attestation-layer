@@ -10,9 +10,11 @@ from .delta_extractor import build_delta_report
 from .dsl_v2 import DslV2Parser
 from .formal_backend import FormalBackendBudget, FormalBackendExecution
 from .formal_claim import (
+    FormalClaim,
     FormalClaimLoweringReport,
     build_formal_claim,
     build_proof_dispatch_plan_from_formal_claim,
+    formal_claim_fragment_bound_predicate,
 )
 from .formal_claim_smt import smt_check_formal_claim_predicate_fragments
 from .impact import analyze_source_impact
@@ -242,6 +244,34 @@ def _system_consistency_floor_baseline(system_status: str) -> BackendResult | No
         status="valid",
         evidence_level=EvidenceLevel.CONSISTENCY_CHECKED,
         details=details,
+    )
+
+
+def _cover_s_and_r_fragments(result: BackendResult, claim: FormalClaim) -> BackendResult:
+    """Tag a solver-backed S ∧ R result with the fragment IDs its module actually bound.
+
+    Only the ``solver_system_checker`` result discharges formal_claim routes, and it covers a
+    fragment exactly when that fragment's ``Pred_*`` operator appears in the result's recorded
+    ``bound_predicates`` — the operators the composition inlined into the checked ``Inv``. The
+    backing metadata (bounds, command, run-recorded tool_version) is preserved by copying onto
+    the existing ``details``; constructing a fresh result would drop it and trip PB-9's backing
+    checks. Results without ``bound_predicates`` (the in-process Z3 fixture, the CONSISTENCY
+    floor baseline, a refused composition) are returned unchanged — they cover nothing.
+    """
+    if result.backend != "solver_system_checker":
+        return result
+    bound = set(result.details.get("bound_predicates", []))
+    if not bound:
+        return result
+    covered = [
+        fragment.fragment_id
+        for fragment in [*claim.premises, *claim.obligations]
+        if formal_claim_fragment_bound_predicate(fragment) in bound
+    ]
+    if not covered:
+        return result
+    return result.model_copy(
+        update={"details": {**result.details, "covered_fragment_ids": covered}}
     )
 
 
@@ -506,24 +536,28 @@ def run_end_to_end_requirement_gate(
     # consistency result (which only covers system_checker routes).
     formal_claim_preview = build_formal_claim(requirement)
     if formal_claim_preview.result == "lowered" and formal_claim_preview.formal_claim is not None:
+        # This still emits real SMT_CHECKED results for ground comparison fragments. Its
+        # predicate/rejection_order "unsupported" results are now inert: those fragments route
+        # to solver_system_checker (the S ∧ R discharge below), so a core_smt/apalache result
+        # matches no route. They are harmless to closure (evidence_level=None, no producer
+        # blocker) but linger in backend_results as dead provenance — a future cleanup should
+        # scope this producer to the comparison/membership SMT kinds it actually checks.
         smt_fragment_results = smt_check_formal_claim_predicate_fragments(
             formal_claim_preview.formal_claim
         )
-        # Enrich the system-consistency result with related_fragment_ids for provenance
-        # traceability.  "related" not "covered": the solver encodes obligation predicate
-        # names, not each fragment class independently.  Naming this "covered" would overstate
-        # the evidence — predicate/comparison/membership fragments remain blocked until
-        # Apalache checks them.
-        all_fragment_ids = [
-            f.fragment_id
-            for f in [
-                *formal_claim_preview.formal_claim.premises,
-                *formal_claim_preview.formal_claim.obligations,
-            ]
-        ]
+        # Discharge the formal fragments the S ∧ R model check ACTUALLY verified. The solver
+        # result (solver_system_checker, BOUNDED_CHECKED) covers a fragment only when that
+        # fragment's Pred_* operator was bound into the composed module the checker ran —
+        # read from the result's own recorded ``bound_predicates``, never a static kind
+        # table. A stateless S that binds only the premise predicate covers the predicate but
+        # leaves the rejection-order obligation open (its outcome predicate was not bound); a
+        # stateful S that binds the forbidden outcome covers both. A counterexample/timeout
+        # marks the fragments covered as well, so _evaluate_premise blocks them (named) on the
+        # real verdict rather than reporting "no result". Tying coverage to what was checked
+        # keeps a false high-assurance label impossible.
         system_backend_results = [
-            r.model_copy(update={"details": {**r.details, "related_fragment_ids": all_fragment_ids}})
-            for r in system_backend_results
+            _cover_s_and_r_fragments(result, formal_claim_preview.formal_claim)
+            for result in system_backend_results
         ]
     else:
         smt_fragment_results = []

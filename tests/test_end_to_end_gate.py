@@ -74,29 +74,75 @@ def _run_reviewed_s_gate(
     )
 
 
+def _run_narrowing_s_gate(tmp_path: Path, *, counterexample: bool = False):
+    """Run the end-to-end gate over the stateful-S (Case B narrowing) fixture and return the report.
+
+    The negation requirement ("when wallet is *not* authorized ...") has premise
+    Pred_not_authorized, which fires under S's reachable states. The reviewed S binds both that
+    predicate and the forbidden-outcome Pred_finalize_redemption, so a real Apalache S ∧ R
+    resolves BOTH formal-claim premises through the same routing+coverage code. With
+    ``counterexample=False`` the outcome is unreachable → valid → both premises discharge and
+    the proof closes; with ``counterexample=True`` the outcome is reachable while the premise
+    holds → Apalache returns a counterexample → both premises block and the gate refuses.
+    ``solver_execution`` is left unset so the gate runs the real checker.
+    """
+    manifest, registry = _project(
+        tmp_path, narrowing=not counterexample, narrowing_counterexample=counterexample
+    )
+    controlled_text = (
+        "requirement authorization_precondition: scope redemption "
+        "when wallet is not authorized then finalize_redemption must reject before rejected."
+    )
+    requirement_ir = DslV3Parser().parse_ir(
+        controlled_text, requirement_id="REQ-GATE-NARROW", title="Narrowing gate"
+    )
+    agreement = TranslationAgreementInput(
+        candidates=[
+            TranslationCandidate(translator_id="primary", method="deterministic",
+                                 requirement=requirement_ir, provenance={"source": "test"}),
+            TranslationCandidate(translator_id="replica", method="deterministic",
+                                 requirement=requirement_ir, provenance={"source": "test"}),
+        ]
+    )
+    return run_end_to_end_requirement_gate(
+        controlled_text=controlled_text,
+        requirement_id="REQ-GATE-NARROW",
+        title="Narrowing gate",
+        source_adapter=PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["finalize_redemption"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-artifacts",
+        execution=_execution(tmp_path),
+        requirement_ir=requirement_ir,
+        translation_agreement=agreement,
+    )
+
+
 @pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
 def test_end_to_end_gate_composes_real_s_and_r_valid(tmp_path: Path) -> None:
     """A real, solver-backed S ∧ R reaches `valid` end-to-end against a reviewed S.
 
     This exercises the gate's *default* checker — no `solver_execution` is passed, so the gate
-    runs a real Apalache check of the composed S ∧ R module (the narrowing), not the in-process
-    Z3 fixture path. This is the genuine successor to the old "accepts closed requirement" test.
-    That test closed the gate via the vacuous not_applicable floor baseline that no longer
-    exists (a reviewed spec that asserts nothing no longer produces a passing S ∧ R). Here a
-    reviewed S pins `Pred_authorized` FALSE and declares a real invariant, and a v3
-    authorization_precondition requirement lowers to a `Pred_authorized` obligation that S
-    discharges — so a bounded model check of the composed module genuinely returns `valid`
-    (BOUNDED_CHECKED), with the resolved tool version recorded. spec_coverage passes (S covers
-    the module) and the FormalClaim lowers.
+    runs a real Apalache check of the composed S ∧ R module, not the in-process Z3 fixture path.
+    This is the genuine successor to the old "accepts closed requirement" test. That test closed
+    the gate via the vacuous not_applicable floor baseline that no longer exists (a reviewed spec
+    that asserts nothing no longer produces a passing S ∧ R). Here a reviewed *stateless* S pins
+    `Pred_authorized` FALSE and declares a real invariant, and a v3 authorization_precondition
+    requirement lowers to a `Pred_authorized` obligation that S discharges — so a bounded model
+    check of the composed module genuinely returns `valid` (BOUNDED_CHECKED), with the resolved
+    tool version recorded. spec_coverage passes (S covers the module) and the FormalClaim lowers.
 
-    What it deliberately does NOT assert is `decision == accepted`. The v3 claim's predicate
-    and rejection_order fragments route to SMT_CHECKED / BOUNDED_CHECKED producers that are
-    not yet wired to discharge from the S ∧ R verdict, so the ProofObject's formal-fragment
-    premises stay blocked and closure does not pass. Closing the gate end-to-end requires
-    model-checker-backed per-premise discharge and real fragment-level checking, which is the
-    next capability slice — not this stage. Until then there is intentionally no end-to-end
-    `accepted` path for a requirement against a covered module; that gap is the honest
-    consequence of refusing to fake high-assurance evidence.
+    What it deliberately does NOT assert is `decision == accepted`. The predicate premise now
+    DOES discharge — the solver-backed S ∧ R verdict covers `Pred_authorized` because S bound it
+    into the checked module. But this stateless S binds only the premise predicate, not the
+    forbidden-outcome `Pred_finalize_redemption`, so the rejection-order obligation premise has
+    no bound operator to discharge against and stays open — closure does not pass. Reaching
+    `accepted` needs a stateful S that narrows its own transitions and binds the forbidden
+    outcome too; that genuine accepted path is covered by
+    test_end_to_end_gate_narrowing_s_and_r_closes_and_accepts. The split is the honest
+    consequence of anchoring discharge to what the module actually bound, never faking it.
     """
     report = _run_reviewed_s_gate(tmp_path)
 
@@ -139,6 +185,119 @@ def test_end_to_end_gate_composes_real_s_and_r_valid(tmp_path: Path) -> None:
         "closure_gate",
     }
     assert all(Path(artifact.path).is_file() for artifact in report.artifacts)
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_end_to_end_gate_narrowing_s_and_r_closes_and_accepts(tmp_path: Path) -> None:
+    """A reviewed stateful S that narrows R closes the proof end-to-end: accepted/closed/passed.
+
+    This is the per-premise discharge slice (PB-7/PB-8) — the first genuine accepted path for a
+    requirement checked against a reviewed S. The reviewed S brings its own transition system
+    and interprets both the premise predicate (Pred_not_authorized, which fires once authPhase
+    reaches "denied") and the forbidden outcome (Pred_finalize_redemption, pinned unreachable),
+    so a real Apalache bounded check verifies S never reaches the forbidden outcome while the
+    premise holds — a NON-vacuous obligation discharge, not a premise that can never fire.
+
+    Because both Pred_* operators are bound into the checked module (recorded in the result's
+    bound_predicates), the solver-backed S ∧ R verdict discharges BOTH formal-claim premises —
+    the predicate and the rejection-order obligation — at BOUNDED_CHECKED. So the ProofObject
+    closes and the gate accepts downstream action. The discharge is anchored to what the module
+    actually bound: a stateless S that binds only the premise, or a counterexample/timeout,
+    would leave the obligation premise undischarged. Only a real, bound, valid S ∧ R reaches
+    this accepted path — the honest successor to the deferred-closure state above.
+    """
+    report = _run_narrowing_s_gate(tmp_path)
+
+    assert report.statuses["system_consistency"] == "valid", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    assert report.decision == "accepted", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    assert report.proof_status == "closed"
+    assert report.closure_result == "passed"
+    assert report.downstream_action_allowed is True
+
+    # Closure rests on a real bounded model check that bound BOTH predicates — not a vacuous
+    # pass and not faked high-assurance evidence. Every formal-claim premise (predicate and
+    # rejection_order) is discharged by the solver-backed S ∧ R at BOUNDED_CHECKED.
+    proof = read_json(
+        Path(next(a.path for a in report.artifacts if a.name == "proof_object"))
+    )
+    assert proof["status"] == "closed"
+    assert {p["node_kind"] for p in proof["premises"]} == {"predicate", "rejection_order"}
+    for premise in proof["premises"]:
+        assert premise["status"] == "discharged", premise
+        assert premise["routed_backend"] == "solver_system_checker"
+        assert premise["achieved_evidence"] == "BOUNDED_CHECKED"
+    assert not proof["blockers"], proof["blockers"]
+
+    # The discharging verdict came from a real Apalache run (recorded tool version), and it
+    # bound both the premise predicate and the forbidden-outcome predicate — the coupling that
+    # makes the discharge a genuine narrowing of S, not a fragment-level shortcut.
+    system_consistency = read_json(
+        Path(next(a.path for a in report.artifacts if a.name == "system_consistency"))
+    )
+    assert system_consistency["result"]["details"]["checker_id"] == "apalache"
+    assert system_consistency["result"]["evidence_level"] == "BOUNDED_CHECKED"
+    assert system_consistency["result"]["details"]["reproducibility"]["tool_version"]
+    assert set(system_consistency["result"]["details"]["bound_predicates"]) == {
+        "Pred_not_authorized",
+        "Pred_finalize_redemption",
+    }
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_end_to_end_gate_narrowing_s_and_r_counterexample_refuses(tmp_path: Path) -> None:
+    """The same routing+coverage path REFUSES on a real S ∧ R counterexample — it never falsely
+    accepts.
+
+    This is the negative twin of the accepted-path test, and the property that matters most: the
+    mechanism that now discharges premises from a `valid` verdict must block them on a real
+    counterexample. Here the reviewed stateful S can reach the forbidden outcome while the
+    premise holds (authPhase reaches "finalized", where Pred_not_authorized AND
+    Pred_finalize_redemption both hold), so the composed Inv (Premise => ~outcome) is violated
+    and a real Apalache run returns a counterexample.
+
+    Both Pred_* operators are still bound into the checked module, so both formal-claim premises
+    are *covered* by the solver result — but because its status is `counterexample`, not `valid`,
+    _evaluate_premise marks them `blocked` (named on the real verdict), not silently `open` and
+    never `discharged`. The ProofObject does not close and the gate refuses downstream action.
+    Coverage matching the verdict is exactly what keeps a real counterexample from being read as
+    an accept.
+    """
+    report = _run_narrowing_s_gate(tmp_path, counterexample=True)
+
+    assert report.statuses["system_consistency"] == "counterexample", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    assert report.decision == "refused"
+    assert report.proof_status != "closed"
+    assert report.closure_result != "passed"
+    assert report.downstream_action_allowed is False
+
+    proof = read_json(
+        Path(next(a.path for a in report.artifacts if a.name == "proof_object"))
+    )
+    assert proof["status"] != "closed"
+    formal_premises = [
+        p for p in proof["premises"] if p["node_kind"] in {"predicate", "rejection_order"}
+    ]
+    assert {p["node_kind"] for p in formal_premises} == {"predicate", "rejection_order"}
+    # Both premises must be BLOCKED — covered by the solver result (so the route matched) but
+    # refused because the verdict is a counterexample. "open" would mean coverage was wrongly
+    # withheld; "discharged" would be a false accept.
+    for premise in formal_premises:
+        assert premise["status"] == "blocked", premise
+        assert premise["routed_backend"] == "solver_system_checker"
+
+    # The blocking verdict came from a real Apalache run that produced a counterexample.
+    system_consistency = read_json(
+        Path(next(a.path for a in report.artifacts if a.name == "system_consistency"))
+    )
+    assert system_consistency["result"]["details"]["checker_id"] == "apalache"
+    assert system_consistency["result"]["details"]["reproducibility"]["tool_version"]
+    assert system_consistency["counterexamples"]
 
 
 def test_end_to_end_gate_s_and_r_blocks_when_checker_absent(tmp_path: Path) -> None:
@@ -310,10 +469,12 @@ def test_end_to_end_gate_with_v3_requirement_has_formal_claim_fragment_ids(tmp_p
     dispatch → ProofObject. It is NOT the helper-only path from
     test_build_proof_with_formal_claim_dispatch_uses_fragment_ids_for_classed_ir.
 
-    Predicate premises become "blocked" — smt_check_formal_claim_predicate_fragments returns
-    "unsupported" for named predicates (requires Apalache/Pillar B); proof_closure maps
-    "unsupported" → "blocked" so the status is explicit rather than silently "open".
-    rejection_order obligations also become "blocked" for the same reason.
+    Predicate and rejection_order premises stay UNDISCHARGED here. They route to the
+    solver-backed S ∧ R (BOUNDED_CHECKED), which discharges them only against a reviewed S that
+    binds their predicates into a composed module. This project uses the default empty spec
+    (no declared invariant), so the S ∧ R composition refuses and binds nothing — the premises
+    have no bound operator to discharge against and remain open. A reviewed, stateful S that
+    binds the predicates is what closes them (see the narrowing accepted-path test).
     """
     manifest, registry = _project(tmp_path)
     ir = DslV3Parser().parse_ir(
@@ -350,18 +511,18 @@ def test_end_to_end_gate_with_v3_requirement_has_formal_claim_fragment_ids(tmp_p
         f"Expected formal fragment IDs in ProofObject but found: {premise_ids}"
     )
 
-    # Predicate premises are "blocked": uninterpreted predicates have no fragment-level
-    # SMT content and require Apalache/Pillar B model-level checking (S∧R composition).
-    # smt_check_formal_claim_predicate_fragments emits "unsupported"/evidence_level=None,
-    # which proof_closure maps to "blocked" with an explicit reason.
+    # Predicate and rejection_order premises must NOT be discharged: the default empty spec
+    # declares no invariant, so the solver-backed S ∧ R composition refuses and binds no
+    # predicate — there is no bound operator to discharge these formal premises against.
     predicate_premises = [p for p in proof.premises if p.node_kind == "predicate"]
     rejection_order = [p for p in proof.premises if p.node_kind == "rejection_order"]
-    assert all(p.status == "blocked" for p in predicate_premises), (
-        f"Predicate premises must be blocked (uninterpreted predicates require Apalache): "
+    assert predicate_premises and rejection_order
+    assert all(p.status != "discharged" for p in predicate_premises), (
+        f"Predicate premises must not be discharged without a reviewed S that binds them: "
         f"{predicate_premises}"
     )
-    assert all(p.status == "blocked" for p in rejection_order), (
-        f"rejection_order premises must be blocked (not silently open) without Apalache: "
+    assert all(p.status != "discharged" for p in rejection_order), (
+        f"rejection_order premises must not be discharged without a reviewed S that binds them: "
         f"{rejection_order}"
     )
 
@@ -1081,17 +1242,21 @@ def test_system_consistency_floor_baseline_only_for_consistent_outcomes() -> Non
         )
 
 
-def test_solver_result_carries_related_fragment_ids_and_predicates_stay_blocked(tmp_path: Path) -> None:
-    """Solver S∧R result carries related_fragment_ids; predicate routes stay blocked.
+def test_z3_fixture_solver_result_cannot_discharge_formal_premises(tmp_path: Path) -> None:
+    """The in-process Z3 fixture cannot discharge formal-claim premises — only a real bounded
+    S ∧ R can.
 
-    The solver result (backend='solver_system_checker') must carry the fragment IDs of
-    all formal claim fragments as traceability metadata ('related', not 'covered' —
-    the solver encodes obligation predicate names, not each fragment class independently).
-    Predicate and rejection_order fragment routes must remain blocked — adding
-    related_fragment_ids must NOT discharge those routes (wrong backend + wrong evidence
-    level vs the core_smt/apalache routes that formal_claim routing requires).
+    The predicate and rejection_order premises route to solver_system_checker at
+    BOUNDED_CHECKED: an uninterpreted predicate and a rejection-order obligation are discharged
+    only by the requirement-level S ∧ R model check that binds them into a composed module. The
+    Z3 fixture path (checker_id='z3') parses the lowered obligation propositionally WITHOUT
+    composing or binding any module — it records no bound_predicates and emits SMT_CHECKED,
+    never BOUNDED_CHECKED — so it covers no formal fragment. The premises therefore stay
+    undischarged and the proof cannot close on the fixture path. This is the honesty tripwire:
+    SMT-level fixture evidence must never close a bounded-model-check obligation.
     """
     from nlreq.dsl_v3 import DslV3Parser
+    from nlreq.models import EvidenceLevel
     from nlreq.proof_closure import ProofObject
     from nlreq.jsonutil import read_json
     from nlreq.translator_agreement import TranslationAgreementInput, TranslationCandidate
@@ -1159,29 +1324,31 @@ def test_solver_result_carries_related_fragment_ids_and_predicates_stay_blocked(
     proof_path = Path(next(a.path for a in report.artifacts if a.name == "proof_object"))
     proof = ProofObject.model_validate(read_json(proof_path))
 
-    # Solver result must carry related_fragment_ids (provenance traceability).
+    # The Z3 fixture result is SMT-level and composes no module, so it binds no predicate and
+    # covers no fragment — it can never satisfy a BOUNDED_CHECKED formal-claim route.
     solver_results = [r for r in proof.backend_results if r.backend == "solver_system_checker"]
     assert solver_results, "ProofObject must carry solver_system_checker backend result"
-    solver_with_ids = [r for r in solver_results if "related_fragment_ids" in r.details]
-    assert solver_with_ids, (
-        "Solver result must carry related_fragment_ids for provenance traceability"
-    )
-    fragment_ids_in_solver = solver_with_ids[0].details["related_fragment_ids"]
-    assert len(fragment_ids_in_solver) > 0, "related_fragment_ids must be non-empty"
+    for result in solver_results:
+        assert result.evidence_level != EvidenceLevel.BOUNDED_CHECKED, (
+            "the Z3 fixture must not emit bounded-MC evidence; it is an SMT-level check"
+        )
+        assert "covered_fragment_ids" not in result.details, (
+            "the Z3 fixture composes no module (no bound_predicates), so it covers no fragment"
+        )
 
-    # Predicate and rejection_order premises must stay blocked — not discharged by the solver.
-    # formal_claim routes require an exact backend match (core_smt/apalache) so
-    # solver_system_checker results cannot discharge them.
-    predicate_premises = [
+    # Predicate and rejection_order premises stay undischarged — the fixture cannot close them.
+    formal_premises = [
         p for p in proof.premises
         if p.node_kind in {"predicate", "rejection_order"}
     ]
-    for premise in predicate_premises:
-        assert premise.status == "blocked", (
-            f"Predicate/rejection_order premise {premise.premise_id!r} must stay 'blocked' "
-            f"even with solver result present; got {premise.status!r}. "
-            "Solver results must not discharge formal_claim-routed premises via related_fragment_ids."
+    assert formal_premises, "the authorization_precondition claim must yield formal premises"
+    for premise in formal_premises:
+        assert premise.status != "discharged", (
+            f"premise {premise.premise_id!r} must NOT be discharged by the Z3 fixture; "
+            f"got {premise.status!r}. Only a real bounded S ∧ R that binds the predicates "
+            "into a composed module may discharge a formal-claim premise."
         )
+    assert report.decision != "accepted"
 
 
 def _project(
@@ -1189,6 +1356,8 @@ def _project(
     *,
     trace_actions: list[str] | None = None,
     reviewed_invariant: bool = False,
+    narrowing: bool = False,
+    narrowing_counterexample: bool = False,
 ) -> tuple[SourceManifest, SystemSpecRegistry]:
     src = tmp_path / "src"
     specs = tmp_path / "specs"
@@ -1200,7 +1369,60 @@ def _project(
         "        return 'redemption_finalized'\n"
         "    return 'rejected'\n"
     )
-    if reviewed_invariant:
+    if narrowing or narrowing_counterexample:
+        # A reviewed *stateful* S (Case B narrowing): S brings its own transition system
+        # (SInit/SNext over authPhase) and interprets both the premise predicate
+        # Pred_not_authorized — which FIRES once authPhase reaches "denied" — and the
+        # forbidden-outcome Pred_finalize_redemption. The composition narrows S: a bounded
+        # check verifies whether S can reach the forbidden outcome while the premise holds.
+        # Both Pred_* operators are bound into the checked module, so the S ∧ R verdict
+        # discharges (valid) or blocks (counterexample) both formal-claim premises.
+        if narrowing_counterexample:
+            # The forbidden outcome IS reachable while the premise holds: authPhase can reach
+            # "finalized", where Pred_not_authorized AND Pred_finalize_redemption both hold, so
+            # R_Requirement (Premise => ~outcome) is violated and a real Apalache run returns a
+            # counterexample. This is the benchmark's RedemptionAuthorization.tla shape.
+            (specs / "Redemption.tla").write_text(
+                "---- MODULE Redemption ----\n"
+                "EXTENDS Naturals, TLC\n\n"
+                "\\* @type: Str;\n"
+                "VARIABLE authPhase\n\n"
+                "\\* @type: (Str) => Bool;\n"
+                "Pred_authorized(a) == FALSE\n"
+                "\\* @type: (Str) => Bool;\n"
+                'Pred_not_authorized(a) == authPhase \\in {"denied", "finalized"}\n'
+                "\\* @type: (Str) => Bool;\n"
+                'Pred_finalize_redemption(a) == authPhase = "finalized"\n'
+                "\\* System invariant: authorization defaults closed.\n"
+                'AuthorizationDefaultsClosed == Pred_authorized("wallet") = FALSE\n'
+                'SInit == authPhase = "init"\n'
+                'SNext == \\/ (authPhase = "init" /\\ authPhase\' = "denied")\n'
+                '         \\/ (authPhase = "denied" /\\ authPhase\' = "finalized")\n'
+                "         \\/ UNCHANGED authPhase\n"
+                "====\n"
+            )
+        else:
+            # The forbidden outcome is pinned unreachable (Pred_finalize_redemption == FALSE)
+            # while the premise still fires (authPhase reaches "denied"): S never reaches the
+            # forbidden outcome, so a real Apalache run returns valid — a non-vacuous discharge.
+            (specs / "Redemption.tla").write_text(
+                "---- MODULE Redemption ----\n"
+                "EXTENDS Naturals, TLC\n\n"
+                "\\* @type: Str;\n"
+                "VARIABLE authPhase\n\n"
+                "\\* @type: (Str) => Bool;\n"
+                "Pred_authorized(a) == FALSE\n"
+                "\\* @type: (Str) => Bool;\n"
+                'Pred_not_authorized(a) == authPhase = "denied"\n'
+                "\\* @type: (Str) => Bool;\n"
+                "Pred_finalize_redemption(a) == FALSE\n"
+                "\\* System invariant: authorization defaults closed.\n"
+                'AuthorizationDefaultsClosed == Pred_authorized("wallet") = FALSE\n'
+                'SInit == authPhase = "init"\n'
+                "SNext == (authPhase = \"init\" /\\ authPhase' = \"denied\") \\/ UNCHANGED authPhase\n"
+                "====\n"
+            )
+    elif reviewed_invariant:
         # A reviewed S that pins the authorization predicate FALSE and declares a real system
         # invariant. A v3 authorization_precondition requirement ("when wallet is authorized")
         # lowers to a Pred_authorized obligation that this S discharges (premise pinned FALSE →
@@ -1248,7 +1470,11 @@ def _project(
         "review_status": "reviewed",
         "freshness": "fresh",
     }
-    if reviewed_invariant:
+    if narrowing or narrowing_counterexample:
+        spec_entry["init_op"] = "SInit"
+        spec_entry["next_op"] = "SNext"
+        spec_entry["invariants"] = ["AuthorizationDefaultsClosed"]
+    elif reviewed_invariant:
         spec_entry["invariants"] = ["SystemDefaultsClosed"]
     registry = SystemSpecRegistry.model_validate(
         {

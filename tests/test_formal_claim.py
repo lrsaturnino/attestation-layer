@@ -45,9 +45,16 @@ def test_formal_claim_to_proof_premise_routes_evidence_by_kind() -> None:
 
     routes = formal_claim_to_proof_premise_routes(report.formal_claim)
     by_kind = {r.node_kind: r.required_evidence for r in routes}
+    by_backend = {r.node_kind: r.backend_id for r in routes}
 
-    assert by_kind["predicate"] == EvidenceLevel.SMT_CHECKED
+    # A premise predicate is an uninterpreted boolean with no fragment-level SMT content; it
+    # is discharged only by the requirement-level S ∧ R model check that interprets it under a
+    # reviewed S. So it routes — like the rejection-order obligation — to solver_system_checker
+    # at BOUNDED_CHECKED, the producer that runs the gate's S ∧ R, not to a fragment-level SMT.
+    assert by_kind["predicate"] == EvidenceLevel.BOUNDED_CHECKED
     assert by_kind["rejection_order"] == EvidenceLevel.BOUNDED_CHECKED
+    assert by_backend["predicate"] == "solver_system_checker"
+    assert by_backend["rejection_order"] == "solver_system_checker"
 
 
 def test_formal_claim_routes_count_matches_fragments() -> None:

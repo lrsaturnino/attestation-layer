@@ -5,6 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .controlled_semantics import ClaimClass, build_controlled_requirement_semantics_reference
+from .formal_lowering import pred_name
 from .jsonutil import canonical_json, sha256_json
 from .models import EvidenceLevel, RequirementIRV2, SemanticNode, SourceSpan, TemporalBound, ValueRef
 from .proof_closure import ProofDispatchPlan, ProofPremiseRoute
@@ -297,7 +298,7 @@ def formal_claim_to_proof_premise_routes(claim: FormalClaim) -> list[ProofPremis
     for fragment in [*claim.premises, *claim.obligations]:
         role: str = fragment.role if fragment.role in {"premise", "obligation"} else "obligation"
         evidence = _evidence_for_fragment_kind(fragment.kind)
-        backend = _backend_for_evidence(evidence)
+        backend = _backend_for_fragment_kind(fragment.kind, evidence)
         routes.append(
             ProofPremiseRoute(
                 premise_id=fragment.fragment_id,
@@ -327,9 +328,32 @@ def build_proof_dispatch_plan_from_formal_claim(claim: FormalClaim) -> ProofDisp
     )
 
 
+def formal_claim_fragment_bound_predicate(fragment: FormalClaimFragment) -> str | None:
+    """The ``Pred_*`` operator a fragment contributes to the composed S ∧ R module, or None.
+
+    Coverage of an S ∧ R-discharged fragment is anchored to the composition's real
+    ``bound_predicates`` rather than to a static fragment-kind table: a fragment is only
+    "covered" by the model check when its operator was actually bound into the module the
+    checker ran. A premise ``predicate`` binds ``Pred_<predicate>``; a ``rejection_order``
+    obligation binds the forbidden-outcome ``Pred_<action>`` (its first operand). Other
+    kinds the authorization lowering does not bind return None, so a future claim class
+    whose predicate never reaches the module cannot be falsely discharged.
+    """
+    if fragment.kind == "predicate" and fragment.predicate:
+        return pred_name(fragment.predicate)
+    if fragment.kind == "rejection_order" and fragment.operands:
+        return pred_name(str(fragment.operands[0].value))
+    return None
+
+
 def _evidence_for_fragment_kind(kind: FormalClaimFragmentKind) -> EvidenceLevel:
     _map: dict[FormalClaimFragmentKind, EvidenceLevel] = {
-        "predicate": EvidenceLevel.SMT_CHECKED,
+        # A premise predicate is an uninterpreted boolean: it has no fragment-level SMT
+        # content (a free boolean is trivially SAT — see formal_claim_smt), so it is
+        # discharged only by the requirement-level S ∧ R model check that interprets it
+        # under a reviewed S. Its honest level is therefore BOUNDED_CHECKED (bounded model
+        # checking), not SMT_CHECKED. Comparison/membership stay SMT (Z3 theories, PB-6).
+        "predicate": EvidenceLevel.BOUNDED_CHECKED,
         "comparison": EvidenceLevel.SMT_CHECKED,
         "membership": EvidenceLevel.SMT_CHECKED,
         "post_state": EvidenceLevel.TRACE_VALIDATED,
@@ -342,6 +366,28 @@ def _evidence_for_fragment_kind(kind: FormalClaimFragmentKind) -> EvidenceLevel:
         "action": EvidenceLevel.CONSISTENCY_CHECKED,
     }
     return _map.get(kind, EvidenceLevel.CONSISTENCY_CHECKED)
+
+
+# Fragment kinds the gate's S ∧ R model check discharges directly. The authorization
+# lowering encodes the premise predicate(s) and the rejection-order outcome into the
+# composed module's Inv (Premise => ~Pred_<action>), which the bounded model checker
+# verifies as one obligation. They therefore route to ``solver_system_checker`` — the
+# producer that runs ``check_solver_backed_system_consistency`` — at BOUNDED_CHECKED, not
+# to a fragment-level SMT producer that has no module to check them against.
+_S_AND_R_DISCHARGED_KINDS: frozenset[FormalClaimFragmentKind] = frozenset(
+    {"predicate", "rejection_order"}
+)
+
+
+def _backend_for_fragment_kind(kind: FormalClaimFragmentKind, evidence: EvidenceLevel) -> str:
+    """Return the backend_id that discharges a fragment of this kind at ``evidence``.
+
+    Fragments the S ∧ R composition checks (``_S_AND_R_DISCHARGED_KINDS``) route to
+    ``solver_system_checker``; everything else falls back to the evidence-level default.
+    """
+    if kind in _S_AND_R_DISCHARGED_KINDS:
+        return "solver_system_checker"
+    return _backend_for_evidence(evidence)
 
 
 def _backend_for_evidence(evidence: EvidenceLevel) -> str:
