@@ -12,7 +12,13 @@ from .model_checker_runner import (
     ModelCheckerCommand,
     run_model_checker,
 )
-from .models import BackendResult, EvidenceLevel, RequirementIRV2, SemanticNode
+from .models import (
+    BackendResult,
+    EvidenceLevel,
+    RequirementIRV2,
+    SemanticNode,
+    bounded_evidence_backing_complete,
+)
 from .translator import LoweredFormalArtifact, lower_ir_v2_to_tla
 
 
@@ -248,38 +254,39 @@ class TlaRunnerBackend:
             )
         )
         status = _backend_status_for_runner_outcome(runner_result.outcome)
+        details = {
+            "entry_node_id": request.entry_node_id,
+            "execution": "run",
+            "checker_id": execution.checker_id,
+            "runner_outcome": runner_result.outcome,
+            "runner_result_hash": sha256_json(runner_result),
+            # Surface the run-recorded version (null for a stub) so a BOUNDED_CHECKED
+            # result fed into proof closure carries its real backing (see ProductionTla).
+            "tool_version": runner_result.reproducibility.tool_version,
+            "artifact_dir": artifact_dir.as_posix(),
+            "module": module_path.name,
+            "module_hash": _sha256_file(module_path),
+            "config": config_path.name,
+            "config_hash": _sha256_file(config_path),
+            "bounds": _budget_details(request.budget),
+            "command": command,
+            "stdout": runner_result.stdout.model_dump(mode="json"),
+            "stderr": runner_result.stderr.model_dump(mode="json"),
+            "counterexamples": [
+                item.model_dump(mode="json", exclude_none=True)
+                for item in runner_result.counterexamples
+            ],
+            "unsupported_markers": runner_result.unsupported_markers,
+            "tool_error": runner_result.tool_error,
+        }
         return FormalBackendResponse(
             backend_id=self.backend_id,
             target=self.target,
             result=BackendResult(
                 backend=self.backend_id,
                 status=status,
-                evidence_level=EvidenceLevel.BOUNDED_CHECKED,
-                details={
-                    "entry_node_id": request.entry_node_id,
-                    "execution": "run",
-                    "checker_id": execution.checker_id,
-                    "runner_outcome": runner_result.outcome,
-                    "runner_result_hash": sha256_json(runner_result),
-                    # Surface the run-recorded version (null for a stub) so a BOUNDED_CHECKED
-                    # result fed into proof closure carries its real backing (see ProductionTla).
-                    "tool_version": runner_result.reproducibility.tool_version,
-                    "artifact_dir": artifact_dir.as_posix(),
-                    "module": module_path.name,
-                    "module_hash": _sha256_file(module_path),
-                    "config": config_path.name,
-                    "config_hash": _sha256_file(config_path),
-                    "bounds": _budget_details(request.budget),
-                    "command": command,
-                    "stdout": runner_result.stdout.model_dump(mode="json"),
-                    "stderr": runner_result.stderr.model_dump(mode="json"),
-                    "counterexamples": [
-                        item.model_dump(mode="json", exclude_none=True)
-                        for item in runner_result.counterexamples
-                    ],
-                    "unsupported_markers": runner_result.unsupported_markers,
-                    "tool_error": runner_result.tool_error,
-                },
+                evidence_level=_bounded_evidence_level(status, details),
+                details=details,
             ),
             lowered_artifact_hash=sha256_json(lowered),
         )
@@ -374,49 +381,45 @@ class ProductionTlaBackend:
             )
         )
         status = _production_backend_status_for_runner(runner_result)
-        evidence_level = (
-            EvidenceLevel.BOUNDED_CHECKED
-            if status in {"valid", "counterexample"}
-            else None
-        )
+        details = {
+            "entry_node_id": request.entry_node_id,
+            "execution": "run",
+            "checker_id": execution.checker_id,
+            "evidence_flavor": self.evidence_flavor,
+            "runner_outcome": runner_result.outcome,
+            "runner_result_hash": sha256_json(runner_result),
+            # Surface the version the run recorded (null for a stub/absent binary) so a
+            # BOUNDED_CHECKED result fed into proof closure carries its real backing — the
+            # closure gate requires a run-recorded version, not the producer's static one.
+            "tool_version": runner_result.reproducibility.tool_version,
+            "tool_missing": (
+                runner_result.outcome == "tool_error"
+                and runner_result.reproducibility.executable_resolved is None
+            ),
+            "artifact_dir": artifact_dir.as_posix(),
+            "module": module_path.name,
+            "module_hash": _sha256_file(module_path),
+            "config": config_path.name,
+            "config_hash": _sha256_file(config_path),
+            "bounds": _budget_details(request.budget),
+            "command": command,
+            "stdout": runner_result.stdout.model_dump(mode="json"),
+            "stderr": runner_result.stderr.model_dump(mode="json"),
+            "counterexamples": [
+                item.model_dump(mode="json", exclude_none=True)
+                for item in runner_result.counterexamples
+            ],
+            "unsupported_markers": runner_result.unsupported_markers,
+            "tool_error": runner_result.tool_error,
+        }
         return FormalBackendResponse(
             backend_id=self.backend_id,
             target=self.target,
             result=BackendResult(
                 backend=self.backend_id,
                 status=status,
-                evidence_level=evidence_level,
-                details={
-                    "entry_node_id": request.entry_node_id,
-                    "execution": "run",
-                    "checker_id": execution.checker_id,
-                    "evidence_flavor": self.evidence_flavor,
-                    "runner_outcome": runner_result.outcome,
-                    "runner_result_hash": sha256_json(runner_result),
-                    # Surface the version the run recorded (null for a stub/absent binary) so a
-                    # BOUNDED_CHECKED result fed into proof closure carries its real backing — the
-                    # closure gate requires a run-recorded version, not the producer's static one.
-                    "tool_version": runner_result.reproducibility.tool_version,
-                    "tool_missing": (
-                        runner_result.outcome == "tool_error"
-                        and runner_result.reproducibility.executable_resolved is None
-                    ),
-                    "artifact_dir": artifact_dir.as_posix(),
-                    "module": module_path.name,
-                    "module_hash": _sha256_file(module_path),
-                    "config": config_path.name,
-                    "config_hash": _sha256_file(config_path),
-                    "bounds": _budget_details(request.budget),
-                    "command": command,
-                    "stdout": runner_result.stdout.model_dump(mode="json"),
-                    "stderr": runner_result.stderr.model_dump(mode="json"),
-                    "counterexamples": [
-                        item.model_dump(mode="json", exclude_none=True)
-                        for item in runner_result.counterexamples
-                    ],
-                    "unsupported_markers": runner_result.unsupported_markers,
-                    "tool_error": runner_result.tool_error,
-                },
+                evidence_level=_bounded_evidence_level(status, details),
+                details=details,
             ),
             lowered_artifact_hash=sha256_json(lowered),
         )
@@ -606,6 +609,20 @@ def _production_backend_status_for_runner(runner_result) -> str:
     if runner_result.outcome == "tool_error":
         return "invalid"
     return runner_result.outcome
+
+
+def _bounded_evidence_level(status: str, details: dict[str, Any]) -> EvidenceLevel | None:
+    """The honest evidence level for a model-checker run.
+
+    A bounded model check is BOUNDED_CHECKED only when it completed — ``valid`` (no violation
+    within bounds) or ``counterexample`` (a violation found within bounds) — AND recorded its
+    full backing: the bounds searched, the checker command, and the version of the checker the
+    run resolved (see ``models.bounded_evidence_backing_complete``). A timeout, a tool error, or
+    a stub run that resolved no version produced no backed bounded evidence, so the level
+    self-gates to None rather than emit an unbacked BOUNDED_CHECKED claim into proof closure."""
+    if status in {"valid", "counterexample"} and bounded_evidence_backing_complete(details):
+        return EvidenceLevel.BOUNDED_CHECKED
+    return None
 
 
 def _production_tla_artifact_dir(

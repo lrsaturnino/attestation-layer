@@ -19,6 +19,9 @@ def test_requirement_self_consistency_accepts_valid_backend_run(tmp_path: Path) 
         execution=FormalBackendExecution(
             checker_id="custom",
             command=[sys.executable, "-c", "print('verification successful')"],
+            # The inner bounded run records a version, so its backing (bounds + command +
+            # version) is complete and the self-consistency result earns BOUNDED_CHECKED.
+            tool_version="custom-checker 1.0",
             artifact_dir=tmp_path.as_posix(),
         ),
     )
@@ -28,6 +31,29 @@ def test_requirement_self_consistency_accepts_valid_backend_run(tmp_path: Path) 
     assert report.result.evidence_level.value == "BOUNDED_CHECKED"
     assert report.formal_backend_response is not None
     assert report.formal_backend_response.result.details["bounds"]["max_depth"] == 8
+
+
+def test_requirement_self_consistency_valid_run_without_version_is_not_bounded(
+    tmp_path: Path,
+) -> None:
+    """A valid self-consistency run whose inner check recorded no version is not bounded-backed.
+
+    The bounded claim self-gates to None rather than over-claim: a stub run that resolved no
+    checker version carries no run-recorded backing, so even a 'valid' outcome cannot label
+    itself BOUNDED_CHECKED (the backing is bounds + command + a run-recorded version)."""
+    report = check_requirement_self_consistency(
+        _ir(),
+        budget=FormalBackendBudget(timeout_seconds=5, max_depth=8),
+        execution=FormalBackendExecution(
+            checker_id="custom",
+            command=[sys.executable, "-c", "print('verification successful')"],
+            artifact_dir=tmp_path.as_posix(),
+        ),
+    )
+
+    assert report.status == "valid"
+    assert report.result.status == "valid"
+    assert report.result.evidence_level is None
 
 
 def test_requirement_self_consistency_rejects_impossible_precondition_before_backend(

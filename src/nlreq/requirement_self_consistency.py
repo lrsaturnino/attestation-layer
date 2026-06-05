@@ -14,7 +14,15 @@ from .formal_backend import (
     check_formal_backend,
 )
 from .jsonutil import sha256_json
-from .models import BackendResult, EvidenceLevel, RequirementIRV2, SemanticNode, SourceSpan, ValueRef
+from .models import (
+    BackendResult,
+    EvidenceLevel,
+    RequirementIRV2,
+    SemanticNode,
+    SourceSpan,
+    ValueRef,
+    bounded_evidence_backing_complete,
+)
 from .numeric_literal import exact_fraction
 
 
@@ -189,20 +197,25 @@ def check_requirement_self_consistency(
     )
     status = _result_status(response)
     backend_counterexamples = _counterexamples_from_backend(response) if status == "contradiction" else []
-    # Surface the bounds the inner bounded check ran under at the top level so a BOUNDED_CHECKED
-    # claim carries its backing where the construction guard reads it. A bounded result is honest
-    # only when a bounded check actually recorded a bound, so the level is claimed only then.
+    # Surface the inner bounded check's full backing at the top level so a BOUNDED_CHECKED claim
+    # carries it where the construction guard / proof-closure layer read it: the bounds searched,
+    # the checker command, and the version of the checker the run resolved. A bounded result is
+    # honest only when the inner run recorded all three (see
+    # ``models.bounded_evidence_backing_complete``); a stub run that resolved no version is not
+    # backed, so the level self-gates to None rather than over-claim.
     backend_details = response.result.details
-    inner_bounds = backend_details.get("bounds") if isinstance(backend_details, dict) else None
-    has_bounds = isinstance(inner_bounds, dict) and len(inner_bounds) > 0
     self_consistency_details: dict[str, Any] = {
         "checker": backend_id,
         "formal_backend_status": response.result.status,
         "formal_backend_response_hash": sha256_json(response),
         "backend_details": backend_details,
     }
-    if has_bounds:
-        self_consistency_details["bounds"] = inner_bounds
+    if isinstance(backend_details, dict):
+        for backing_key in ("bounds", "command", "tool_version", "reproducibility"):
+            backing_value = backend_details.get(backing_key)
+            if backing_value is not None:
+                self_consistency_details[backing_key] = backing_value
+    bounded_backed = bounded_evidence_backing_complete(self_consistency_details)
     return RequirementSelfConsistencyResult(
         requirement_id=requirement.requirement_id,
         status=status,
@@ -210,7 +223,7 @@ def check_requirement_self_consistency(
             backend="requirement_self_consistency",
             status=_backend_result_status(status),
             evidence_level=(
-                EvidenceLevel.BOUNDED_CHECKED if status == "valid" and has_bounds else None
+                EvidenceLevel.BOUNDED_CHECKED if status == "valid" and bounded_backed else None
             ),
             details=self_consistency_details,
         ),

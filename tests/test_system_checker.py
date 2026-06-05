@@ -1448,16 +1448,29 @@ def test_compose_s_and_r_narrowing_refuses_missing_outcome_predicate() -> None:
     assert composed.refusal_kind == "missing_outcome_predicate"
 
 
-def test_solver_result_does_not_label_valid_run_bounded_without_recorded_bounds() -> None:
-    """A valid solver run defaults to BOUNDED_CHECKED only when it recorded the bounds it
-    searched. Without recorded bounds the bounded claim has no backing, so the level degrades to
-    None/unverified rather than over-claim (and rather than crash the BackendResult guard)."""
-    unbacked = _solver_result(
-        "REQ-1", "valid", ["spec:sys"], {"mode": "solver_backed"}
-    )
-    backed = _solver_result(
+def test_solver_result_labels_valid_run_bounded_only_with_full_backing() -> None:
+    """A valid solver run defaults to BOUNDED_CHECKED only when it recorded its full bounded
+    backing — the bounds it searched, the checker command, and the version of the checker the run
+    resolved. A run missing any of the three has no backing for a bounded claim, so the level
+    degrades to None/unverified rather than over-claim (and rather than crash the BackendResult
+    guard). The real Apalache/TLC S ∧ R path records all three — the command top-level, the
+    version under reproducibility — so it stays BOUNDED_CHECKED."""
+    no_bounds = _solver_result("REQ-1", "valid", ["spec:sys"], {"mode": "solver_backed"})
+    bounds_only = _solver_result(
         "REQ-1", "valid", ["spec:sys"], {"mode": "solver_backed", "bounds": {"max_depth": 8}}
     )
+    backed = _solver_result(
+        "REQ-1",
+        "valid",
+        ["spec:sys"],
+        {
+            "mode": "solver_backed",
+            "bounds": {"max_depth": 8},
+            "command": ["apalache-mc", "check", "Module.tla"],
+            "reproducibility": {"tool_version": "apalache 0.58.0"},
+        },
+    )
 
-    assert unbacked.result.evidence_level is None
+    assert no_bounds.result.evidence_level is None
+    assert bounds_only.result.evidence_level is None
     assert backed.result.evidence_level == EvidenceLevel.BOUNDED_CHECKED

@@ -90,8 +90,12 @@ def test_tlc_production_backend_accepts_custom_checker_command(tmp_path: Path) -
 
     response = check_formal_backend(request)
 
+    # The custom checker command is accepted and runs to a valid outcome, but it recorded no run
+    # version, so the bounded claim is unbacked and the producer self-gates the evidence level to
+    # None rather than over-claim BOUNDED_CHECKED. A backed run (with a recorded version) is
+    # covered by test_production_backend_surfaces_recorded_version_so_real_run_is_backed.
     assert response.result.status == "valid"
-    assert response.result.evidence_level.value == "BOUNDED_CHECKED"
+    assert response.result.evidence_level is None
 
 
 # The install script (scripts/install_formal_backends.sh) places the pinned tla2tools.jar here.
@@ -157,7 +161,9 @@ def test_production_backend_surfaces_recorded_version_so_real_run_is_backed(tmp_
     requires BOUNDED_CHECKED evidence to be backed (bounds + command + a run-recorded version).
     Production backends record the version inside the runner result but used not to surface it in
     details, so a genuine run would have been false-blocked as 'tool version is missing'. With the
-    version surfaced, a run that recorded one is backed; a stub that recorded none stays unbacked.
+    version surfaced, a run that recorded one is backed and earns BOUNDED_CHECKED; a stub that
+    recorded none is unbacked, so the producer self-gates its level to None rather than emit an
+    unbacked bounded claim downstream.
     """
     backed = check_formal_backend(
         build_formal_backend_request(
@@ -188,9 +194,13 @@ def test_production_backend_surfaces_recorded_version_so_real_run_is_backed(tmp_
             ),
         )
     )
-    assert stub.result.evidence_level.value == "BOUNDED_CHECKED"
+    # The stub recorded no run version, so the producer self-gates: it does not emit an unbacked
+    # BOUNDED_CHECKED claim. The level is None and the surfaced run version is null; because the
+    # producer no longer over-claims, the closure-layer backing check (which only inspects
+    # BOUNDED_CHECKED results) has nothing to flag.
+    assert stub.result.evidence_level is None
     assert stub.result.details["tool_version"] is None
-    assert "tool version is missing" in bounded_backing_problems(stub.result)
+    assert bounded_backing_problems(stub.result) == []
 
 
 def test_tla_projection_records_bounds_and_refuses_unsupported_fragments() -> None:

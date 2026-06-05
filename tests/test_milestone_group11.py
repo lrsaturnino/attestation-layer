@@ -89,6 +89,9 @@ def test_phase125_apalache_records_symbolic_profile_and_non_success_outcomes(tmp
             execution=FormalBackendExecution(
                 checker_id="custom-apalache",
                 command=[sys.executable, "-c", "print('The outcome is: NoError')"],
+                # A recorded run version backs the bounded claim; without it the producer
+                # self-gates the level to None (see the unbacked cases below).
+                tool_version="apalache 0.58.0",
                 artifact_dir=(tmp_path / "apalache-valid").as_posix(),
             ),
         )
@@ -134,6 +137,9 @@ def test_phase126_tlc_records_explicit_state_counterexample(tmp_path: Path) -> N
             execution=FormalBackendExecution(
                 checker_id="custom-tlc",
                 command=[sys.executable, "-c", "print('Invariant Foo is violated.')"],
+                # A recorded run version backs the bounded claim; a counterexample found within
+                # the bounds is BOUNDED_CHECKED evidence of a violation only when it is backed.
+                tool_version="tlc 2.18",
                 artifact_dir=(tmp_path / "tlc").as_posix(),
             ),
         )

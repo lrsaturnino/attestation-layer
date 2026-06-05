@@ -21,7 +21,16 @@ from .model_checker_runner import (
     ModelCheckerCommand,
     run_model_checker,
 )
-from .models import BackendResult, Counterexample, EvidenceLevel, Predicate, RequirementIR, RequirementIRV2, SourceSpan
+from .models import (
+    BackendResult,
+    Counterexample,
+    EvidenceLevel,
+    Predicate,
+    RequirementIR,
+    RequirementIRV2,
+    SourceSpan,
+    bounded_evidence_backing_complete,
+)
 from .system_spec import SystemSpecRegistry, build_system_spec_registry_report, specs_for_impact
 from .impact import ImpactAnalysisArtifact
 from .translator import LoweredFormalArtifact
@@ -509,18 +518,20 @@ def _solver_result(
     evidence_level: EvidenceLevel | None = None,
 ) -> SystemConsistencyResult:
     # Default: BOUNDED_CHECKED for external model-checker runs (Apalache/TLC with depth), but
-    # only when the run recorded the bounds it searched. A valid run with no recorded bounds has
-    # no backing for a bounded claim (the BackendResult guard would reject it), so it defaults to
-    # None/unverified rather than over-claim. Callers that use an in-process SMT solver
-    # (checker_id="z3") pass evidence_level=EvidenceLevel.SMT_CHECKED to avoid conflating bounded-MC
-    # evidence with propositional satisfiability evidence.
-    bounds = details.get("bounds")
-    has_recorded_bounds = isinstance(bounds, dict) and bool(bounds)
+    # only when the run recorded its full bounded backing — the bounds it searched, the checker
+    # command, and the version of the checker the run resolved (see
+    # ``models.bounded_evidence_backing_complete``). A valid run that recorded no bounds, no
+    # command, or no run version (a stub, or a tool that resolved no version) has no backing for
+    # a bounded claim, so it self-gates to None/unverified rather than over-claim. The real
+    # Apalache/TLC S ∧ R path records the command top-level and the version under
+    # ``reproducibility``, so it stays BOUNDED_CHECKED. Callers that use an in-process SMT solver
+    # (checker_id="z3") pass evidence_level=EvidenceLevel.SMT_CHECKED to avoid conflating
+    # bounded-MC evidence with propositional satisfiability evidence.
     resolved_evidence = (
         evidence_level if evidence_level is not None
         else (
             EvidenceLevel.BOUNDED_CHECKED
-            if status == "valid" and has_recorded_bounds
+            if status == "valid" and bounded_evidence_backing_complete(details)
             else None
         )
     )

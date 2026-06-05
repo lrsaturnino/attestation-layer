@@ -514,6 +514,48 @@ def _has_recorded_bounds(details: dict[str, Any]) -> bool:
     return isinstance(bounds, dict) and len(bounds) > 0
 
 
+def _has_command_metadata(details: dict[str, Any]) -> bool:
+    """Whether ``details`` records the checker command a BOUNDED_CHECKED run was produced by."""
+    command = details.get("command")
+    return bool(command) and isinstance(command, (list, str))
+
+
+def _recorded_tool_version(details: dict[str, Any]) -> str | None:
+    """The version recorded by the run that produced ``details``, top-level or nested.
+
+    A bounded model check is backed only by the version of the checker that actually ran,
+    recorded either top-level (``details['tool_version']``) or under the run's reproducibility
+    metadata (``details['reproducibility']['tool_version']`` — where the solver-backed S ∧ R
+    path records it under ``exclude_none``). A producer's static catalog version does not count;
+    only a run-recorded one does (that is the loophole this closes)."""
+    direct = details.get("tool_version")
+    if isinstance(direct, str) and direct:
+        return direct
+    repro = details.get("reproducibility")
+    if isinstance(repro, dict):
+        nested = repro.get("tool_version")
+        if isinstance(nested, str) and nested:
+            return nested
+    return None
+
+
+def bounded_evidence_backing_complete(details: dict[str, Any]) -> bool:
+    """Whether ``details`` carries the full backing a BOUNDED_CHECKED claim requires.
+
+    A bounded model check is honestly BOUNDED_CHECKED only when it records all three of: the
+    bounds it searched, the checker command, and the version of the checker recorded from the
+    run that produced it. This is the single definition of bounded backing, shared by the
+    producers — which self-gate to ``evidence_level=None`` when it is incomplete, so an unbacked
+    bounded claim is never emitted — and the proof-closure / evidence-producer layer, which
+    refuses an over-claimed bounded result downstream. A stub or version-less run records no
+    run version and is therefore not backed."""
+    return (
+        _has_recorded_bounds(details)
+        and _has_command_metadata(details)
+        and _recorded_tool_version(details) is not None
+    )
+
+
 def _is_nonempty_str(value: Any) -> bool:
     """Whether ``value`` is a non-empty (non-whitespace) string."""
     return isinstance(value, str) and bool(value.strip())

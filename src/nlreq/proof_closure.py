@@ -8,7 +8,15 @@ from .backend_agreement import BackendAgreementReport
 from .coverage_alignment import SpecCoverageReport, TraceAlignmentReport
 from .formal_backend import FormalBackendResponse
 from .jsonutil import sha256_json
-from .models import BackendResult, EvidenceLevel, RequirementIRV2, SemanticNode
+from .models import (
+    BackendResult,
+    EvidenceLevel,
+    RequirementIRV2,
+    SemanticNode,
+    _has_command_metadata as _details_has_command,
+    _has_recorded_bounds as _details_has_bounds,
+    _recorded_tool_version as _details_recorded_tool_version,
+)
 from .system_checker import SystemConsistencyResult
 
 
@@ -730,31 +738,21 @@ def bounded_backing_problems(result: BackendResult) -> list[str]:
     return problems
 
 
+# The granular reasons reuse the canonical, ``details``-based bounded-backing predicates in
+# ``models`` so this closure-layer check and the producers' self-gating (and the BackendResult
+# construction guard) cannot drift from one definition of "backed". ``bounded_backing_problems``
+# is the message-producing sibling of ``models.bounded_evidence_backing_complete``: it returns no
+# problems exactly when that predicate is True.
 def _has_bounds(result: BackendResult) -> bool:
-    bounds = result.details.get("bounds")
-    return isinstance(bounds, dict) and bool(bounds)
+    return _details_has_bounds(result.details)
 
 
 def _has_command_metadata(result: BackendResult) -> bool:
-    command = result.details.get("command")
-    return bool(command) and isinstance(command, (list, str))
+    return _details_has_command(result.details)
 
 
 def _recorded_tool_version(result: BackendResult) -> str | None:
-    """The tool version recorded by the run, top-level or nested under reproducibility.
-
-    The solver-backed S ∧ R producer records it under ``details["reproducibility"]
-    ["tool_version"]``; some backends/fixtures record it top-level. Either counts; a producer's
-    static catalog version does not (that is the loophole this closes)."""
-    direct = result.details.get("tool_version")
-    if isinstance(direct, str) and direct:
-        return direct
-    repro = result.details.get("reproducibility")
-    if isinstance(repro, dict):
-        nested = repro.get("tool_version")
-        if isinstance(nested, str) and nested:
-            return nested
-    return None
+    return _details_recorded_tool_version(result.details)
 
 
 def _proof_nodes(root: SemanticNode) -> list[tuple[Literal["premise", "obligation"], SemanticNode]]:
