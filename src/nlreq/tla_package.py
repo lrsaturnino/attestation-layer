@@ -93,7 +93,7 @@ def build_tla_package(
             bound_ir,
             status.status.value,
             adapter_id=adapter.adapter_id,
-            evidence_lines=_tla_evidence_lines(tasks),
+            evidence_lines=_tla_evidence_lines(tasks, task_results),
         )
     )
     (output_dir / "smt" / "C1.smt2").parent.mkdir(exist_ok=True)
@@ -273,7 +273,7 @@ def _validate_tla_package_integrity(
             ir,
             status.status.value,
             adapter_id=adapter.adapter_id,
-            evidence_lines=_tla_evidence_lines(expected_tasks),
+            evidence_lines=_tla_evidence_lines(expected_tasks, adapter_results.root),
         ),
         "implementation-spec.md does not match requirement.ir.json and status.json",
     )
@@ -442,15 +442,35 @@ def _counterexamples_for_results(results: list[BackendResult]) -> list[Counterex
     return counterexamples
 
 
-def _tla_evidence_lines(tasks: list[VerificationTask]) -> list[str]:
-    return [
+def _tla_evidence_lines(
+    tasks: list[VerificationTask], task_results: list[BackendResult]
+) -> list[str]:
+    """Evidence lines that report each reviewed check's *achieved* bounded evidence, not its request.
+
+    A reviewed TLA check earns BOUNDED_CHECKED only when its run records the full backing
+    (bounds + command + a run-recorded checker version); without a recorded version the adapter
+    self-gates the level to None (see ``TlaAdapter.run_task``). Each per-task line is derived from
+    the same ``EvidenceClaim`` the evidence object carries (via ``_claim_for_tla_task``), so the
+    spec text can never claim a check "produced BOUNDED_CHECKED" evidence it actually recorded none
+    of — the line and the achieved evidence cannot drift apart.
+    """
+    results_by_id = _task_results_by_id(task_results)
+    lines = [
         "IR type-checked.",
         "Symbols resolved through TLA adapter vocabulary.",
         "Self-consistency checked.",
         "Supported claim shape SMT-checked.",
-        *[
-            f"Reviewed TLA model check `{task.id}` produced BOUNDED_CHECKED evidence."
-            for task in tasks
-        ],
-        "No PROVEN_INDUCTIVE evidence is claimed by bounded model checks.",
     ]
+    for task in tasks:
+        claim = _claim_for_tla_task(task, results_by_id.get(task.id))
+        if claim.achieved_evidence == EvidenceLevel.BOUNDED_CHECKED:
+            lines.append(
+                f"Reviewed TLA model check `{task.id}` produced BOUNDED_CHECKED evidence."
+            )
+        else:
+            lines.append(
+                f"Reviewed TLA model check `{task.id}` requested BOUNDED_CHECKED evidence "
+                "but recorded none; no bounded evidence is claimed."
+            )
+    lines.append("No PROVEN_INDUCTIVE evidence is claimed by bounded model checks.")
+    return lines

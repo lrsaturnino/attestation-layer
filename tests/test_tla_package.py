@@ -7,7 +7,7 @@ from pydantic import ValidationError
 from nlreq.adoption import build_package_index
 from nlreq.cli import main
 from nlreq.jsonutil import read_json, write_json
-from nlreq.models import EvidenceLevel, FinalStatus
+from nlreq.models import EvidenceLevel, FinalStatus, Symbol
 from nlreq.tla_adapter import TlaAdapter, TlaModelConfigArtifact
 from nlreq.tla_package import build_tla_package, run_tla_checks, validate_tla_package
 
@@ -50,6 +50,45 @@ def test_build_tla_package_refuses_when_check_records_no_version(tmp_path: Path)
     assert evidence.claims[-1].required_evidence == EvidenceLevel.BOUNDED_CHECKED
     assert evidence.claims[-1].achieved_evidence is None
     assert read_json(out / "counterexamples.json") == []
+
+
+def test_tla_implementation_spec_does_not_claim_unbacked_bounded_evidence(tmp_path: Path) -> None:
+    """The package spec must not report 'produced BOUNDED_CHECKED' for a check that recorded none.
+
+    The reviewed check runs to a valid outcome but records no checker version, so its bounded claim
+    self-gates to evidence_level None. The implementation-spec.md evidence line must report the
+    requested level as unachieved, never assert bounded evidence the run could not back."""
+    project = _project(tmp_path)
+    adapter = _adapter(project)
+    out = tmp_path / "requirements" / "REQ-TLA-001"
+
+    build_tla_package(
+        controlled_text=REQUIREMENT_TEXT,
+        output_dir=out,
+        requirement_id="REQ-TLA-001",
+        title="Unauthorized operation is rejected before state changes",
+        claim_kind="authorization_precondition",
+        adapter=adapter,
+    )
+
+    _ir, evidence, _status = validate_tla_package(out, adapter)
+    spec = (out / "implementation-spec.md").read_text()
+
+    assert evidence.claims[-1].achieved_evidence is None
+    assert "produced BOUNDED_CHECKED evidence" not in spec
+    assert "requested BOUNDED_CHECKED evidence but recorded none" in spec
+
+
+def test_tla_adapter_does_not_advertise_unbackable_bounded_evidence(tmp_path: Path) -> None:
+    """The adapter must not advertise BOUNDED_CHECKED it cannot currently back.
+
+    Without a recorded checker version every run self-gates its bounded claim to None, so
+    advertising the level would promise a planner evidence the adapter cannot produce."""
+    adapter = _adapter(_project(tmp_path))
+
+    capabilities = adapter.available_evidence([Symbol(name="operation", symbol_type="action")])
+
+    assert capabilities == []
 
 
 def test_tla_package_records_counterexample_when_checker_reports_violation(tmp_path: Path) -> None:

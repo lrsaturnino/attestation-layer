@@ -111,14 +111,18 @@ class TlaAdapter(Adapter):
         return self._symbol_adapter.validate_binding(generic_binding)
 
     def available_evidence(self, symbols: list[Symbol]) -> list[EvidenceCapability]:
-        if not symbols:
-            return []
-        return [
-            EvidenceCapability(
-                evidence_level=EvidenceLevel.BOUNDED_CHECKED,
-                description="Reviewed TLA+ model/config can be checked by a bounded model checker.",
-            )
-        ]
+        # A reviewed TLA+ model/config is checked by a bounded model checker, but BOUNDED_CHECKED is
+        # honestly available only when a run records the full backing of its bounded search —
+        # bounds, the checker command, and the version of the checker that ran (see
+        # models.bounded_evidence_backing_complete and run_task's self-gating). This adapter runs the
+        # checker through a raw subprocess and records no run version, so every run self-gates its
+        # bounded claim to None; advertising BOUNDED_CHECKED here would promise a planner evidence
+        # the adapter cannot currently produce. It therefore advertises no capability — mirroring how
+        # sibling adapters advertise a level only when they can back it (PythonAdapter gates
+        # TEST_VALIDATED on configured test paths). Recording a run version — a version probe, as the
+        # runner-harness backends do — is the enhancement that would let this advertise
+        # BOUNDED_CHECKED again.
+        return []
 
     def generate_tasks(self, ir: RequirementIR) -> list[VerificationTask]:
         tasks: list[VerificationTask] = []
