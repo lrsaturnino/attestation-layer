@@ -33,6 +33,7 @@ from .requirement_self_consistency import check_requirement_self_consistency
 from .source_adapter import SourceLanguageAdapter, SourceManifest
 from .system_checker import (
     check_solver_backed_system_consistency,
+    default_apalache_s_and_r_execution,
     not_applicable_system_consistency,
     unsupported_system_consistency_without_invariant,
 )
@@ -277,9 +278,12 @@ def run_end_to_end_requirement_gate(
     adds a blocker so the gate decision is "refused".
 
     `execution` controls the self-consistency formal backend (TLA runner or custom).
-    `solver_execution` overrides the checker for the solver-backed S ∧ R check (e.g.
-    checker_id="apalache"); when omitted, S ∧ R runs by default on in-process Z3. S ∧ R is
-    skipped as not-applicable only when no reviewed system spec relevant to the impact
+    `solver_execution` overrides the checker for the solver-backed S ∧ R check; when omitted,
+    S ∧ R runs by default on a real Apalache check of the composed module
+    (default_apalache_s_and_r_execution), degrading to tool_error (blocks) if the binary is
+    absent. Pass `solver_execution=FormalBackendExecution(checker_id="z3")` to opt into the
+    in-process Z3 development/fixture path, which does not evaluate S's transition system. S ∧ R
+    is skipped as not-applicable only when no reviewed system spec relevant to the impact
     declares an invariant. `execution` is never reused for S ∧ R, so a self-consistency-only
     run never triggers it.
     """
@@ -428,11 +432,16 @@ def run_end_to_end_requirement_gate(
     )
     record("trace_replay", "trace-replay.json", trace_replay)
 
-    # System consistency S ∧ R is checked by a real solver by default — never by grepping
-    # the spec text for markers (that path is check_system_consistency_fixture, offline tests
-    # only). The default checker is in-process Z3 (no external binary); a caller may override
-    # with solver_execution (e.g. Apalache). `execution` drives the self-consistency check and
-    # is deliberately NOT reused here, so a self-consistency-only run never triggers S ∧ R.
+    # System consistency S ∧ R is checked by a real model checker by default — never by
+    # grepping the spec text for markers (that path is check_system_consistency_fixture, offline
+    # tests only). The default checker is a real Apalache run over the composed S ∧ R module
+    # (default_apalache_s_and_r_execution): only a bounded model check of S's own Init/Next
+    # actually exercises the narrowing. The in-process Z3 path is an explicit development/fixture
+    # mode a caller opts into with solver_execution=FormalBackendExecution(checker_id="z3"); it
+    # never evaluates S's transition system, so it is not S ∧ R evidence. When Apalache is not
+    # installed the run degrades to tool_error (UNVERIFIED, blocks) — never a silent pass.
+    # `execution` drives the self-consistency check and is deliberately NOT reused here, so a
+    # self-consistency-only run never triggers S ∧ R.
     #
     # A reviewed spec contributes a checkable S ∧ R obligation only when it declares an
     # invariant to preserve. The three outcomes are decided from the registry, not from a
@@ -454,7 +463,10 @@ def run_end_to_end_requirement_gate(
             impact=impact,
             project_root=project_root,
             budget=budget,
-            execution=solver_execution or FormalBackendExecution(checker_id="z3"),
+            execution=solver_execution
+            or default_apalache_s_and_r_execution(
+                artifact_dir=(artifact_dir / "s-and-r").as_posix()
+            ),
         )
         system_status = system_consistency.result.status
     elif relevant_specs:

@@ -17,6 +17,22 @@ jobs:
       - name: Sync dependencies
         run: uv sync --extra dev
 
+      # The default S ∧ R consistency check runs a real Apalache model check (PB-1/PB-2). Install
+      # the pinned, checksum-verified binary so CI exercises the real checker — without it the
+      # real-Apalache tests skip and the default gate degrades to tool_error, i.e. the S ∧ R
+      # evidence would be nominal, not real. Apalache's launcher runs `java`, so a JDK 17 must be
+      # on PATH first.
+      - name: Set up JDK 17 (Apalache runtime)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install formal backends (Apalache)
+        run: |
+          scripts/install_formal_backends.sh --apalache-only
+          echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
+
       - name: Check schema drift
         run: uv run python scripts/check_schema_drift.py
 

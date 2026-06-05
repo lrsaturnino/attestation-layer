@@ -1,11 +1,17 @@
 import json
+import shutil
 import sys
 from pathlib import Path
+
+import pytest
 
 from nlreq.cli import main
 from nlreq.dsl_v3 import DslV3Parser
 from nlreq.end_to_end_gate import build_proof_with_formal_claim_dispatch, run_end_to_end_requirement_gate
 from nlreq.formal_backend import FormalBackendExecution
+from nlreq.system_checker import APALACHE_S_AND_R_COMMAND
+
+APALACHE = shutil.which("apalache-mc")
 from nlreq.jsonutil import read_json
 from nlreq.python_source_adapter import PythonSourceLanguageAdapter
 from nlreq.source_adapter import SourceManifest
@@ -23,25 +29,17 @@ DSL = (
 )
 
 
-def test_end_to_end_gate_composes_real_s_and_r_valid(tmp_path: Path) -> None:
-    """A real, solver-backed S ∧ R reaches `valid` end-to-end against a reviewed S.
+def _run_reviewed_s_gate(
+    tmp_path: Path, *, solver_execution: FormalBackendExecution | None = None
+):
+    """Run the end-to-end gate over the reviewed-S fixture and return the report.
 
-    This is the genuine successor to the old "accepts closed requirement" test. That test
-    closed the gate via the vacuous not_applicable floor baseline that no longer exists (a
-    reviewed spec that asserts nothing no longer produces a passing S ∧ R). Here a reviewed S
-    pins `Pred_authorized` FALSE and declares a real invariant, and a v3
-    authorization_precondition requirement lowers to a `Pred_authorized` obligation that S
-    discharges — so the Z3-backed composition genuinely returns `valid` (SMT_CHECKED), not a
-    fixture pass. spec_coverage passes (S covers the module) and the FormalClaim lowers.
-
-    What it deliberately does NOT assert is `decision == accepted`. The v3 claim's predicate
-    and rejection_order fragments route to SMT_CHECKED / BOUNDED_CHECKED producers that are
-    not yet wired to discharge from the S ∧ R verdict, so the ProofObject's formal-fragment
-    premises stay blocked and closure does not pass. Closing the gate end-to-end requires
-    model-checker-backed per-premise discharge and real fragment-level checking, which is the
-    next capability slice — not this stage. Until then there is intentionally no end-to-end
-    `accepted` path for a requirement against a covered module; that gap is the honest
-    consequence of refusing to fake high-assurance evidence.
+    The fixture's reviewed S pins ``Pred_authorized`` FALSE and declares the real invariant
+    ``SystemDefaultsClosed``, so the v3 authorization_precondition requirement composes into a
+    grounded, non-vacuous S ∧ R. Two agreeing deterministic translation candidates keep the
+    ensemble "agreed" — a single provided IR would be "needs_review" and mask the S ∧ R verdict.
+    ``solver_execution=None`` exercises the gate's default (real Apalache); callers pass an
+    explicit execution to test the Z3 fixture path or checker-absence degradation.
     """
     manifest, registry = _project(tmp_path, reviewed_invariant=True)
     controlled_text = (
@@ -51,8 +49,6 @@ def test_end_to_end_gate_composes_real_s_and_r_valid(tmp_path: Path) -> None:
     requirement_ir = DslV3Parser().parse_ir(
         controlled_text, requirement_id="REQ-GATE-001", title="Requirement gate"
     )
-    # Two agreeing deterministic candidates so the ensemble agrees; a single provided IR is
-    # "needs_review", which would block the translation stage and mask the S ∧ R result.
     agreement = TranslationAgreementInput(
         candidates=[
             TranslationCandidate(translator_id="primary", method="deterministic",
@@ -61,8 +57,7 @@ def test_end_to_end_gate_composes_real_s_and_r_valid(tmp_path: Path) -> None:
                                  requirement=requirement_ir, provenance={"source": "test"}),
         ]
     )
-
-    report = run_end_to_end_requirement_gate(
+    return run_end_to_end_requirement_gate(
         controlled_text=controlled_text,
         requirement_id="REQ-GATE-001",
         title="Requirement gate",
@@ -73,15 +68,50 @@ def test_end_to_end_gate_composes_real_s_and_r_valid(tmp_path: Path) -> None:
         project_root=tmp_path,
         artifact_dir=tmp_path / "gate-artifacts",
         execution=_execution(tmp_path),
-        solver_execution=FormalBackendExecution(checker_id="z3"),
+        solver_execution=solver_execution,
         requirement_ir=requirement_ir,
         translation_agreement=agreement,
     )
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_end_to_end_gate_composes_real_s_and_r_valid(tmp_path: Path) -> None:
+    """A real, solver-backed S ∧ R reaches `valid` end-to-end against a reviewed S.
+
+    This exercises the gate's *default* checker — no `solver_execution` is passed, so the gate
+    runs a real Apalache check of the composed S ∧ R module (the narrowing), not the in-process
+    Z3 fixture path. This is the genuine successor to the old "accepts closed requirement" test.
+    That test closed the gate via the vacuous not_applicable floor baseline that no longer
+    exists (a reviewed spec that asserts nothing no longer produces a passing S ∧ R). Here a
+    reviewed S pins `Pred_authorized` FALSE and declares a real invariant, and a v3
+    authorization_precondition requirement lowers to a `Pred_authorized` obligation that S
+    discharges — so a bounded model check of the composed module genuinely returns `valid`
+    (BOUNDED_CHECKED), with the resolved tool version recorded. spec_coverage passes (S covers
+    the module) and the FormalClaim lowers.
+
+    What it deliberately does NOT assert is `decision == accepted`. The v3 claim's predicate
+    and rejection_order fragments route to SMT_CHECKED / BOUNDED_CHECKED producers that are
+    not yet wired to discharge from the S ∧ R verdict, so the ProofObject's formal-fragment
+    premises stay blocked and closure does not pass. Closing the gate end-to-end requires
+    model-checker-backed per-premise discharge and real fragment-level checking, which is the
+    next capability slice — not this stage. Until then there is intentionally no end-to-end
+    `accepted` path for a requirement against a covered module; that gap is the honest
+    consequence of refusing to fake high-assurance evidence.
+    """
+    report = _run_reviewed_s_gate(tmp_path)
 
     # The real S ∧ R composition verified the requirement against a reviewed S.
     assert report.statuses["system_consistency"] == "valid", (
         report.statuses, [(b.stage, b.status) for b in report.blockers]
     )
+    # The default ran a real Apalache bounded check (not the Z3 fixture path): a non-null tool
+    # version proves a real binary resolved, and the evidence level is bounded-MC, not SMT.
+    system_consistency = read_json(
+        Path(next(a.path for a in report.artifacts if a.name == "system_consistency"))
+    )
+    assert system_consistency["result"]["details"]["checker_id"] == "apalache"
+    assert system_consistency["result"]["evidence_level"] == "BOUNDED_CHECKED"
+    assert system_consistency["result"]["details"]["reproducibility"]["tool_version"]
     assert report.statuses["spec_coverage"] == "passed"
     assert report.statuses["translation_agreement"] == "agreed"
     assert report.statuses["formal_claim"] == "lowered"
@@ -99,6 +129,59 @@ def test_end_to_end_gate_composes_real_s_and_r_valid(tmp_path: Path) -> None:
         "closure_gate",
     }
     assert all(Path(artifact.path).is_file() for artifact in report.artifacts)
+
+
+def test_end_to_end_gate_s_and_r_blocks_when_checker_absent(tmp_path: Path) -> None:
+    """When the S ∧ R checker binary is absent, the gate refuses — it never silently passes.
+
+    This is the PB-3 honesty tripwire at the gate level. The composition succeeds (a real,
+    grounded S ∧ R module is written), but the checker subprocess cannot launch, so the run
+    degrades to ``tool_error`` → ``invalid`` (UNVERIFIED), the system_consistency stage records
+    no evidence level, and the gate decision is ``refused`` with a system_consistency blocker.
+    A missing model checker must never be read as ``valid``. Hermetic: the bogus binary name is
+    absent on every machine, so this needs no installed checker.
+    """
+    absent_checker = FormalBackendExecution(
+        checker_id="apalache",
+        command=["apalache-mc-not-installed", *list(APALACHE_S_AND_R_COMMAND)[1:]],
+        artifact_dir=(tmp_path / "s-and-r-absent").as_posix(),
+    )
+    report = _run_reviewed_s_gate(tmp_path, solver_execution=absent_checker)
+
+    assert report.statuses["system_consistency"] == "invalid", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    system_consistency = read_json(
+        Path(next(a.path for a in report.artifacts if a.name == "system_consistency"))
+    )
+    assert system_consistency["result"].get("evidence_level") is None
+    assert system_consistency["result"]["details"]["tool_error"]
+    assert report.decision == "refused"
+    assert any(b.stage == "system_consistency" for b in report.blockers)
+
+
+def test_end_to_end_gate_s_and_r_z3_is_explicit_fixture_mode(tmp_path: Path) -> None:
+    """The in-process Z3 path is reachable only as an explicit opt-in, and is labeled SMT — not
+    bounded — evidence.
+
+    Z3 is the development/fixture checker: it parses the lowered obligation under S's predicate
+    assignments without ever evaluating S's Init/Next, so it is not a substitute for a bounded
+    model check of the composed transition system. It must be reached only when a caller asks
+    for it by name, and its verdict must carry ``SMT_CHECKED``, never ``BOUNDED_CHECKED`` — so
+    it can never be mistaken for real S ∧ R evidence. Hermetic: no external binary.
+    """
+    report = _run_reviewed_s_gate(
+        tmp_path, solver_execution=FormalBackendExecution(checker_id="z3")
+    )
+
+    assert report.statuses["system_consistency"] == "valid", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    system_consistency = read_json(
+        Path(next(a.path for a in report.artifacts if a.name == "system_consistency"))
+    )
+    assert system_consistency["result"]["details"]["checker_id"] == "z3"
+    assert system_consistency["result"]["evidence_level"] == "SMT_CHECKED"
 
 
 def test_build_proof_with_formal_claim_dispatch_uses_fragment_ids_for_classed_ir() -> None:

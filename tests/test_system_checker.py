@@ -17,6 +17,7 @@ from nlreq.impact import ImpactAnalysisArtifact
 from nlreq.models import RequirementIR
 from nlreq.parser import RequirementParser
 from nlreq.system_checker import (
+    APALACHE_S_AND_R_COMMAND,
     check_requirement_set_consistency,
     check_solver_backed_system_consistency,
     check_system_consistency_fixture,
@@ -141,16 +142,9 @@ def test_requirement_set_consistency_detects_opposite_predicates() -> None:
 
 APALACHE = shutil.which("apalache-mc")
 
-_APALACHE_COMMAND = [
-    "apalache-mc",
-    "check",
-    "--cinit=ConstInit",
-    "--init=Init",
-    "--next=Next",
-    "--inv=Inv",
-    "--length=6",
-    "{module}",
-]
+# The S ∧ R command is owned by system_checker (single source of truth); these tests check
+# the same command the default gate and the retained benchmark corpus run.
+_APALACHE_COMMAND = list(APALACHE_S_AND_R_COMMAND)
 
 
 def _reviewed_s_spec_text() -> str:

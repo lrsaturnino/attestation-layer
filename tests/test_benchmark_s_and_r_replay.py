@@ -28,7 +28,7 @@ from nlreq.formal_backend import FormalBackendBudget, FormalBackendExecution
 from nlreq.impact import ImpactAnalysisArtifact
 from nlreq.jsonutil import sha256_text
 from nlreq.model_checker_runner import ModelCheckerBudget, ModelCheckerCommand, run_model_checker
-from nlreq.system_checker import check_solver_backed_system_consistency
+from nlreq.system_checker import APALACHE_S_AND_R_COMMAND, check_solver_backed_system_consistency
 from nlreq.system_spec import SystemSpecRegistry
 from nlreq.translator import lower_ir_v2_to_tla
 
@@ -148,6 +148,18 @@ def test_committed_run_statuses_match_manifest() -> None:
         assert record["status"] == spec["expect_status"], (outcome, record["status"])
 
 
+def test_manifest_command_equals_centralized_source_of_truth() -> None:
+    """The retained corpus and the default gate must run the *same* Apalache command.
+
+    ``APALACHE_S_AND_R_COMMAND`` (owned by system_checker) is what the default end-to-end gate
+    runs; the committed manifest records what produced this corpus. If they drift, a passing
+    replay would no longer testify to the command the gate actually executes — so pin them
+    equal. The flags (--cinit/--init/--next/--inv) bind the composed module's operators; dropping
+    any silently checks a different system.
+    """
+    assert MANIFEST["apalache_command"] == list(APALACHE_S_AND_R_COMMAND)
+
+
 def test_counterexample_module_hash_matches_run_record() -> None:
     """The retained counterexample module is exactly the one the recorded run checked."""
     record = _run_record("counterexample")
@@ -174,15 +186,31 @@ def test_counterexample_module_names_the_violated_invariant() -> None:
 
 @pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
 def test_counterexample_replays_to_committed_trace(tmp_path: Path) -> None:
-    """Re-running the retained command on the committed module reproduces the counterexample
-    and the same normalized trace — the SP2-B replay."""
+    """Re-running the retained command on the committed module reproduces a real counterexample
+    that walks S's own transitions into the forbidden outcome — the SP2-B replay.
+
+    The assertion is the forced violating spine: the replayed ``authPhase`` progression equals
+    the committed golden's (init → denied → finalized) and reaches the forbidden outcome with the
+    scope constants pinned through every state. For this deterministic model that path is unique,
+    so the spine *is* the whole behavior. It deliberately does not require the ITF JSON to be
+    byte-identical across operating systems — that would couple a green build to Apalache/Z3
+    emission ordering (the `vars`/`params` metadata lists) rather than to the property under
+    test, and this gate runs on a platform the golden was not generated on.
+    """
     result, work = _replay_committed_module("counterexample", tmp_path)
     assert result.outcome == "counterexample", result.stdout.tail
     traces = sorted(work.glob("**/violation.itf.json"))
     assert traces, "expected a replayed ITF counterexample trace"
     replayed = _strip_itf_trace(json.loads(traces[0].read_text()))
     golden = json.loads((CORPUS / "counterexample" / "trace.json").read_text())
-    assert replayed == golden
+    replayed_phases = [state["authPhase"] for state in replayed["states"]]
+    golden_phases = [state["authPhase"] for state in golden["states"]]
+    assert replayed_phases == golden_phases, (replayed_phases, golden_phases)
+    assert replayed_phases[0] == "init" and replayed_phases[-1] == "finalized"
+    # The scope constants stay pinned (ConstInit bound them) through every replayed state, so the
+    # violation is a real S behavior over its own variables, not an unconstrained search.
+    for state in replayed["states"]:
+        assert state["redemption"] == "redemption" and state["wallet"] == "wallet"
 
 
 @pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")

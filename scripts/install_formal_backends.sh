@@ -99,10 +99,13 @@ if [ "${INSTALL_APALACHE}" -eq 1 ]; then
   echo "Installing Apalache ${APALACHE_VERSION} (primary)…"
   download "${APALACHE_URL}" "${WORKDIR}/apalache.tgz"
   verify_or_die "${WORKDIR}/apalache.tgz" "${APALACHE_SHA256}" "apalache-${APALACHE_VERSION}.tgz"
-  rm -rf "${PREFIX}/opt/apalache"
+  # The tarball unpacks to a *versioned* top-level directory `apalache-<version>/` whose
+  # bin/apalache-mc launcher runs `java -jar lib/apalache.jar`, so the symlink must target the
+  # versioned path (an unversioned `apalache/` does not exist and would dangle). Apalache needs
+  # a JDK 17+ `java` on PATH.
+  rm -rf "${PREFIX}/opt/apalache-${APALACHE_VERSION}"
   tar -xzf "${WORKDIR}/apalache.tgz" -C "${PREFIX}/opt"
-  # The tarball unpacks to a top-level `apalache/` directory with bin/apalache-mc.
-  ln -sf "${PREFIX}/opt/apalache/bin/apalache-mc" "${PREFIX}/bin/apalache-mc"
+  ln -sf "${PREFIX}/opt/apalache-${APALACHE_VERSION}/bin/apalache-mc" "${PREFIX}/bin/apalache-mc"
   echo "  installed: ${PREFIX}/bin/apalache-mc"
   "${PREFIX}/bin/apalache-mc" version || true
 fi

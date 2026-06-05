@@ -39,7 +39,10 @@ from nlreq.dsl_v3 import DslV3Parser  # noqa: E402
 from nlreq.formal_backend import FormalBackendBudget, FormalBackendExecution  # noqa: E402
 from nlreq.impact import ImpactAnalysisArtifact  # noqa: E402
 from nlreq.jsonutil import sha256_text  # noqa: E402
-from nlreq.system_checker import check_solver_backed_system_consistency  # noqa: E402
+from nlreq.system_checker import (  # noqa: E402
+    APALACHE_S_AND_R_COMMAND,
+    check_solver_backed_system_consistency,
+)
 from nlreq.system_spec import SystemSpecRegistry  # noqa: E402
 from nlreq.translator import lower_ir_v2_to_tla  # noqa: E402
 
@@ -121,16 +124,9 @@ UNREACHABLE_SPEC = (
     "====\n"
 )
 
-APALACHE_COMMAND = [
-    "apalache-mc",
-    "check",
-    "--cinit=ConstInit",
-    "--init=Init",
-    "--next=Next",
-    "--inv=Inv",
-    "--length=6",
-    "{module}",
-]
+# Owned by system_checker (single source of truth): the corpus is generated with the exact
+# command the default gate runs, so a retained artifact and a live gate run cannot diverge.
+APALACHE_COMMAND = list(APALACHE_S_AND_R_COMMAND)
 BUDGET = {"timeout_seconds": 60, "max_depth": 6}
 TIMEOUT_BUDGET_SECONDS = 1
 

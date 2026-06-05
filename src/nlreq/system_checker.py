@@ -30,6 +30,49 @@ from .translator import LoweredFormalArtifact
 SYSTEM_CHECKER_SCHEMA_VERSION = "0.1"
 
 
+# Single source of truth for the Apalache command that checks a composed S ∧ R module.
+# The narrowing composition emits S's own transition system under Init/Next, the conjoined
+# S ∧ R state invariant as Inv, and pins identifier constants in ConstInit. The checker must
+# be told all four (--cinit/--init/--next/--inv) or it would check a different system than the
+# one composed — e.g. with the scope identifiers left unbound — and could miss or invent a
+# counterexample. The default gate (end_to_end_gate), the retained benchmark corpus
+# (benchmarks/s-and-r/.../manifest.json), and the real-Apalache tests all reference this so
+# they cannot drift apart. ``--length`` bounds the symbolic search depth; ``{module}`` is
+# substituted with the composed module's filename by _solver_checker_command.
+APALACHE_S_AND_R_COMMAND: tuple[str, ...] = (
+    "apalache-mc",
+    "check",
+    "--cinit=ConstInit",
+    "--init=Init",
+    "--next=Next",
+    "--inv=Inv",
+    "--length=6",
+    "{module}",
+)
+
+
+def default_apalache_s_and_r_execution(
+    *, artifact_dir: str | None = None
+) -> FormalBackendExecution:
+    """Build the gate's default solver execution for S ∧ R: a real Apalache run over the
+    composed module, carrying the pinned version command so every run records a non-null tool
+    version. This — not the in-process Z3 path — is the default checker, because only a bounded
+    model check of the composed transition system actually exercises the S ∧ R narrowing. The
+    Z3 path remains available as an explicit development/fixture mode
+    (``FormalBackendExecution(checker_id="z3")``); it parses the lowered obligation under S's
+    predicate assignments but never evaluates S's Init/Next, so it is not S ∧ R evidence.
+
+    When Apalache is not installed the run degrades to ``tool_error`` (UNVERIFIED, blocks) — it
+    is never silently treated as ``valid``.
+    """
+    return FormalBackendExecution(
+        checker_id="apalache",
+        command=list(APALACHE_S_AND_R_COMMAND),
+        tool_version_command=["apalache-mc", "version"],
+        artifact_dir=artifact_dir,
+    )
+
+
 class SystemConsistencyResult(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
