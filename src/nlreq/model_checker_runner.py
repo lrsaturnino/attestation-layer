@@ -117,15 +117,15 @@ def run_model_checker(request: ModelCheckerCommand, *, project_root: Path | None
     if (
         version is None
         and request.tool_version_command is not None
-        and _same_executable(request.command[0], request.tool_version_command[0])
+        and _same_tool(request.command, request.tool_version_command)
     ):
-        # A version probe only testifies to the executable it shares with the run. When the
-        # configured tool_version_command targets a *different* binary than request.command
-        # (e.g. a real `apalache-mc version` probe while the run executes an absent
-        # `apalache-mc-not-installed`), its reported version belongs to a different binary and
-        # must never be attributed to this run — the version stays null. Compare basenames so a
-        # bare name and an absolute path to the same tool still match while genuinely different
-        # binaries do not. An explicit request.tool_version (a caller assertion) is untouched.
+        # A version probe only testifies to the *tool* it shares with the run. When the configured
+        # tool_version_command invokes a different tool than request.command — a different binary
+        # (a real `apalache-mc version` probe while the run executes an absent
+        # `apalache-mc-not-installed`) or, for a JVM launcher, a different main class (a real
+        # `java -cp tla2tools.jar tlc2.TLC` probe while the run is a bare `java -version`) — its
+        # reported version belongs to a different program and must never be attributed to this run;
+        # the version stays null. An explicit request.tool_version (a caller assertion) is untouched.
         version = _run_tool_version(request.tool_version_command, cwd=cwd, limit=request.output_limit_bytes)
 
     try:
@@ -197,14 +197,85 @@ def _resolve_cwd(project_root: Path | None, cwd_text: str) -> Path:
     return (root / cwd).resolve(strict=False)
 
 
-def _same_executable(command_exe: str, version_exe: str) -> bool:
-    """Whether a version probe targets the same binary as the run it documents.
+# JVM launchers whose argv[0] names the *interpreter*, not the program it runs. `java -version`
+# prints the JVM banner and never loads a checker; the real tool is the main class / -jar named
+# in the arguments (e.g. tlc2.TLC), versioned independently of the JVM. So a version probe and a
+# run that share only `java` may invoke entirely different programs — basename equality is not
+# enough. Direct binaries (apalache-mc) and interpreters whose own version *is* the tool version
+# (python running a script) are intentionally excluded: argv[0] names their tool. `javaw` is the
+# Windows windowless launcher; same semantics as `java`.
+_JVM_LAUNCHERS = frozenset({"java", "javaw"})
 
-    Compared by basename so a bare ``apalache-mc`` and an absolute ``/x/apalache-mc`` are the
-    same tool, while ``apalache-mc`` and ``apalache-mc-not-installed`` are not. Guards version
-    provenance: a probe of a different binary must not lend its version to this run.
+# `java` options that consume the following token as a separate value, so that value is not the
+# main class. Conservative: an unlisted value-option would make its value look like a main class,
+# which can only *split* two otherwise-equal identities (a probe stays unattributed) — the safe
+# direction, never a false attribution.
+_JAVA_VALUE_OPTIONS = frozenset(
+    {
+        "-cp",
+        "-classpath",
+        "--class-path",
+        "-p",
+        "--module-path",
+        "--add-modules",
+        "--add-exports",
+        "--add-opens",
+        "--add-reads",
+        "--limit-modules",
+        "--patch-module",
+        "--upgrade-module-path",
+        "--source",
+    }
+)
+
+
+def _java_entrypoint(args: list[str]) -> tuple[str, ...]:
+    """The program a `java` invocation runs, as an identity tuple, ignoring trailing program args.
+
+    Resolves the three launch forms — ``-jar <jar>``, ``-m/--module <module>``, and a bare
+    ``<MainClass>`` (after JVM options / classpath) — to the artifact that names the tool. A pure
+    JVM invocation with no entrypoint (e.g. ``java -version``) returns ``()`` so it cannot be
+    mistaken for any checker. The classpath only *locates* the class; the main class *names* the
+    program, so it is the identity.
     """
-    return Path(command_exe).name == Path(version_exe).name
+    index = 0
+    while index < len(args):
+        token = args[index]
+        if token == "-jar" and index + 1 < len(args):
+            return (f"jar:{Path(args[index + 1]).name}",)
+        if token in {"-m", "--module"} and index + 1 < len(args):
+            return (f"module:{args[index + 1]}",)
+        if token in _JAVA_VALUE_OPTIONS:
+            index += 2  # skip the option and its value (e.g. `-cp tla2tools.jar`)
+            continue
+        if token.startswith("-"):
+            index += 1  # a JVM flag (joined or standalone): -version, -ea, -Xmx512m, -Dk=v, …
+            continue
+        return (f"class:{token}",)  # first bare token after JVM options is the main class
+    return ()
+
+
+def _tool_identity(command: list[str]) -> tuple[str, ...]:
+    """The tool a command invokes, normalized so a version probe and the run it documents compare
+    equal iff they invoke the same tool.
+
+    For a direct binary the basename is the tool (``apalache-mc`` ≡ ``/x/apalache-mc``). For a JVM
+    launcher the identity also includes the entrypoint (main class / jar), because the launcher
+    runs different programs — and ``java -version`` reports the JVM, not the checker.
+    """
+    exe = Path(command[0]).name
+    if exe in _JVM_LAUNCHERS:
+        return (exe, *_java_entrypoint(command[1:]))
+    return (exe,)
+
+
+def _same_tool(command: list[str], version_command: list[str]) -> bool:
+    """Whether a version probe invokes the same tool as the run it documents.
+
+    Guards version provenance: a probe of a different tool must not lend its version to this run.
+    See :func:`_tool_identity` for why basename equality is insufficient for JVM launchers.
+    """
+    return _tool_identity(command) == _tool_identity(version_command)
 
 
 def _run_tool_version(command: list[str], *, cwd: Path, limit: int) -> str | None:

@@ -114,19 +114,33 @@ def test_tlc_default_commands_use_the_pinned_java_launcher() -> None:
 
 @pytest.mark.skipif(not _TLC_JAR.exists(), reason="pinned tla2tools.jar not installed")
 def test_tlc_default_version_command_records_a_version(tmp_path: Path) -> None:
-    """A TLC run records the pinned tool version from its default version command (PB-3).
+    """A real TLC run records the pinned tool version from its default version command (PB-3).
 
-    Symmetric with Apalache, which records a non-null version on every run. The relative
-    `tla2tools.jar` resolves from the run's cwd, so the jar is copied there; the probe shares
-    the `java` launcher with the run command, so the runner attributes the version. Skips
-    (never silently passes) when the pinned jar is absent — e.g. in the Apalache-only CI.
+    Symmetric with Apalache, which records a non-null version on every run. The run is a genuine
+    `tlc2.TLC` invocation over a toy module (not a bare `java -version`, which runs the JVM and
+    never loads TLC): it shares the `tlc2.TLC` main class with the version probe, so the runner's
+    same-tool guard attributes the probe's version to this run. The relative `tla2tools.jar`
+    resolves from the run's cwd, so the jar is copied there. This test's contract is provenance
+    (a non-null TLC version), not the model-checking verdict — the verdict is not asserted because
+    no environment here has the jar to exercise it (CI is Apalache-only) and Apalache cannot stand
+    in for TLC. Skips (never silently passes) when the pinned jar is absent.
     """
     shutil.copy(_TLC_JAR, tmp_path / "tla2tools.jar")
+    (tmp_path / "Toy.tla").write_text(
+        "---- MODULE Toy ----\n"
+        "EXTENDS Naturals\n"
+        "VARIABLE x\n"
+        "Init == x = 0\n"
+        "Next == x' = x\n"
+        "Inv == x >= 0\n"
+        "====\n"
+    )
+    (tmp_path / "Toy.cfg").write_text("INIT Init\nNEXT Next\nINVARIANT Inv\n")
     result = run_model_checker(
         ModelCheckerCommand(
             run_id="tlc-version",
             checker_id="tlc",
-            command=["java", "-version"],
+            command=["java", "-cp", "tla2tools.jar", "tlc2.TLC", "-config", "Toy.cfg", "Toy.tla"],
             cwd=tmp_path.as_posix(),
             tool_version_command=TlcProductionBackend().default_version_command(),
         )
