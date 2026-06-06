@@ -1741,6 +1741,60 @@ def test_compose_s_and_r_narrowing_post_state_is_byte_stable() -> None:
     assert composed.bound_predicates == ["Pred_approved", "Pred_operation_status"]
 
 
+def test_compose_s_and_r_narrowing_post_state_multi_predicate_parenthesizes_ghost_update() -> None:
+    """A state_postcondition with a CONJUNCTION premise emits the ghost update with the whole
+    conjunction PARENTHESIZED: ``nlr_prev_premise' = (Pred_a(x) /\\ Pred_b(x))``.
+
+    The parens are load-bearing — TLA+ binds ``=`` (prec 5) tighter than ``/\\`` (prec 3), so
+    without them ``Next`` would parse as ``(nlr_prev_premise' = Pred_a(x)) /\\ Pred_b(x)``, silently
+    narrowing Next (constraining Pred_b in the transition) and masking counterexamples — a false
+    pass. Single-predicate premises hide this (no conjunction, so the parens are inert), so pin the
+    multi-predicate shape against a regression that drops them. Verified valid/counterexample on
+    apalache-mc 0.58.0.
+    """
+    from nlreq.dsl_v3 import DslV3Parser
+
+    ir = DslV3Parser().parse_ir(
+        "requirement state_postcondition:\n"
+        "scope operation\n"
+        "when actor is approved and actor is confirmed\n"
+        'then state operation_status must be "accepted"\n',
+        requirement_id="REQ-STATEPOST-MULTI", title="Post-state multi",
+    )
+    spec = (
+        "---- MODULE Operation ----\n"
+        "EXTENDS Naturals, TLC\n\n"
+        "\\* @type: Bool;\nVARIABLE approved_flag\n"
+        "\\* @type: Bool;\nVARIABLE confirmed_flag\n"
+        "\\* @type: Str;\nVARIABLE operation_status\n\n"
+        "\\* @type: (Str) => Bool;\nPred_approved(a) == approved_flag = TRUE\n"
+        "\\* @type: (Str) => Bool;\nPred_confirmed(a) == confirmed_flag = TRUE\n"
+        "\\* @type: (Str) => Bool;\nPred_operation_status(v) == operation_status = v\n"
+        'OperationStatusClosed == operation_status \\in {"pending", "accepted"}\n'
+        'SInit == operation_status = "pending" /\\ approved_flag = TRUE /\\ confirmed_flag = TRUE\n'
+        'SNext == operation_status\' = "accepted" /\\ UNCHANGED <<approved_flag, confirmed_flag>>\n'
+        "====\n"
+    )
+    lowered = lower_state_postcondition_tla(ir)
+    contribution = build_system_spec_contribution(
+        "spec:op", spec, ["OperationStatusClosed"], init_op="SInit", next_op="SNext",
+    )
+    composed = compose_s_and_r_module(
+        "REQ_STATEPOST_MULTI_S_AND_R", lowered, [contribution],
+        post_state_obligation=derive_post_state_obligation(ir.semantic_ir),
+    )
+
+    assert composed.status == "composed"
+    # The whole conjunction is parenthesized on the RHS of the ghost update.
+    assert (
+        "Next == SNext /\\ nlr_prev_premise' = (Pred_approved(actor) /\\ Pred_confirmed(actor))"
+        in composed.module_text
+    )
+    assert composed.bound_predicates == [
+        "Pred_approved", "Pred_confirmed", "Pred_operation_status"
+    ]
+
+
 def test_compose_s_and_r_narrowing_post_state_refuses_undefined_predicate() -> None:
     """If the reviewed S does not interpret the post-state predicate Pred_<state>, the narrowing
     cannot tell whether S reaches the required post-state — refuse rather than reference an
