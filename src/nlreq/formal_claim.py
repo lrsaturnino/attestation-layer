@@ -356,7 +356,17 @@ def _evidence_for_fragment_kind(kind: FormalClaimFragmentKind) -> EvidenceLevel:
         "predicate": EvidenceLevel.BOUNDED_CHECKED,
         "comparison": EvidenceLevel.SMT_CHECKED,
         "membership": EvidenceLevel.SMT_CHECKED,
-        "post_state": EvidenceLevel.TRACE_VALIDATED,
+        # A post_state obligation (``premise => post_state(state, value)``) is a stateful safety
+        # obligation over S's transition relation: it asserts that EVERY premise-satisfying
+        # behaviour of S reaches the post-state, which only the bounded S ∧ R ``Next`` check can
+        # establish. A trace producer observing one execution reach that state proves nothing about
+        # the universally-quantified obligation, so TRACE_VALIDATED would let a single observed run
+        # discharge a claim the ``Next`` relation never verified. Its honest level is therefore
+        # BOUNDED_CHECKED, matching the state/temporal kinds below and the kind-only proof router
+        # (proof_closure._STATE_TEMPORAL_NODE_KINDS). Contrast ``event_emission``, which stays
+        # TRACE_VALIDATED: "the event was observed" IS an execution observation, not a Next-relation
+        # safety obligation.
+        "post_state": EvidenceLevel.BOUNDED_CHECKED,
         "event_emission": EvidenceLevel.TRACE_VALIDATED,
         "state_invariant": EvidenceLevel.BOUNDED_CHECKED,
         "causal_transition": EvidenceLevel.BOUNDED_CHECKED,
@@ -374,8 +384,14 @@ def _evidence_for_fragment_kind(kind: FormalClaimFragmentKind) -> EvidenceLevel:
 # verifies as one obligation. They therefore route to ``solver_system_checker`` — the
 # producer that runs ``check_solver_backed_system_consistency`` — at BOUNDED_CHECKED, not
 # to a fragment-level SMT producer that has no module to check them against.
+# ``post_state`` joins them: it is the state-postcondition obligation re-expressed over S's
+# variables (``premise => post_state``), a single-state safety obligation the same bounded
+# S ∧ R ``Next`` check verifies — never a trace observation. Until a faithful state-postcondition
+# lowering feeds this producer a covering module (PB-4), ``solver_system_checker`` produces no
+# result that covers a ``post_state`` fragment, so the premise stays open and the proof refuses
+# to close rather than discharging on lower-grade trace evidence.
 _S_AND_R_DISCHARGED_KINDS: frozenset[FormalClaimFragmentKind] = frozenset(
-    {"predicate", "rejection_order"}
+    {"predicate", "rejection_order", "post_state"}
 )
 
 # Per-premise theory routing (PB-7). Comparison premises are discharged by the z3 Int/Real

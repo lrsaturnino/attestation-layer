@@ -1762,6 +1762,80 @@ def test_build_proof_with_formal_claim_dispatch_routes_unclassed_ir_by_kind() ->
     assert all(premise.status != "discharged" for premise in proof.premises)
 
 
+def test_state_postcondition_post_state_not_discharged_by_trace_alone() -> None:
+    """A state_postcondition's post_state obligation routes to the bounded S ∧ R check, so a
+    trace-validated backend result alone cannot discharge it — closing the prior bypass where a
+    single observed run could satisfy a universally-quantified ``Next``-relation obligation.
+
+    ``premise => post_state(state, value)`` is a stateful safety obligation: it must hold on EVERY
+    premise-satisfying behaviour of the reviewed S, which only the bounded model check
+    (``solver_system_checker`` at BOUNDED_CHECKED) establishes. A trace producer observing one run
+    reach the state is strictly weaker TRACE_VALIDATED evidence. The trace result here is a
+    schema-complete, valid TRACE_VALIDATED result that even NAMES the post_state fragment in
+    ``covered_fragment_ids`` — yet it still cannot discharge the premise, because the routed backend
+    is no longer ``trace_validation``. The premise stays open with no achieved evidence and the
+    proof refuses to close, proving trace evidence alone cannot stand in for the S ∧ R check.
+    """
+    from nlreq.formal_claim import formal_claim_to_proof_premise_routes
+    from nlreq.models import BackendResult, EvidenceLevel
+
+    ir = DslV3Parser().parse_ir(
+        "requirement state_postcondition:\n"
+        "scope operation\n"
+        "when actor is approved\n"
+        'then state operation_status must be "accepted"\n',
+        requirement_id="STATE-POST-001",
+        title="State postcondition",
+    )
+
+    # The post_state obligation routes to the bounded S ∧ R producer, not trace validation.
+    claim = build_formal_claim(ir).formal_claim
+    assert claim is not None
+    routes = formal_claim_to_proof_premise_routes(claim)
+    post_state_route = next(route for route in routes if route.node_kind == "post_state")
+    assert post_state_route.backend_id == "solver_system_checker"
+    assert post_state_route.required_evidence == EvidenceLevel.BOUNDED_CHECKED
+
+    # A valid TRACE_VALIDATED result from the exact producer the pre-fix route used, naming the
+    # post_state fragment it claims to cover — the precise shape that used to discharge the premise.
+    trace_result = BackendResult(
+        backend="trace_validation",
+        status="valid",
+        evidence_level=EvidenceLevel.TRACE_VALIDATED,
+        details={
+            "covered_fragment_ids": [post_state_route.premise_id],
+            "trace_mapping": {
+                "validator_id": "post-state-observed",
+                "requirement_id": "STATE-POST-001",
+                "trace_hash": "sha256:" + "b2" * 32,
+                "trace_source_hash": "sha256:trace-source",
+                "observed_events": ["request", "accept"],
+                "observed_event_ids": ["evt-1", "evt-2"],
+                "fragment": {"post_state": ["operation_status=accepted"]},
+            },
+        },
+    )
+
+    proof, report = build_proof_with_formal_claim_dispatch(
+        requirement=ir,
+        backend_results=[trace_result],
+    )
+
+    assert report.result == "lowered"
+    post_state_premise = next(p for p in proof.premises if p.node_kind == "post_state")
+    # Open, routed to the S ∧ R producer, with NO achieved evidence — the trace result never
+    # reached the premise, so trace evidence did not (and cannot) discharge the obligation.
+    assert post_state_premise.status == "open"
+    assert post_state_premise.routed_backend == "solver_system_checker"
+    assert post_state_premise.required_evidence == EvidenceLevel.BOUNDED_CHECKED
+    assert post_state_premise.achieved_evidence is None
+    # The proof cannot close on trace evidence alone; the open post_state premise is named.
+    assert proof.status != "closed"
+    assert any(
+        p.node_kind == "post_state" and p.status == "open" for p in proof.premises
+    )
+
+
 def test_z3_fixture_solver_result_cannot_discharge_formal_premises(tmp_path: Path) -> None:
     """The in-process Z3 fixture cannot discharge formal-claim premises — only a real bounded
     S ∧ R can.

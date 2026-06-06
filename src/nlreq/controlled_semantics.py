@@ -80,18 +80,28 @@ def build_controlled_requirement_semantics_reference() -> ControlledRequirementS
                 claim_class="state_postcondition",
                 supported=True,
                 canonical_rule="forall scope: premise(...) implies post_state(state, value)",
+                # The post_state obligation is a stateful safety obligation over the system's
+                # transition relation, discharged by the bounded S ∧ R ``Next`` check
+                # (BOUNDED_CHECKED), not by observing one execution reach the state. Routing it to
+                # TRACE_VALIDATED would let a single trace discharge a universally-quantified
+                # obligation — see formal_claim._evidence_for_fragment_kind.
                 required_evidence=[
                     EvidenceLevel.CONSISTENCY_CHECKED,
-                    EvidenceLevel.TRACE_VALIDATED,
+                    EvidenceLevel.BOUNDED_CHECKED,
                 ],
             ),
             ControlledClaimClassSemantics(
                 claim_class="numeric_invariant",
                 supported=True,
                 canonical_rule="forall scope: premise(...) implies invariant(comparison)",
+                # The comparison/membership premises are SMT-checked, but the state_invariant
+                # obligation is a bounded S ∧ R check over the system's state (BOUNDED_CHECKED) —
+                # the fragment route requires it (formal_claim._evidence_for_fragment_kind), so the
+                # claim-class evidence must include it or it understates what closure needs.
                 required_evidence=[
                     EvidenceLevel.CONSISTENCY_CHECKED,
                     EvidenceLevel.SMT_CHECKED,
+                    EvidenceLevel.BOUNDED_CHECKED,
                 ],
             ),
             ControlledClaimClassSemantics(

@@ -95,6 +95,28 @@ def test_controlled_requirement_semantics_reference_names_refusal_rules() -> Non
     assert any("Unsupported grammar" in rule for rule in reference.refusal_rules)
 
 
+def test_stateful_claim_classes_require_bounded_s_and_r_evidence() -> None:
+    """The stateful obligations require the bounded S ∧ R check (BOUNDED_CHECKED).
+
+    Both classes carry an obligation discharged by the bounded model check, not by a single
+    observed trace: ``state_postcondition``'s ``post_state`` and ``numeric_invariant``'s
+    ``state_invariant``. The claim-class evidence must name BOUNDED_CHECKED so it does not
+    understate what closure needs — the per-fragment route already requires it
+    (formal_claim._evidence_for_fragment_kind). state_postcondition must NOT advertise
+    TRACE_VALIDATED for its core obligation: trace evidence alone cannot stand in for the
+    ``Next``-relation safety check.
+    """
+    by_class = {
+        item.claim_class: {level.value for level in item.required_evidence}
+        for item in build_controlled_requirement_semantics_reference().claim_classes
+    }
+
+    assert "BOUNDED_CHECKED" in by_class["state_postcondition"]
+    assert "TRACE_VALIDATED" not in by_class["state_postcondition"]
+    assert "BOUNDED_CHECKED" in by_class["numeric_invariant"]
+    assert "SMT_CHECKED" in by_class["numeric_invariant"]
+
+
 def test_formal_claim_ir_refuses_unsupported_semantics_without_partial_claim() -> None:
     ir = DslV3Parser().parse_ir(
         STATE_PRECONDITION,
