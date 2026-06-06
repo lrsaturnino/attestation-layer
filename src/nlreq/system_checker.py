@@ -45,6 +45,14 @@ from .translator import LoweredFormalArtifact
 
 SYSTEM_CHECKER_SCHEMA_VERSION = "0.1"
 
+# The requirement-set consistency report carries its own version, separate from
+# SystemConsistencyResult above, because its public contract has moved while the single-requirement
+# result's has not. 0.2 covers the fail-closed surface added since 0.1: the "unsupported" result
+# value, the "unchecked" list, and its "premise_overlap_undecidable" reason. Bump this — never
+# extend the report's result/unchecked shape under a stale version (see
+# test_requirement_set_consistency_report_shape_is_version_pinned, which fails on any silent change).
+REQUIREMENT_SET_CONSISTENCY_SCHEMA_VERSION = "0.2"
+
 
 # Default symbolic search depth for the S ∧ R bounded check when the caller supplies no
 # ``max_depth`` budget. Recorded into the run's ``bounds`` and rendered into ``--length`` from
@@ -111,7 +119,7 @@ class SystemConsistencyResult(BaseModel):
 class RequirementSetConsistencyReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["0.1"] = SYSTEM_CHECKER_SCHEMA_VERSION
+    schema_version: Literal["0.2"] = REQUIREMENT_SET_CONSISTENCY_SCHEMA_VERSION
     # "valid" only when every requirement was lowered and every co-occurring obligation pair was
     # cleared. "contradiction" when a definite conflict was proven. "unsupported" when the set could
     # not be fully decided — a requirement failed to lower, or a detected conflict could not be tied

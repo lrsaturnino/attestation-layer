@@ -28,6 +28,7 @@ from nlreq.proof_closure import build_proof_object
 from nlreq.system_checker import (
     APALACHE_S_AND_R_COMMAND,
     DEFAULT_S_AND_R_DEPTH,
+    RequirementSetConsistencyReport,
     _solver_result,
     check_requirement_set_consistency,
     check_solver_backed_system_consistency,
@@ -460,6 +461,35 @@ def test_requirement_contradiction_requires_source_spans() -> None:
         )
 
 
+def test_requirement_set_consistency_report_shape_is_version_pinned() -> None:
+    """The report's public shape and its ``schema_version`` move together, so the contract cannot
+    change silently (the iter-3 regression added ``unsupported``/``unchecked`` under a stale 0.1).
+    Adding a ``result`` value, an ``UncheckedRequirement`` reason, or a top-level field must come with
+    a version bump — when this fails, bump ``REQUIREMENT_SET_CONSISTENCY_SCHEMA_VERSION`` and update
+    these expectations deliberately, rather than ship a changed report under an old version."""
+    schema = RequirementSetConsistencyReport.model_json_schema()
+
+    assert schema["properties"]["schema_version"]["const"] == "0.2"
+    assert set(schema["properties"]) == {
+        "schema_version",
+        "result",
+        "contradictions",
+        "unchecked",
+    }
+    assert set(schema["properties"]["result"]["enum"]) == {
+        "valid",
+        "contradiction",
+        "unsupported",
+    }
+    reason_enum = schema["$defs"]["UncheckedRequirement"]["properties"]["reason"]["enum"]
+    assert set(reason_enum) == {
+        "lowering_refused",
+        "lowering_needs_review",
+        "contradiction_without_source_span",
+        "premise_overlap_undecidable",
+    }
+
+
 def test_requirement_set_consistency_conditional_overlap_subset_premises() -> None:
     """Conditional-overlap gate (SMT): two requirements whose premises overlap but are not identical
     still co-occur when their conjunction is satisfiable (``approved`` holds, and ``approved`` plus
@@ -548,6 +578,100 @@ def test_requirement_set_consistency_flags_independent_co_occurring_premises() -
     assert report.result == "contradiction"
     assert [c.contradiction_type for c in report.contradictions] == ["mutual_exclusion"]
     assert report.contradictions[0].requirement_ids == ["REQ-APPROVED", "REQ-CONFIRMED"]
+    assert report.unchecked == []
+
+
+def test_requirement_set_consistency_undecidable_premise_overlap_fails_closed() -> None:
+    """Fail closed on an UNDECIDABLE premise overlap: one requirement's premise has no SMT encoding
+    (an opaque named-set membership, ``actor is in allowlist``), so whether the two premises co-occur
+    cannot be decided. The obligations conflict on a shared scope (status active vs frozen), so the
+    pair is neither a proven contradiction nor safe to drop — it is surfaced as
+    ``premise_overlap_undecidable`` and the set is ``unsupported``. The old equal-signatures fallback
+    returned ``valid`` here, silently hiding a possible contradiction (the iter-3 fail-open miss)."""
+    allowlisted = _set_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        "when actor is in allowlist\n"
+        "then state status must be active\n",
+        "REQ-ALLOWLISTED",
+    )
+    approved = _set_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        "when actor is approved\n"
+        "then state status must be frozen\n",
+        "REQ-APPROVED",
+    )
+
+    report = check_requirement_set_consistency([allowlisted, approved])
+
+    assert report.result == "unsupported"
+    assert report.contradictions == []
+    assert len(report.unchecked) == 1
+    entry = report.unchecked[0]
+    assert entry.reason == "premise_overlap_undecidable"
+    assert entry.requirement_ids == ["REQ-ALLOWLISTED", "REQ-APPROVED"]
+    # The finding points at both the conflicting obligations and the premises whose overlap could
+    # not be decided, so the undecidable pair can be reviewed by hand.
+    span_texts = {span.text for span in entry.source_spans}
+    assert {"state status must be active", "state status must be frozen"} <= span_texts
+    assert {"actor is in allowlist", "actor is approved"} <= span_texts
+
+
+def test_requirement_set_consistency_identical_opaque_premises_are_compared() -> None:
+    """Identical undecidable premises trivially co-occur, so the exact-signature fallback still proves
+    co-occurrence: two requirements both gated on ``actor is in allowlist`` (an opaque membership the
+    SMT encoder cannot express) that pin the same variable to different values ARE a definite
+    contradiction, not merely undecidable. This is the sound half of the undecidable fallback — only
+    a *differing* unencodable premise becomes ``premise_overlap_undecidable``."""
+    active = _set_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        "when actor is in allowlist\n"
+        "then state status must be active\n",
+        "REQ-ACTIVE",
+    )
+    frozen = _set_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        "when actor is in allowlist\n"
+        "then state status must be frozen\n",
+        "REQ-FROZEN",
+    )
+
+    report = check_requirement_set_consistency([active, frozen])
+
+    assert report.result == "contradiction"
+    assert [c.contradiction_type for c in report.contradictions] == ["mutual_exclusion"]
+    assert report.contradictions[0].requirement_ids == ["REQ-ACTIVE", "REQ-FROZEN"]
+    assert report.unchecked == []
+
+
+def test_requirement_set_consistency_undecidable_premises_without_conflict_stay_valid() -> None:
+    """Discrimination control for the undecidable path: an unencodable premise is surfaced only when
+    the obligations actually conflict. Two requirements with an opaque membership premise and a
+    predicate premise that AGREE on the post-state (both ``status must be active``) impose no
+    conflicting obligation, so nothing is flagged and the set is ``valid`` — the undecidable overlap
+    does not blanket-refuse every opaque-premise pair."""
+    allowlisted = _set_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        "when actor is in allowlist\n"
+        "then state status must be active\n",
+        "REQ-ALLOWLISTED",
+    )
+    approved = _set_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        "when actor is approved\n"
+        "then state status must be active\n",
+        "REQ-APPROVED",
+    )
+
+    report = check_requirement_set_consistency([allowlisted, approved])
+
+    assert report.result == "valid"
+    assert report.contradictions == []
     assert report.unchecked == []
 
 

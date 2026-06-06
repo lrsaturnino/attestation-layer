@@ -86,7 +86,8 @@
           "enum": [
             "lowering_refused",
             "lowering_needs_review",
-            "contradiction_without_source_span"
+            "contradiction_without_source_span",
+            "premise_overlap_undecidable"
           ],
           "title": "Reason",
           "type": "string"
@@ -147,8 +148,8 @@
       "type": "string"
     },
     "schema_version": {
-      "const": "0.1",
-      "default": "0.1",
+      "const": "0.2",
+      "default": "0.2",
       "title": "Schema Version",
       "type": "string"
     },

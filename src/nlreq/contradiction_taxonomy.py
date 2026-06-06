@@ -10,9 +10,22 @@ So the unit of comparison here is the *obligation*, not the premise. Two rules w
 premises (``actor is authorized`` vs ``actor is not authorized``) are the two halves of a complete,
 consistent specification, not a contradiction: they never both fire. A real cross-requirement
 contradiction is two obligations that must both hold — premises provably co-occurring on a shared
-scope — yet cannot. The checker is deliberately conservative: a false positive blocks a satisfiable
-set, which is worse than a miss a formal backend can still catch downstream, so when co-occurrence
-cannot be proven the pair is left unflagged.
+scope — yet cannot.
+
+Co-occurrence is decided by satisfiability, three ways, so the checker neither blocks a satisfiable
+set nor silently passes one it could not decide:
+
+- premises **provably co-occur** (their conjunction is satisfiable) and the obligations conflict — a
+  definite ``contradiction`` (never a false block: it rests on a proof, not a guess);
+- premises **provably cannot co-occur** (their conjunction is unsatisfiable, or they sit on
+  different scopes) — left unflagged: the obligations never both fire, so the set is consistent;
+- co-occurrence is **undecidable here** (a premise the SMT encoder cannot express, such as an opaque
+  named-set membership) and the obligations would conflict — surfaced as
+  ``premise_overlap_undecidable`` (the set is reported ``unsupported``), never as ``valid``: an honest
+  "could not decide" must not be collapsed into silent acceptance that would hide a real
+  contradiction. Identical undecidable premises are the one exception — they trivially co-occur, so
+  the exact-signature fallback still proves co-occurrence and a conflict there is a definite
+  ``contradiction``.
 
 Detection runs over the typed fragments of :func:`nlreq.formal_claim.build_formal_claim` and reports
 only the minimal conflicting core (the two binding fragments) with their source spans.
@@ -70,11 +83,15 @@ class RequirementContradiction(BaseModel):
 # entered the comparison and the set cannot be declared consistent without it.
 # ``contradiction_without_source_span``: an obligation conflict WAS detected but a binding fragment
 # carries no source span, so the finding cannot be tied to text — the set fails closed instead of
-# silently dropping a real contradiction.
+# silently dropping a real contradiction. ``premise_overlap_undecidable``: two obligations on a shared
+# scope would conflict, but whether their premises can co-occur could not be decided here (a premise
+# the SMT encoder cannot express, such as an opaque named-set membership) — the conflict is neither a
+# proven contradiction nor safe to drop, so the set is not cleared.
 UncheckedRequirementReason = Literal[
     "lowering_refused",
     "lowering_needs_review",
     "contradiction_without_source_span",
+    "premise_overlap_undecidable",
 ]
 
 
@@ -97,10 +114,12 @@ class CrossRequirementConsistencyResult(NamedTuple):
     """The deterministic set checker's verdict: definite contradictions and what it could not clear.
 
     ``contradictions`` are conflicts proven over co-occurring obligations with full source spans.
-    ``unchecked`` are pairs where a conflict was detected but could not be tied to source text — the
-    set must not be declared consistent on their account. Requirements that failed to lower are
-    tracked by the caller (:func:`nlreq.system_checker.check_requirement_set_consistency`), which has
-    the lowering report, and merged into the same unchecked surface.
+    ``unchecked`` are pairs the set must not be declared consistent on: a conflict that could not be
+    tied to source text (``contradiction_without_source_span``), or a conflict whose premises'
+    co-occurrence could not be decided here (``premise_overlap_undecidable``). Requirements that
+    failed to lower are tracked by the caller
+    (:func:`nlreq.system_checker.check_requirement_set_consistency`), which has the lowering report,
+    and merged into the same unchecked surface.
     """
 
     contradictions: list[RequirementContradiction]
@@ -184,8 +203,10 @@ def build_cross_requirement_contradiction_taxonomy() -> CrossRequirementContradi
                     "the predicate, comparison, and set-literal-membership premises on a shared "
                     "scope. This clears overlapping-but-not-identical premises (a bare condition and "
                     "that condition plus an extra constraint co-occur) while declining disjoint or "
-                    "jointly-unsatisfiable premises. Requirements whose premises cannot co-occur are "
-                    "reported consistent rather than flagged."
+                    "jointly-unsatisfiable premises, which are reported consistent rather than "
+                    "flagged. When a premise has no SMT encoding (an opaque named-set membership) "
+                    "co-occurrence is undecidable, and a conflicting obligation pair is surfaced as "
+                    "premise_overlap_undecidable rather than silently passed."
                 ),
             ),
             CrossRequirementContradictionClass(
@@ -235,29 +256,53 @@ def build_cross_requirement_contradiction_taxonomy() -> CrossRequirementContradi
     )
 
 
+class _Candidate(NamedTuple):
+    """A potential obligation conflict between two requirements, before the co-occurrence verdict
+    fixes its disposition. Carries both binding fragments and the claims they came from so the
+    finalized finding can be tied back to source. A candidate becomes a definite
+    ``RequirementContradiction`` only when the premises provably co-occur; under an undecidable
+    overlap it becomes a ``premise_overlap_undecidable`` ``UncheckedRequirement`` instead.
+    """
+
+    contradiction_type: CrossRequirementContradictionType
+    first_claim: FormalClaim
+    first_fragment: FormalClaimFragment
+    second_claim: FormalClaim
+    second_fragment: FormalClaimFragment
+
+
 def detect_cross_requirement_contradictions(
     claims: list[FormalClaim],
 ) -> CrossRequirementConsistencyResult:
     """Decide cross-requirement consistency across a set of lowered claims.
 
-    Each unordered pair is checked once. The pair is compared only when its premises provably
-    co-occur on a shared scope (:func:`_premises_co_occur`); when the gate is open the three sound
-    obligation-level detectors run. A detected conflict with full source spans is a
-    ``RequirementContradiction``; a detected conflict whose binding fragments cannot be tied to
-    source text is an ``UncheckedRequirement`` (the set fails closed) rather than a silent drop.
+    Each unordered pair is checked once. :func:`_premises_co_occur` returns a three-way verdict:
+    ``True`` (premises provably co-occur), ``False`` (provably cannot — the pair is skipped), or
+    ``None`` (undecidable here). When the verdict is not ``False`` the three sound obligation-level
+    detectors run, and each candidate conflict is finalized against the verdict:
+
+      - verdict ``True``  — a definite ``RequirementContradiction`` (full source spans), or a
+        ``contradiction_without_source_span`` ``UncheckedRequirement`` if a binding fragment carries
+        no span (the set fails closed rather than drop a sourceless conflict);
+      - verdict ``None``  — a ``premise_overlap_undecidable`` ``UncheckedRequirement``: the obligations
+        would conflict but premise co-occurrence could not be decided, so the set is not cleared and
+        no false contradiction is asserted.
     """
     contradictions: list[RequirementContradiction] = []
     unchecked: list[UncheckedRequirement] = []
     for first in range(len(claims)):
         for second in range(first + 1, len(claims)):
             left, right = claims[first], claims[second]
-            if not _premises_co_occur(left, right):
+            co_occur = _premises_co_occur(left, right)
+            if co_occur is False:
                 continue
-            for finding in (
+            candidates = [
                 *_numeric_range_disjointness(left, right),
                 *_mutual_exclusion(left, right),
                 *_action_order_conflict(left, right),
-            ):
+            ]
+            for candidate in candidates:
+                finding = _finalize_candidate(candidate, co_occur=co_occur)
                 if isinstance(finding, RequirementContradiction):
                     contradictions.append(finding)
                 else:
@@ -265,26 +310,28 @@ def detect_cross_requirement_contradictions(
     return CrossRequirementConsistencyResult(contradictions=contradictions, unchecked=unchecked)
 
 
-def _premises_co_occur(left: FormalClaim, right: FormalClaim) -> bool:
-    """True when both requirements provably apply in the same reachable state.
+def _premises_co_occur(left: FormalClaim, right: FormalClaim) -> bool | None:
+    """Whether both requirements provably apply in the same reachable state — a three-way verdict.
 
     Two requirements impose conflicting obligations only in a state where both their premises hold,
     so this is the conditional-overlap gate every obligation detector runs under. It is decided by
-    satisfiability: the premises co-occur exactly when their conjunction is satisfiable. This flags
-    EVERY pair whose premises can jointly hold — not only identical premises but also overlapping
-    but non-identical ones (``actor approved`` and ``actor approved and collateral >= 10``),
-    independent premises that can both be true (``approved`` and ``confirmed``), and the
-    unconditional-vs-conditional case — because from the requirements alone such premises do
-    co-occur, so a conflict between the obligations they impose is real. This breadth is deliberate,
-    strictly wider than the old equal-signatures rule. Soundness rests on the encoding catching
-    genuine impossibility as UNSAT: opposite predicates (``approved`` vs ``not_approved``) and
-    numerically empty overlaps (``amount >= 10`` with ``amount <= 5``) are declined — the never-flag
-    invariant.
+    satisfiability of the conjunction of both premise sets:
 
-    Only the fallback is conservative: when a premise cannot be encoded (an opaque named-set
-    membership) the conjunction's satisfiability is undecidable here, so the gate falls back to the
-    equal-signatures rule — co-occurrence provable only when both impose the identical condition —
-    rather than guess, and that fallback never flags a disjoint pair.
+      - ``True``  — the conjunction is satisfiable: the premises provably co-occur. This flags EVERY
+        pair whose premises can jointly hold — not only identical premises but also overlapping but
+        non-identical ones (``actor approved`` and ``actor approved and collateral >= 10``),
+        independent premises that can both be true (``approved`` and ``confirmed``), and the
+        unconditional-vs-conditional case. Soundness rests on the encoding catching genuine
+        impossibility as UNSAT: opposite predicates (``approved`` vs ``not_approved``) and numerically
+        empty overlaps (``amount >= 10`` with ``amount <= 5``) are declined — the never-flag invariant.
+      - ``False`` — the premises sit on different scopes, or their conjunction is unsatisfiable: they
+        provably cannot co-occur, so any obligation conflict between them never fires and the pair is
+        left unflagged.
+      - ``None``  — a premise cannot be encoded (an opaque named-set membership) and the encoded
+        remainder is satisfiable: co-occurrence is undecidable here. The caller surfaces a conflicting
+        pair as ``premise_overlap_undecidable`` rather than guess either way. The one exception:
+        identical premises trivially co-occur, so an undecidable conjunction with equal premise
+        signatures is still a sound ``True``.
     """
     if _scope_signature(left) != _scope_signature(right):
         return False
@@ -295,7 +342,13 @@ def _premises_co_occur(left: FormalClaim, right: FormalClaim) -> bool:
 
     verdict = premises_jointly_satisfiable([*left.premises, *right.premises])
     if verdict is None:
-        return _premise_signature(left) == _premise_signature(right)
+        # Undecidable conjunction (a premise could not be encoded): identical premises still
+        # trivially co-occur, so equal signatures remain a sound True; otherwise the overlap is
+        # genuinely undecidable here — return None so the caller fails closed on a conflicting pair
+        # rather than silently passing it (the old equal-signatures False was a fail-open miss).
+        if _premise_signature(left) == _premise_signature(right):
+            return True
+        return None
     return verdict
 
 
@@ -313,9 +366,7 @@ class _Bound(NamedTuple):
     inclusive: bool
 
 
-def _numeric_range_disjointness(
-    left: FormalClaim, right: FormalClaim
-) -> list[RequirementContradiction | UncheckedRequirement]:
+def _numeric_range_disjointness(left: FormalClaim, right: FormalClaim) -> list[_Candidate]:
     """Flag a variable whose obligation bounds across the two requirements bound an empty interval.
 
     Only cross-requirement conflicts are reported (a lower bound in one requirement above an upper
@@ -326,7 +377,7 @@ def _numeric_range_disjointness(
     """
     left_bounds = _invariant_bounds_by_variable(left)
     right_bounds = _invariant_bounds_by_variable(right)
-    findings: list[RequirementContradiction | UncheckedRequirement] = []
+    candidates: list[_Candidate] = []
     for variable in sorted(set(left_bounds) & set(right_bounds)):
         for lower_claim, lowers, upper_claim, uppers in (
             (left, left_bounds[variable][0], right, right_bounds[variable][1]),
@@ -336,8 +387,8 @@ def _numeric_range_disjointness(
             if conflict is None:
                 continue
             lower_fragment, upper_fragment = conflict
-            findings.append(
-                _pair_finding(
+            candidates.append(
+                _Candidate(
                     "numeric_range_disjointness",
                     lower_claim,
                     lower_fragment,
@@ -345,7 +396,7 @@ def _numeric_range_disjointness(
                     upper_fragment,
                 )
             )
-    return findings
+    return candidates
 
 
 def _invariant_bounds_by_variable(
@@ -398,9 +449,7 @@ def _binding_conflict(
     return None
 
 
-def _mutual_exclusion(
-    left: FormalClaim, right: FormalClaim
-) -> list[RequirementContradiction | UncheckedRequirement]:
+def _mutual_exclusion(left: FormalClaim, right: FormalClaim) -> list[_Candidate]:
     """Flag a post-state variable that the two requirements pin to different values.
 
     A variable cannot hold two values at once, so two ``state <var> must be <value>`` obligations on
@@ -408,18 +457,16 @@ def _mutual_exclusion(
     """
     left_states = _post_states_by_variable(left)
     right_states = _post_states_by_variable(right)
-    findings: list[RequirementContradiction | UncheckedRequirement] = []
+    candidates: list[_Candidate] = []
     for variable in sorted(set(left_states) & set(right_states)):
         for left_fragment, left_value in left_states[variable]:
             for right_fragment, right_value in right_states[variable]:
                 if left_value == right_value:
                     continue
-                findings.append(
-                    _pair_finding(
-                        "mutual_exclusion", left, left_fragment, right, right_fragment
-                    )
+                candidates.append(
+                    _Candidate("mutual_exclusion", left, left_fragment, right, right_fragment)
                 )
-    return findings
+    return candidates
 
 
 def _post_states_by_variable(
@@ -442,16 +489,14 @@ def _post_states_by_variable(
     return states
 
 
-def _action_order_conflict(
-    left: FormalClaim, right: FormalClaim
-) -> list[RequirementContradiction | UncheckedRequirement]:
+def _action_order_conflict(left: FormalClaim, right: FormalClaim) -> list[_Candidate]:
     """Flag an action one requirement must complete successfully and another must reject.
 
     Success and rejection are exclusive outcomes of the same action, so a ``must succeed`` obligation
     in one requirement and a ``must reject before ...`` obligation naming the same action in the
     other cannot both be met under co-occurring premises.
     """
-    findings: list[RequirementContradiction | UncheckedRequirement] = []
+    candidates: list[_Candidate] = []
     for success_claim, reject_claim in ((left, right), (right, left)):
         successes = _successes(success_claim)
         rejections = _rejections(reject_claim)
@@ -459,8 +504,8 @@ def _action_order_conflict(
             for reject_fragment, rejected_action in rejections:
                 if action != rejected_action:
                     continue
-                findings.append(
-                    _pair_finding(
+                candidates.append(
+                    _Candidate(
                         "action_order_conflict",
                         success_claim,
                         success_fragment,
@@ -468,7 +513,7 @@ def _action_order_conflict(
                         reject_fragment,
                     )
                 )
-    return findings
+    return candidates
 
 
 def _successes(claim: FormalClaim) -> list[tuple[FormalClaimFragment, str]]:
@@ -487,35 +532,59 @@ def _rejections(claim: FormalClaim) -> list[tuple[FormalClaimFragment, str]]:
     ]
 
 
-def _pair_finding(
-    contradiction_type: CrossRequirementContradictionType,
-    first_claim: FormalClaim,
-    first_fragment: FormalClaimFragment,
-    second_claim: FormalClaim,
-    second_fragment: FormalClaimFragment,
+def _finalize_candidate(
+    candidate: _Candidate, *, co_occur: bool | None
 ) -> RequirementContradiction | UncheckedRequirement:
-    """A contradiction over exactly two fragments, or an unchecked outcome if it cannot be sourced.
+    """Turn a candidate conflict into a finding, given the premise co-occurrence verdict.
 
-    A detected contradiction must point at the offending text. When a binding fragment carries no
-    source span the conflict is not silently dropped (which would mark a real contradiction as a
-    consistent set); it is surfaced as an ``UncheckedRequirement`` so the set fails closed.
+    ``co_occur is True`` — the premises provably co-occur, so the conflict is real: a
+    ``RequirementContradiction`` when both binding fragments carry a source span, else a
+    ``contradiction_without_source_span`` ``UncheckedRequirement`` (the set fails closed rather than
+    report a contradiction it cannot tie to text).
+
+    ``co_occur is None`` — premise co-occurrence is undecidable (a premise the SMT encoder cannot
+    express), so the conflicting obligations are neither a proven contradiction nor safe to drop: a
+    ``premise_overlap_undecidable`` ``UncheckedRequirement`` carrying both requirement ids and
+    whatever obligation and premise spans are available, so the undecidable overlap can be reviewed.
     """
-    spans = [*first_fragment.source_spans, *second_fragment.source_spans]
+    first_fragment, second_fragment = candidate.first_fragment, candidate.second_fragment
+    requirement_ids = [candidate.first_claim.requirement_id, candidate.second_claim.requirement_id]
+    obligation_spans = [*first_fragment.source_spans, *second_fragment.source_spans]
+    if co_occur is None:
+        # The premises (not the obligations) are what could not be decided, so point at both: the
+        # obligations that would conflict and the premises whose co-occurrence is unknown.
+        premise_spans = [
+            span
+            for claim in (candidate.first_claim, candidate.second_claim)
+            for fragment in claim.premises
+            for span in fragment.source_spans
+        ]
+        return UncheckedRequirement(
+            requirement_ids=requirement_ids,
+            reason="premise_overlap_undecidable",
+            detail=(
+                f"a {candidate.contradiction_type} conflict between '{first_fragment.canonical}' and "
+                f"'{second_fragment.canonical}' is reachable only if the requirements' premises "
+                "co-occur, which could not be decided here (a premise has no SMT encoding, such as an "
+                "opaque named-set membership); the set is not cleared"
+            ),
+            source_spans=[*obligation_spans, *premise_spans],
+        )
     if not first_fragment.source_spans or not second_fragment.source_spans:
         return UncheckedRequirement(
-            requirement_ids=[first_claim.requirement_id, second_claim.requirement_id],
+            requirement_ids=requirement_ids,
             reason="contradiction_without_source_span",
             detail=(
-                f"a {contradiction_type} conflict was detected between "
+                f"a {candidate.contradiction_type} conflict was detected between "
                 f"'{first_fragment.canonical}' and '{second_fragment.canonical}' but a binding "
                 "fragment carries no source span, so the conflict cannot be tied to source text; "
                 "the set is not cleared"
             ),
-            source_spans=spans,
+            source_spans=obligation_spans,
         )
     return RequirementContradiction(
-        contradiction_type=contradiction_type,
-        requirement_ids=[first_claim.requirement_id, second_claim.requirement_id],
+        contradiction_type=candidate.contradiction_type,
+        requirement_ids=requirement_ids,
         fragments=[first_fragment.canonical, second_fragment.canonical],
-        source_spans=spans,
+        source_spans=obligation_spans,
     )
