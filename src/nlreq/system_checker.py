@@ -7,15 +7,18 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .formal_backend import FormalBackendBudget, FormalBackendExecution
 from .formal_lowering import (
+    NumericInvariantObligation,
     OutcomePredicate,
     PostStateObligation,
     build_system_spec_contribution,
     compose_s_and_r_module,
+    derive_numeric_invariant_obligation,
     derive_outcome_predicate,
     derive_post_state_obligation,
     obligation_consequent_is_real,
     next_has_steps,
     parse_obligation_predicates,
+    validate_numeric_invariant_shape,
 )
 from .jsonutil import sha256_json, sha256_text
 from .model_checker_runner import (
@@ -285,8 +288,14 @@ def check_solver_backed_system_consistency(
     claim_class = requirement.semantic_ir.metadata.get("requirement_class")
     outcome_predicate = None
     post_state_obligation = None
+    numeric_invariant_obligation = None
     if claim_class == "state_postcondition":
         post_state_obligation = _derive_post_state_obligation(requirement)
+    elif claim_class == "numeric_invariant":
+        # numeric_invariant yields a numeric invariant (``Premise => Obligation``) over a state
+        # variable the reviewed S declares and evolves; the narrowing conjoins it into Inv as a
+        # same-state property (no Pred_*, no ghost). See compose_s_and_r_module.
+        numeric_invariant_obligation = _derive_numeric_invariant_obligation(requirement)
     else:
         outcome_predicate = _derive_outcome_predicate(requirement)
     module_name = _safe_tla_name(f"{requirement.requirement_id}_S_AND_R")
@@ -296,6 +305,7 @@ def check_solver_backed_system_consistency(
         _system_spec_contributions(specs, spec_texts),
         outcome_predicate=outcome_predicate,
         post_state_obligation=post_state_obligation,
+        numeric_invariant_obligation=numeric_invariant_obligation,
     )
     if composed.status == "refused" or composed.module_text is None:
         return _solver_result(
@@ -726,6 +736,25 @@ def _derive_post_state_obligation(requirement: RequirementIRV2) -> PostStateObli
     """
     try:
         return derive_post_state_obligation(requirement.semantic_ir)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _derive_numeric_invariant_obligation(
+    requirement: RequirementIRV2,
+) -> NumericInvariantObligation | None:
+    """Derive the requirement's numeric invariant (``Premise => Obligation``), or None for an
+    unsupported shape.
+
+    The stateful-S narrowing needs the obligation comparison over a state variable to constrain S's
+    reachable states for a numeric_invariant. A requirement whose shape is not a supported numeric
+    invariant has none; returning None lets the narrowing refuse honestly rather than raise. (On the
+    solver path the lowering has already validated the shape, so this normally succeeds.)
+    """
+    if validate_numeric_invariant_shape(requirement.semantic_ir):
+        return None
+    try:
+        return derive_numeric_invariant_obligation(requirement.semantic_ir)
     except (ValueError, AttributeError):
         return None
 

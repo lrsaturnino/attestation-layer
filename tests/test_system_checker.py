@@ -408,16 +408,16 @@ def test_solver_backed_refuses_operator_name_collision(tmp_path: Path) -> None:
     assert not (tmp_path / "artifacts").exists()
 
 
-def test_solver_backed_refuses_ungrounded_numeric_invariant(tmp_path: Path) -> None:
-    """A numeric_invariant makes the default solver-backed S ∧ R refuse (unsupported) — the
-    requirement produces no false S ∧ R evidence.
+def test_solver_backed_numeric_invariant_refuses_without_stateful_spec(tmp_path: Path) -> None:
+    """A numeric_invariant now LOWERS (PB-4), but the default solver-backed S ∧ R still returns
+    ``unsupported`` when no reviewed S can ground it — the honesty moved from translation to the
+    composition's soundness guard, not away.
 
-    A numeric_invariant's obligation is a state invariant over identifiers the TLA skeleton can
-    only stub to 0, so lowering refuses it at translation (NLR-LOWERING-UNGROUNDED-STATE-INVARIANT)
-    rather than emit a vacuous module. The solver path sees the refused lowering and returns
-    ``unsupported`` before any checker runs; numeric comparisons are discharged by the SMT backends
-    on their own route. (The composition-level vacuity guard that previously caught this end-to-end
-    remains covered directly by ``test_compose_s_and_r_module_refuses_vacuous_requirement_projection``.)
+    The obligation is a numeric invariant over a state variable; checking it needs a stateful S that
+    DECLARES and evolves that variable. The default reviewed S here is stateless (no init_op/next_op),
+    so the composition refuses with ``numeric_invariant_requires_stateful_spec`` and the solver path
+    surfaces ``unsupported`` — no false S ∧ R evidence. (Comparison premises are discharged separately
+    by the SMT backends; this is only the S ∧ R obligation route.)
     """
     from nlreq.dsl_v3 import DslV3Parser
 
@@ -430,9 +430,9 @@ def test_solver_backed_refuses_ungrounded_numeric_invariant(tmp_path: Path) -> N
         title="Numeric invariant",
     )
     lowered = lower_ir_v2_to_tla(ir)
-    # The refusal originates at translation, not the composition vacuity guard.
-    assert lowered.status == "refused"
-    assert lowered.metadata.get("refusal_code") == "NLR-LOWERING-UNGROUNDED-STATE-INVARIANT"
+    # The lowering is now non-vacuous, not refused — the honesty has moved to the composition.
+    assert lowered.status == "lowered"
+    assert lowered.content is not None
 
     result = check_solver_backed_system_consistency(
         requirement=ir,
@@ -448,9 +448,9 @@ def test_solver_backed_refuses_ungrounded_numeric_invariant(tmp_path: Path) -> N
     )
 
     assert result.result.status == "unsupported"
-    assert result.result.details["reason"] == "lowered artifact is refused"
+    assert result.result.details["refusal_kind"] == "numeric_invariant_requires_stateful_spec"
     assert result.result.details["mode"] == "solver_backed"
-    # The lowering refused before the checker runs — no artifacts written.
+    # The composition refused before the checker runs — no artifacts written.
     assert not (tmp_path / "artifacts").exists()
 
 
@@ -496,6 +496,59 @@ def test_solver_backed_narrowing_path_writes_narrowing_module(tmp_path: Path) ->
     assert "R_Requirement == Pred_authorized(wallet) => ~Pred_finalize_redemption(wallet)" in composed
     assert "NLRState" not in composed
     assert "SystemSpecAssumptions" not in composed
+
+
+# Reviewed stateful S for the numeric_invariant narrowing: it declares and EVOLVES an Int state
+# variable `collateral` (single-line typed form, which the composition re-emits as Apalache's block
+# form), decrementing it from 25 toward 0. The numeric invariant binds against this real variable.
+_NUMERIC_STATEFUL_SPEC = (
+    "---- MODULE ReserveCollateral ----\n"
+    "EXTENDS Naturals, TLC\n\n"
+    "\\* @type: Int;\n"
+    "VARIABLE collateral\n\n"
+    "\\* System invariant: collateral never goes negative.\n"
+    "CollateralNonNegative == collateral >= 0\n"
+    "SInit == collateral = 25\n"
+    "SNext == \\/ (collateral > 0 /\\ collateral' = collateral - 1)\n"
+    "         \\/ UNCHANGED collateral\n"
+    "====\n"
+)
+
+
+def _numeric_stateful_s_registry(tmp_path: Path) -> SystemSpecRegistry:
+    """Registry with the reviewed numeric stateful S (Case B): its own SInit/SNext over `collateral`."""
+    return _reviewed_s_registry(
+        tmp_path,
+        spec_text=_NUMERIC_STATEFUL_SPEC,
+        invariants=("CollateralNonNegative",),
+        init_op="SInit",
+        next_op="SNext",
+    )
+
+
+def _numeric_invariant_ir(obligation_clause: str):
+    """A numeric_invariant requirement bounding `collateral` to [10, 50] and keeping the obligation."""
+    from nlreq.dsl_v3 import DslV3Parser
+
+    return DslV3Parser().parse_ir(
+        "requirement numeric_invariant:\n"
+        "scope redemption\n"
+        "when collateral >= 10 and collateral <= 50\n"
+        f"then keep {obligation_clause}\n",
+        requirement_id="REQ-SYS-NUMERIC",
+        title="Numeric invariant",
+    )
+
+
+def _itf_int(value: object) -> int | None:
+    """Extract an integer from an Apalache ITF cell, which may be a bare int or ``{'#bigint': '19'}``."""
+    if isinstance(value, bool):
+        return None
+    if isinstance(value, int):
+        return value
+    if isinstance(value, dict) and "#bigint" in value:
+        return int(value["#bigint"])
+    return None
 
 
 def _itf_traces_under(artifact_dir: Path) -> list[dict]:
@@ -613,6 +666,75 @@ def test_solver_backed_narrowing_no_spurious_counterexample_when_outcome_unreach
 
     assert result.result.status == "valid", result.result.details
     assert not result.counterexamples
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_numeric_invariant_compatible_is_valid(tmp_path: Path) -> None:
+    """SP2-B (numeric_invariant): a numeric invariant compatible with a reviewed stateful S yields a
+    real Apalache 'valid'. S declares and decrements `collateral` from 25; within the premise band
+    [10, 50] the kept obligation `collateral >= 1` always holds, so no reachable S state violates the
+    conjoined invariant. The obligation binds against S's REAL variable (not a stub), checked as a
+    same-state invariant over S's own Init/Next — no ghost, no Pred_*."""
+    ir = _numeric_invariant_ir("collateral >= 1")
+    lowered = lower_ir_v2_to_tla(ir)
+    assert lowered.status == "lowered"
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lowered,
+        registry=_numeric_stateful_s_registry(tmp_path),
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=60, max_depth=10),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=_APALACHE_COMMAND,
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.status == "valid", result.result.details
+    assert result.result.evidence_level.value == "BOUNDED_CHECKED"
+    assert "CollateralNonNegative" in result.result.details["preserved_invariants"]
+    assert "R_Requirement" in result.result.details["preserved_invariants"]
+    # The composed module checks the numeric invariant over S's own variable as a same-state Inv.
+    module_path = tmp_path / "artifacts" / "REQ_SYS_NUMERIC_S_AND_R.tla"
+    composed = module_path.read_text()
+    assert "R_Requirement == collateral >= 10 /\\ collateral <= 50 => collateral >= 1" in composed
+    assert "nlr_prev_premise" not in composed  # numeric is a same-state invariant: no ghost variable
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_numeric_invariant_violating_yields_counterexample(tmp_path: Path) -> None:
+    """SP2-B (numeric_invariant): the violating sibling — same S, same premise, obligation
+    `collateral >= 20` — yields a real Apalache counterexample. S decrements `collateral` into the
+    premise band [10, 50] at a value below 20 (e.g. 19), a reachable S state that breaks the kept
+    invariant. The sibling differs from the compatible test ONLY in the obligation literal, so the
+    discrimination is the bound carried through value-exactly to a real model-checker verdict."""
+    ir = _numeric_invariant_ir("collateral >= 20")
+    artifact_dir = tmp_path / "artifacts"
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_numeric_stateful_s_registry(tmp_path),
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=60, max_depth=10),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=_APALACHE_COMMAND,
+            artifact_dir=artifact_dir.as_posix(),
+        ),
+    )
+
+    assert result.result.status == "counterexample", result.result.details
+    assert result.counterexamples
+
+    traces = _itf_traces_under(artifact_dir)
+    assert traces, "expected a retained Apalache ITF counterexample trace"
+    collaterals = [_itf_int(state.get("collateral")) for state in traces[0]["states"]]
+    # The violation is a real S behavior: S steps `collateral` into the premise band yet below the
+    # kept bound (in [10, 50] and < 20), reachable only via S's own decrement transition.
+    assert any(c is not None and 10 <= c <= 50 and c < 20 for c in collaterals), collaterals
 
 
 def test_solver_backed_runs_checker_over_composed_module(tmp_path: Path) -> None:

@@ -226,41 +226,58 @@ def test_dsl_v2_redemption_still_uses_skeleton_lowering() -> None:
     assert artifact.status == "lowered"
 
 
-def test_lower_numeric_invariant_refuses_at_translation() -> None:
-    """A numeric_invariant must refuse at translation, not emit a vacuous skeleton.
-
-    The legacy skeleton would stub the invariant's identifiers to 0 and render the obligation
-    comparison (``keep collateral >= 1``) over those stubs — a module that model-checks a question
-    about nothing. Refuse here (one stage before the composition vacuity guard) with a source-
-    spanned diagnostic anchored on the obligation invariant, so no ``status="lowered"`` artifact
-    misrepresents an ungrounded state invariant as a lowered one.
+def test_lower_numeric_invariant_lowers_non_vacuously() -> None:
+    """numeric_invariant now lowers to a non-vacuous module (PB-4), not a refusal: the obligation is
+    a numeric invariant ``Premise => Obligation`` over a state variable, and the stateful-S narrowing
+    binds it to a reviewed S that DECLARES and evolves the variable (checked as a same-state invariant
+    over S's Init/Next). The legacy refuse-at-translation guard is gone — the variable is no longer
+    stubbed to a constant 0. The operator AND literal are emitted exactly, so a sibling differing only
+    in the bound lowers to a DISTINCT invariant a model checker tells apart.
     """
     ir = DslV3Parser().parse_ir(
         "requirement numeric_invariant:\n"
         "scope reserve\n"
         "when collateral >= 10 and collateral <= 50\n"
         "then keep collateral >= 1\n",
-        requirement_id="REQ-NUMERIC-REFUSE",
+        requirement_id="REQ-NUMERIC-LOWER",
         title="Numeric invariant",
     )
 
     artifact = lower_ir_v2_to_tla(ir)
 
-    assert artifact.status == "refused"
-    assert artifact.content is None
-    assert artifact.metadata.get("refusal_code") == "NLR-LOWERING-UNGROUNDED-STATE-INVARIANT"
-    assert artifact.diagnostics, "refusal must carry a diagnostic"
-    diagnostic = artifact.diagnostics[0]
-    assert diagnostic.kind == "gte"
-    assert "state invariant" in diagnostic.reason
-    assert diagnostic.source_spans, "refusal diagnostic must carry a source span"
+    assert artifact.status == "lowered"
+    assert artifact.content is not None
+    assert artifact.metadata.get("semantics") == "non_vacuous"
+    assert artifact.metadata.get("claim_class") == "numeric_invariant"
+    assert artifact.translator == "nlreq.formal_lowering.numeric_invariant"
+    # Value-exact: the premise bounds and the obligation comparison are rendered with their exact
+    # operators and literals (not stubbed to ``== 0``).
+    assert "Premise == collateral >= 10 /\\ collateral <= 50" in artifact.content
+    assert "Obligation == (collateral >= 10 /\\ collateral <= 50) => collateral >= 1" in artifact.content
+    assert "== 0" not in artifact.content
+
+    # A sibling differing ONLY in the obligation literal lowers to a distinct module — the bound is
+    # carried, not collapsed, so the S ∧ R check can discriminate them.
+    sibling = DslV3Parser().parse_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when collateral >= 10 and collateral <= 50\n"
+        "then keep collateral >= 20\n",
+        requirement_id="REQ-NUMERIC-LOWER",
+        title="Numeric invariant",
+    )
+    sibling_artifact = lower_ir_v2_to_tla(sibling)
+    assert sibling_artifact.content is not None
+    assert "=> collateral >= 20" in sibling_artifact.content
+    assert sibling_artifact.content != artifact.content
 
 
 def test_lower_state_postcondition_lowers_non_vacuously() -> None:
     """state_postcondition now lowers to a non-vacuous module (PB-4), not a refusal: its premise
     predicates are abstract operators a reviewed S interprets and the stateful-S narrowing binds
-    the affirmed post-state ``Pred_<state>(<value>)``. The companion numeric_invariant still refuses
-    (its obligation has no narrowing lowering yet) — they are no longer a refuse-both pair.
+    the affirmed post-state ``Pred_<state>(<value>)``. The companion numeric_invariant now lowers
+    too (see ``test_lower_numeric_invariant_lowers_non_vacuously``) — both reach the stateful-S
+    narrowing rather than refusing at translation.
     """
     ir = DslV3Parser().parse_ir(
         "requirement state_postcondition:\n"

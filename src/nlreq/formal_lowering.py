@@ -569,6 +569,217 @@ def lower_state_postcondition_tla(
     )
 
 
+# Comparison node kind -> TLA+ relational operator. The lowering emits the operator the IR records
+# exactly (``gte`` -> ``>=``, never a weaker ``>``), so a requirement and a sibling that differ only
+# in the obligation's operator or literal lower to DISTINCT invariants a model checker tells apart.
+_COMPARISON_TLA_OPERATORS = {
+    "eq": "=",
+    "neq": "/=",
+    "lt": "<",
+    "lte": "<=",
+    "gt": ">",
+    "gte": ">=",
+}
+
+
+def _render_comparison_operand(value: ValueRef) -> str:
+    """Render one comparison operand as a TLA+ term: an identifier bare, a literal via its rule."""
+    if value.kind == "identifier":
+        return str(value.value)
+    return _render_value_literal(value)
+
+
+def _render_comparison_tla(node: SemanticNode) -> str:
+    """Render a binary comparison node (``gte``/``lte``/…) as a TLA+ relation over its operands.
+
+    e.g. ``gte(collateral, 10)`` -> ``collateral >= 10``. Caller must have validated the shape
+    (exactly two operands, a known comparison kind); raises otherwise so a malformed node never
+    silently lowers to a partial expression.
+    """
+    symbol = _COMPARISON_TLA_OPERATORS.get(node.kind)
+    if symbol is None or len(node.args) != 2:
+        raise ValueError(
+            f"_render_comparison_tla: node kind {node.kind!r} with {len(node.args)} args is not a "
+            "binary comparison; validate_numeric_invariant_shape must reject it first"
+        )
+    return f"{_render_comparison_operand(node.args[0])} {symbol} {_render_comparison_operand(node.args[1])}"
+
+
+def _comparison_nodes(premise: SemanticNode | None) -> list[SemanticNode]:
+    """Return the comparison clauses of a premise (the children of an ``and``, or the lone node)."""
+    if premise is None:
+        return []
+    return list(premise.children) if premise.kind == "and" else [premise]
+
+
+def validate_numeric_invariant_shape(
+    root: SemanticNode,
+) -> list[tuple[str, str, SemanticNode | None]]:
+    """Return (kind, reason, offending_node) triples for unsupported numeric_invariant shapes.
+
+    Returns an empty list when the shape is fully supported. Mirrors the other shape validators:
+    callers must refuse lowering when the list is non-empty. The supported shape is ``[when
+    <comparisons>] then keep <comparison>`` — every premise clause and the obligation are binary
+    comparisons (``>=``/``<=``/``=``/…) over a state variable a reviewed S declares and at least one
+    numeric/identifier bound. Unlike the authorization/post_state lowerings, comparisons are NOT
+    projected out here: they ARE the antecedent and consequent of the invariant the S ∧ R narrowing
+    checks (``Premise => Obligation``) over S's own state, so the obligation comparison must name a
+    variable the reviewed S evolves (the narrowing enforces that binding; see _compose_system_narrowing).
+    """
+    problems: list[tuple[str, str, SemanticNode | None]] = []
+
+    for node in _comparison_nodes(root.premise):
+        if node.kind not in _COMPARISON_TLA_OPERATORS:
+            problems.append((
+                node.kind,
+                (
+                    f"unsupported numeric_invariant premise node kind '{node.kind}'; the antecedent "
+                    "must be comparisons over a state variable (e.g. 'when collateral >= 10')"
+                ),
+                node,
+            ))
+        elif len(node.args) != 2 or not any(arg.kind == "identifier" for arg in node.args):
+            problems.append((
+                "premise_comparison_without_variable",
+                (
+                    "numeric_invariant premise comparison must relate a state variable identifier to "
+                    "a bound (e.g. 'when collateral >= 10')"
+                ),
+                node,
+            ))
+
+    if root.obligation is None:
+        problems.append(
+            ("missing_obligation", "numeric_invariant requires an obligation clause (then keep ...)", None)
+        )
+    else:
+        must = root.obligation.must
+        if must is None:
+            problems.append(
+                ("missing_must", "numeric_invariant obligation requires a 'keep <comparison>' clause", None)
+            )
+        elif must.kind not in _COMPARISON_TLA_OPERATORS:
+            problems.append((
+                must.kind,
+                (
+                    f"numeric_invariant obligation must be a comparison ('then keep X >= V'); got must "
+                    f"node kind '{must.kind}' — unsupported obligation shape"
+                ),
+                must,
+            ))
+        elif len(must.args) != 2 or not any(arg.kind == "identifier" for arg in must.args):
+            problems.append((
+                "obligation_comparison_without_variable",
+                (
+                    "numeric_invariant obligation comparison must relate a state variable identifier to "
+                    "a bound (e.g. 'then keep collateral >= 1'); without a variable the invariant binds "
+                    "to no reviewed S state"
+                ),
+                must,
+            ))
+
+    return problems
+
+
+@dataclass(frozen=True)
+class NumericInvariantObligation:
+    """The numeric state invariant a numeric_invariant narrows a reviewed S with.
+
+    ``premise_expr`` is the antecedent comparisons rendered and conjoined (``collateral >= 10 /\\
+    collateral <= 50``), or ``TRUE`` for a premise-less global invariant. ``obligation_expr`` is the
+    consequent comparison the system must keep (``collateral >= 1``). ``variables`` are every state
+    variable identifier the premise or obligation names — the narrowing refuses unless a reviewed S
+    DECLARES each one, so ``R_Requirement == Premise => Obligation`` ranges over S's real state and a
+    counterexample is a genuine S behavior, not two disconnected uses of the same bare name.
+    """
+
+    premise_expr: str
+    obligation_expr: str
+    variables: tuple[str, ...]
+
+
+def derive_numeric_invariant_obligation(root: SemanticNode) -> NumericInvariantObligation:
+    """Derive the numeric state invariant ``Premise => Obligation`` from the IR.
+
+    Caller must invoke validate_numeric_invariant_shape first; raises on a malformed shape.
+    """
+    if root.obligation is None or root.obligation.must is None:
+        raise ValueError(
+            "derive_numeric_invariant_obligation: no obligation comparison — "
+            "validate_numeric_invariant_shape must be called first"
+        )
+    premise_nodes = _comparison_nodes(root.premise)
+    premise_parts = [_render_comparison_tla(node) for node in premise_nodes]
+    premise_expr = " /\\ ".join(premise_parts) if premise_parts else "TRUE"
+    obligation_expr = _render_comparison_tla(root.obligation.must)
+
+    variables: list[str] = []
+    for node in [*premise_nodes, root.obligation.must]:
+        for arg in node.args:
+            if arg.kind == "identifier" and str(arg.value) not in variables:
+                variables.append(str(arg.value))
+    return NumericInvariantObligation(
+        premise_expr=premise_expr,
+        obligation_expr=obligation_expr,
+        variables=tuple(variables),
+    )
+
+
+def lower_numeric_invariant_tla(
+    ir: RequirementIRV2,
+    *,
+    bounds_json: str = "[]",
+) -> str:
+    """Produce a non-vacuous TLA+ module for numeric_invariant.
+
+    The obligation is a numeric invariant ``Premise => Obligation`` over a state variable. Like the
+    state_postcondition lowering, this standalone module is auxiliary, NOT the S ∧ R evidence: its
+    ``Next`` moves the variable freely so the module stays checker-distinguishable, but the real
+    evidence comes from the stateful-S narrowing (compose_s_and_r_module), which discards this harness
+    and checks ``Premise => Obligation`` as a SAME-STATE invariant over S's own Init/Next — S declares
+    and evolves the variable, so a counterexample is a reachable S state that satisfies the premise
+    bounds yet violates the kept obligation. The narrowing reuses this module's ``Premise ==`` line as
+    the antecedent and binds the variable to S's declaration.
+
+    Caller must invoke validate_numeric_invariant_shape first and refuse if any problems are returned;
+    this function assumes a supported shape.
+    """
+    root = ir.semantic_ir
+    module_name = "Req_" + _safe_name(ir.requirement_id)
+    obligation = derive_numeric_invariant_obligation(root)
+    variables = obligation.variables  # validated non-empty: the obligation comparison names a variable
+
+    var_decls = "\n".join(f"VARIABLE {name}" for name in variables)
+    init_expr = " /\\ ".join(f"{name} = 0" for name in variables)
+    step_expr = " /\\ ".join(f"{name}' \\in Nat" for name in variables)
+    unchanged = (
+        f"UNCHANGED {variables[0]}"
+        if len(variables) == 1
+        else f"UNCHANGED <<{', '.join(variables)}>>"
+    )
+
+    return (
+        f"---- MODULE {module_name} ----\n"
+        f"EXTENDS Naturals, TLC\n\n"
+        f"\\* Non-vacuous numeric_invariant lowering.\n"
+        f"\\* Generated by nlreq translator {FORMAL_LOWERING_VERSION}; semantics: non_vacuous.\n"
+        f"\\* Requirement: {ir.requirement_id}\n"
+        f"\\* Temporal bounds: {bounds_json}\n"
+        f"\\* Auxiliary harness: the premise/obligation range over a state variable a reviewed S owns.\n"
+        f"\\* The real S ∧ R evidence is the stateful-S narrowing (compose_s_and_r_module), which\n"
+        f"\\* discards this harness and checks Premise => Obligation over S's own Init/Next. Here Next\n"
+        f"\\* moves the variable freely so the standalone module is not self-satisfied.\n\n"
+        f"{var_decls}\n\n"
+        f"Init == {init_expr}\n\n"
+        f"Step_evolve == {step_expr}\n\n"
+        f"Next == Step_evolve \\/ {unchanged}\n\n"
+        f"Premise == {obligation.premise_expr}\n\n"
+        f"Obligation == ({obligation.premise_expr}) => {obligation.obligation_expr}\n\n"
+        f"RequirementHolds == Premise => Obligation\n\n"
+        f"====\n"
+    )
+
+
 def generate_minimal_discriminating_s_module(
     requirement_pred_name: str,
     negation_pred_name: str,
@@ -1089,14 +1300,17 @@ class ComposedSandRModule:
     emitting a module that would prove a tautology. refusal_kind is one of
     ``unsupported_requirement_shape``, ``no_system_invariant``,
     ``operator_name_collision``, ``undefined_predicate``,
-    ``undefined_invariant``, or ``state_postcondition_requires_stateful_spec``
-    (stateless S, Case A); the stateful-S narrowing (Case B) additionally uses
+    ``undefined_invariant``, ``state_postcondition_requires_stateful_spec``, or
+    ``numeric_invariant_requires_stateful_spec`` (stateless S, Case A); the
+    stateful-S narrowing (Case B) additionally uses
     ``incomplete_transition_operators``, ``unsupported_spec_constant``,
     ``unsupported_spec_variable`` (a single ``@type`` over a comma-separated
     multi-name VARIABLES line, which Apalache itself rejects),
     ``variable_name_collision``, ``undefined_transition_operator``,
-    ``missing_outcome_predicate``, and ``undefined_outcome_predicate`` (the last two
-    cover both the forbidden-outcome and affirmed post-state obligation predicates).
+    ``undefined_state_variable`` (a numeric_invariant names a variable no reviewed
+    S declares), ``missing_outcome_predicate``, and ``undefined_outcome_predicate``
+    (the last two cover both the forbidden-outcome and affirmed post-state obligation
+    predicates).
     """
 
     status: Literal["composed", "refused"]
@@ -1148,6 +1362,7 @@ def compose_s_and_r_module(
     *,
     outcome_predicate: OutcomePredicate | None = None,
     post_state_obligation: PostStateObligation | None = None,
+    numeric_invariant_obligation: NumericInvariantObligation | None = None,
 ) -> ComposedSandRModule:
     """Compose the lowered requirement R with reviewed system specs S.
 
@@ -1176,8 +1391,12 @@ def compose_s_and_r_module(
       ~Pred_<action>``), adding no transitions and no variable; a ``post_state_obligation``
       (state_postcondition) checks the affirmed post-state as a NEXT-STEP transition
       obligation, adding one ghost VARIABLE that records the premise in the pre-state so
-      ``Inv`` can require ``Pred_<state>(<value>)`` after it. S must interpret the named
-      predicate or the composition refuses. See _compose_system_narrowing.
+      ``Inv`` can require ``Pred_<state>(<value>)`` after it; a ``numeric_invariant_obligation``
+      (numeric_invariant) conjoins a SAME-STATE numeric invariant (``Premise => Obligation``,
+      e.g. ``collateral >= 10 /\\ collateral <= 50 => collateral >= 1``) over a state variable
+      S declares — no Pred_*, no ghost, binding by variable name. S must interpret the named
+      predicate (or, for numeric, declare the named variable) or the composition refuses. See
+      _compose_system_narrowing.
     """
     identifier_constants = parse_lowered_identifier_constants(lowered_content)
     abstract_predicates = _parse_module_pred_constants(lowered_content)
@@ -1209,6 +1428,7 @@ def compose_s_and_r_module(
             contributions=contributions,
             outcome_predicate=outcome_predicate,
             post_state_obligation=post_state_obligation,
+            numeric_invariant_obligation=numeric_invariant_obligation,
         )
 
     # Case A is stateless: a post-state obligation asserts the system reaches a value, which only
@@ -1224,6 +1444,20 @@ def compose_s_and_r_module(
                 "a state_postcondition narrows a reviewed spec that brings its own transition "
                 "system (init_op/next_op); no relevant spec declares one, so there is no S to "
                 "reach the post-state and the affirmed obligation cannot be checked"
+            ),
+        )
+
+    # A numeric_invariant likewise narrows S's reachable states: its variable must be one a stateful
+    # S declares and evolves. With no stateful S there is nothing to evolve the variable, and the
+    # Case A product would range the invariant over R's disconnected harness. Refuse honestly.
+    if numeric_invariant_obligation is not None:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="numeric_invariant_requires_stateful_spec",
+            refusal_reason=(
+                "a numeric_invariant narrows a reviewed spec that brings its own transition system "
+                "(init_op/next_op); no relevant spec declares one, so there is no S evolving the "
+                "variable the invariant ranges over and the kept obligation cannot be checked"
             ),
         )
 
@@ -1368,6 +1602,7 @@ def _compose_system_narrowing(
     contributions: list[SystemSpecContribution],
     outcome_predicate: OutcomePredicate | None,
     post_state_obligation: PostStateObligation | None = None,
+    numeric_invariant_obligation: NumericInvariantObligation | None = None,
 ) -> ComposedSandRModule:
     """Compose S ∧ R as a *narrowing* when S brings its own transition system (Case B).
 
@@ -1393,6 +1628,14 @@ def _compose_system_narrowing(
       premise-state that fails to establish the post-state. This is the strict next-step reading:
       every transition from a premise-state must land in a value-state.
 
+    - ``numeric_invariant_obligation`` (numeric_invariant): a SAME-STATE numeric invariant
+      ``R_Requirement == Premise => Obligation`` over a state variable S declares and evolves (e.g.
+      ``collateral >= 10 /\\ collateral <= 50 => collateral >= 1``). It binds NO ``Pred_*`` and adds
+      NO ghost: the comparisons range over S's own variable by name, so a counterexample is a
+      reachable S state inside the premise bounds that violates the kept obligation — a pure state
+      property, no transition semantics needed. The variable-declaration guard below refuses unless a
+      reviewed S declares every variable the invariant names.
+
     Why a ghost variable and not a primed-variable action invariant ``Premise => Pred_<state>' =
     <value>``: Apalache 0.58 silently SKIPS such an action invariant over a non-establishing /
     UNCHANGED transition and reports NoError — a false pass on exactly the violation this check
@@ -1403,7 +1646,8 @@ def _compose_system_narrowing(
     init_op/next_op; a named transition operator is undefined; a spec brings its own CONSTANTS
     (the composition cannot pin them in ConstInit); two specs declare the same variable; an S
     operator shadows a reserved name; a premise predicate is uninterpreted; no obligation was
-    supplied or the obligation predicate is uninterpreted by S; or no invariant is declared.
+    supplied or the obligation predicate is uninterpreted by S; a numeric_invariant names a state
+    variable no reviewed S declares; or no invariant is declared.
     """
     incomplete = [
         c.spec_id
@@ -1458,14 +1702,29 @@ def _compose_system_narrowing(
             f"requires every step out of a premise-state of S to establish the post-state "
             f"({post_state_obligation.predicate_name})"
         )
+    elif numeric_invariant_obligation is not None:
+        # A numeric_invariant is a SAME-STATE invariant over S's own variable: R_Requirement ==
+        # (premise comparisons) => (obligation comparison), conjoined into Inv. Unlike the
+        # predicate obligations above it binds no Pred_* — the comparisons range over a state
+        # variable S declares and evolves, so obligation_pred_names is empty and the coupling is
+        # checked by the variable-declaration guard below, not predicate interpretation. It slots
+        # into the same-state branch (no ghost): the invariant is about the current state, so a
+        # counterexample is a reachable S state inside the premise bounds that violates the
+        # obligation comparison.
+        obligation_consequent = numeric_invariant_obligation.obligation_expr
+        obligation_pred_names = ()
+        obligation_phrase = (
+            f"keeps the numeric invariant ({numeric_invariant_obligation.obligation_expr}) over S's "
+            "state whenever the premise bounds hold"
+        )
     else:
         return ComposedSandRModule(
             status="refused",
             refusal_kind="missing_outcome_predicate",
             refusal_reason=(
                 "no obligation predicate was supplied; narrowing a stateful S needs the "
-                "requirement's forbidden-outcome or affirmed post-state Pred_* to constrain S's "
-                "reachable states"
+                "requirement's forbidden-outcome, affirmed post-state, or numeric invariant to "
+                "constrain S's reachable states"
             ),
         )
 
@@ -1567,6 +1826,25 @@ def _compose_system_narrowing(
                 f"define: {sorted(set(missing_transition))}"
             ),
         )
+
+    # numeric_invariant binds by VARIABLE NAME, not by an interpreted Pred_*: R_Requirement ranges
+    # over S's own state variable directly. The numeric analogue of the undefined_predicate guard —
+    # refuse unless a reviewed S DECLARES every variable the premise/obligation names. Without S's
+    # declaration the variable is a free symbol Apalache rejects (a type error, not a clean
+    # valid/counterexample) and the coupling is vacuous (two disconnected uses of the same bare name).
+    if numeric_invariant_obligation is not None:
+        undeclared = [v for v in numeric_invariant_obligation.variables if v not in seen_variables]
+        if undeclared:
+            return ComposedSandRModule(
+                status="refused",
+                refusal_kind="undefined_state_variable",
+                refusal_reason=(
+                    "numeric_invariant premise/obligation references state variable(s) "
+                    f"{sorted(undeclared)} that no reviewed system spec declares; the reviewed S must "
+                    "declare and evolve each variable the invariant ranges over, or the narrowing "
+                    "binds to no real state"
+                ),
+            )
 
     missing_predicates = [
         predicate for predicate in abstract_predicates if predicate not in defined_predicates

@@ -9,8 +9,10 @@ from .dsl_v2 import DslV2Parser
 from .formal_lowering import (
     FORMAL_LOWERING_VERSION,
     lower_authorization_precondition_tla,
+    lower_numeric_invariant_tla,
     lower_state_postcondition_tla,
     validate_authorization_precondition_shape,
+    validate_numeric_invariant_shape,
     validate_state_postcondition_shape,
 )
 from .jsonutil import canonical_json, sha256_json, sha256_text
@@ -148,71 +150,66 @@ def parse_approved_draft_ir_v2(
     )
 
 
-# Claim classes whose obligation is a numeric/state invariant the legacy skeleton can only lower
-# vacuously, so they must refuse at translation rather than emit a misleading status="lowered"
-# artifact. The skeleton stubs every identifier to ``name == 0`` and renders the obligation
-# comparison over those stubs (e.g. ``keep collateral >= 100`` becomes a check of the constant 0,
-# not the system's ``collateral``), so a model check of the skeleton answers a question about
-# nothing. A faithful S ∧ R lowering needs a reviewed system spec that DECLARES the state variable
-# for the invariant to bind against (PB-4); ``numeric_invariant``'s ``gte``/``lte`` obligation is in
-# the skeleton's supported set, so it needs this explicit claim-class guard until that faithful
-# lowering exists. The companion state-obligation class ``state_postcondition`` now HAS such a
-# lowering — ``_lower_state_postcondition`` emits a non-vacuous module the stateful-S narrowing
-# binds against ``Pred_<state>`` — so it is no longer refused here. Comparison/membership PREMISES
-# are unaffected — they are discharged by the theory-aware SMT backends on the FormalClaim path,
-# never this lowering.
-_UNGROUNDED_STATE_INVARIANT_CLAIM_CLASSES = frozenset({"numeric_invariant"})
-
-
 def lower_ir_v2_to_tla(ir: RequirementIRV2) -> LoweredFormalArtifact:
     claim_class = ir.semantic_ir.metadata.get("requirement_class")
     if claim_class == "authorization_precondition":
         return _lower_non_vacuous(ir, claim_class)
     if claim_class == "state_postcondition":
         return _lower_state_postcondition(ir, claim_class)
-    if claim_class in _UNGROUNDED_STATE_INVARIANT_CLAIM_CLASSES:
-        return _refuse_ungrounded_state_invariant(ir, claim_class)
+    if claim_class == "numeric_invariant":
+        return _lower_numeric_invariant(ir, claim_class)
     return _lower_skeleton(ir)
 
 
-def _refuse_ungrounded_state_invariant(
-    ir: RequirementIRV2, claim_class: str
-) -> LoweredFormalArtifact:
-    """Refuse a numeric/state-invariant claim the skeleton can only lower vacuously.
+def _lower_numeric_invariant(ir: RequirementIRV2, claim_class: str) -> LoweredFormalArtifact:
+    """Non-vacuous lowering for numeric_invariant.
 
-    See ``_UNGROUNDED_STATE_INVARIANT_CLAIM_CLASSES``: the skeleton would stub the invariant's
-    identifiers to 0 and check the obligation comparison over those stubs, so the lowered module
-    would not be S ∧ R evidence. Refuse with a source-spanned diagnostic anchored on the obligation
-    invariant rather than emit a misleading ``status="lowered"`` artifact. The downstream backend
-    and system-checker callers already branch on ``status != "lowered"`` and surface these
-    diagnostics as ``unsupported``, so the refusal flows through the gate without a false discharge.
+    The obligation is a numeric invariant ``Premise => Obligation`` over a state variable. Where the
+    legacy skeleton could only stub that variable to a constant ``0`` (a check of nothing), the
+    stateful-S narrowing (compose_s_and_r_module) now binds it to a reviewed S that DECLARES and
+    evolves the variable and checks the invariant as a SAME-STATE property over S's own Init/Next —
+    so a counterexample is a reachable S state inside the premise bounds that violates the kept
+    obligation. A malformed shape refuses with source-spanned diagnostics rather than emit a
+    misleading ``status="lowered"`` artifact; the downstream checker callers branch on
+    ``status != "lowered"`` and surface the refusal as ``unsupported`` without a false discharge.
+    Comparison premises are ALSO discharged independently by the theory-aware SMT backends on the
+    FormalClaim path (PB-7 routing); this lowering carries the obligation invariant to the S ∧ R model
+    check.
     """
-    obligation = ir.semantic_ir.obligation
-    anchor = (obligation.must or obligation) if obligation is not None else ir.semantic_ir
+    shape_problems = validate_numeric_invariant_shape(ir.semantic_ir)
+    if shape_problems:
+        return LoweredFormalArtifact(
+            requirement_id=ir.requirement_id,
+            source_ir_version=ir.ir_version,
+            source_ir_hash=sha256_json(ir),
+            status="refused",
+            temporal_bounds=_temporal_bounds(ir.semantic_ir),
+            diagnostics=[
+                LoweringDiagnostic(
+                    node_id=offending.node_id if offending is not None else ir.semantic_ir.node_id,
+                    kind=kind,
+                    reason=reason,
+                    source_spans=offending.source_spans if offending is not None else ir.semantic_ir.source_spans,
+                )
+                for kind, reason, offending in shape_problems
+            ],
+            metadata={"refusal_code": "NLR-LOWERING-UNSUPPORTED-SHAPE"},
+        )
+    temporal_bounds = _temporal_bounds(ir.semantic_ir)
+    source_ir_hash = sha256_json(ir)
+    bounds_json = canonical_json([b.model_dump(mode="json") for b in temporal_bounds]).strip()
+    content = lower_numeric_invariant_tla(ir, bounds_json=bounds_json)
     return LoweredFormalArtifact(
         requirement_id=ir.requirement_id,
         source_ir_version=ir.ir_version,
-        source_ir_hash=sha256_json(ir),
-        status="refused",
-        temporal_bounds=_temporal_bounds(ir.semantic_ir),
-        diagnostics=[
-            LoweringDiagnostic(
-                node_id=anchor.node_id,
-                kind=anchor.kind,
-                reason=(
-                    f"{claim_class} obligation is a state invariant over identifiers the TLA "
-                    "skeleton can only stub to 0; a faithful S ∧ R lowering requires a reviewed "
-                    "system spec that declares the state variable. Refused rather than emit a "
-                    "vacuous lowered module (comparison and membership premises are discharged by "
-                    "the SMT backends, not this lowering)."
-                ),
-                source_spans=anchor.source_spans,
-            )
-        ],
-        metadata={
-            "refusal_code": "NLR-LOWERING-UNGROUNDED-STATE-INVARIANT",
-            "claim_class": claim_class,
-        },
+        source_ir_hash=source_ir_hash,
+        translator="nlreq.formal_lowering.numeric_invariant",
+        translator_version=FORMAL_LOWERING_VERSION,
+        status="lowered",
+        content=content,
+        content_hash=sha256_text(content),
+        temporal_bounds=temporal_bounds,
+        metadata={"evidence": "lowered", "semantics": "non_vacuous", "claim_class": claim_class},
     )
 
 
