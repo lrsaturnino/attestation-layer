@@ -7,7 +7,7 @@ from nlreq.coverage_alignment import SpecCoverageReport, TraceAlignmentReport
 from nlreq.dsl_v2 import DslV2Parser
 from nlreq.formal_backend import FormalBackendResponse
 from nlreq.models import BackendResult, EvidenceLevel, RequirementIRV2
-from nlreq.proof_closure import build_proof_object
+from nlreq.proof_closure import build_proof_dispatch_plan, build_proof_object
 from nlreq.source_adapter import SourceManifest
 
 
@@ -159,6 +159,9 @@ def _closed_proof(
     *,
     extra_backend_results: list[BackendResult] | None = None,
 ):
+    # This wedge test isolates cross-language / cross-formalism closure, not premise routing, so
+    # it requests the legacy single-backend dispatch explicitly to close on one system_checker
+    # verdict. The closure default now routes by kind, where a lone verdict would not close.
     return build_proof_object(
         requirement=ir,
         backend_results=[
@@ -177,6 +180,7 @@ def _closed_proof(
             coverage_ratio=1.0,
         ),
         trace_alignment=TraceAlignmentReport(result="passed"),
+        dispatch=build_proof_dispatch_plan(ir, backend_id="system_checker"),
     )
 
 

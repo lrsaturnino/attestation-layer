@@ -9,7 +9,7 @@ from nlreq.impact import analyze_source_impact
 from nlreq.javascript_source_adapter import JavaScriptSourceLanguageAdapter
 from nlreq.jsonutil import read_json
 from nlreq.models import BackendResult, EvidenceLevel, NormalizedTraceArtifact, SymbolRef
-from nlreq.proof_closure import build_proof_object
+from nlreq.proof_closure import build_proof_dispatch_plan, build_proof_object
 from nlreq.source_adapter import SourceBinding, SourceManifest
 from nlreq.trace_replay import build_trace_replay_report
 
@@ -109,6 +109,8 @@ def test_javascript_source_adapter_drives_trace_replay_and_cross_language_wedge(
     )
 
     replay = build_trace_replay_report(requirement=ir, traces=traces, coverage=coverage)
+    # This test isolates the cross-language wedge over a closed proof, not premise routing, so it
+    # requests the legacy single-backend dispatch explicitly to close on one system_checker verdict.
     proof = build_proof_object(
         requirement=ir,
         backend_results=[
@@ -120,6 +122,7 @@ def test_javascript_source_adapter_drives_trace_replay_and_cross_language_wedge(
         ],
         coverage=coverage,
         trace_alignment=TraceAlignmentReport(result="passed"),
+        dispatch=build_proof_dispatch_plan(ir, backend_id="system_checker"),
     )
     wedge = build_agnostic_wedge_report(
         proof=proof,

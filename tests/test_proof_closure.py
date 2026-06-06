@@ -38,9 +38,17 @@ DSL = (
 )
 
 
-def test_proof_object_closes_when_all_context_and_premises_are_discharged(
+def test_lone_system_checker_verdict_blocks_by_default_but_closes_under_explicit_single_backend(
     tmp_path: Path,
 ) -> None:
+    """A lone system_checker verdict no longer closes a multi-premise proof by default.
+
+    The closure default routes each premise to the backend its kind needs (route_by_kind), so a
+    single system-consistency result — which routes to none of those per-kind backends —
+    discharges nothing and the proof blocks with its premises open. The legacy single-backend
+    plan, which closes on that one verdict, is still reachable but must be requested explicitly
+    (it names backend_id), so a lone verdict can no longer silently over-close.
+    """
     ir = _ir()
     coverage = _coverage(tmp_path)
     alignment = _alignment(ir, coverage)
@@ -51,19 +59,36 @@ def test_proof_object_closes_when_all_context_and_premises_are_discharged(
         impact=_impact(),
         project_root=tmp_path,
     )
+    system_results = backend_results_from_system_consistency(consistency)
 
-    proof = build_proof_object(
+    # Default dispatch routes by kind: the lone system_checker verdict discharges none of the
+    # per-kind routes, so the proof blocks with open premises and the closure gate blocks.
+    blocked = build_proof_object(
         requirement=ir,
-        backend_results=backend_results_from_system_consistency(consistency),
+        backend_results=system_results,
         coverage=coverage,
         trace_alignment=alignment,
     )
-    gate = evaluate_closure_gate(proof, downstream_action="merge")
+    assert blocked.status == "blocked"
+    assert any(premise.status != "discharged" for premise in blocked.premises)
+    assert all(premise.routed_backend != "system_checker" for premise in blocked.premises)
+    assert evaluate_closure_gate(blocked, downstream_action="merge").result == "blocked"
 
-    assert proof.status == "closed"
-    assert {premise.status for premise in proof.premises} == {"discharged"}
-    assert proof.coverage_result == "passed"
-    assert proof.trace_alignment_result == "passed"
+    # The explicitly-requested legacy single-backend plan still closes on that one verdict — the
+    # happy path is preserved, just no longer the silent default.
+    closed = build_proof_object(
+        requirement=ir,
+        backend_results=system_results,
+        coverage=coverage,
+        trace_alignment=alignment,
+        dispatch=build_proof_dispatch_plan(ir, backend_id="system_checker"),
+    )
+    gate = evaluate_closure_gate(closed, downstream_action="merge")
+
+    assert closed.status == "closed"
+    assert {premise.status for premise in closed.premises} == {"discharged"}
+    assert closed.coverage_result == "passed"
+    assert closed.trace_alignment_result == "passed"
     assert gate.result == "passed"
 
 
@@ -135,11 +160,15 @@ def test_backed_bounded_evidence_does_not_block_closure(tmp_path: Path) -> None:
         },
     )
 
+    # This test isolates the backing check on a BOUNDED_CHECKED result, not premise routing, so it
+    # closes on the legacy single-backend plan (requested explicitly) while the backed apalache
+    # result coexists in backend_results without tripping a "not backed" blocker.
     proof = build_proof_object(
         requirement=ir,
         backend_results=[*backend_results_from_system_consistency(_consistency(tmp_path)), backed],
         coverage=coverage,
         trace_alignment=alignment,
+        dispatch=build_proof_dispatch_plan(ir, backend_id="system_checker"),
     )
 
     assert proof.status == "closed"

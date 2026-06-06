@@ -369,10 +369,12 @@ def build_proof_dispatch_plan(
 ) -> ProofDispatchPlan:
     """Build the per-premise dispatch plan for a requirement's compositional proof.
 
-    By default every premise routes to ``backend_id`` (the single-backend plan today's closure path
-    expects). With ``route_by_kind=True`` each premise instead routes to the backend its kind needs
-    (:func:`backend_for_proof_node`) — the PB-7 multi-backend plan. The opt-in keeps the default
-    path's behavior byte-stable until the per-kind producers are wired (PB-7.T3).
+    With ``route_by_kind=True`` each premise routes to the backend its kind needs
+    (:func:`backend_for_proof_node`) — the multi-backend plan :func:`build_proof_object` builds when
+    no explicit dispatch is given. With ``route_by_kind=False`` (the default of THIS builder) every
+    premise instead routes to the single ``backend_id``; that legacy single-backend plan is no longer
+    the closure default and must be requested explicitly (it requires naming ``backend_id``), so a
+    lone verdict cannot silently close a multi-premise proof.
     """
     routes = [
         ProofPremiseRoute(
@@ -404,7 +406,13 @@ def build_proof_object(
     dispatch: ProofDispatchPlan | None = None,
 ) -> ProofObject:
     mapping = producer_mapping or default_evidence_producer_mapping()
-    plan = dispatch or build_proof_dispatch_plan(requirement)
+    # With no explicit dispatch, route each premise to the backend its kind needs (route_by_kind),
+    # never collapse them onto the single system_checker default. A lone system-consistency verdict
+    # then discharges only the premises that route to it, so it cannot close a multi-premise proof
+    # whose comparison/membership/state premises need their own producer. Callers that genuinely
+    # want the legacy single-backend plan (e.g. a fixture closing on one system_checker result)
+    # pass it explicitly via build_proof_dispatch_plan(requirement, backend_id=...).
+    plan = dispatch or build_proof_dispatch_plan(requirement, route_by_kind=True)
     blockers: list[ProofClosureBlocker] = []
 
     coverage_result = _coverage_result(coverage, blockers)

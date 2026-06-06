@@ -8,7 +8,7 @@ from nlreq.dsl_v2 import DslV2Parser
 from nlreq.formal_backend import FormalBackendResponse
 from nlreq.jsonutil import read_json
 from nlreq.models import BackendResult, EvidenceLevel
-from nlreq.proof_closure import build_proof_object
+from nlreq.proof_closure import build_proof_dispatch_plan, build_proof_object
 
 
 DSL = (
@@ -149,6 +149,9 @@ def test_proof_object_blocks_supplied_backend_disagreement() -> None:
         ]
     )
 
+    # Isolate the agreement gate: the legacy single-backend plan (requested explicitly) discharges
+    # the premises on the one system_checker verdict, so the proof blocks specifically on the
+    # backend-agreement disagreement, not on incidentally-open per-kind premises.
     proof = build_proof_object(
         requirement=ir,
         backend_results=[
@@ -167,6 +170,7 @@ def test_proof_object_blocks_supplied_backend_disagreement() -> None:
         ),
         trace_alignment=TraceAlignmentReport(result="passed"),
         backend_agreement=disagreement,
+        dispatch=build_proof_dispatch_plan(ir, backend_id="system_checker"),
     )
 
     assert proof.status == "blocked"
@@ -176,7 +180,11 @@ def test_proof_object_blocks_supplied_backend_disagreement() -> None:
 
 def _proof_with_agreement(requirement_id: str, agreement):
     """A proof object built over the DSL requirement with a passing context and the given
-    agreement report supplied — isolating whether the agreement gates closure."""
+    agreement report supplied — isolating whether the agreement gates closure.
+
+    The legacy single-backend plan is requested explicitly so the premises discharge on the one
+    system_checker verdict: whether the proof closes then turns solely on the agreement report,
+    not on incidentally-open per-kind premises (the closure default now routes by kind)."""
     ir = DslV2Parser().parse_ir(DSL, requirement_id=requirement_id, title="Agreement policy")
     return build_proof_object(
         requirement=ir,
@@ -196,6 +204,7 @@ def _proof_with_agreement(requirement_id: str, agreement):
         ),
         trace_alignment=TraceAlignmentReport(result="passed"),
         backend_agreement=agreement,
+        dispatch=build_proof_dispatch_plan(ir, backend_id="system_checker"),
     )
 
 
@@ -221,6 +230,7 @@ def test_proof_object_does_not_block_non_overlap_backend_agreement() -> None:
 
     assert proof.backend_agreement is not None
     assert not any(blocker.category == "backend_agreement" for blocker in proof.blockers)
+    assert proof.status == "closed"
 
 
 def test_proof_object_does_not_block_needs_review_backend_agreement() -> None:
@@ -236,6 +246,7 @@ def test_proof_object_does_not_block_needs_review_backend_agreement() -> None:
 
     assert proof.backend_agreement is not None
     assert not any(blocker.category == "backend_agreement" for blocker in proof.blockers)
+    assert proof.status == "closed"
 
 
 def test_verdict_mode_agrees_on_matching_verdict() -> None:

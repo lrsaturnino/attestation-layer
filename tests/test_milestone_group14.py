@@ -43,7 +43,7 @@ from nlreq.policy_governance import (
     build_ci_policy_governance_report,
     build_waiver_audit_report,
 )
-from nlreq.proof_closure import build_proof_object
+from nlreq.proof_closure import build_proof_dispatch_plan, build_proof_object
 from nlreq.reference_demo import (
     BetaPilotFinding,
     BetaPilotReport,
@@ -566,6 +566,9 @@ def _closed_proof():
         requirement_id="REQ-G14-001",
         title="Cross language closure",
     )
+    # This test isolates cross-language certification over a closed proof, not premise routing, so
+    # it requests the legacy single-backend dispatch explicitly to close on one system_checker
+    # verdict. The closure default now routes by kind, where a lone verdict would not close.
     return build_proof_object(
         requirement=ir,
         backend_results=[
@@ -583,6 +586,7 @@ def _closed_proof():
             coverage_ratio=1.0,
         ),
         trace_alignment=TraceAlignmentReport(result="passed"),
+        dispatch=build_proof_dispatch_plan(ir, backend_id="system_checker"),
     )
 
 
