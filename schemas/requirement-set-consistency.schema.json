@@ -74,6 +74,58 @@
       ],
       "title": "SourceSpan",
       "type": "object"
+    },
+    "UncheckedRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "lowering_refused",
+            "lowering_needs_review",
+            "contradiction_without_source_span"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "refusal_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refusal Code"
+        },
+        "requirement_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "requirement_ids",
+        "reason",
+        "detail"
+      ],
+      "title": "UncheckedRequirement",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -88,7 +140,8 @@
     "result": {
       "enum": [
         "valid",
-        "contradiction"
+        "contradiction",
+        "unsupported"
       ],
       "title": "Result",
       "type": "string"
@@ -98,6 +151,13 @@
       "default": "0.1",
       "title": "Schema Version",
       "type": "string"
+    },
+    "unchecked": {
+      "items": {
+        "$ref": "#/$defs/UncheckedRequirement"
+      },
+      "title": "Unchecked",
+      "type": "array"
     }
   },
   "required": [

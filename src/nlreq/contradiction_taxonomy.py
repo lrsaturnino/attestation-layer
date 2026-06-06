@@ -60,8 +60,51 @@ class RequirementContradiction(BaseModel):
     fragments: list[str]
     # Always the spans of the two binding fragments, so a contradiction is never reported without
     # being tied back to the offending source text (no bare "the set is inconsistent"). Required and
-    # non-empty: a candidate whose fragments carry no span is dropped rather than reported spanless.
+    # non-empty: a candidate whose fragments carry no span is surfaced as an UncheckedRequirement
+    # (the set fails closed) rather than reported spanless or silently dropped.
     source_spans: list[SourceSpan] = Field(min_length=1)
+
+
+# Why a requirement could not be cleared by the deterministic set checker. ``lowering_refused`` /
+# ``lowering_needs_review``: ``build_formal_claim`` did not produce a claim, so the requirement never
+# entered the comparison and the set cannot be declared consistent without it.
+# ``contradiction_without_source_span``: an obligation conflict WAS detected but a binding fragment
+# carries no source span, so the finding cannot be tied to text — the set fails closed instead of
+# silently dropping a real contradiction.
+UncheckedRequirementReason = Literal[
+    "lowering_refused",
+    "lowering_needs_review",
+    "contradiction_without_source_span",
+]
+
+
+class UncheckedRequirement(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # One id for a requirement that could not be lowered; the two conflicting ids for a detected
+    # contradiction that could not be tied to source.
+    requirement_ids: list[str] = Field(min_length=1)
+    reason: UncheckedRequirementReason
+    detail: str
+    # The lowering refusal code, when the requirement was refused by build_formal_claim.
+    refusal_code: str | None = None
+    # Whatever spans are available (possibly fewer than the conflict needs, possibly none): present
+    # so a fail-closed outcome still points at as much source text as it can.
+    source_spans: list[SourceSpan] = Field(default_factory=list)
+
+
+class CrossRequirementConsistencyResult(NamedTuple):
+    """The deterministic set checker's verdict: definite contradictions and what it could not clear.
+
+    ``contradictions`` are conflicts proven over co-occurring obligations with full source spans.
+    ``unchecked`` are pairs where a conflict was detected but could not be tied to source text — the
+    set must not be declared consistent on their account. Requirements that failed to lower are
+    tracked by the caller (:func:`nlreq.system_checker.check_requirement_set_consistency`), which has
+    the lowering report, and merged into the same unchecked surface.
+    """
+
+    contradictions: list[RequirementContradiction]
+    unchecked: list[UncheckedRequirement]
 
 
 class CrossRequirementContradictionClass(BaseModel):
@@ -124,10 +167,13 @@ def build_cross_requirement_contradiction_taxonomy() -> CrossRequirementContradi
                 detected=False,
                 reason=(
                     "Conditional overlap is the co-occurrence gate every other class is checked "
-                    "under, not a standalone finding: obligations are only compared when the two "
-                    "requirements' premises provably co-occur (identical, or both unconditional) on "
-                    "a shared scope. Requirements whose premises cannot co-occur are reported "
-                    "consistent rather than flagged."
+                    "under, not a standalone finding: two requirements' obligations are compared "
+                    "only when the conjunction of their premises is satisfiable, decided by SMT over "
+                    "the predicate, comparison, and set-literal-membership premises on a shared "
+                    "scope. This clears overlapping-but-not-identical premises (a bare condition and "
+                    "that condition plus an extra constraint co-occur) while declining disjoint or "
+                    "jointly-unsatisfiable premises. Requirements whose premises cannot co-occur are "
+                    "reported consistent rather than flagged."
                 ),
             ),
             CrossRequirementContradictionClass(
@@ -175,38 +221,63 @@ def build_cross_requirement_contradiction_taxonomy() -> CrossRequirementContradi
 
 def detect_cross_requirement_contradictions(
     claims: list[FormalClaim],
-) -> list[RequirementContradiction]:
-    """Every deterministic cross-requirement contradiction across a set of lowered claims.
+) -> CrossRequirementConsistencyResult:
+    """Decide cross-requirement consistency across a set of lowered claims.
 
     Each unordered pair is checked once. The pair is compared only when its premises provably
     co-occur on a shared scope (:func:`_premises_co_occur`); when the gate is open the three sound
-    obligation-level detectors run. Findings carry only the two binding fragments and their spans.
+    obligation-level detectors run. A detected conflict with full source spans is a
+    ``RequirementContradiction``; a detected conflict whose binding fragments cannot be tied to
+    source text is an ``UncheckedRequirement`` (the set fails closed) rather than a silent drop.
     """
     contradictions: list[RequirementContradiction] = []
+    unchecked: list[UncheckedRequirement] = []
     for first in range(len(claims)):
         for second in range(first + 1, len(claims)):
             left, right = claims[first], claims[second]
             if not _premises_co_occur(left, right):
                 continue
-            contradictions.extend(_numeric_range_disjointness(left, right))
-            contradictions.extend(_mutual_exclusion(left, right))
-            contradictions.extend(_action_order_conflict(left, right))
-    return contradictions
+            for finding in (
+                *_numeric_range_disjointness(left, right),
+                *_mutual_exclusion(left, right),
+                *_action_order_conflict(left, right),
+            ):
+                if isinstance(finding, RequirementContradiction):
+                    contradictions.append(finding)
+                else:
+                    unchecked.append(finding)
+    return CrossRequirementConsistencyResult(contradictions=contradictions, unchecked=unchecked)
 
 
 def _premises_co_occur(left: FormalClaim, right: FormalClaim) -> bool:
     """True when both requirements provably apply in the same reachable state.
 
-    Conservative on purpose. Co-occurrence is provable exactly when the two claims share a scope and
-    impose the same condition: equal premise signatures, which includes the both-unconditional case
-    (two empty premise sets). When the premises differ we cannot prove they ever hold together —
-    disjoint conditions never both fire — so the pair is declined rather than risk a false positive
-    on a satisfiable set. (A genuinely co-occurring but non-identical premise pair, e.g. one
-    unconditional and one conditional, is a deliberate miss left to the formal backend.)
+    Two requirements impose conflicting obligations only in a state where both their premises hold,
+    so this is the conditional-overlap gate every obligation detector runs under. It is decided by
+    satisfiability: the two premise sets co-occur exactly when their conjunction is satisfiable. This
+    is strictly more than the old equal-signatures rule — it also clears genuinely overlapping but
+    non-identical premises (``actor approved`` and ``actor approved and collateral >= 10`` co-occur
+    when both hold; an unconditional requirement co-occurs with any satisfiable conditional one) —
+    while still declining disjoint premises (``approved`` vs ``not_approved``, or numerically empty
+    overlaps such as ``amount >= 10`` with ``amount <= 5``), which is the never-flag invariant.
+
+    Still conservative on purpose: a false positive blocks a satisfiable set, worse than a miss a
+    formal backend can still catch. When a premise cannot be encoded (an opaque named-set membership)
+    the conjunction's satisfiability is undecidable here, so it falls back to the equal-signatures
+    rule — co-occurrence provable only when both impose the identical condition — which never flags a
+    disjoint pair.
     """
     if _scope_signature(left) != _scope_signature(right):
         return False
-    return _premise_signature(left) == _premise_signature(right)
+    # Lazy import: formal_claim_smt imports formal_claim, which transitively imports system_checker,
+    # which imports this module — importing at module scope would close that cycle. At call time
+    # every module is fully loaded.
+    from .formal_claim_smt import premises_jointly_satisfiable
+
+    verdict = premises_jointly_satisfiable([*left.premises, *right.premises])
+    if verdict is None:
+        return _premise_signature(left) == _premise_signature(right)
+    return verdict
 
 
 def _scope_signature(claim: FormalClaim) -> tuple[str, ...]:
@@ -225,7 +296,7 @@ class _Bound(NamedTuple):
 
 def _numeric_range_disjointness(
     left: FormalClaim, right: FormalClaim
-) -> list[RequirementContradiction]:
+) -> list[RequirementContradiction | UncheckedRequirement]:
     """Flag a variable whose obligation bounds across the two requirements bound an empty interval.
 
     Only cross-requirement conflicts are reported (a lower bound in one requirement above an upper
@@ -236,7 +307,7 @@ def _numeric_range_disjointness(
     """
     left_bounds = _invariant_bounds_by_variable(left)
     right_bounds = _invariant_bounds_by_variable(right)
-    findings: list[RequirementContradiction] = []
+    findings: list[RequirementContradiction | UncheckedRequirement] = []
     for variable in sorted(set(left_bounds) & set(right_bounds)):
         for lower_claim, lowers, upper_claim, uppers in (
             (left, left_bounds[variable][0], right, right_bounds[variable][1]),
@@ -246,15 +317,15 @@ def _numeric_range_disjointness(
             if conflict is None:
                 continue
             lower_fragment, upper_fragment = conflict
-            finding = _pair_finding(
-                "numeric_range_disjointness",
-                lower_claim,
-                lower_fragment,
-                upper_claim,
-                upper_fragment,
+            findings.append(
+                _pair_finding(
+                    "numeric_range_disjointness",
+                    lower_claim,
+                    lower_fragment,
+                    upper_claim,
+                    upper_fragment,
+                )
             )
-            if finding is not None:
-                findings.append(finding)
     return findings
 
 
@@ -310,7 +381,7 @@ def _binding_conflict(
 
 def _mutual_exclusion(
     left: FormalClaim, right: FormalClaim
-) -> list[RequirementContradiction]:
+) -> list[RequirementContradiction | UncheckedRequirement]:
     """Flag a post-state variable that the two requirements pin to different values.
 
     A variable cannot hold two values at once, so two ``state <var> must be <value>`` obligations on
@@ -318,17 +389,17 @@ def _mutual_exclusion(
     """
     left_states = _post_states_by_variable(left)
     right_states = _post_states_by_variable(right)
-    findings: list[RequirementContradiction] = []
+    findings: list[RequirementContradiction | UncheckedRequirement] = []
     for variable in sorted(set(left_states) & set(right_states)):
         for left_fragment, left_value in left_states[variable]:
             for right_fragment, right_value in right_states[variable]:
                 if left_value == right_value:
                     continue
-                finding = _pair_finding(
-                    "mutual_exclusion", left, left_fragment, right, right_fragment
+                findings.append(
+                    _pair_finding(
+                        "mutual_exclusion", left, left_fragment, right, right_fragment
+                    )
                 )
-                if finding is not None:
-                    findings.append(finding)
     return findings
 
 
@@ -354,14 +425,14 @@ def _post_states_by_variable(
 
 def _action_order_conflict(
     left: FormalClaim, right: FormalClaim
-) -> list[RequirementContradiction]:
+) -> list[RequirementContradiction | UncheckedRequirement]:
     """Flag an action one requirement must complete successfully and another must reject.
 
     Success and rejection are exclusive outcomes of the same action, so a ``must succeed`` obligation
     in one requirement and a ``must reject before ...`` obligation naming the same action in the
     other cannot both be met under co-occurring premises.
     """
-    findings: list[RequirementContradiction] = []
+    findings: list[RequirementContradiction | UncheckedRequirement] = []
     for success_claim, reject_claim in ((left, right), (right, left)):
         successes = _successes(success_claim)
         rejections = _rejections(reject_claim)
@@ -369,15 +440,15 @@ def _action_order_conflict(
             for reject_fragment, rejected_action in rejections:
                 if action != rejected_action:
                     continue
-                finding = _pair_finding(
-                    "action_order_conflict",
-                    success_claim,
-                    success_fragment,
-                    reject_claim,
-                    reject_fragment,
+                findings.append(
+                    _pair_finding(
+                        "action_order_conflict",
+                        success_claim,
+                        success_fragment,
+                        reject_claim,
+                        reject_fragment,
+                    )
                 )
-                if finding is not None:
-                    findings.append(finding)
     return findings
 
 
@@ -403,15 +474,26 @@ def _pair_finding(
     first_fragment: FormalClaimFragment,
     second_claim: FormalClaim,
     second_fragment: FormalClaimFragment,
-) -> RequirementContradiction | None:
-    """A contradiction over exactly two fragments, or ``None`` if either cannot be tied to source.
+) -> RequirementContradiction | UncheckedRequirement:
+    """A contradiction over exactly two fragments, or an unchecked outcome if it cannot be sourced.
 
-    A detected contradiction must point at the offending text, so a fragment with no source span is
-    dropped here rather than reported spanless.
+    A detected contradiction must point at the offending text. When a binding fragment carries no
+    source span the conflict is not silently dropped (which would mark a real contradiction as a
+    consistent set); it is surfaced as an ``UncheckedRequirement`` so the set fails closed.
     """
     spans = [*first_fragment.source_spans, *second_fragment.source_spans]
     if not first_fragment.source_spans or not second_fragment.source_spans:
-        return None
+        return UncheckedRequirement(
+            requirement_ids=[first_claim.requirement_id, second_claim.requirement_id],
+            reason="contradiction_without_source_span",
+            detail=(
+                f"a {contradiction_type} conflict was detected between "
+                f"'{first_fragment.canonical}' and '{second_fragment.canonical}' but a binding "
+                "fragment carries no source span, so the conflict cannot be tied to source text; "
+                "the set is not cleared"
+            ),
+            source_spans=spans,
+        )
     return RequirementContradiction(
         contradiction_type=contradiction_type,
         requirement_ids=[first_claim.requirement_id, second_claim.requirement_id],

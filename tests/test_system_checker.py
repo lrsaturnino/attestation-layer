@@ -445,6 +445,183 @@ def test_requirement_contradiction_requires_source_spans() -> None:
         )
 
 
+def test_requirement_set_consistency_conditional_overlap_subset_premises() -> None:
+    """Conditional-overlap gate (SMT): two requirements whose premises overlap but are not identical
+    still co-occur when their conjunction is satisfiable (``approved`` holds, and ``approved`` plus
+    ``amount >= 5`` holds together when amount is large enough), so their conflicting numeric bounds
+    ARE a contradiction. The old equal-signatures gate skipped this pair — different premise
+    signatures — and falsely reported the set valid; the satisfiability gate clears the overlap and
+    flags the conflict."""
+    floor = _set_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when actor is approved\n"
+        "then keep collateral >= 10\n",
+        "REQ-FLOOR",
+    )
+    ceiling = _set_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when actor is approved and amount >= 5\n"
+        "then keep collateral <= 5\n",
+        "REQ-CEILING",
+    )
+
+    report = check_requirement_set_consistency([floor, ceiling])
+
+    assert report.result == "contradiction"
+    assert [c.contradiction_type for c in report.contradictions] == ["numeric_range_disjointness"]
+    assert report.contradictions[0].requirement_ids == ["REQ-FLOOR", "REQ-CEILING"]
+    assert [span.text for span in report.contradictions[0].source_spans] == [
+        "keep collateral >= 10",
+        "keep collateral <= 5",
+    ]
+    assert report.unchecked == []
+
+
+def test_requirement_set_consistency_skips_jointly_unsatisfiable_premises() -> None:
+    """Conditional-overlap control: premises that share a scope but are jointly unsatisfiable
+    (``amount >= 10`` in one, ``amount <= 5`` in the other) can never both hold, so even directly
+    conflicting obligations are NOT a contradiction — the satisfiability gate declines the pair
+    rather than block a set whose conflicting rules never fire together."""
+    floor = _set_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when actor is approved and amount >= 10\n"
+        "then keep collateral >= 10\n",
+        "REQ-FLOOR",
+    )
+    ceiling = _set_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when actor is approved and amount <= 5\n"
+        "then keep collateral <= 5\n",
+        "REQ-CEILING",
+    )
+
+    report = check_requirement_set_consistency([floor, ceiling])
+
+    assert report.result == "valid"
+    assert report.contradictions == []
+    assert report.unchecked == []
+
+
+def test_requirement_set_consistency_unsupported_when_requirement_cannot_lower() -> None:
+    """Fail closed: a requirement that cannot be lowered to a formal claim is not silently dropped
+    (which would let a partially-checked set read as ``valid``). The set is ``unsupported`` and the
+    requirement is named in ``unchecked`` with its lowering refusal code."""
+    good = _set_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when actor is approved\n"
+        "then keep collateral >= 10\n",
+        "REQ-GOOD",
+    )
+    unlowerable = _unlowerable_ir("REQ-BAD")
+
+    report = check_requirement_set_consistency([good, unlowerable])
+
+    assert report.result == "unsupported"
+    assert report.contradictions == []
+    assert len(report.unchecked) == 1
+    entry = report.unchecked[0]
+    assert entry.requirement_ids == ["REQ-BAD"]
+    assert entry.reason == "lowering_refused"
+    assert entry.refusal_code == "NLR-SEMANTIC-UNSUPPORTED"
+
+
+def test_requirement_set_consistency_reports_contradiction_alongside_unchecked() -> None:
+    """A definite contradiction among the requirements that lowered is still reported even when
+    another requirement could not be lowered; the unlowerable one is additionally tracked in
+    ``unchecked`` so the report never hides that the set was only partially decided."""
+    floor = _set_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when actor is approved\n"
+        "then keep collateral >= 10\n",
+        "REQ-FLOOR",
+    )
+    ceiling = _set_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when actor is approved\n"
+        "then keep collateral <= 5\n",
+        "REQ-CEILING",
+    )
+    unlowerable = _unlowerable_ir("REQ-BAD")
+
+    report = check_requirement_set_consistency([floor, ceiling, unlowerable])
+
+    assert report.result == "contradiction"
+    assert [c.contradiction_type for c in report.contradictions] == ["numeric_range_disjointness"]
+    assert [u.requirement_ids for u in report.unchecked] == [["REQ-BAD"]]
+
+
+def test_requirement_set_consistency_cli_fails_closed(tmp_path: Path, capsys) -> None:
+    """The CLI exits non-zero on a non-valid set — a proven contradiction OR a set it could not
+    fully decide (``unsupported``) — so a CI gate never passes on an inconsistent or
+    incompletely-checked set; a cleanly consistent set exits zero."""
+
+    def write(ir, name: str) -> Path:
+        path = tmp_path / name
+        path.write_text(json.dumps(ir.model_dump(mode="json"), indent=2))
+        return path
+
+    floor = _set_ir(
+        "requirement numeric_invariant:\nscope reserve\nwhen actor is approved\n"
+        "then keep collateral >= 10\n",
+        "REQ-FLOOR",
+    )
+    ceiling_conflict = _set_ir(
+        "requirement numeric_invariant:\nscope reserve\nwhen actor is approved\n"
+        "then keep collateral <= 5\n",
+        "REQ-CEILING",
+    )
+    ceiling_ok = _set_ir(
+        "requirement numeric_invariant:\nscope reserve\nwhen actor is approved\n"
+        "then keep collateral <= 50\n",
+        "REQ-CEILING-OK",
+    )
+
+    contradiction_code = main(
+        ["requirement-set-consistency", str(write(floor, "f1.json")), str(write(ceiling_conflict, "c1.json"))]
+    )
+    assert contradiction_code == 1
+    assert json.loads(capsys.readouterr().out)["result"] == "contradiction"
+
+    unsupported_code = main(
+        ["requirement-set-consistency", str(write(floor, "f2.json")), str(write(_unlowerable_ir("REQ-BAD"), "bad.json"))]
+    )
+    assert unsupported_code == 1
+    assert json.loads(capsys.readouterr().out)["result"] == "unsupported"
+
+    valid_code = main(
+        ["requirement-set-consistency", str(write(floor, "f3.json")), str(write(ceiling_ok, "ok.json"))]
+    )
+    assert valid_code == 0
+    assert json.loads(capsys.readouterr().out)["result"] == "valid"
+
+
+def _unlowerable_ir(requirement_id: str):
+    """A v2 IR that parses but whose formal-claim lowering refuses: a well-formed requirement whose
+    semantic root declares an unsupported ``requirement_class``, so ``build_formal_claim`` returns
+    ``refused`` (NLR-SEMANTIC-UNSUPPORTED). Used to exercise the fail-closed path without needing a
+    malformed document the DSL parser would reject before lowering."""
+    base = _set_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when actor is approved\n"
+        "then keep collateral >= 10\n",
+        requirement_id,
+    )
+    bad_root = base.semantic_ir.model_copy(
+        update={
+            "metadata": {**base.semantic_ir.metadata, "requirement_class": "unsupported_class"}
+        }
+    )
+    return base.model_copy(update={"semantic_ir": bad_root})
+
+
 # ---------------------------------------------------------------------------
 # PB-1 solver-backed S ∧ R: a real reviewed spec S is composed into the lowered
 # requirement R and a real model checker verifies S ∧ R. The reviewed S pins the

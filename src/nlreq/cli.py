@@ -2728,7 +2728,10 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Requirement set consistency: {args.out}")
             else:
                 print(canonical_json(report), end="")
-            return 0
+            # Fail closed: a contradiction or any requirement the checker could not decide
+            # ("unsupported") is a non-zero exit, so a CI gate never passes on an inconsistent or
+            # incompletely-checked set.
+            return 0 if report.result == "valid" else 1
         if args.command == "requirement-self-consistency":
             from .jsonutil import write_json
             from .models import RequirementIRV2

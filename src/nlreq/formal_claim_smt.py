@@ -2,17 +2,20 @@ from __future__ import annotations
 
 from z3 import (
     ArithRef,
+    Bool,
     BoolRef,
     Const,
     DeclareSort,
     Distinct,
     ExprRef,
+    Not,
     Or,
     Real,
     RealVal,
     SortRef,
     Solver,
     sat,
+    unsat,
 )
 
 from .formal_claim import FormalClaim, FormalClaimFragment, FormalClaimOperand
@@ -103,6 +106,110 @@ def smt_check_formal_claim_premise_consistency(claim: FormalClaim) -> list[Backe
     question (no contributing premise).
     """
     return _premise_consistency(claim.premises)
+
+
+def premises_jointly_satisfiable(premises: list[FormalClaimFragment]) -> bool | None:
+    """Whether the conjunction of these premise fragments can hold together in one model.
+
+    This is the cross-requirement *co-occurrence* decision (PA-7 conditional overlap): two
+    requirements impose conflicting obligations only in a state where both their premises hold, so
+    the obligation comparison is gated on the conjunction of both premise sets being satisfiable.
+    Unlike :func:`_premise_consistency` (comparisons + set-literal membership only), this also
+    encodes ``predicate`` premises, because the gate's soundness depends on it: opposite
+    authorization premises (``approved`` vs ``not_approved``) must be UNSAT together — they are the
+    two halves of a complete specification that never co-occur — or a disjoint pair would be flagged
+    as co-occurring. All three premise kinds enter one Z3 model so a cross-premise contradiction is
+    caught:
+
+      - ``predicate`` encodes propositionally, with the ``not_`` prefix as boolean negation (same
+        base name and arguments share one atom; ``approved(a)`` and ``not_approved(a)`` are an atom
+        and its negation), mirroring :func:`nlreq.smt._atom_name`;
+      - ``comparison`` encodes into shared linear real arithmetic (``x > 10`` AND ``x < 5`` is UNSAT);
+      - set-literal ``membership`` encodes over a shared uninterpreted member sort with pairwise
+        ``Distinct`` members (``x in {A}`` AND ``x in {B}`` is UNSAT).
+
+    Returns:
+      - ``True``  — every premise was encoded and the conjunction is SAT (the premises provably
+        co-occur). An empty premise list is ``True`` (an unconditional antecedent always holds).
+      - ``False`` — the encoded constraints alone are UNSAT, so the whole conjunction is UNSAT
+        regardless of any premise that did not encode (the premises provably cannot co-occur).
+      - ``None``  — the encoded constraints are SAT but at least one premise could not be encoded
+        (an opaque named-set membership, or a non-arithmetic comparison): co-occurrence is
+        undecidable here and the caller must fall back to a conservative gate rather than guess.
+
+    Identifiers are shared by name across all premises, so the same scope-bound variable (``actor``,
+    a numeric ``amount``) in two requirements is the same atom/variable — that is what makes a
+    cross-requirement contradiction detectable at all.
+    """
+    solver = Solver()
+    real_vars: dict[str, ArithRef] = {}
+    bool_atoms: dict[tuple[str, tuple[str, ...]], BoolRef] = {}
+    fully_encoded = True
+    set_memberships: list[FormalClaimFragment] = []
+
+    for fragment in premises:
+        if fragment.kind == "predicate":
+            solver.add(_encode_predicate(fragment, bool_atoms))
+        elif fragment.kind == "comparison":
+            constraint = _encode_comparison(fragment, real_vars)
+            if constraint is None:
+                # A non-arithmetic comparison (string operand) is not encodable; the conjunction
+                # cannot be proven SAT without it, so co-occurrence stays undecidable.
+                fully_encoded = False
+                continue
+            solver.add(constraint)
+        elif fragment.kind == "membership" and is_set_literal_membership(fragment):
+            # Encoded after the comparison loop so real_vars is populated: a set-literal membership
+            # whose element is also a numeric operand cannot share a model and is left unencodable.
+            set_memberships.append(fragment)
+        else:
+            # scope/action never appear as premises; an opaque named-set membership has no
+            # enumerable contents, so the conjunction cannot be proven SAT here.
+            fully_encoded = False
+
+    if set_memberships:
+        member_names = sorted(
+            {str(operand.value) for fragment in set_memberships for operand in fragment.operands[1:]}
+        )
+        member_sort = DeclareSort("FormalClaimMember")
+        const_by_name = {name: Const(name, member_sort) for name in member_names}
+        if len(const_by_name) >= 2:
+            solver.add(Distinct(list(const_by_name.values())))
+        element_vars: dict[str, ExprRef] = {}
+        for fragment in set_memberships:
+            constraint = _encode_set_membership(
+                fragment, member_sort, const_by_name, element_vars, real_vars
+            )
+            if constraint is None:
+                fully_encoded = False
+                continue
+            solver.add(constraint)
+
+    if solver.check() == unsat:
+        return False
+    return True if fully_encoded else None
+
+
+def _encode_predicate(
+    fragment: FormalClaimFragment, atoms: dict[tuple[str, tuple[str, ...]], BoolRef]
+) -> BoolRef:
+    """A boolean atom for an authorization/approval premise, negated for a ``not_`` predicate.
+
+    The ``not_`` prefix is the DSL's negation convention (see :func:`nlreq.smt._atom_name`): a
+    ``not_approved`` premise is the negation of the ``approved`` atom over the same arguments, so the
+    two are UNSAT together. Premises sharing a base name and arguments share one atom, so the same
+    condition stated in two requirements is the same variable and an opposite-premise pair is a
+    catchable contradiction.
+    """
+    name = fragment.predicate or ""
+    negated = name.startswith("not_")
+    base = name[len("not_") :] if negated else name
+    args = tuple(str(operand.value) for operand in fragment.operands)
+    key = (base, args)
+    if key not in atoms:
+        atoms[key] = Bool("pred_" + "_".join([base, *args]))
+    atom = atoms[key]
+    return Not(atom) if negated else atom
 
 
 def _premise_consistency(premises: list[FormalClaimFragment]) -> list[BackendResult]:

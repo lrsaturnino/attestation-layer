@@ -211,6 +211,17 @@ def _unencoded_predicate_ops(ir: RequirementIR) -> list[str]:
 
 
 def _direct_contradictions(predicates: list[Predicate]) -> list[str]:
+    """Opposite-predicate pairs WITHIN one requirement's ``claim.condition`` (single-requirement only).
+
+    The only caller is :func:`check_self_consistency`, which passes one ``RequirementIR``'s
+    ``claim.condition``. Everything in one condition co-occurs by construction (it is a single
+    conjunction), so an opposite pair here (``authorized`` and ``not_authorized`` on the same args)
+    is a genuine self-contradiction. This table is deliberately NOT the cross-requirement decider:
+    across a *set* of requirements, opposite premises are the two halves of a complete specification
+    that never co-occur, not a contradiction — that decision lives in
+    :mod:`nlreq.contradiction_taxonomy` over typed ``FormalClaim`` fragments and never consults this
+    table. See ``tests/test_smt.py`` for the boundary test pinning this separation.
+    """
     seen: set[tuple[str, tuple[str, ...]]] = set()
     contradictions: list[str] = []
     opposites = {

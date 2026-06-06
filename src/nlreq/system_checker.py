@@ -7,6 +7,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .contradiction_taxonomy import (
     RequirementContradiction,
+    UncheckedRequirement,
     detect_cross_requirement_contradictions,
 )
 from .formal_backend import FormalBackendBudget, FormalBackendExecution
@@ -111,8 +112,16 @@ class RequirementSetConsistencyReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     schema_version: Literal["0.1"] = SYSTEM_CHECKER_SCHEMA_VERSION
-    result: Literal["valid", "contradiction"]
+    # "valid" only when every requirement was lowered and every co-occurring obligation pair was
+    # cleared. "contradiction" when a definite conflict was proven. "unsupported" when the set could
+    # not be fully decided — a requirement failed to lower, or a detected conflict could not be tied
+    # to source — so the set is never silently passed on incomplete evidence (fail closed).
+    result: Literal["valid", "contradiction", "unsupported"]
     contradictions: list[RequirementContradiction] = Field(default_factory=list)
+    # Requirements the checker could not decide (lowering refused/needs_review, or a sourceless
+    # detected conflict). Non-empty whenever ``result`` is "unsupported"; may also accompany a
+    # "contradiction" result when some requirements were additionally undecidable.
+    unchecked: list[UncheckedRequirement] = Field(default_factory=list)
 
 
 def check_system_consistency_fixture(
@@ -488,23 +497,53 @@ def check_requirement_set_consistency(
     (:func:`nlreq.contradiction_taxonomy.detect_cross_requirement_contradictions`) compares the
     *obligations* of every pair of requirements whose premises provably co-occur on a shared scope.
     Opposite premises across requirements are the two halves of a complete specification, not a
-    contradiction, so they are never flagged. A requirement that cannot be lowered is skipped here —
-    its lowering refusal is surfaced by ``build_formal_claim`` itself — rather than silently treated
-    as consistent with the rest.
+    contradiction, so they are never flagged.
+
+    Fail closed: a requirement that cannot be lowered is NOT silently dropped (which would let a
+    partially-checked set read as "valid"). It is recorded in ``unchecked`` and forces the result to
+    "unsupported" unless a definite contradiction was also found. A detected conflict that cannot be
+    tied to source text is likewise surfaced as ``unchecked`` by the taxonomy. The set is reported
+    "valid" only when every requirement lowered and every co-occurring obligation pair cleared.
     """
     # Local import: formal_claim's module transitively imports this one, so importing it at module
     # scope would close an initialization cycle. At call time every module is fully loaded.
     from .formal_claim import build_formal_claim
 
     claims = []
+    unchecked: list[UncheckedRequirement] = []
     for requirement in requirements:
         report = build_formal_claim(requirement)
         if report.result == "lowered" and report.formal_claim is not None:
             claims.append(report.formal_claim)
-    contradictions = detect_cross_requirement_contradictions(claims)
+        else:
+            unchecked.append(
+                UncheckedRequirement(
+                    requirement_ids=[requirement.requirement_id],
+                    reason=(
+                        "lowering_refused"
+                        if report.result == "refused"
+                        else "lowering_needs_review"
+                    ),
+                    detail=(
+                        "requirement could not be lowered to a formal claim "
+                        f"({report.result}); its consistency with the rest of the set cannot be "
+                        "decided, so the set is not cleared"
+                    ),
+                    refusal_code=report.refusal_code,
+                )
+            )
+    decision = detect_cross_requirement_contradictions(claims)
+    unchecked.extend(decision.unchecked)
+    if decision.contradictions:
+        result: Literal["valid", "contradiction", "unsupported"] = "contradiction"
+    elif unchecked:
+        result = "unsupported"
+    else:
+        result = "valid"
     return RequirementSetConsistencyReport(
-        result="contradiction" if contradictions else "valid",
-        contradictions=contradictions,
+        result=result,
+        contradictions=decision.contradictions,
+        unchecked=unchecked,
     )
 
 
