@@ -1537,27 +1537,33 @@ def test_compose_s_and_r_narrowing_refuses_missing_outcome_predicate() -> None:
 
 # ---------------------------------------------------------------------------
 # state_postcondition narrowing (PB-4): the affirmed-obligation twin of the authorization
-# narrowing above. The reviewed stateful S declares its own operation_status state machine and
-# interprets both the premise predicate (Pred_approved, true once accepted) and the post-state
-# predicate (Pred_operation_status). The narrowing conjoins the AFFIRMED obligation
-# R_Requirement == Premise => Pred_operation_status("accepted") into Inv. Validated against
-# apalache-mc 0.58.0: this composed module is valid (the post-state matches), while the same S
-# with the requirement demanding "rejected" yields a real counterexample.
+# narrowing above. The reviewed stateful S brings TWO variables — operation_status and a distinct
+# approved_flag — coupled only by transition discipline: SNext grants approval (approved_flag') in
+# the SAME step it accepts (operation_status' = "accepted"), never apart. So Pred_approved
+# (approved_flag = TRUE) holds only in states where operation_status is already "accepted" — a real
+# fact about S's transition relation, NOT a definitional identity. The narrowing conjoins the
+# AFFIRMED obligation R_Requirement == Premise => Pred_operation_status("accepted") into Inv.
+# Validated against apalache-mc 0.58.0: the composed module is valid; the same S with the
+# requirement demanding "rejected" yields a real counterexample; and a decoupled S that grants
+# approval without acceptance makes the "accepted" requirement counterexample too — so the valid
+# verdict genuinely depends on S's transitions, not a tautology.
 # ---------------------------------------------------------------------------
 _POST_STATE_STATEFUL_SPEC = (
     "---- MODULE Operation ----\n"
     "EXTENDS Naturals, TLC\n\n"
     "\\* @type: Str;\n"
-    "VARIABLE operation_status\n\n"
+    "VARIABLE operation_status\n"
+    "\\* @type: Bool;\n"
+    "VARIABLE approved_flag\n\n"
     "\\* @type: (Str) => Bool;\n"
-    'Pred_approved(a) == operation_status = "accepted"\n'
+    "Pred_approved(a) == approved_flag = TRUE\n"
     "\\* @type: (Str) => Bool;\n"
     "Pred_operation_status(v) == operation_status = v\n"
     "\\* System invariant: the operation status stays within its reviewed value domain.\n"
     'OperationStatusClosed == operation_status \\in {"init", "accepted"}\n'
-    'SInit == operation_status = "init"\n'
-    'SNext == \\/ (operation_status = "init" /\\ operation_status\' = "accepted")\n'
-    "         \\/ UNCHANGED operation_status\n"
+    'SInit == operation_status = "init" /\\ approved_flag = FALSE\n'
+    'SNext == \\/ (operation_status = "init" /\\ operation_status\' = "accepted" /\\ approved_flag\' = TRUE)\n'
+    "         \\/ UNCHANGED <<operation_status, approved_flag>>\n"
     "====\n"
 )
 
@@ -1610,7 +1616,8 @@ _POST_STATE_LOWERED = (
 
 # Byte-stable Case B narrowing of _POST_STATE_LOWERED with _POST_STATE_STATEFUL_SPEC. The affirmed
 # obligation R_Requirement == Premise => Pred_operation_status("accepted") is conjoined into Inv
-# over S's own Init/Next. Validated valid against apalache-mc 0.58.0.
+# over S's own Init/Next; S's two variables (operation_status, approved_flag) each render as their
+# own Apalache-typed VARIABLE block. Validated valid against apalache-mc 0.58.0.
 _POST_STATE_NARROWING_COMPOSED = (
     "---- MODULE REQ_STATEPOST_S_AND_R ----\n"
     "EXTENDS Naturals, TLC\n\n"
@@ -1622,16 +1629,19 @@ _POST_STATE_NARROWING_COMPOSED = (
     "VARIABLE\n"
     "  \\* @type: Str;\n"
     "  operation_status\n\n"
+    "VARIABLE\n"
+    "  \\* @type: Bool;\n"
+    "  approved_flag\n\n"
     "\\* ===== Reviewed system spec S (inlined; operators keep their names) =====\n"
     "\\* @type: (Str) => Bool;\n"
-    'Pred_approved(a) == operation_status = "accepted"\n'
+    "Pred_approved(a) == approved_flag = TRUE\n"
     "\\* @type: (Str) => Bool;\n"
     "Pred_operation_status(v) == operation_status = v\n"
     "\\* System invariant: the operation status stays within its reviewed value domain.\n"
     'OperationStatusClosed == operation_status \\in {"init", "accepted"}\n'
-    'SInit == operation_status = "init"\n'
-    'SNext == \\/ (operation_status = "init" /\\ operation_status\' = "accepted")\n'
-    "         \\/ UNCHANGED operation_status\n\n"
+    'SInit == operation_status = "init" /\\ approved_flag = FALSE\n'
+    'SNext == \\/ (operation_status = "init" /\\ operation_status\' = "accepted" /\\ approved_flag\' = TRUE)\n'
+    "         \\/ UNCHANGED <<operation_status, approved_flag>>\n\n"
     "\\* ===== Requirement R narrows S: a state invariant over S's own variables. R adds\n"
     "\\* no transitions and no variable — S's Init/Next are the only state machine. The\n"
     "\\* obligation requires every premise-state of S to reach the post-state (Pred_operation_status)\n"

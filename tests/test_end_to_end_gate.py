@@ -319,42 +319,60 @@ def test_end_to_end_gate_narrowing_s_and_r_counterexample_refuses(tmp_path: Path
     assert system_consistency["counterexamples"]
 
 
-# Reviewed stateful S for the state_postcondition closure path (PB-4). operation_status goes
-# init -> accepted; in this reviewed system an operation is "approved" exactly once accepted (the
-# gate grants approval together with acceptance), so Pred_approved holds only in states where the
-# post-state is already established — the coupling that keeps the affirmed obligation
-# Premise => operation_status = "accepted" sound as a single-state invariant. The SAME S
-# discriminates the positive requirement (must be "accepted" -> valid) from the negated one
-# (must be "rejected" -> counterexample) purely by the demanded post-state value.
+# Reviewed stateful S for the state_postcondition closure path (PB-4). S brings TWO variables —
+# operation_status and a distinct approved_flag — coupled only by transition discipline: SNext
+# grants approval (approved_flag') in the SAME step it accepts (operation_status' = "accepted"),
+# never apart. So Pred_approved (approved_flag = TRUE) holds only in states where operation_status
+# is already "accepted" — a real fact about S's transitions, NOT a definitional identity, which is
+# what keeps the affirmed obligation Premise => operation_status = "accepted" a non-trivial check
+# (see _POST_STATE_S_DECOUPLED). The SAME S discriminates the positive requirement (must be
+# "accepted" -> valid) from the negated one (must be "rejected" -> counterexample) by the demanded
+# post-state value.
 _POST_STATE_S = (
     "---- MODULE Operation ----\n"
     "EXTENDS Naturals, TLC\n\n"
     "\\* @type: Str;\n"
-    "VARIABLE operation_status\n\n"
+    "VARIABLE operation_status\n"
+    "\\* @type: Bool;\n"
+    "VARIABLE approved_flag\n\n"
     "\\* @type: (Str) => Bool;\n"
-    'Pred_approved(a) == operation_status = "accepted"\n'
+    "Pred_approved(a) == approved_flag = TRUE\n"
     "\\* @type: (Str) => Bool;\n"
     "Pred_operation_status(v) == operation_status = v\n"
     "\\* System invariant: the operation status stays within its reviewed value domain.\n"
     'OperationStatusClosed == operation_status \\in {"init", "accepted"}\n'
-    'SInit == operation_status = "init"\n'
-    'SNext == \\/ (operation_status = "init" /\\ operation_status\' = "accepted")\n'
-    "         \\/ UNCHANGED operation_status\n"
+    'SInit == operation_status = "init" /\\ approved_flag = FALSE\n'
+    'SNext == \\/ (operation_status = "init" /\\ operation_status\' = "accepted" /\\ approved_flag\' = TRUE)\n'
+    "         \\/ UNCHANGED <<operation_status, approved_flag>>\n"
     "====\n"
 )
 
+# A DECOUPLED variant of the reviewed S: SNext can grant approval WITHOUT accepting (it sets
+# approved_flag' = TRUE while leaving operation_status unchanged). Under this S the positive
+# "accepted" requirement is genuinely VIOLATED — a reachable state has approved_flag = TRUE but
+# operation_status = "init" — so Apalache returns a counterexample. This is the non-triviality
+# guard: the positive "valid" against _POST_STATE_S above is real S ∧ R evidence that DEPENDS on
+# the transition discipline, not a tautology — flip the discipline and the same requirement fails.
+_POST_STATE_S_DECOUPLED = _POST_STATE_S.replace(
+    'SNext == \\/ (operation_status = "init" /\\ operation_status\' = "accepted" /\\ approved_flag\' = TRUE)\n'
+    "         \\/ UNCHANGED <<operation_status, approved_flag>>\n",
+    'SNext == \\/ (operation_status\' = operation_status /\\ approved_flag\' = TRUE)\n'
+    "         \\/ UNCHANGED <<operation_status, approved_flag>>\n",
+)
 
-def _run_post_state_gate(tmp_path: Path, *, value: str = "accepted"):
+
+def _run_post_state_gate(tmp_path: Path, *, value: str = "accepted", spec: str = _POST_STATE_S):
     """Run the end-to-end gate over the state_postcondition stateful-S fixture and return the report.
 
     The reviewed S interprets the premise predicate Pred_approved and the post-state predicate
     Pred_operation_status and brings its own operation_status transition system. The narrowing
     conjoins the AFFIRMED obligation ``Premise => Pred_operation_status("<value>")`` into Inv, so a
     real Apalache S ∧ R resolves BOTH the predicate premise and the post_state obligation through
-    the same routing+coverage path. ``value="accepted"`` matches what S reaches -> valid -> both
-    premises discharge and the proof closes; ``value="rejected"`` -> Apalache counterexample ->
-    both premises block and the gate refuses. solver_execution is unset so the gate runs the real
-    checker.
+    the same routing+coverage path. With the default coupled S: ``value="accepted"`` matches what S
+    reaches -> valid -> both premises discharge and the proof closes; ``value="rejected"`` ->
+    Apalache counterexample -> both premises block and the gate refuses. Pass ``spec`` to substitute
+    a different reviewed S (e.g. the decoupled non-triviality variant). solver_execution is unset so
+    the gate runs the real checker.
     """
     src = tmp_path / "src"
     specs = tmp_path / "specs"
@@ -364,7 +382,7 @@ def _run_post_state_gate(tmp_path: Path, *, value: str = "accepted"):
         "def set_operation_status(actor):\n"
         "    return 'accepted'\n"
     )
-    (specs / "Operation.tla").write_text(_POST_STATE_S)
+    (specs / "Operation.tla").write_text(spec)
     trace_path = tmp_path / "traces.json"
     trace_path.write_text(json.dumps(_trace_payload(["set_operation_status"])))
     manifest = SourceManifest.model_validate({
@@ -435,6 +453,9 @@ def test_end_to_end_gate_state_postcondition_closes_and_accepts(tmp_path: Path) 
     checked module, so the valid Apalache verdict discharges BOTH the predicate premise and the
     post_state obligation at BOUNDED_CHECKED through one solver_system_checker result — the same
     routing+coverage path the authorization narrowing uses, now reaching the affirmed obligation.
+    The valid verdict is non-trivial S ∧ R evidence, not a tautology: it depends on S coupling
+    approval to acceptance through its transitions — decouple them and the same requirement fails
+    (test_end_to_end_gate_state_postcondition_decoupled_s_refuses below).
     """
     report = _run_post_state_gate(tmp_path, value="accepted")
 
@@ -503,6 +524,34 @@ def test_end_to_end_gate_state_postcondition_counterexample_refuses(tmp_path: Pa
     # discharged. "open" would mean coverage was wrongly withheld; "discharged" a false accept.
     assert post_state_premise["status"] == "blocked", post_state_premise
     assert post_state_premise["routed_backend"] == "solver_system_checker"
+
+    system_consistency = read_json(
+        Path(next(a.path for a in report.artifacts if a.name == "system_consistency"))
+    )
+    assert system_consistency["result"]["details"]["checker_id"] == "apalache"
+    assert system_consistency["counterexamples"]
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_end_to_end_gate_state_postcondition_decoupled_s_refuses(tmp_path: Path) -> None:
+    """Non-triviality guard: the SAME positive "accepted" requirement that closes against the
+    coupled S REFUSES against a decoupled S that grants approval without acceptance.
+
+    This proves the positive ``valid`` in test_..._closes_and_accepts is real S ∧ R evidence about
+    S's transition relation, not a propositional tautology. _POST_STATE_S_DECOUPLED's SNext can set
+    approved_flag = TRUE while operation_status stays "init", so a reachable state has the premise
+    true and the post-state unmet — Apalache returns a counterexample and the gate refuses. If the
+    obligation ever silently collapsed back to ``X => X`` (premise definitionally equal to the
+    post-state), this would wrongly pass; keeping it red-on-decoupling pins the check non-trivial.
+    """
+    report = _run_post_state_gate(tmp_path, value="accepted", spec=_POST_STATE_S_DECOUPLED)
+
+    assert report.statuses["system_consistency"] == "counterexample", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    assert report.decision == "refused"
+    assert report.proof_status != "closed"
+    assert report.downstream_action_allowed is False
 
     system_consistency = read_json(
         Path(next(a.path for a in report.artifacts if a.name == "system_consistency"))
