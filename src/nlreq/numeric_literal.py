@@ -3,7 +3,7 @@ from __future__ import annotations
 import math
 from fractions import Fraction
 
-__all__ = ["exact_fraction"]
+__all__ = ["exact_fraction", "numeric_bounds_conflict"]
 
 
 def exact_fraction(value: object) -> Fraction | None:
@@ -41,3 +41,30 @@ def exact_fraction(value: object) -> Fraction | None:
         return Fraction(text)
     except (ValueError, ZeroDivisionError):
         return None
+
+
+def numeric_bounds_conflict(
+    lower_bounds: list[tuple[Fraction, bool]],
+    upper_bounds: list[tuple[Fraction, bool]],
+) -> bool:
+    """True when a set of lower and upper bounds on one numeric value cannot all hold.
+
+    Each bound is ``(value, inclusive)``: a lower bound ``x >= v`` is ``(v, True)`` and ``x > v`` is
+    ``(v, False)``; an upper bound ``x <= v`` is ``(v, True)`` and ``x < v`` is ``(v, False)``. The
+    binding constraints are the strongest lower bound (largest value, an exclusive ``>`` winning ties
+    over an inclusive ``>=``) and the strongest upper bound (smallest value, exclusive ``<`` winning
+    ties). They bound a non-empty interval iff the lower value is below the upper, or the two values
+    are equal and both bounds are inclusive — anything else is an empty interval, i.e. a conflict.
+    Comparison is exact (:class:`~fractions.Fraction`), so a conflict between large-integer bounds is
+    not lost to float rounding. Callers pass only decidable bounds (see :func:`exact_fraction`); an
+    empty ``lower_bounds`` or ``upper_bounds`` is not a conflict and is filtered out before calling.
+    """
+    strongest_lower = max(lower_bounds, key=lambda item: (item[0], not item[1]))
+    strongest_upper = min(upper_bounds, key=lambda item: (item[0], item[1]))
+    if strongest_lower[0] > strongest_upper[0]:
+        return True
+    if strongest_lower[0] == strongest_upper[0] and (
+        not strongest_lower[1] or not strongest_upper[1]
+    ):
+        return True
+    return False

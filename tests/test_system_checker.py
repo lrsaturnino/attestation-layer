@@ -143,6 +143,70 @@ def test_requirement_set_consistency_detects_opposite_predicates() -> None:
     assert report.contradictions[0].contradiction_type == "opposite_predicate"
 
 
+def test_requirement_set_consistency_detects_numeric_bound_conflict() -> None:
+    """Cross-requirement numeric-range disjointness: a lower bound in one requirement and an upper
+    bound in another bound an empty interval. The toy opposites table only caught literal
+    approved/not_approved style pairs and missed this jointly-inconsistent numeric case."""
+    parser = RequirementParser()
+    floor = parser.parse_ir(
+        "For every reserve operation:\n"
+        "if collateral is at least 10\n"
+        "then operation must succeed.\n",
+        requirement_id="REQ-FLOOR",
+        title="Collateral floor",
+        claim_kind="numeric_invariant",
+    )
+    ceiling = parser.parse_ir(
+        "For every reserve operation:\n"
+        "if collateral is at most 5\n"
+        "then operation must succeed.\n",
+        requirement_id="REQ-CEILING",
+        title="Collateral ceiling",
+        claim_kind="numeric_invariant",
+    )
+
+    report = check_requirement_set_consistency([floor, ceiling])
+
+    assert report.result == "contradiction"
+    conflicts = [
+        c for c in report.contradictions if c.contradiction_type == "numeric_bound_conflict"
+    ]
+    assert len(conflicts) == 1
+    assert conflicts[0].requirement_ids == ["REQ-FLOOR", "REQ-CEILING"]
+    # The offending fragments carry their source spans (no bare "set is inconsistent").
+    assert [span.text for span in conflicts[0].source_spans] == [
+        "collateral is at least 10",
+        "collateral is at most 5",
+    ]
+
+
+def test_requirement_set_consistency_allows_compatible_numeric_bounds() -> None:
+    """Discrimination control: a lower bound below the upper bound bounds a non-empty interval, so
+    the same machinery must NOT flag compatible ranges — only genuinely empty ones."""
+    parser = RequirementParser()
+    floor = parser.parse_ir(
+        "For every reserve operation:\n"
+        "if collateral is at least 10\n"
+        "then operation must succeed.\n",
+        requirement_id="REQ-FLOOR",
+        title="Collateral floor",
+        claim_kind="numeric_invariant",
+    )
+    ceiling = parser.parse_ir(
+        "For every reserve operation:\n"
+        "if collateral is at most 50\n"
+        "then operation must succeed.\n",
+        requirement_id="REQ-CEILING",
+        title="Collateral ceiling",
+        claim_kind="numeric_invariant",
+    )
+
+    report = check_requirement_set_consistency([floor, ceiling])
+
+    assert report.result == "valid"
+    assert report.contradictions == []
+
+
 # ---------------------------------------------------------------------------
 # PB-1 solver-backed S ∧ R: a real reviewed spec S is composed into the lowered
 # requirement R and a real model checker verifies S ∧ R. The reviewed S pins the

@@ -4,7 +4,10 @@
       "additionalProperties": false,
       "properties": {
         "contradiction_type": {
-          "const": "opposite_predicate",
+          "enum": [
+            "opposite_predicate",
+            "numeric_bound_conflict"
+          ],
           "title": "Contradiction Type",
           "type": "string"
         },

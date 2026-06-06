@@ -23,7 +23,7 @@ from .models import (
     ValueRef,
     bounded_evidence_backing_complete,
 )
-from .numeric_literal import exact_fraction
+from .numeric_literal import exact_fraction, numeric_bounds_conflict
 
 
 REQUIREMENT_SELF_CONSISTENCY_SCHEMA_VERSION = "0.1"
@@ -458,7 +458,7 @@ def _numeric_bound_conflicts(
         ]
         lower_bounds = [item for item in lower_bounds if item is not None]
         upper_bounds = [item for item in upper_bounds if item is not None]
-        if lower_bounds and upper_bounds and _bounds_conflict(lower_bounds, upper_bounds):
+        if lower_bounds and upper_bounds and numeric_bounds_conflict(lower_bounds, upper_bounds):
             involved = nodes[:]
             contradictions.append(
                 RequirementSelfContradiction(
@@ -525,21 +525,6 @@ def _bound(node: SemanticNode) -> tuple[Fraction, bool] | None:
     if value is None:
         return None
     return (value, node.kind in {"gte", "lte"})
-
-
-def _bounds_conflict(
-    lower_bounds: list[tuple[Fraction, bool]],
-    upper_bounds: list[tuple[Fraction, bool]],
-) -> bool:
-    strongest_lower = max(lower_bounds, key=lambda item: (item[0], not item[1]))
-    strongest_upper = min(upper_bounds, key=lambda item: (item[0], item[1]))
-    if strongest_lower[0] > strongest_upper[0]:
-        return True
-    if strongest_lower[0] == strongest_upper[0] and (
-        not strongest_lower[1] or not strongest_upper[1]
-    ):
-        return True
-    return False
 
 
 def _node_args(node: SemanticNode) -> list[ValueRef]:
