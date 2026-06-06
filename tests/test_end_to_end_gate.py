@@ -319,6 +319,260 @@ def test_end_to_end_gate_narrowing_s_and_r_counterexample_refuses(tmp_path: Path
     assert system_consistency["counterexamples"]
 
 
+# Reviewed stateful S for the state_postcondition closure path (PB-4). operation_status goes
+# init -> accepted; in this reviewed system an operation is "approved" exactly once accepted (the
+# gate grants approval together with acceptance), so Pred_approved holds only in states where the
+# post-state is already established — the coupling that keeps the affirmed obligation
+# Premise => operation_status = "accepted" sound as a single-state invariant. The SAME S
+# discriminates the positive requirement (must be "accepted" -> valid) from the negated one
+# (must be "rejected" -> counterexample) purely by the demanded post-state value.
+_POST_STATE_S = (
+    "---- MODULE Operation ----\n"
+    "EXTENDS Naturals, TLC\n\n"
+    "\\* @type: Str;\n"
+    "VARIABLE operation_status\n\n"
+    "\\* @type: (Str) => Bool;\n"
+    'Pred_approved(a) == operation_status = "accepted"\n'
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_operation_status(v) == operation_status = v\n"
+    "\\* System invariant: the operation status stays within its reviewed value domain.\n"
+    'OperationStatusClosed == operation_status \\in {"init", "accepted"}\n'
+    'SInit == operation_status = "init"\n'
+    'SNext == \\/ (operation_status = "init" /\\ operation_status\' = "accepted")\n'
+    "         \\/ UNCHANGED operation_status\n"
+    "====\n"
+)
+
+
+def _run_post_state_gate(tmp_path: Path, *, value: str = "accepted"):
+    """Run the end-to-end gate over the state_postcondition stateful-S fixture and return the report.
+
+    The reviewed S interprets the premise predicate Pred_approved and the post-state predicate
+    Pred_operation_status and brings its own operation_status transition system. The narrowing
+    conjoins the AFFIRMED obligation ``Premise => Pred_operation_status("<value>")`` into Inv, so a
+    real Apalache S ∧ R resolves BOTH the predicate premise and the post_state obligation through
+    the same routing+coverage path. ``value="accepted"`` matches what S reaches -> valid -> both
+    premises discharge and the proof closes; ``value="rejected"`` -> Apalache counterexample ->
+    both premises block and the gate refuses. solver_execution is unset so the gate runs the real
+    checker.
+    """
+    src = tmp_path / "src"
+    specs = tmp_path / "specs"
+    src.mkdir()
+    specs.mkdir()
+    (src / "operation.py").write_text(
+        "def set_operation_status(actor):\n"
+        "    return 'accepted'\n"
+    )
+    (specs / "Operation.tla").write_text(_POST_STATE_S)
+    trace_path = tmp_path / "traces.json"
+    trace_path.write_text(json.dumps(_trace_payload(["set_operation_status"])))
+    manifest = SourceManifest.model_validate({
+        "schema_version": "0.1",
+        "adapter": "python-source",
+        "language": "python",
+        "runtime": "cpython",
+        "modules": [{
+            "module_id": "operation",
+            "path": "src/operation.py",
+            "symbols": ["set_operation_status"],
+            "trace_sources": ["traces.json"],
+        }],
+    })
+    registry = SystemSpecRegistry.model_validate({
+        "schema_version": "0.1",
+        "specs": [{
+            "spec_id": "spec:operation",
+            "module_ids": ["operation"],
+            "formalism": "tla",
+            "path": "specs/Operation.tla",
+            "version": "1",
+            "review_status": "reviewed",
+            "freshness": "fresh",
+            "init_op": "SInit",
+            "next_op": "SNext",
+            "invariants": ["OperationStatusClosed"],
+        }],
+    })
+    controlled_text = (
+        "requirement state_postcondition:\n"
+        "scope operation\n"
+        "when actor is approved\n"
+        f'then state operation_status must be "{value}"\n'
+    )
+    requirement_ir = DslV3Parser().parse_ir(
+        controlled_text, requirement_id="REQ-GATE-POSTSTATE", title="Post-state gate"
+    )
+    agreement = TranslationAgreementInput(candidates=[
+        TranslationCandidate(translator_id="primary", method="deterministic",
+                             requirement=requirement_ir, provenance={"source": "test"}),
+        TranslationCandidate(translator_id="replica", method="deterministic",
+                             requirement=requirement_ir, provenance={"source": "test"}),
+    ])
+    return run_end_to_end_requirement_gate(
+        controlled_text=controlled_text,
+        requirement_id="REQ-GATE-POSTSTATE",
+        title="Post-state gate",
+        source_adapter=PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["set_operation_status"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-artifacts",
+        execution=_execution(tmp_path),
+        requirement_ir=requirement_ir,
+        translation_agreement=agreement,
+    )
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_end_to_end_gate_state_postcondition_closes_and_accepts(tmp_path: Path) -> None:
+    """A state_postcondition over a reviewed stateful S closes the proof end-to-end via a real
+    AFFIRMED S ∧ R narrowing (PB-4) — the first accepted path for a post-state obligation.
+
+    The narrowing conjoins ``Premise => Pred_operation_status("accepted")`` into Inv over S's own
+    operation_status machine. Both Pred_approved and Pred_operation_status are bound into the
+    checked module, so the valid Apalache verdict discharges BOTH the predicate premise and the
+    post_state obligation at BOUNDED_CHECKED through one solver_system_checker result — the same
+    routing+coverage path the authorization narrowing uses, now reaching the affirmed obligation.
+    """
+    report = _run_post_state_gate(tmp_path, value="accepted")
+
+    assert report.statuses["system_consistency"] == "valid", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    assert report.decision == "accepted", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    assert report.proof_status == "closed"
+    assert report.closure_result == "passed"
+    assert report.downstream_action_allowed is True
+
+    proof = read_json(
+        Path(next(a.path for a in report.artifacts if a.name == "proof_object"))
+    )
+    assert proof["status"] == "closed"
+    # The predicate premise AND the post_state obligation both discharge from the one S ∧ R verdict.
+    assert {p["node_kind"] for p in proof["premises"]} == {"predicate", "post_state"}
+    for premise in proof["premises"]:
+        assert premise["status"] == "discharged", premise
+        assert premise["routed_backend"] == "solver_system_checker"
+        assert premise["achieved_evidence"] == "BOUNDED_CHECKED"
+    assert not proof["blockers"], proof["blockers"]
+
+    # The discharging verdict came from a real Apalache run that bound both predicates — the
+    # coupling that makes the post_state discharge a genuine narrowing of S, not a shortcut.
+    system_consistency = read_json(
+        Path(next(a.path for a in report.artifacts if a.name == "system_consistency"))
+    )
+    assert system_consistency["result"]["details"]["checker_id"] == "apalache"
+    assert system_consistency["result"]["evidence_level"] == "BOUNDED_CHECKED"
+    assert system_consistency["result"]["details"]["reproducibility"]["tool_version"]
+    assert set(system_consistency["result"]["details"]["bound_predicates"]) == {
+        "Pred_approved",
+        "Pred_operation_status",
+    }
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_end_to_end_gate_state_postcondition_counterexample_refuses(tmp_path: Path) -> None:
+    """The same path REFUSES on a real S ∧ R counterexample: the SAME reviewed S, but the
+    requirement demands the post-state "rejected" S never reaches.
+
+    Apalache returns a counterexample (S reaches "accepted" while the premise holds, not
+    "rejected"), so both formal-claim premises are covered-but-blocked, the proof does not close,
+    and the gate refuses downstream action. This is the property that matters: the affirmed-
+    obligation discharge mechanism must block on a real counterexample, never falsely accept.
+    """
+    report = _run_post_state_gate(tmp_path, value="rejected")
+
+    assert report.statuses["system_consistency"] == "counterexample", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    assert report.decision == "refused"
+    assert report.proof_status != "closed"
+    assert report.closure_result != "passed"
+    assert report.downstream_action_allowed is False
+
+    proof = read_json(
+        Path(next(a.path for a in report.artifacts if a.name == "proof_object"))
+    )
+    assert proof["status"] != "closed"
+    post_state_premise = next(p for p in proof["premises"] if p["node_kind"] == "post_state")
+    # Covered (the route matched) but blocked on the counterexample — not silently open, not
+    # discharged. "open" would mean coverage was wrongly withheld; "discharged" a false accept.
+    assert post_state_premise["status"] == "blocked", post_state_premise
+    assert post_state_premise["routed_backend"] == "solver_system_checker"
+
+    system_consistency = read_json(
+        Path(next(a.path for a in report.artifacts if a.name == "system_consistency"))
+    )
+    assert system_consistency["result"]["details"]["checker_id"] == "apalache"
+    assert system_consistency["counterexamples"]
+
+
+def test_state_postcondition_post_state_discharged_by_covering_s_and_r() -> None:
+    """The affirmed twin of ``test_state_postcondition_post_state_not_discharged_by_trace_alone``:
+    a solver_system_checker result whose ``bound_predicates`` include the post_state's
+    ``Pred_<state>`` DOES discharge the post_state premise at BOUNDED_CHECKED via the coverage
+    bridge — the half the trace-only regression cannot reach (it asserts trace evidence CANNOT
+    discharge).
+
+    Coverage flows through ``bound_predicates`` exactly as the real Apalache narrowing records them,
+    so this runs without the binary — the portable companion to the real-Apalache gate tests above
+    (which prove full closure end to end). The post_state premise routes to solver_system_checker
+    (never trace_validation), and a covering bounded verdict is what discharges it.
+    """
+    from nlreq.models import BackendResult, EvidenceLevel
+
+    ir = DslV3Parser().parse_ir(
+        "requirement state_postcondition:\n"
+        "scope operation\n"
+        "when actor is approved\n"
+        'then state operation_status must be "accepted"\n',
+        requirement_id="STATE-POST-CLOSE",
+        title="State postcondition",
+    )
+    claim = build_formal_claim(ir).formal_claim
+    assert claim is not None
+
+    # A valid BOUNDED_CHECKED solver verdict that bound both the premise and post-state predicates,
+    # carrying the full bounded backing (bounds + command + run-recorded tool_version) the real
+    # Apalache S ∧ R records. _cover_s_and_r_fragments tags it with the fragments those operators
+    # cover — the same coverage bridge the gate uses.
+    solver_result = BackendResult(
+        backend="solver_system_checker",
+        status="valid",
+        evidence_level=EvidenceLevel.BOUNDED_CHECKED,
+        details={
+            "bound_predicates": ["Pred_approved", "Pred_operation_status"],
+            "bounds": {"max_depth": 6, "timeout_seconds": 60},
+            "command": ["apalache-mc", "check", "REQ.tla"],
+            "reproducibility": {"tool_version": "0.58.0"},
+        },
+    )
+    covered = _cover_s_and_r_fragments(solver_result, claim)
+    # The post_state obligation (and the predicate premise) are tagged covered by their operators.
+    post_state_fragment = next(f for f in claim.obligations if f.kind == "post_state")
+    assert post_state_fragment.fragment_id in covered.details["covered_fragment_ids"]
+
+    proof, report = build_proof_with_formal_claim_dispatch(
+        requirement=ir, backend_results=[covered]
+    )
+
+    assert report.result == "lowered"
+    # Both premises discharge from the covering bounded verdict — the coverage bridge reaches the
+    # post_state obligation, which trace evidence alone cannot.
+    for premise in proof.premises:
+        assert premise.status == "discharged", premise
+        assert premise.routed_backend == "solver_system_checker"
+        assert premise.achieved_evidence == EvidenceLevel.BOUNDED_CHECKED
+    # No premise is left open or blocked: the only gap between this proof and "closed" is the
+    # spec-coverage / trace-alignment context the full gate supplies (the real-Apalache gate tests
+    # above assert that closure end to end). Here the point is the per-premise discharge.
+    assert all(blocker.premise_id is None for blocker in proof.blockers)
+
+
 # The two faces of one requirement used by the multi-backend tests below: the full requirement
 # carries an authorization premise, a numeric comparison premise, a set-membership premise, and a
 # rejection-order obligation; the auth projection keeps only the authorization premise. Both lower

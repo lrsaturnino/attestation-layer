@@ -256,15 +256,42 @@ def test_lower_numeric_invariant_refuses_at_translation() -> None:
     assert diagnostic.source_spans, "refusal diagnostic must carry a source span"
 
 
-def test_lower_state_postcondition_refuses_at_translation() -> None:
-    """The companion state-obligation class also refuses at translation (here via the post_state
-    obligation node being unsupported by the skeleton). Locks the honesty property for the pair:
-    neither state-obligation claim class emits a vacuous ``status="lowered"`` artifact.
+def test_lower_state_postcondition_lowers_non_vacuously() -> None:
+    """state_postcondition now lowers to a non-vacuous module (PB-4), not a refusal: its premise
+    predicates are abstract operators a reviewed S interprets and the stateful-S narrowing binds
+    the affirmed post-state ``Pred_<state>(<value>)``. The companion numeric_invariant still refuses
+    (its obligation has no narrowing lowering yet) — they are no longer a refuse-both pair.
     """
     ir = DslV3Parser().parse_ir(
         "requirement state_postcondition:\n"
         "scope operation\n"
         "when actor is approved\n"
+        'then state operation_status must be "accepted"\n',
+        requirement_id="REQ-STATEPOST-LOWER",
+        title="State postcondition",
+    )
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "lowered"
+    assert artifact.content is not None
+    assert artifact.metadata.get("semantics") == "non_vacuous"
+    assert artifact.metadata.get("claim_class") == "state_postcondition"
+    assert artifact.translator == "nlreq.formal_lowering.state_postcondition"
+    # The premise predicate is abstract (a reviewed S interprets it); the obligation is not a stub.
+    assert "CONSTANT Pred_approved(_)" in artifact.content
+    assert "== TRUE" not in artifact.content
+
+
+def test_lower_state_postcondition_refuses_malformed_shape() -> None:
+    """A state_postcondition with a comparison-only premise (no named predicate) refuses rather
+    than emit a module whose narrowing antecedent is vacuously TRUE — the honesty guard survives
+    the move from refuse-always to a real lowering.
+    """
+    ir = DslV3Parser().parse_ir(
+        "requirement state_postcondition:\n"
+        "scope operation\n"
+        "when balance >= 5\n"
         'then state operation_status must be "accepted"\n',
         requirement_id="REQ-STATEPOST-REFUSE",
         title="State postcondition",
@@ -274,7 +301,8 @@ def test_lower_state_postcondition_refuses_at_translation() -> None:
 
     assert artifact.status == "refused"
     assert artifact.content is None
-    assert any(diagnostic.kind == "post_state" for diagnostic in artifact.diagnostics)
+    assert artifact.metadata.get("refusal_code") == "NLR-LOWERING-UNSUPPORTED-SHAPE"
+    assert any(kind == "no_predicate_premise" for kind in (d.kind for d in artifact.diagnostics))
 
 
 def test_lower_authorization_precondition_refuses_comparison_only_premise() -> None:

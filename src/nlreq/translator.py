@@ -9,7 +9,9 @@ from .dsl_v2 import DslV2Parser
 from .formal_lowering import (
     FORMAL_LOWERING_VERSION,
     lower_authorization_precondition_tla,
+    lower_state_postcondition_tla,
     validate_authorization_precondition_shape,
+    validate_state_postcondition_shape,
 )
 from .jsonutil import canonical_json, sha256_json, sha256_text
 from .models import Approval, RequirementIRV2, SemanticNode, SourceSpan
@@ -152,13 +154,13 @@ def parse_approved_draft_ir_v2(
 # comparison over those stubs (e.g. ``keep collateral >= 100`` becomes a check of the constant 0,
 # not the system's ``collateral``), so a model check of the skeleton answers a question about
 # nothing. A faithful S ∧ R lowering needs a reviewed system spec that DECLARES the state variable
-# for the invariant to bind against (PB-4); until such a stateful S exists, refusing here surfaces
-# the same honesty the composition-level vacuity guard enforces, one stage earlier. The companion
-# state-obligation class ``state_postcondition`` already refuses at translation: its ``post_state``
-# obligation node is rejected by ``_unsupported_nodes``. ``numeric_invariant``'s ``gte``/``lte``
-# obligation is in the skeleton's supported set, so it needs this explicit claim-class guard.
-# Comparison/membership PREMISES are unaffected — they are discharged by the theory-aware SMT
-# backends on the FormalClaim path, never this lowering.
+# for the invariant to bind against (PB-4); ``numeric_invariant``'s ``gte``/``lte`` obligation is in
+# the skeleton's supported set, so it needs this explicit claim-class guard until that faithful
+# lowering exists. The companion state-obligation class ``state_postcondition`` now HAS such a
+# lowering — ``_lower_state_postcondition`` emits a non-vacuous module the stateful-S narrowing
+# binds against ``Pred_<state>`` — so it is no longer refused here. Comparison/membership PREMISES
+# are unaffected — they are discharged by the theory-aware SMT backends on the FormalClaim path,
+# never this lowering.
 _UNGROUNDED_STATE_INVARIANT_CLAIM_CLASSES = frozenset({"numeric_invariant"})
 
 
@@ -166,6 +168,8 @@ def lower_ir_v2_to_tla(ir: RequirementIRV2) -> LoweredFormalArtifact:
     claim_class = ir.semantic_ir.metadata.get("requirement_class")
     if claim_class == "authorization_precondition":
         return _lower_non_vacuous(ir, claim_class)
+    if claim_class == "state_postcondition":
+        return _lower_state_postcondition(ir, claim_class)
     if claim_class in _UNGROUNDED_STATE_INVARIANT_CLAIM_CLASSES:
         return _refuse_ungrounded_state_invariant(ir, claim_class)
     return _lower_skeleton(ir)
@@ -242,6 +246,53 @@ def _lower_non_vacuous(ir: RequirementIRV2, claim_class: str) -> LoweredFormalAr
         source_ir_version=ir.ir_version,
         source_ir_hash=source_ir_hash,
         translator="nlreq.formal_lowering.authorization_precondition",
+        translator_version=FORMAL_LOWERING_VERSION,
+        status="lowered",
+        content=content,
+        content_hash=sha256_text(content),
+        temporal_bounds=temporal_bounds,
+        metadata={"evidence": "lowered", "semantics": "non_vacuous", "claim_class": claim_class},
+    )
+
+
+def _lower_state_postcondition(ir: RequirementIRV2, claim_class: str) -> LoweredFormalArtifact:
+    """Non-vacuous lowering for state_postcondition.
+
+    The post_state obligation is the affirmed twin of the authorization forbidden outcome: the
+    module's premise predicates are abstract operators a reviewed S interprets, and the stateful-S
+    narrowing conjoins ``Premise => Pred_<state>(<value>)`` over S's own state. A malformed shape
+    refuses with source-spanned diagnostics rather than emit a misleading ``status="lowered"``
+    artifact; the downstream checker callers branch on ``status != "lowered"`` and surface the
+    refusal as ``unsupported`` without a false discharge.
+    """
+    shape_problems = validate_state_postcondition_shape(ir.semantic_ir)
+    if shape_problems:
+        return LoweredFormalArtifact(
+            requirement_id=ir.requirement_id,
+            source_ir_version=ir.ir_version,
+            source_ir_hash=sha256_json(ir),
+            status="refused",
+            temporal_bounds=_temporal_bounds(ir.semantic_ir),
+            diagnostics=[
+                LoweringDiagnostic(
+                    node_id=offending.node_id if offending is not None else ir.semantic_ir.node_id,
+                    kind=kind,
+                    reason=reason,
+                    source_spans=offending.source_spans if offending is not None else ir.semantic_ir.source_spans,
+                )
+                for kind, reason, offending in shape_problems
+            ],
+            metadata={"refusal_code": "NLR-LOWERING-UNSUPPORTED-SHAPE"},
+        )
+    temporal_bounds = _temporal_bounds(ir.semantic_ir)
+    source_ir_hash = sha256_json(ir)
+    bounds_json = canonical_json([b.model_dump(mode="json") for b in temporal_bounds]).strip()
+    content = lower_state_postcondition_tla(ir, bounds_json=bounds_json)
+    return LoweredFormalArtifact(
+        requirement_id=ir.requirement_id,
+        source_ir_version=ir.ir_version,
+        source_ir_hash=source_ir_hash,
+        translator="nlreq.formal_lowering.state_postcondition",
         translator_version=FORMAL_LOWERING_VERSION,
         status="lowered",
         content=content,

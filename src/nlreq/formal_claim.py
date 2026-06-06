@@ -335,13 +335,17 @@ def formal_claim_fragment_bound_predicate(fragment: FormalClaimFragment) -> str 
     ``bound_predicates`` rather than to a static fragment-kind table: a fragment is only
     "covered" by the model check when its operator was actually bound into the module the
     checker ran. A premise ``predicate`` binds ``Pred_<predicate>``; a ``rejection_order``
-    obligation binds the forbidden-outcome ``Pred_<action>`` (its first operand). Other
-    kinds the authorization lowering does not bind return None, so a future claim class
-    whose predicate never reaches the module cannot be falsely discharged.
+    obligation binds the forbidden-outcome ``Pred_<action>`` (its first operand); a
+    ``post_state`` obligation binds the affirmed post-state ``Pred_<state>`` (its state operand,
+    the operator ``derive_post_state_obligation`` names). Other kinds the lowering does not bind
+    return None, so a fragment whose predicate never reaches the module cannot be falsely
+    discharged.
     """
     if fragment.kind == "predicate" and fragment.predicate:
         return pred_name(fragment.predicate)
     if fragment.kind == "rejection_order" and fragment.operands:
+        return pred_name(str(fragment.operands[0].value))
+    if fragment.kind == "post_state" and fragment.operands:
         return pred_name(str(fragment.operands[0].value))
     return None
 
@@ -385,11 +389,12 @@ def _evidence_for_fragment_kind(kind: FormalClaimFragmentKind) -> EvidenceLevel:
 # producer that runs ``check_solver_backed_system_consistency`` — at BOUNDED_CHECKED, not
 # to a fragment-level SMT producer that has no module to check them against.
 # ``post_state`` joins them: it is the state-postcondition obligation re-expressed over S's
-# variables (``premise => post_state``), a single-state safety obligation the same bounded
-# S ∧ R ``Next`` check verifies — never a trace observation. Until a faithful state-postcondition
-# lowering feeds this producer a covering module (PB-4), ``solver_system_checker`` produces no
-# result that covers a ``post_state`` fragment, so the premise stays open and the proof refuses
-# to close rather than discharging on lower-grade trace evidence.
+# variables as the affirmed invariant ``Premise => Pred_<state>(<value>)``, a single-state safety
+# obligation the same bounded S ∧ R ``Next`` check verifies — never a trace observation. The
+# stateful-S narrowing (PB-4) binds ``Pred_<state>`` into the checked module, so a valid verdict
+# covers and discharges the ``post_state`` fragment and a counterexample blocks it; without a
+# reviewed stateful S the composition refuses and the premise stays open, never discharging on
+# lower-grade trace evidence.
 _S_AND_R_DISCHARGED_KINDS: frozenset[FormalClaimFragmentKind] = frozenset(
     {"predicate", "rejection_order", "post_state"}
 )
