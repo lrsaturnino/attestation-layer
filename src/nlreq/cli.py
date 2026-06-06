@@ -3243,7 +3243,7 @@ def main(argv: list[str] | None = None) -> int:
             if claim_report.result == "lowered" and claim_report.formal_claim is not None:
                 dispatch = build_proof_dispatch_plan_from_formal_claim(claim_report.formal_claim)
             else:
-                dispatch = build_proof_dispatch_plan(ir, route_by_kind=True)
+                dispatch = build_proof_dispatch_plan(ir)
             proof = build_proof_object(
                 requirement=ir,
                 backend_results=backend_results,

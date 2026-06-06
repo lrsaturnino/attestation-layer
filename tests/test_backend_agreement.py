@@ -8,7 +8,7 @@ from nlreq.dsl_v2 import DslV2Parser
 from nlreq.formal_backend import FormalBackendResponse
 from nlreq.jsonutil import read_json
 from nlreq.models import BackendResult, EvidenceLevel
-from nlreq.proof_closure import build_proof_dispatch_plan, build_proof_object
+from nlreq.proof_closure import build_proof_object, build_single_backend_dispatch_plan
 
 
 DSL = (
@@ -170,7 +170,7 @@ def test_proof_object_blocks_supplied_backend_disagreement() -> None:
         ),
         trace_alignment=TraceAlignmentReport(result="passed"),
         backend_agreement=disagreement,
-        dispatch=build_proof_dispatch_plan(ir, backend_id="system_checker"),
+        dispatch=build_single_backend_dispatch_plan(ir),
     )
 
     assert proof.status == "blocked"
@@ -204,7 +204,7 @@ def _proof_with_agreement(requirement_id: str, agreement):
         ),
         trace_alignment=TraceAlignmentReport(result="passed"),
         backend_agreement=agreement,
-        dispatch=build_proof_dispatch_plan(ir, backend_id="system_checker"),
+        dispatch=build_single_backend_dispatch_plan(ir),
     )
 
 

@@ -1728,7 +1728,7 @@ def test_build_proof_with_formal_claim_dispatch_routes_unclassed_ir_by_kind() ->
     production gate helper — never collapsed onto the single system_checker default (PB-7.T3).
 
     DSL-v2 text declares no requirement_class, so build_formal_claim refuses and there is no
-    per-fragment routing. The gate helper must then dispatch route_by_kind=True (mirroring the
+    per-fragment routing. The gate helper must then dispatch the kind-routed plan (mirroring the
     public proof-object CLI fallback), so the comparison premise routes to smt-theories and no
     premise routes to system_checker. With only a lone system_checker verdict supplied, none of
     the kind-routed premises discharge, so the proof blocks honestly rather than over-closing on

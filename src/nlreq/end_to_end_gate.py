@@ -186,13 +186,13 @@ def build_proof_with_formal_claim_dispatch(
     so ProofObject.premises[*].premise_id maps to FormalClaim fragments rather than raw
     semantic node IDs. When the claim class is unsupported (result='refused'), the requirement
     has no per-fragment routing, so its semantic-node premises route BY KIND
-    (build_proof_dispatch_plan(route_by_kind=True)) — comparison to smt-theories, membership to
-    cvc5, state/temporal to apalache, the rest to core_smt — never collapsed onto the single
-    system_checker default. This mirrors the public proof-object CLI fallback (cli.py): a lone
-    system-consistency verdict can no longer silently discharge comparison/membership/state
-    premises that need their own producer. The coarse plan keeps a uniform CONSISTENCY_CHECKED
-    floor, so a kind-routed premise is undischargeable by the gate's available results and the
-    proof blocks honestly rather than over-closing (PB-7.T3).
+    (build_proof_dispatch_plan) — comparison to smt-theories, membership to cvc5, state/temporal to
+    apalache, the rest to core_smt, each requiring the evidence level its backend discharges at —
+    never collapsed onto the single system_checker default. This mirrors the public proof-object CLI
+    fallback (cli.py): a lone system-consistency verdict routes to none of those kind backends, so it
+    discharges none of these premises and the proof blocks honestly rather than over-closing (PB-7.T3),
+    while a real result from a routed producer genuinely discharges its premise at that backend's
+    level.
 
     This is the production entry point that gates and tests should use to ensure FormalClaim
     dispatch is exercised through a real code path, not only in test-only manual dispatch.
@@ -201,7 +201,7 @@ def build_proof_with_formal_claim_dispatch(
     if formal_claim_report.result == "lowered" and formal_claim_report.formal_claim is not None:
         dispatch = build_proof_dispatch_plan_from_formal_claim(formal_claim_report.formal_claim)
     else:
-        dispatch = build_proof_dispatch_plan(requirement, route_by_kind=True)
+        dispatch = build_proof_dispatch_plan(requirement)
     proof = build_proof_object(
         requirement=requirement,
         backend_results=backend_results,

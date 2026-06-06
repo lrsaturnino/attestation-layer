@@ -290,7 +290,8 @@ def default_evidence_producer_mapping() -> EvidenceProducerMapping:
 # function so the routing decision is executable and tested. This is the routing used for a
 # requirement that does NOT lower to a FormalClaim: ``build_proof_object``'s no-dispatch default,
 # the gate's refused-claim fallback, and the CLI's non-lowered fallback all build it via
-# ``build_proof_dispatch_plan(route_by_kind=True)``. The AUTHORITATIVE routing for a LOWERED claim
+# ``build_proof_dispatch_plan`` (its only routing — the legacy single-backend plan is the separate
+# ``build_single_backend_dispatch_plan``). The AUTHORITATIVE routing for a LOWERED claim
 # is ``formal_claim._backend_for_fragment_kind``, which routes the FormalClaim fragments the gate
 # actually dispatches. This coarse generic router aligns its THEORY-routed kinds with that policy:
 # comparison -> smt-theories and set-membership -> cvc5 on both surfaces, so a theory premise never
@@ -361,7 +362,7 @@ def backend_for_proof_node(role: str, node_kind: str) -> str:
     return _ROUTE_BACKEND_CORE_SMT
 
 
-# The evidence level each kind-routed backend discharges a premise at. A route_by_kind plan must ask
+# The evidence level each kind-routed backend discharges a premise at. A kind-routed plan must ask
 # each route for exactly the level its routed backend emits: ``_evaluate_premise`` requires the
 # achieved evidence to EQUAL ``route.required_evidence`` — it never widens, because equality is what
 # keeps a BOUNDED_CHECKED result from silently satisfying an SMT_CHECKED obligation (the evidence-level
@@ -371,7 +372,7 @@ def backend_for_proof_node(role: str, node_kind: str) -> str:
 # ``test_route_by_kind_routes_dischargeable_by_routed_producers`` pins this table to that registry so
 # the two cannot drift (the same "must stay in sync" contract ``formal_claim._backend_for_evidence``
 # carries). CONSISTENCY_CHECKED is intentionally absent: only the legacy single-backend
-# ``system_checker`` plan requires it, and route_by_kind never routes there.
+# ``system_checker`` plan requires it, and the kind-routed plan never routes there.
 _REQUIRED_EVIDENCE_FOR_BACKEND: dict[str, EvidenceLevel] = {
     _ROUTE_BACKEND_CORE_SMT: EvidenceLevel.SMT_CHECKED,
     _ROUTE_BACKEND_SMT_THEORIES: EvidenceLevel.SMT_CHECKED,
@@ -382,7 +383,7 @@ _REQUIRED_EVIDENCE_FOR_BACKEND: dict[str, EvidenceLevel] = {
 
 
 def required_evidence_for_proof_node(role: str, node_kind: str) -> EvidenceLevel:
-    """The evidence level a route_by_kind premise of ``node_kind`` must reach to discharge.
+    """The evidence level a kind-routed premise of ``node_kind`` must reach to discharge.
 
     Derived from the backend its kind routes to (:func:`backend_for_proof_node`): each kind-routed
     backend discharges at a single level (its sole entry in :func:`default_evidence_producer_mapping`),
@@ -402,24 +403,19 @@ def required_evidence_for_proof_node(role: str, node_kind: str) -> EvidenceLevel
 def build_proof_dispatch_plan(
     requirement: RequirementIRV2,
     *,
-    backend_id: str = "system_checker",
-    required_evidence: EvidenceLevel = EvidenceLevel.CONSISTENCY_CHECKED,
     policy_id: str = "default-system-consistency",
-    route_by_kind: bool = False,
 ) -> ProofDispatchPlan:
-    """Build the per-premise dispatch plan for a requirement's compositional proof.
+    """Build the per-premise dispatch plan: each premise routes to the backend its kind needs.
 
-    With ``route_by_kind=True`` each premise routes to the backend its kind needs
-    (:func:`backend_for_proof_node`) AND asks for the evidence level that backend discharges at
-    (:func:`required_evidence_for_proof_node`) — the multi-backend plan :func:`build_proof_object`
-    builds when no explicit dispatch is given. Deriving the per-route evidence is what makes the plan
-    dischargeable: the closure evidence gate is exact-match, so a kind-routed route left at the flat
-    ``required_evidence`` default would block on a valid routed result (e.g. ``smt-theories`` emits
-    SMT_CHECKED, never the CONSISTENCY_CHECKED default). With ``route_by_kind=False`` (the default of
-    THIS builder) every premise instead routes to the single ``backend_id`` at the flat
-    ``required_evidence``; that legacy single-backend plan is no longer the closure default and must
-    be requested explicitly (it requires naming ``backend_id``), so a lone verdict cannot silently
-    close a multi-premise proof.
+    Each premise routes to :func:`backend_for_proof_node` and requires the evidence level that
+    backend discharges at (:func:`required_evidence_for_proof_node`). Deriving the per-route evidence
+    is what makes the plan dischargeable: the closure evidence gate is exact-match, so a route left at
+    a flat default would block on a valid routed result (e.g. ``smt-theories`` emits SMT_CHECKED, not
+    the old CONSISTENCY_CHECKED default). This is the closure default :func:`build_proof_object` builds
+    when no explicit dispatch is given, and the plan the gate's refused-claim fallback and the CLI's
+    non-lowered fallback use. The legacy single-backend plan — every premise on one backend — is
+    :func:`build_single_backend_dispatch_plan`, which must be named explicitly so a lone verdict
+    cannot silently close a multi-premise proof.
     """
     routes = [
         ProofPremiseRoute(
@@ -427,21 +423,40 @@ def build_proof_dispatch_plan(
             node_id=node.node_id,
             node_kind=node.kind,
             role=role,
-            backend_id=backend_for_proof_node(role, node.kind) if route_by_kind else backend_id,
-            # A kind-routed premise must require the level ITS routed backend emits, not the flat
-            # ``required_evidence`` default — else a valid routed result blocks on the exact-match
-            # evidence gate in _evaluate_premise. The single-backend path keeps the caller's
-            # ``required_evidence`` (the legacy ``system_checker`` plan emits CONSISTENCY_CHECKED).
-            required_evidence=(
-                required_evidence_for_proof_node(role, node.kind)
-                if route_by_kind
-                else required_evidence
-            ),
-            reason=(
-                f"routed by fragment kind '{node.kind}'"
-                if route_by_kind
-                else "default route for compositional proof fragment"
-            ),
+            backend_id=backend_for_proof_node(role, node.kind),
+            required_evidence=required_evidence_for_proof_node(role, node.kind),
+            reason=f"routed by fragment kind '{node.kind}'",
+        )
+        for role, node in _proof_nodes(requirement.semantic_ir)
+    ]
+    return ProofDispatchPlan(policy_id=policy_id, routes=routes)
+
+
+def build_single_backend_dispatch_plan(
+    requirement: RequirementIRV2,
+    *,
+    backend_id: str = "system_checker",
+    required_evidence: EvidenceLevel = EvidenceLevel.CONSISTENCY_CHECKED,
+    policy_id: str = "default-system-consistency",
+) -> ProofDispatchPlan:
+    """The legacy single-backend plan: every premise routes to ``backend_id`` at ``required_evidence``.
+
+    Explicitly named rather than a flag on :func:`build_proof_dispatch_plan`, so a single-backend plan
+    is never the silent default — a lone verdict cannot close a multi-premise proof unless a caller
+    asks for this plan by name. Used by fixtures that close on one ``system_checker`` verdict, by the
+    high-assurance producer-mapping test (a custom ``backend_id``/``required_evidence``), and by
+    cross-language / certification / backend-agreement helpers whose intent is closure, not premise
+    routing.
+    """
+    routes = [
+        ProofPremiseRoute(
+            premise_id=f"{requirement.requirement_id}:{role}:{node.node_id}",
+            node_id=node.node_id,
+            node_kind=node.kind,
+            role=role,
+            backend_id=backend_id,
+            required_evidence=required_evidence,
+            reason="single-backend route for compositional proof fragment",
         )
         for role, node in _proof_nodes(requirement.semantic_ir)
     ]
@@ -459,13 +474,13 @@ def build_proof_object(
     dispatch: ProofDispatchPlan | None = None,
 ) -> ProofObject:
     mapping = producer_mapping or default_evidence_producer_mapping()
-    # With no explicit dispatch, route each premise to the backend its kind needs (route_by_kind),
-    # never collapse them onto the single system_checker default. A lone system-consistency verdict
-    # then discharges only the premises that route to it, so it cannot close a multi-premise proof
-    # whose comparison/membership/state premises need their own producer. Callers that genuinely
-    # want the legacy single-backend plan (e.g. a fixture closing on one system_checker result)
-    # pass it explicitly via build_proof_dispatch_plan(requirement, backend_id=...).
-    plan = dispatch or build_proof_dispatch_plan(requirement, route_by_kind=True)
+    # With no explicit dispatch, route each premise to the backend its kind needs, never collapse
+    # them onto the single system_checker default. A lone system-consistency verdict then discharges
+    # only the premises that route to it, so it cannot close a multi-premise proof whose
+    # comparison/membership/state premises need their own producer. Callers that genuinely want the
+    # legacy single-backend plan (e.g. a fixture closing on one system_checker result) request it
+    # explicitly via build_single_backend_dispatch_plan(requirement).
+    plan = dispatch or build_proof_dispatch_plan(requirement)
     blockers: list[ProofClosureBlocker] = []
 
     coverage_result = _coverage_result(coverage, blockers)

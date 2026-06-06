@@ -43,7 +43,7 @@ from nlreq.policy_governance import (
     build_ci_policy_governance_report,
     build_waiver_audit_report,
 )
-from nlreq.proof_closure import build_proof_dispatch_plan, build_proof_object
+from nlreq.proof_closure import build_proof_object, build_single_backend_dispatch_plan
 from nlreq.reference_demo import (
     BetaPilotFinding,
     BetaPilotReport,
@@ -586,7 +586,7 @@ def _closed_proof():
             coverage_ratio=1.0,
         ),
         trace_alignment=TraceAlignmentReport(result="passed"),
-        dispatch=build_proof_dispatch_plan(ir, backend_id="system_checker"),
+        dispatch=build_single_backend_dispatch_plan(ir),
     )
 
 

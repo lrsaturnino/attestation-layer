@@ -19,6 +19,7 @@ from nlreq.proof_closure import (
     backend_results_from_system_consistency,
     build_proof_dispatch_plan,
     build_proof_object,
+    build_single_backend_dispatch_plan,
     default_evidence_producer_mapping,
     evaluate_closure_gate,
     required_evidence_for_proof_node,
@@ -41,11 +42,12 @@ def test_lone_system_checker_verdict_blocks_by_default_but_closes_under_explicit
 ) -> None:
     """A lone system_checker verdict no longer closes a multi-premise proof by default.
 
-    The closure default routes each premise to the backend its kind needs (route_by_kind), so a
-    single system-consistency result — which routes to none of those per-kind backends —
-    discharges nothing and the proof blocks with its premises open. The legacy single-backend
-    plan, which closes on that one verdict, is still reachable but must be requested explicitly
-    (it names backend_id), so a lone verdict can no longer silently over-close.
+    The closure default routes each premise to the backend its kind needs, so a single
+    system-consistency result — which routes to none of those per-kind backends — discharges
+    nothing and the proof blocks with its premises open. The legacy single-backend plan, which
+    closes on that one verdict, is still reachable but must be requested explicitly (it is the
+    separately-named build_single_backend_dispatch_plan), so a lone verdict can no longer silently
+    over-close.
     """
     ir = _ir()
     coverage = _coverage(tmp_path)
@@ -79,7 +81,7 @@ def test_lone_system_checker_verdict_blocks_by_default_but_closes_under_explicit
         backend_results=system_results,
         coverage=coverage,
         trace_alignment=alignment,
-        dispatch=build_proof_dispatch_plan(ir, backend_id="system_checker"),
+        dispatch=build_single_backend_dispatch_plan(ir),
     )
     gate = evaluate_closure_gate(closed, downstream_action="merge")
 
@@ -215,7 +217,7 @@ def test_backed_bounded_evidence_does_not_block_closure(tmp_path: Path) -> None:
         backend_results=[*backend_results_from_system_consistency(_consistency(tmp_path)), backed],
         coverage=coverage,
         trace_alignment=alignment,
-        dispatch=build_proof_dispatch_plan(ir, backend_id="system_checker"),
+        dispatch=build_single_backend_dispatch_plan(ir),
     )
 
     assert proof.status == "closed"
@@ -277,7 +279,7 @@ def test_proof_object_rejects_high_assurance_from_non_real_producer(
             )
         ]
     )
-    dispatch = build_proof_dispatch_plan(
+    dispatch = build_single_backend_dispatch_plan(
         ir,
         backend_id="drafting-tool",
         required_evidence=EvidenceLevel.PROVEN_INDUCTIVE,
@@ -468,12 +470,13 @@ def test_backend_for_proof_node_routes_each_kind_to_its_discharging_backend() ->
 
 def test_dispatch_plan_route_by_kind_sends_premises_to_distinct_backends() -> None:
     ir = _ir()
-    # The single-backend plan is a legacy, explicitly-requested construction (it requires naming
-    # backend_id) that collapses every premise onto one backend. It is not the public proof-object
-    # routing: that path routes each premise to the backend its kind needs (route_by_kind / the
-    # FormalClaim dispatch), so a lone verdict cannot over-close a multi-backend requirement.
-    legacy_single_backend_plan = build_proof_dispatch_plan(ir, backend_id="system_checker")
-    routed_plan = build_proof_dispatch_plan(ir, route_by_kind=True)
+    # The single-backend plan is a legacy, explicitly-named construction
+    # (build_single_backend_dispatch_plan) that collapses every premise onto one backend. It is not
+    # the public proof-object routing: that path routes each premise to the backend its kind needs
+    # (the kind-routed plan / the FormalClaim dispatch), so a lone verdict cannot over-close a
+    # multi-backend requirement.
+    legacy_single_backend_plan = build_single_backend_dispatch_plan(ir)
+    routed_plan = build_proof_dispatch_plan(ir)
 
     assert {route.backend_id for route in legacy_single_backend_plan.routes} == {"system_checker"}
     # Each route goes to the backend its kind needs AND asks for the evidence that backend emits
@@ -497,8 +500,8 @@ def test_required_evidence_for_proof_node_matches_each_routed_backend() -> None:
     Comparison/numeric and authorization/propositional kinds route to SMT backends (SMT_CHECKED),
     set-membership to cvc5 (SMT_CHECKED), state/temporal to the Apalache S ∧ R check (BOUNDED_CHECKED),
     and trace-grounded kinds to trace validation (TRACE_VALIDATED). CONSISTENCY_CHECKED never appears:
-    only the legacy single-backend system_checker plan requires it, and route_by_kind never routes
-    there.
+    only the legacy single-backend system_checker plan requires it, and the kind-routed plan never
+    routes there.
     """
     expected = {
         "comparison": EvidenceLevel.SMT_CHECKED,

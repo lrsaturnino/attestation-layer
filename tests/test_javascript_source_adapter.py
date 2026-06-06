@@ -9,7 +9,7 @@ from nlreq.impact import analyze_source_impact
 from nlreq.javascript_source_adapter import JavaScriptSourceLanguageAdapter
 from nlreq.jsonutil import read_json
 from nlreq.models import BackendResult, EvidenceLevel, NormalizedTraceArtifact, SymbolRef
-from nlreq.proof_closure import build_proof_dispatch_plan, build_proof_object
+from nlreq.proof_closure import build_proof_object, build_single_backend_dispatch_plan
 from nlreq.source_adapter import SourceBinding, SourceManifest
 from nlreq.trace_replay import build_trace_replay_report
 
@@ -122,7 +122,7 @@ def test_javascript_source_adapter_drives_trace_replay_and_cross_language_wedge(
         ],
         coverage=coverage,
         trace_alignment=TraceAlignmentReport(result="passed"),
-        dispatch=build_proof_dispatch_plan(ir, backend_id="system_checker"),
+        dispatch=build_single_backend_dispatch_plan(ir),
     )
     wedge = build_agnostic_wedge_report(
         proof=proof,
