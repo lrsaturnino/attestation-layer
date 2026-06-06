@@ -511,6 +511,47 @@ def test_requirement_set_consistency_report_shape_is_version_pinned() -> None:
     }
 
 
+def test_cross_requirement_emitted_classes_and_reasons_stay_synchronized() -> None:
+    """The emitted-class set and the unchecked-reason set are each declared in more than one place,
+    and those declarations must not drift apart. The emitted classes live in the
+    ``CrossRequirementContradictionType`` Literal (which the report model uses) AND in the hand-built
+    taxonomy's ``handling == "emitted"`` entries; the unchecked reasons live in the
+    ``UncheckedRequirementReason`` Literal and surface in the report schema. Adding a class or reason
+    to one declaration but not the others is the drift that lets the docs and code disagree, so pin
+    the independent declarations equal to each other. The version-pinning test above guards the
+    *values*; this guards their *mutual consistency*, anchored on the Literal type rather than a
+    fourth hardcoded copy."""
+    from typing import get_args
+
+    from nlreq.contradiction_taxonomy import (
+        CrossRequirementContradictionType,
+        UncheckedRequirementReason,
+    )
+
+    taxonomy = build_cross_requirement_contradiction_taxonomy()
+    emitted_in_taxonomy = {
+        entry.contradiction_type for entry in taxonomy.classes if entry.handling == "emitted"
+    }
+    schema = RequirementSetConsistencyReport.model_json_schema()
+    report_contradiction_types = set(
+        schema["$defs"]["RequirementContradiction"]["properties"]["contradiction_type"]["enum"]
+    )
+    report_unchecked_reasons = set(
+        schema["$defs"]["UncheckedRequirement"]["properties"]["reason"]["enum"]
+    )
+
+    # The emitted-class set has three independent declarations — the Literal type, the taxonomy's
+    # hand-built ``emitted`` entries, and the report enum — and all three must agree.
+    assert (
+        set(get_args(CrossRequirementContradictionType))
+        == emitted_in_taxonomy
+        == report_contradiction_types
+    )
+    # The report's unchecked-reason surface must expose exactly the declared reason Literal: a reason
+    # added to the Literal that the report stops surfacing (or the reverse) is a silent contract break.
+    assert set(get_args(UncheckedRequirementReason)) == report_unchecked_reasons
+
+
 def test_requirement_set_consistency_conditional_overlap_subset_premises() -> None:
     """Conditional-overlap gate (SMT): two requirements whose premises overlap but are not identical
     still co-occur when their conjunction is satisfiable (``approved`` holds, and ``approved`` plus

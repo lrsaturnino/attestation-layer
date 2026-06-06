@@ -111,11 +111,11 @@ Turn the front door from "deterministic parse of already-controlled text + struc
 **Depends on.** PA-4.
 
 ### PA-7 · ALICE-style contradiction taxonomy — [NEW, M] — GAP-B3
-**Decision (inline).** Replace the 6-entry opposites table (`system_checker.py:220`, `smt.py:158`) with the seven-question decision tree over typed `FormalClaim` fragments: negation, mutual exclusion, conditional overlap, quantifier-scope conflict, numeric-range disjointness, temporal conflict, action/order conflict. Each detected contradiction carries its type + both source spans.
+**Decision (inline).** Replace the 6-entry opposites table (`system_checker.py:220`, `smt.py:158`) with the seven-question decision tree — three classes emitted as findings, the rest catalogued (the co-occurrence gate plus grammar-deferred classes) — over typed `FormalClaim` fragments: negation, mutual exclusion, conditional overlap, quantifier-scope conflict, numeric-range disjointness, temporal conflict, action/order conflict. Each detected contradiction carries its type + both source spans.
 **Touches.** new `contradiction_taxonomy.py` (a `contradiction-taxonomy.md` already documents the taxonomy — implement it); `system_checker.check_requirement_set_consistency` (`:217`).
-**Tasks.** `PA-7.T1` the seven checks over fragments; `PA-7.T2` numeric-range + temporal via SMT (PB-6); `PA-7.T3` typed contradiction report with spans.
-**Tests.** each contradiction class has a positive + negative fixture; numeric-range disjointness (`x>10` ∧ `x<5`) is caught (today's table misses it).
-**Acceptance.** Contradictions beyond literal `authorized/not_authorized` are detected with type + spans.
+**Tasks.** `PA-7.T1` the three emitted obligation checks (numeric-range disjointness, mutual exclusion, action/order) over fragments, run under the SMT co-occurrence gate (`conditional_overlap`); `negation`, `quantifier_scope_conflict`, and `temporal_conflict` are catalogued as `grammar_deferred` — the v3 grammar cannot express them across requirements (`temporal_conflict` also waits on PA-3's bounded-temporal lowering); `PA-7.T2` numeric-range disjointness and the co-occurrence gate via SMT (PB-6); `PA-7.T3` typed contradiction report with spans that fails closed (`unsupported` + an `unchecked` list) on an undecidable premise overlap or a spanless conflict.
+**Tests.** each emitted class has a positive + negative fixture; the co-occurrence gate is exercised across its three verdicts (co-occur / provably-disjoint / undecidable-fails-closed); each grammar-deferred class carries a control showing the conflict is inexpressible; numeric-range disjointness (`x>10` ∧ `x<5`) is caught (the old table missed it).
+**Acceptance.** Contradictions beyond literal `authorized/not_authorized` are detected with type + spans; an undecidable overlap or a spanless conflict fails closed as `unsupported` rather than passing.
 **Depends on.** PA-1, PB-6 (SMT theories for numeric/temporal).
 
 ### PA-8 · Cross-requirement-set consistency — [NEW, M] — GAP-B3
