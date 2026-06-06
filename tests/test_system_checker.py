@@ -481,8 +481,29 @@ def test_requirement_set_consistency_report_shape_is_version_pinned() -> None:
         "contradiction",
         "unsupported",
     }
-    reason_enum = schema["$defs"]["UncheckedRequirement"]["properties"]["reason"]["enum"]
-    assert set(reason_enum) == {
+    # The two embedded models ride in the report's public shape, so their fields and enums are part
+    # of the contract too: a new emitted contradiction class or a new field must bump the version.
+    contradiction = schema["$defs"]["RequirementContradiction"]
+    assert set(contradiction["properties"]) == {
+        "contradiction_type",
+        "requirement_ids",
+        "fragments",
+        "source_spans",
+    }
+    assert set(contradiction["properties"]["contradiction_type"]["enum"]) == {
+        "numeric_range_disjointness",
+        "mutual_exclusion",
+        "action_order_conflict",
+    }
+    unchecked = schema["$defs"]["UncheckedRequirement"]
+    assert set(unchecked["properties"]) == {
+        "requirement_ids",
+        "reason",
+        "detail",
+        "refusal_code",
+        "source_spans",
+    }
+    assert set(unchecked["properties"]["reason"]["enum"]) == {
         "lowering_refused",
         "lowering_needs_review",
         "contradiction_without_source_span",
