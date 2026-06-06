@@ -41,7 +41,9 @@
 ## 1. Pillar A scope
 Turn the front door from "deterministic parse of already-controlled text + structural echo" into a real, measured, untrusted-LLM-assisted translator that emits formal claims with genuine semantics and refuses on disagreement — feeding the frozen `FormalClaim` contract Pillar B checks. **Tracer-bullet contribution:** PA-1 (one claim kind lowers non-vacuously) is the Pillar-A half of SP2-B.
 
-## 2. Current empirical state
+## 2. Empirical state at plan-authoring time (2026-06-03 baseline)
+
+This table is the baseline the plan was written against, not a live status board: every gap below is closed by its correspondingly-scoped PA task — see that task for current status.
 
 | Area | State | Evidence |
 |---|---|---|
@@ -52,7 +54,7 @@ Turn the front door from "deterministic parse of already-controlled text + struc
 | IR→formal lowering (TLA path) | **Vacuous** | `translator.py:223` `_tla_skeleton`: predicates→`TRUE`, ids→`0`, `Within(…)==event` |
 | IR→formal lowering (claim path) | Real but structural; unrouted | `formal_claim.py:145` typed canonical-string fragments + refusal; not consumed by a backend |
 | Self-consistency (single claim) | Real but narrow | `smt.py:17` `check_self_consistency` propositional Z3 over one claim's conditions |
-| Self-consistency (cross-req) | **Toy** | `system_checker.py:220` hardcoded 6-entry opposites table |
+| Self-consistency (cross-req) | **Toy** | `check_requirement_set_consistency` used a hardcoded opposites table |
 | Temporal / LTL | **Absent** | declared `bounded_temporal` kind; `Within` is a passthrough |
 
 ## 3. Work breakdown
@@ -111,8 +113,8 @@ Turn the front door from "deterministic parse of already-controlled text + struc
 **Depends on.** PA-4.
 
 ### PA-7 · ALICE-style contradiction taxonomy — [NEW, M] — GAP-B3
-**Decision (inline).** Replace the 6-entry opposites table (`system_checker.py:220`, `smt.py:158`) with the seven-question decision tree — three classes emitted as findings, the rest catalogued (the co-occurrence gate plus grammar-deferred classes) — over typed `FormalClaim` fragments: negation, mutual exclusion, conditional overlap, quantifier-scope conflict, numeric-range disjointness, temporal conflict, action/order conflict. Each detected contradiction carries its type + both source spans.
-**Touches.** new `contradiction_taxonomy.py` (a `contradiction-taxonomy.md` already documents the taxonomy — implement it); `system_checker.check_requirement_set_consistency` (`:217`).
+**Decision (inline).** Cross-requirement consistency moves off the old hardcoded opposites-table approach to a seven-question decision tree implemented in `contradiction_taxonomy.detect_cross_requirement_contradictions` (consumed by `check_requirement_set_consistency`) — three classes emitted as findings, the rest catalogued (the co-occurrence gate plus grammar-deferred classes) — over typed `FormalClaim` fragments: negation, mutual exclusion, conditional overlap, quantifier-scope conflict, numeric-range disjointness, temporal conflict, action/order conflict. Each detected contradiction carries its type + both source spans. The single-requirement opposites table (`_direct_contradictions` in `smt.py`, sole caller `check_self_consistency`) is intentionally retained and never consulted for cross-set consistency: within one `claim.condition` everything co-occurs, so an opposite pair there is a genuine self-contradiction — pinned by `tests/test_smt.py`.
+**Touches.** new `contradiction_taxonomy.py` (a `contradiction-taxonomy.md` already documents the taxonomy — implement it); `system_checker.check_requirement_set_consistency`.
 **Tasks.** `PA-7.T1` the three emitted obligation checks (numeric-range disjointness, mutual exclusion, action/order) over fragments, run under the SMT co-occurrence gate (`conditional_overlap`); `negation`, `quantifier_scope_conflict`, and `temporal_conflict` are catalogued as `grammar_deferred` — the v3 grammar cannot express them across requirements (`temporal_conflict` also waits on PA-3's bounded-temporal lowering); `PA-7.T2` numeric-range disjointness and the co-occurrence gate via SMT (PB-6); `PA-7.T3` typed contradiction report with spans that fails closed (`unsupported` + an `unchecked` list) on an undecidable premise overlap or a spanless conflict.
 **Tests.** each emitted class has a positive + negative fixture; the co-occurrence gate is exercised across its three verdicts (co-occur / provably-disjoint / undecidable-fails-closed); each grammar-deferred class carries a control showing the conflict is inexpressible; numeric-range disjointness (`x>10` ∧ `x<5`) is caught (the old table missed it).
 **Acceptance.** Contradictions beyond literal `authorized/not_authorized` are detected with type + spans; an undecidable overlap or a spanless conflict fails closed as `unsupported` rather than passing.
@@ -120,7 +122,7 @@ Turn the front door from "deterministic parse of already-controlled text + struc
 
 ### PA-8 · Cross-requirement-set consistency — [NEW, M] — GAP-B3
 **Decision (inline).** SMT over the conjunction of all claims' premises/obligations in a declared requirement set (set = per-feature manifest). Mutually inconsistent members are flagged jointly before any system check.
-**Touches.** `system_checker.check_requirement_set_consistency` (`:217`); `smt.py` (conjunction encoding, PB-6).
+**Touches.** `system_checker.check_requirement_set_consistency`; `smt.py` (conjunction encoding, PB-6).
 **Tasks.** `PA-8.T1` requirement-set manifest; `PA-8.T2` conjunction SMT; `PA-8.T3` joint-inconsistency report.
 **Tests.** requirement A and Z individually satisfiable but jointly contradictory are flagged.
 **Acceptance.** Joint inconsistency across a set is detected.
