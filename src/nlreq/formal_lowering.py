@@ -506,11 +506,13 @@ def lower_state_postcondition_tla(
     AFFIRMED post-state re-expressed over a harness variable (``Premise => NLRState =
     "nlr_post_state"``). Like the authorization lowering, this standalone module is
     checker-distinguishable — with the premise predicate TRUE the harness can leave NLRState
-    unmet, so a checker finds a counterexample — but it is auxiliary: the real S ∧ R evidence comes
-    from the stateful-S narrowing (compose_s_and_r_module), which replaces this abstract harness
-    obligation with ``Premise => Pred_<state>(<value>)`` over S's own state. The concrete required
-    value is carried by :class:`PostStateObligation` into that narrowing, not by this harness, so a
-    numeric or string post-state value never has to typecheck against the harness variable here.
+    unmet, so a checker finds a counterexample — but it is auxiliary: it is NOT the S ∧ R evidence.
+    The real evidence comes from the stateful-S narrowing (compose_s_and_r_module), which discards
+    this abstract harness entirely and instead checks the post-state as a NEXT-STEP transition
+    obligation over S's own Init/Next (a ghost history bit ``nlr_prev_premise => Pred_<state>(<value>)``
+    — see _compose_system_narrowing). The concrete required value is carried by
+    :class:`PostStateObligation` into that narrowing, not by this harness, so a numeric or string
+    post-state value never has to typecheck against the harness variable here.
 
     Caller must invoke validate_state_postcondition_shape first and refuse if any problems are
     returned; this function assumes a supported shape.
@@ -920,15 +922,17 @@ class PostStateObligation:
 
     Where an authorization_precondition's :class:`OutcomePredicate` is a FORBIDDEN outcome the
     narrowing negates (``Premise => ~Pred_<action>``), a state postcondition is AFFIRMED:
-    ``Premise => Pred_<state>(<value>)``. ``predicate_name`` is ``Pred_<state>`` (e.g.
-    ``Pred_operation_status``) — the operator a reviewed S interprets over its own state as
+    ``Pred_<state>(<value>)`` must hold after a premise-state. ``predicate_name`` is ``Pred_<state>``
+    (e.g. ``Pred_operation_status``) — the operator a reviewed S interprets over its own state as
     "<state> equals the argument". ``value_literal`` is the required post-state value already
     rendered as a TLA+ literal (a quoted string ``"accepted"`` or a bare number ``42``); it is a
     VALUE the obligation passes to the predicate, never a scope identifier, so it is emitted inline
     and never declared as a CONSTANT the composition would have to pin (which would make it a free
-    symbol the checker rejects). The stateful-S narrowing (Case B) conjoins ``Premise =>
-    Pred_<state>(<value>)`` into ``Inv`` over S's real ``Init``/``Next`` — so a counterexample is a
-    reachable S behaviour where the premise holds but the post-state value is not the required one.
+    symbol the checker rejects). The stateful-S narrowing (Case B) checks this as a NEXT-STEP
+    transition obligation over S's real ``Init``/``Next`` — a ghost history bit records whether the
+    premise held in the pre-state and ``Inv`` requires ``Pred_<state>(<value>)`` after it — so a
+    counterexample is a real S step OUT of a premise-state that fails to establish the post-state
+    value (see _compose_system_narrowing).
     """
 
     predicate_name: str
@@ -1162,14 +1166,15 @@ def compose_s_and_r_module(
       without S's transitions to reach it.
     - Stateful S (Case B): S brings its own ``Init``/``Next`` over its own
       variables, and R *narrows* it. The composition uses S's real ``Init``/``Next``
-      as the only state machine and conjoins the requirement obligation — as a pure
-      state invariant over S's variables — into ``Inv``. R adds NO transitions and NO
-      variable: a counterexample is a real S behavior, not an artifact of R's own
-      harness stepping. Exactly one obligation drives the narrowing: an
+      as the state machine and conjoins the requirement obligation into ``Inv``, so a
+      counterexample is a real S behavior, not an artifact of R's own harness stepping.
+      Exactly one obligation drives the narrowing, by claim class: an
       ``outcome_predicate`` (authorization_precondition) makes ``Inv`` forbid the
-      accepted/executed outcome (``Premise => ~Pred_<action>``); a
-      ``post_state_obligation`` (state_postcondition) makes it require the affirmed
-      post-state (``Premise => Pred_<state>(<value>)``). S must interpret the named
+      accepted/executed outcome as a SAME-STATE safety invariant (``Premise =>
+      ~Pred_<action>``), adding no transitions and no variable; a ``post_state_obligation``
+      (state_postcondition) checks the affirmed post-state as a NEXT-STEP transition
+      obligation, adding one ghost VARIABLE that records the premise in the pre-state so
+      ``Inv`` can require ``Pred_<state>(<value>)`` after it. S must interpret the named
       predicate or the composition refuses. See _compose_system_narrowing.
     """
     identifier_constants = parse_lowered_identifier_constants(lowered_content)
@@ -1188,8 +1193,9 @@ def compose_s_and_r_module(
         )
 
     # When any reviewed spec brings its own transition system (init_op/next_op), R narrows
-    # S: S's own Init/Next are the only state machine and R contributes a state invariant
-    # (Premise => ~Pred_<action>, or Premise => Pred_<state>(<value>)) conjoined into Inv.
+    # S: S's own Init/Next are the state machine and R contributes a state invariant into Inv —
+    # a same-state safety invariant (Premise => ~Pred_<action>) for authorization, or a ghost
+    # history-bit next-step obligation (nlr_prev_premise => Pred_<state>(<value>)) for post_state.
     # Otherwise S is a stateless set of predicate interpretations + invariants and R supplies
     # the only state machine (Case A).
     if any(c.init_op or c.next_op for c in contributions):
@@ -1342,6 +1348,14 @@ def compose_s_and_r_module(
 # the obligation invariant R contributes.
 _NARROWING_RESERVED_OPERATORS = frozenset({"Init", "Next", "Inv", "ConstInit", "R_Requirement"})
 
+# The single ghost VARIABLE the state_postcondition narrowing adds to S (see
+# _compose_system_narrowing): it records, after each step, whether the premise held in the
+# PRE-state, so a next-relation post-state obligation can be checked as a reliable single-state
+# invariant over the augmented state. A reviewed S that itself declared a variable of this name
+# would conflate its own state with R's history bit, so the composition refuses rather than merge.
+_NARROWING_POST_STATE_GHOST_VAR = "nlr_prev_premise"
+_NARROWING_RESERVED_VARIABLES = frozenset({_NARROWING_POST_STATE_GHOST_VAR})
+
 
 def _compose_system_narrowing(
     *,
@@ -1355,31 +1369,33 @@ def _compose_system_narrowing(
 ) -> ComposedSandRModule:
     """Compose S ∧ R as a *narrowing* when S brings its own transition system (Case B).
 
-    S's own ``Init``/``Next`` are the sole state machine; R adds no transitions and no
-    variable. R contributes a single state invariant ``R_Requirement == Premise => <obligation>``
-    — the obligation re-expressed over S's state through the shared predicates — conjoined with
-    S's named invariants into ``Inv``. A model checker then verifies ``Spec => []Inv`` against S's
-    *real* transitions, so a counterexample is a genuine S behavior — not an artifact of a
-    requirement harness stepping its own variable, which the prior synchronous product admitted.
+    S's own ``Init``/``Next`` are the state machine. R contributes a single state invariant
+    ``R_Requirement`` conjoined with S's named invariants into ``Inv``; a model checker then
+    verifies ``Spec => []Inv`` against S's *real* transitions, so a counterexample is a genuine S
+    behavior — not an artifact of a requirement harness stepping its own variable, which the prior
+    synchronous product admitted. Exactly one obligation drives ``R_Requirement``, by claim class:
 
-    Exactly one obligation drives the consequent, by polarity:
+    - ``outcome_predicate`` (authorization_precondition): a SAME-STATE safety invariant
+      ``R_Requirement == Premise => ~Pred_<action>(subject)``. R adds no transitions and no
+      variable. A counterexample is a reachable state where the premise holds and S has reached
+      the forbidden accepted/executed outcome. This is correctly a single-state property — "the
+      forbidden outcome must never hold while the precondition does" — needing no transition
+      semantics.
 
-    - ``outcome_predicate`` (authorization_precondition): the FORBIDDEN outcome, negated —
-      ``Premise => ~Pred_<action>(subject)``. A counterexample reaches the accepted/executed
-      outcome while the premise holds.
-    - ``post_state_obligation`` (state_postcondition): the AFFIRMED post-state —
-      ``Premise => Pred_<state>(<value>)``. A counterexample is a reachable premise-state where
-      the system's ``<state>`` is not the required ``<value>``.
+    - ``post_state_obligation`` (state_postcondition): a NEXT-RELATION obligation. "Then state X
+      must be V" constrains S's TRANSITIONS, not a single state, so R adds one ghost VARIABLE
+      ``nlr_prev_premise`` that records, after every step, whether the premise held in the
+      PRE-state (``Next`` conjoins ``nlr_prev_premise' = (Premise)`` over S's unprimed state;
+      ``Init`` sets it FALSE). ``R_Requirement`` is then the single-state invariant
+      ``nlr_prev_premise => Pred_<state>(<value>)``, so a counterexample is a real S step OUT of a
+      premise-state that fails to establish the post-state. This is the strict next-step reading:
+      every transition from a premise-state must land in a value-state.
 
-    Soundness note. ``R_Requirement`` is a single-state safety invariant over S's reachable
-    states. For the forbidden-outcome form it captures "if the precondition holds, the action
-    must not be executed" soundly precisely when S models the precondition as stable through the
-    forbidden transition. For the affirmed post-state form it captures "if the precondition holds,
-    the state already equals the value" — sound precisely when the premise predicate holds only in
-    states where the post-state has been established (so a premise-state that has not yet reached
-    the value would be a real violation, not a spurious one). Reviewed specs that couple premise
-    and post-state this way satisfy it; a future temporal lowering generalises it without the
-    single-state assumption.
+    Why a ghost variable and not a primed-variable action invariant ``Premise => Pred_<state>' =
+    <value>``: Apalache 0.58 silently SKIPS such an action invariant over a non-establishing /
+    UNCHANGED transition and reports NoError — a false pass on exactly the violation this check
+    must catch (verified empirically). Encoding the next-relation obligation as a history-variable
+    STATE invariant is the only shape the bounded checker verifies soundly here.
 
     Refuses, rather than emitting a meaningless module, when: a spec declares only one of
     init_op/next_op; a named transition operator is undefined; a spec brings its own CONSTANTS
@@ -1437,7 +1453,7 @@ def _compose_system_narrowing(
         )
         obligation_pred_names = (post_state_obligation.predicate_name,)
         obligation_phrase = (
-            f"requires every premise-state of S to reach the post-state "
+            f"requires every step out of a premise-state of S to establish the post-state "
             f"({post_state_obligation.predicate_name})"
         )
     else:
@@ -1484,6 +1500,16 @@ def _compose_system_narrowing(
                 ),
             )
         for var_name, var_type in variables:
+            if var_name in _NARROWING_RESERVED_VARIABLES:
+                return ComposedSandRModule(
+                    status="refused",
+                    refusal_kind="variable_name_collision",
+                    refusal_reason=(
+                        f"system spec variable {var_name!r} collides with the narrowing's "
+                        "reserved ghost variable; the post-state history bit would be conflated "
+                        "with S's own state — rename the spec variable"
+                    ),
+                )
             if var_name in seen_variables:
                 return ComposedSandRModule(
                     status="refused",
@@ -1566,14 +1592,52 @@ def _compose_system_narrowing(
     constant_block = _render_constant_block(identifier_constants)
     system_variable_blocks = _render_system_variable_blocks(system_variables)
     system_block = "\n\n".join(block for block in system_blocks if block).strip()
-    requirement_line = f"R_Requirement == {premise_expr} => {obligation_consequent}"
-    init_line = "Init == " + " /\\ ".join(init_ops)
-    next_line = "Next == " + " /\\ ".join(next_ops)
     inv_line = "Inv == " + " /\\ ".join([*invariants, "R_Requirement"])
     const_init = _render_const_init(identifier_constants)
     bound_predicates = sorted(
         (set(abstract_predicates) | set(obligation_pred_names)) & defined_predicates
     )
+
+    if post_state_obligation is not None:
+        # state_postcondition is a NEXT-RELATION obligation: R adds one ghost VARIABLE that records,
+        # after each step, whether the premise held in the PRE-state, and Next conjoins its update
+        # (Init sets it FALSE). R_Requirement is then the single-state invariant
+        # `nlr_prev_premise => Pred_<state>(<value>)`, so a counterexample is a real S step OUT of a
+        # premise-state that fails to establish the post-state — the strict next-step reading.
+        #
+        # This is encoded as a history-variable STATE invariant rather than the seemingly-direct
+        # action invariant `Premise => Pred_<state>' = <value>` because Apalache 0.58 silently SKIPS
+        # such an action invariant over a non-establishing / UNCHANGED transition and reports
+        # NoError — a false pass on exactly the violation this check must catch (verified
+        # empirically). The history-variable state invariant is the only shape the bounded checker
+        # verifies soundly here.
+        ghost = _NARROWING_POST_STATE_GHOST_VAR
+        system_variable_blocks += _render_system_variable_blocks([(ghost, "Bool")])
+        requirement_line = f"R_Requirement == {ghost} => {obligation_consequent}"
+        init_line = "Init == " + " /\\ ".join([*init_ops, f"{ghost} = FALSE"])
+        next_line = "Next == " + " /\\ ".join([*next_ops, f"{ghost}' = ({premise_expr})"])
+        narrowing_comment = (
+            "\\* ===== Requirement R narrows S's TRANSITIONS into a post-state obligation. R adds\n"
+            f"\\* one ghost VARIABLE {ghost} recording, after each step, whether the premise held in\n"
+            f"\\* the PRE-state (Next conjoins {ghost}' = the premise over S's unprimed state; Init\n"
+            f"\\* sets it FALSE). The obligation {obligation_phrase} — checked as the state invariant\n"
+            f"\\* R_Requirement == {ghost} => <post-state>, so a counterexample is a real S step out\n"
+            "\\* of a premise-state that fails to establish the required post-state (the strict\n"
+            "\\* next-step reading). Apalache 0.58 silently false-passes a primed-variable action\n"
+            "\\* invariant over a non-establishing step, so the faithful Next-relation check is this\n"
+            "\\* history-variable state invariant. =====\n"
+        )
+    else:
+        requirement_line = f"R_Requirement == {premise_expr} => {obligation_consequent}"
+        init_line = "Init == " + " /\\ ".join(init_ops)
+        next_line = "Next == " + " /\\ ".join(next_ops)
+        narrowing_comment = (
+            "\\* ===== Requirement R narrows S: a state invariant over S's own variables. R adds\n"
+            "\\* no transitions and no variable — S's Init/Next are the only state machine. The\n"
+            f"\\* obligation {obligation_phrase}\n"
+            "\\* while the premise holds, so a counterexample is a real S behavior — not an artifact\n"
+            "\\* of a requirement harness stepping its own state. =====\n"
+        )
 
     module_text = (
         f"---- MODULE {module_name} ----\n"
@@ -1582,11 +1646,7 @@ def _compose_system_narrowing(
         f"{system_variable_blocks}"
         f"\\* ===== Reviewed system spec S (inlined; operators keep their names) =====\n"
         f"{system_block}\n\n"
-        f"\\* ===== Requirement R narrows S: a state invariant over S's own variables. R adds\n"
-        f"\\* no transitions and no variable — S's Init/Next are the only state machine. The\n"
-        f"\\* obligation {obligation_phrase}\n"
-        f"\\* while the premise holds, so a counterexample is a real S behavior — not an artifact\n"
-        f"\\* of a requirement harness stepping its own state. =====\n"
+        f"{narrowing_comment}"
         f"{requirement_line}\n\n"
         f"\\* ===== S ∧ R: S's reachable states must preserve S's invariants and R's obligation =====\n"
         f"{init_line}\n"

@@ -360,6 +360,44 @@ _POST_STATE_S_DECOUPLED = _POST_STATE_S.replace(
     "         \\/ UNCHANGED <<operation_status, approved_flag>>\n",
 )
 
+# A reviewed S that exercises the genuine NEXT-STEP transition reading of a post_state obligation:
+# the premise holds in a PRE-state where the value is NOT yet established, and S's next step
+# establishes it. operation_status starts at "pending" with approved_flag already TRUE (so
+# Pred_approved holds before any transition), and SNext out of "pending" sets operation_status' =
+# "accepted". Under the faithful transition encoding (R's ghost nlr_prev_premise records the premise
+# in the pre-state; Inv requires every step out of a premise-state to establish the value) this is
+# VALID. A same-state invariant would FALSELY REJECT it — at "pending" the premise holds while the
+# value is not yet "accepted" — which is exactly the unfaithfulness PB-4.T2's rework fixes.
+_POST_STATE_NEXTSTEP_S = (
+    "---- MODULE Operation ----\n"
+    "EXTENDS Naturals, TLC\n\n"
+    "\\* @type: Str;\n"
+    "VARIABLE operation_status\n"
+    "\\* @type: Bool;\n"
+    "VARIABLE approved_flag\n\n"
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_approved(a) == approved_flag = TRUE\n"
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_operation_status(v) == operation_status = v\n"
+    "\\* System invariant: the operation status stays within its reviewed value domain.\n"
+    'OperationStatusClosed == operation_status \\in {"pending", "accepted"}\n'
+    'SInit == operation_status = "pending" /\\ approved_flag = TRUE\n'
+    'SNext == \\/ (operation_status = "pending" /\\ operation_status\' = "accepted" /\\ UNCHANGED approved_flag)\n'
+    '         \\/ (operation_status = "accepted" /\\ UNCHANGED <<operation_status, approved_flag>>)\n'
+    "====\n"
+)
+
+# The refusal twin of _POST_STATE_NEXTSTEP_S: the SAME premise-before-transition S, but SNext can
+# leave the value UNSET while the premise holds (it stutters at "pending" instead of advancing to
+# "accepted"). A reachable step out of a premise-state then fails to establish "accepted", so the
+# next-step obligation has a real counterexample. This pins the obligation as a genuine transition
+# check — the same S with SNext leaving the value unset must counterexample — not one any S
+# satisfies.
+_POST_STATE_NEXTSTEP_S_UNSET = _POST_STATE_NEXTSTEP_S.replace(
+    'SNext == \\/ (operation_status = "pending" /\\ operation_status\' = "accepted" /\\ UNCHANGED approved_flag)\n',
+    'SNext == \\/ (operation_status = "pending" /\\ UNCHANGED <<operation_status, approved_flag>>)\n',
+)
+
 
 def _run_post_state_gate(tmp_path: Path, *, value: str = "accepted", spec: str = _POST_STATE_S):
     """Run the end-to-end gate over the state_postcondition stateful-S fixture and return the report.
@@ -545,6 +583,75 @@ def test_end_to_end_gate_state_postcondition_decoupled_s_refuses(tmp_path: Path)
     post-state), this would wrongly pass; keeping it red-on-decoupling pins the check non-trivial.
     """
     report = _run_post_state_gate(tmp_path, value="accepted", spec=_POST_STATE_S_DECOUPLED)
+
+    assert report.statuses["system_consistency"] == "counterexample", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    assert report.decision == "refused"
+    assert report.proof_status != "closed"
+    assert report.downstream_action_allowed is False
+
+    system_consistency = read_json(
+        Path(next(a.path for a in report.artifacts if a.name == "system_consistency"))
+    )
+    assert system_consistency["result"]["details"]["checker_id"] == "apalache"
+    assert system_consistency["counterexamples"]
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_end_to_end_gate_state_postcondition_next_step_establishes_value_closes(tmp_path: Path) -> None:
+    """The faithful NEXT-STEP transition reading (PB-4): the premise holds in a PRE-state where the
+    post-state is not yet established, and S's next step establishes it — so the requirement is VALID
+    and the proof closes.
+
+    The reviewed S (_POST_STATE_NEXTSTEP_S) starts in operation_status="pending" with approved_flag
+    already TRUE — so Pred_approved holds BEFORE any transition — and SNext out of "pending" sets
+    operation_status'="accepted". The narrowing checks the obligation as a transition obligation: R's
+    ghost nlr_prev_premise records the premise in the pre-state, and Inv requires every step out of a
+    premise-state to establish the value. This is the case a same-state invariant would FALSELY
+    REJECT (at "pending" the premise holds while the value is not yet "accepted"); the transition
+    encoding accepts it, which is the unfaithfulness PB-4.T2's rework fixes. It is real Apalache
+    evidence: a counterexample appears the moment SNext stops establishing the value
+    (test_..._next_step_unset_counterexamples below).
+    """
+    report = _run_post_state_gate(tmp_path, value="accepted", spec=_POST_STATE_NEXTSTEP_S)
+
+    assert report.statuses["system_consistency"] == "valid", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    assert report.decision == "accepted", (
+        report.statuses, [(b.stage, b.status) for b in report.blockers]
+    )
+    assert report.proof_status == "closed"
+    assert report.closure_result == "passed"
+    assert report.downstream_action_allowed is True
+
+    system_consistency = read_json(
+        Path(next(a.path for a in report.artifacts if a.name == "system_consistency"))
+    )
+    assert system_consistency["result"]["details"]["checker_id"] == "apalache"
+    assert system_consistency["result"]["evidence_level"] == "BOUNDED_CHECKED"
+    # The composed module the checker ran adds R's ghost history variable and conjoins its update
+    # into Next — the artifact proving this was checked as a transition obligation, not same-state.
+    composed_module = Path(system_consistency["result"]["details"]["artifact_dir"]) / system_consistency["result"]["details"]["module"]
+    module_text = composed_module.read_text()
+    assert "nlr_prev_premise' = (Pred_approved(actor))" in module_text
+    assert "R_Requirement == nlr_prev_premise =>" in module_text
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_end_to_end_gate_state_postcondition_next_step_unset_counterexamples(tmp_path: Path) -> None:
+    """The refusal twin of the next-step closure: the SAME premise-before-transition S, but SNext can
+    leave the value UNSET while the premise holds — so Apalache returns a counterexample and the gate
+    refuses.
+
+    _POST_STATE_NEXTSTEP_S_UNSET's SNext stutters at "pending" (operation_status stays "pending")
+    while approved_flag stays TRUE, so a reachable step out of a premise-state fails to establish
+    "accepted". The required property — the same S with SNext leaving the value unset must
+    counterexample — pins the next-step obligation as a genuine transition check, not a vacuous one
+    any S would satisfy.
+    """
+    report = _run_post_state_gate(tmp_path, value="accepted", spec=_POST_STATE_NEXTSTEP_S_UNSET)
 
     assert report.statuses["system_consistency"] == "counterexample", (
         report.statuses, [(b.stage, b.status) for b in report.blockers]

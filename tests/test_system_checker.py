@@ -1614,10 +1614,13 @@ _POST_STATE_LOWERED = (
     "====\n"
 )
 
-# Byte-stable Case B narrowing of _POST_STATE_LOWERED with _POST_STATE_STATEFUL_SPEC. The affirmed
-# obligation R_Requirement == Premise => Pred_operation_status("accepted") is conjoined into Inv
-# over S's own Init/Next; S's two variables (operation_status, approved_flag) each render as their
-# own Apalache-typed VARIABLE block. Validated valid against apalache-mc 0.58.0.
+# Byte-stable Case B narrowing of _POST_STATE_LOWERED with _POST_STATE_STATEFUL_SPEC. The
+# state_postcondition is a NEXT-RELATION obligation: R adds the ghost VARIABLE nlr_prev_premise
+# (recording whether the premise held in the PRE-state), Next conjoins its update, and
+# R_Requirement == nlr_prev_premise => Pred_operation_status("accepted") is conjoined into Inv over
+# S's own Init/Next. S's two variables (operation_status, approved_flag) plus the ghost each render
+# as their own Apalache-typed VARIABLE block. Validated valid (accepted) / counterexample (rejected)
+# against apalache-mc 0.58.0.
 _POST_STATE_NARROWING_COMPOSED = (
     "---- MODULE REQ_STATEPOST_S_AND_R ----\n"
     "EXTENDS Naturals, TLC\n\n"
@@ -1632,6 +1635,9 @@ _POST_STATE_NARROWING_COMPOSED = (
     "VARIABLE\n"
     "  \\* @type: Bool;\n"
     "  approved_flag\n\n"
+    "VARIABLE\n"
+    "  \\* @type: Bool;\n"
+    "  nlr_prev_premise\n\n"
     "\\* ===== Reviewed system spec S (inlined; operators keep their names) =====\n"
     "\\* @type: (Str) => Bool;\n"
     "Pred_approved(a) == approved_flag = TRUE\n"
@@ -1642,15 +1648,19 @@ _POST_STATE_NARROWING_COMPOSED = (
     'SInit == operation_status = "init" /\\ approved_flag = FALSE\n'
     'SNext == \\/ (operation_status = "init" /\\ operation_status\' = "accepted" /\\ approved_flag\' = TRUE)\n'
     "         \\/ UNCHANGED <<operation_status, approved_flag>>\n\n"
-    "\\* ===== Requirement R narrows S: a state invariant over S's own variables. R adds\n"
-    "\\* no transitions and no variable — S's Init/Next are the only state machine. The\n"
-    "\\* obligation requires every premise-state of S to reach the post-state (Pred_operation_status)\n"
-    "\\* while the premise holds, so a counterexample is a real S behavior — not an artifact\n"
-    "\\* of a requirement harness stepping its own state. =====\n"
-    'R_Requirement == Pred_approved(actor) => Pred_operation_status("accepted")\n\n'
+    "\\* ===== Requirement R narrows S's TRANSITIONS into a post-state obligation. R adds\n"
+    "\\* one ghost VARIABLE nlr_prev_premise recording, after each step, whether the premise held in\n"
+    "\\* the PRE-state (Next conjoins nlr_prev_premise' = the premise over S's unprimed state; Init\n"
+    "\\* sets it FALSE). The obligation requires every step out of a premise-state of S to establish the post-state (Pred_operation_status) — checked as the state invariant\n"
+    "\\* R_Requirement == nlr_prev_premise => <post-state>, so a counterexample is a real S step out\n"
+    "\\* of a premise-state that fails to establish the required post-state (the strict\n"
+    "\\* next-step reading). Apalache 0.58 silently false-passes a primed-variable action\n"
+    "\\* invariant over a non-establishing step, so the faithful Next-relation check is this\n"
+    "\\* history-variable state invariant. =====\n"
+    'R_Requirement == nlr_prev_premise => Pred_operation_status("accepted")\n\n'
     "\\* ===== S ∧ R: S's reachable states must preserve S's invariants and R's obligation =====\n"
-    "Init == SInit\n"
-    "Next == SNext\n"
+    "Init == SInit /\\ nlr_prev_premise = FALSE\n"
+    "Next == SNext /\\ nlr_prev_premise' = (Pred_approved(actor))\n"
     "Inv == OperationStatusClosed /\\ R_Requirement\n"
     'ConstInit == actor = "actor" /\\ operation = "operation"\n'
     "====\n"
@@ -1699,9 +1709,11 @@ def test_validate_state_postcondition_shape_accepts_and_refuses() -> None:
 
 
 def test_compose_s_and_r_narrowing_post_state_is_byte_stable() -> None:
-    """A state_postcondition narrows a reviewed stateful S into a byte-stable composed module whose
-    Inv conjoins the AFFIRMED obligation Premise => Pred_<state>(<value>) — the affirmed twin of the
-    authorization narrowing. Both the premise predicate and the post-state predicate are bound."""
+    """A state_postcondition narrows a reviewed stateful S into a byte-stable composed module: a
+    NEXT-RELATION obligation where R adds the ghost VARIABLE nlr_prev_premise (the premise's
+    pre-state value), Next conjoins its update, and Inv conjoins the AFFIRMED state invariant
+    nlr_prev_premise => Pred_<state>(<value>). Both the premise predicate and the post-state
+    predicate are bound."""
     lowered = lower_state_postcondition_tla(_post_state_ir())
     contribution = build_system_spec_contribution(
         "spec:op", _POST_STATE_STATEFUL_SPEC, ["OperationStatusClosed"],
@@ -1714,11 +1726,14 @@ def test_compose_s_and_r_narrowing_post_state_is_byte_stable() -> None:
 
     assert composed.status == "composed"
     assert composed.module_text == _POST_STATE_NARROWING_COMPOSED
-    # The obligation is AFFIRMED (=> Pred_...), not negated (=> ~Pred_...) like authorization.
+    # The obligation is AFFIRMED (=> Pred_...), not negated (=> ~Pred_...) like authorization, and
+    # its antecedent is the ghost history bit (the premise in the PRE-state), so the check is a
+    # next-step transition obligation rather than a same-state one.
     assert (
-        'R_Requirement == Pred_approved(actor) => Pred_operation_status("accepted")'
+        'R_Requirement == nlr_prev_premise => Pred_operation_status("accepted")'
         in composed.module_text
     )
+    assert "Next == SNext /\\ nlr_prev_premise' = (Pred_approved(actor))" in composed.module_text
     assert "=> ~" not in composed.module_text
     assert composed.preserved_invariants == ["OperationStatusClosed", "R_Requirement"]
     # Both the premise predicate AND the post-state predicate are bound, so coverage can discharge

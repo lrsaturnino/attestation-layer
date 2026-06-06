@@ -260,10 +260,11 @@ def _lower_state_postcondition(ir: RequirementIRV2, claim_class: str) -> Lowered
 
     The post_state obligation is the affirmed twin of the authorization forbidden outcome: the
     module's premise predicates are abstract operators a reviewed S interprets, and the stateful-S
-    narrowing conjoins ``Premise => Pred_<state>(<value>)`` over S's own state. A malformed shape
-    refuses with source-spanned diagnostics rather than emit a misleading ``status="lowered"``
-    artifact; the downstream checker callers branch on ``status != "lowered"`` and surface the
-    refusal as ``unsupported`` without a false discharge.
+    narrowing checks ``Pred_<state>(<value>)`` as a NEXT-STEP transition obligation over S's own
+    Init/Next (a ghost history bit records the premise in the pre-state). A malformed shape refuses
+    with source-spanned diagnostics rather than emit a misleading ``status="lowered"`` artifact;
+    the downstream checker callers branch on ``status != "lowered"`` and surface the refusal as
+    ``unsupported`` without a false discharge.
     """
     shape_problems = validate_state_postcondition_shape(ir.semantic_ir)
     if shape_problems:

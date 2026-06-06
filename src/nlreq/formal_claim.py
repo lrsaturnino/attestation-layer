@@ -388,13 +388,13 @@ def _evidence_for_fragment_kind(kind: FormalClaimFragmentKind) -> EvidenceLevel:
 # verifies as one obligation. They therefore route to ``solver_system_checker`` — the
 # producer that runs ``check_solver_backed_system_consistency`` — at BOUNDED_CHECKED, not
 # to a fragment-level SMT producer that has no module to check them against.
-# ``post_state`` joins them: it is the state-postcondition obligation re-expressed over S's
-# variables as the affirmed invariant ``Premise => Pred_<state>(<value>)``, a single-state safety
-# obligation the same bounded S ∧ R ``Next`` check verifies — never a trace observation. The
-# stateful-S narrowing (PB-4) binds ``Pred_<state>`` into the checked module, so a valid verdict
-# covers and discharges the ``post_state`` fragment and a counterexample blocks it; without a
-# reviewed stateful S the composition refuses and the premise stays open, never discharging on
-# lower-grade trace evidence.
+# ``post_state`` joins them: it is the state-postcondition obligation checked as a NEXT-STEP
+# transition obligation over S's own ``Init``/``Next`` (a ghost history bit records the premise in
+# the pre-state; ``Inv`` then requires ``Pred_<state>(<value>)`` after it) — never a trace
+# observation. The stateful-S narrowing (PB-4) binds ``Pred_<state>`` into the checked module, so a
+# valid verdict covers and discharges the ``post_state`` fragment and a counterexample blocks it;
+# without a reviewed stateful S the composition refuses and the premise stays open, never
+# discharging on lower-grade trace evidence.
 _S_AND_R_DISCHARGED_KINDS: frozenset[FormalClaimFragmentKind] = frozenset(
     {"predicate", "rejection_order", "post_state"}
 )
