@@ -1092,6 +1092,8 @@ class ComposedSandRModule:
     ``undefined_invariant``, or ``state_postcondition_requires_stateful_spec``
     (stateless S, Case A); the stateful-S narrowing (Case B) additionally uses
     ``incomplete_transition_operators``, ``unsupported_spec_constant``,
+    ``unsupported_spec_variable`` (a single ``@type`` over a comma-separated
+    multi-name VARIABLES line, which Apalache itself rejects),
     ``variable_name_collision``, ``undefined_transition_operator``,
     ``missing_outcome_predicate``, and ``undefined_outcome_predicate`` (the last two
     cover both the forbidden-outcome and affirmed post-state obligation predicates).
@@ -1500,6 +1502,19 @@ def _compose_system_narrowing(
                 ),
             )
         for var_name, var_type in variables:
+            if var_type == _AMBIGUOUS_MULTI_NAME_TYPE:
+                return ComposedSandRModule(
+                    status="refused",
+                    refusal_kind="unsupported_spec_variable",
+                    refusal_reason=(
+                        f"system spec variable {var_name!r} shares a single '\\* @type:' "
+                        "annotation with other names on a comma-separated VARIABLES line; one "
+                        "annotation cannot type several names (Apalache rejects it: 'Expected a "
+                        "type annotation for VARIABLE ...'). Declare each variable with its own "
+                        "@type in Apalache's block form so the composition preserves the reviewed "
+                        "spec's declared types"
+                    ),
+                )
             if var_name in _NARROWING_RESERVED_VARIABLES:
                 return ComposedSandRModule(
                     status="refused",
@@ -1663,6 +1678,16 @@ def _compose_system_narrowing(
     )
 
 
+# Sentinel recorded as a declaration's type annotation when a single ``\* @type:`` comment
+# precedes a *multi-name* comma-separated CONSTANTS/VARIABLES line. Apalache itself rejects that
+# form ("Expected a type annotation for VARIABLE <second-name>"), so the composition refuses it
+# (``unsupported_spec_variable``) rather than guess that one annotation types every name — the
+# reviewed S must use Apalache's block form (one ``@type`` per name) for the composition to
+# preserve its declared types. Constants are refused wholesale upstream, so only the variable path
+# inspects this sentinel.
+_AMBIGUOUS_MULTI_NAME_TYPE = "__nlr_ambiguous_multi_name_type__"
+
+
 def _decl_names(remainder: str) -> list[str] | None:
     """Return the bare identifiers a declaration's name list holds, or None if it is not one.
 
@@ -1700,10 +1725,13 @@ def _split_declarations(
 
     An Apalache ``\\* @type: …;`` comment immediately preceding a *single-name* declaration is
     consumed with it (and re-emitted by the composition); a ``@type`` comment preceding an
-    operator *definition* (e.g. a predicate) is kept in the body. A comma-separated declaration
-    is recorded untyped (each name defaults to ``Str`` on re-emit) because one preceding comment
-    cannot describe several differently-typed names — per-name types require Apalache's block
-    form, which this single-line parser does not read.
+    operator *definition* (e.g. a predicate) is kept in the body. An *untyped* comma-separated
+    declaration (no preceding ``@type``) yields one untyped entry per name (each defaults to
+    ``Str`` on re-emit). A *typed* comma-separated declaration — one ``@type`` comment over several
+    names — tags each name with the ``_AMBIGUOUS_MULTI_NAME_TYPE`` sentinel so the composition
+    REFUSES it (``unsupported_spec_variable``): a single annotation cannot type several names, and
+    Apalache itself rejects the form ("Expected a type annotation for VARIABLE <second>"). Per-name
+    types require Apalache's block form, which this single-line parser does not read.
 
     The composition re-emits declarations at the top so a predicate that reads a spec variable
     is not declared after its use.
@@ -1737,13 +1765,16 @@ def _split_declarations(
         paired_names = _decl_names(paired_decl.group(2)) if paired_decl else None
         if type_match and paired_names is not None:
             bucket = constants if paired_decl.group(1) == "CONSTANT" else variables
-            # A single preceding @type comment annotates a single-name declaration; a
-            # comma-separated declaration is recorded untyped (one comment cannot type several
-            # differently-typed names — per-name types need Apalache's block form).
+            # A single preceding @type comment annotates a single-name declaration. Over a
+            # comma-separated declaration one comment cannot type several names — Apalache itself
+            # rejects the form ("Expected a type annotation for VARIABLE <second>") — so each name
+            # is tagged with the ambiguous-type sentinel and the composition refuses it
+            # (unsupported_spec_variable) rather than guess that one annotation types every name and
+            # silently check the reviewed S against a changed variable surface.
             if len(paired_names) == 1:
                 bucket.append((paired_names[0], type_match.group(1).strip()))
             else:
-                bucket.extend((name, None) for name in paired_names)
+                bucket.extend((name, _AMBIGUOUS_MULTI_NAME_TYPE) for name in paired_names)
             index += 2
             continue
         bare_decl = decl_re.match(line)

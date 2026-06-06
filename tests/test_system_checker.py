@@ -1624,6 +1624,39 @@ def test_compose_s_and_r_narrowing_composes_comma_separated_variables() -> None:
     assert "VARIABLES authPhase, redeemPhase" not in composed.module_text
 
 
+def test_compose_s_and_r_narrowing_refuses_typed_multi_name_variables() -> None:
+    """A single ``\\* @type:`` comment over a comma-separated ``VARIABLES`` line is refused with
+    ``unsupported_spec_variable``, not silently retyped to ``Str``. One annotation cannot type
+    several names — Apalache itself rejects the form ("Expected a type annotation for VARIABLE
+    <second>") — so the composition refuses rather than guess that the annotation types every name
+    and check the reviewed S against a changed variable surface. A real numeric/Bool spec must use
+    Apalache's block form (one ``@type`` per name) to carry per-variable types through."""
+    spec_typed_multi = (
+        "---- MODULE Sys ----\n"
+        "EXTENDS Naturals, TLC\n\n"
+        "\\* @type: Int;\n"
+        "VARIABLES collateral, debt\n\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_authorized(a) == FALSE\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_finalize_redemption(a) == FALSE\n"
+        'SystemClosed == Pred_authorized("wallet") = FALSE\n'
+        "SInit == collateral = 0 /\\ debt = 0\n"
+        "SNext == UNCHANGED <<collateral, debt>>\n"
+        "====\n"
+    )
+    contribution = build_system_spec_contribution(
+        "spec:sys", spec_typed_multi, ["SystemClosed"], init_op="SInit", next_op="SNext"
+    )
+    composed = compose_s_and_r_module(
+        "Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution],
+        outcome_predicate=_OUTCOME_FINALIZE,
+    )
+
+    assert composed.status == "refused"
+    assert composed.refusal_kind == "unsupported_spec_variable"
+
+
 def test_compose_s_and_r_narrowing_refuses_undefined_outcome_predicate() -> None:
     """If the reviewed S does not interpret the forbidden-outcome predicate Pred_<action>,
     the narrowing cannot tell whether S reaches the outcome the requirement forbids, so it
