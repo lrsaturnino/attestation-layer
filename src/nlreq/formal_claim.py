@@ -373,6 +373,39 @@ def formal_claim_fragment_post_state_value_literal(fragment: FormalClaimFragment
     return None
 
 
+_COMPARISON_TLA_OPERATORS: dict[str, str] = {
+    "eq": "=",
+    "neq": "/=",
+    "lt": "<",
+    "lte": "<=",
+    "gt": ">",
+    "gte": ">=",
+}
+
+
+def formal_claim_fragment_state_invariant_expr(fragment: FormalClaimFragment) -> str | None:
+    """The TLA+ comparison expression a numeric ``state_invariant`` fragment lowers to.
+
+    Numeric invariant coverage is expression-exact against the S ∧ R result's recorded
+    ``bound_state_invariants`` metadata. The fragment binds no ``Pred_*`` operator, so matching by
+    predicate would be vacuous; matching this rendered obligation keeps coverage tied to the actual
+    comparison conjoined into ``R_Requirement``.
+    """
+    if fragment.kind != "state_invariant" or len(fragment.operands) != 2:
+        return None
+    symbol = _COMPARISON_TLA_OPERATORS.get(str(fragment.operator))
+    if symbol is None:
+        return None
+    left, right = fragment.operands
+    return f"{_operand_tla(left)} {symbol} {_operand_tla(right)}"
+
+
+def _operand_tla(operand: FormalClaimOperand) -> str:
+    if operand.kind == "string":
+        return f'"{operand.value}"'
+    return str(operand.value)
+
+
 def _evidence_for_fragment_kind(kind: FormalClaimFragmentKind) -> EvidenceLevel:
     _map: dict[FormalClaimFragmentKind, EvidenceLevel] = {
         # A premise predicate is an uninterpreted boolean: it has no fragment-level SMT
@@ -418,8 +451,12 @@ def _evidence_for_fragment_kind(kind: FormalClaimFragmentKind) -> EvidenceLevel:
 # valid verdict covers and discharges the ``post_state`` fragment and a counterexample blocks it;
 # without a reviewed stateful S the composition refuses and the premise stays open, never
 # discharging on lower-grade trace evidence.
+# ``state_invariant`` is the numeric-invariant sibling: the S ∧ R narrowing conjoins
+# ``Premise => Obligation`` over S's own state variable into ``Inv``. It binds no ``Pred_*``, so the
+# coverage bridge matches the checked numeric comparison through ``bound_state_invariants`` metadata
+# emitted by ``solver_system_checker`` instead of through predicate names.
 _S_AND_R_DISCHARGED_KINDS: frozenset[FormalClaimFragmentKind] = frozenset(
-    {"predicate", "rejection_order", "post_state"}
+    {"predicate", "rejection_order", "post_state", "state_invariant"}
 )
 
 # Per-premise theory routing (PB-7). Comparison premises are discharged by the z3 Int/Real
@@ -438,9 +475,10 @@ _SMT_THEORY_DISCHARGED_KINDS: dict[FormalClaimFragmentKind, str] = {
 def _backend_for_fragment_kind(kind: FormalClaimFragmentKind, evidence: EvidenceLevel) -> str:
     """Return the backend_id that discharges a fragment of this kind at ``evidence`` (PB-7 routing).
 
-    Predicate/rejection-order fragments the S ∧ R composition checks route to
-    ``solver_system_checker``; comparison/membership premises route to their theory-aware SMT backend
-    (``smt-theories``/``cvc5``); everything else falls back to the evidence-level default.
+    Predicate/rejection-order/post-state/numeric-state-invariant fragments the S ∧ R composition
+    checks route to ``solver_system_checker``; comparison/membership premises route to their
+    theory-aware SMT backend (``smt-theories``/``cvc5``); everything else falls back to the
+    evidence-level default.
     """
     if kind in _S_AND_R_DISCHARGED_KINDS:
         return "solver_system_checker"

@@ -13,7 +13,7 @@ from nlreq.formal_claim_smt import (
     smt_check_formal_claim_predicate_fragments,
 )
 from nlreq.formal_claim import FormalClaimFragment, FormalClaimOperand
-from nlreq.models import EvidenceLevel
+from nlreq.models import BackendResult, EvidenceLevel
 from nlreq.proof_closure import build_proof_object
 
 
@@ -332,7 +332,29 @@ def test_numeric_invariant_with_set_membership_premise_smt_checked_end_to_end() 
     assert all(r.evidence_level == EvidenceLevel.SMT_CHECKED for r in membership_results)
 
 
-def _numeric_invariant_proof(premise_clause: str):
+def _backed_numeric_s_and_r_result(fragment_id: str) -> BackendResult:
+    return BackendResult(
+        backend="solver_system_checker",
+        status="valid",
+        evidence_level=EvidenceLevel.BOUNDED_CHECKED,
+        details={
+            "bounds": {"max_depth": 6},
+            "command": ["apalache-mc", "check"],
+            "tool_version": "test-apalache",
+            "bound_state_invariants": [
+                {
+                    "kind": "numeric_invariant",
+                    "premise_expr": "collateral >= 10 /\\ collateral <= 50",
+                    "obligation_expr": "collateral >= 1",
+                    "variables": ["collateral"],
+                }
+            ],
+            "covered_fragment_ids": [fragment_id],
+        },
+    )
+
+
+def _numeric_invariant_proof(premise_clause: str, *, include_backed_s_and_r: bool = False):
     """Build the proof object for a numeric_invariant requirement whose antecedent is
     ``premise_clause``, dispatching the FormalClaim fragments and feeding only the SMT results."""
     ir = DslV3Parser().parse_ir(
@@ -353,19 +375,26 @@ def _numeric_invariant_proof(premise_clause: str):
         *smt_check_formal_claim_predicate_fragments(report.formal_claim),
         *cvc5_check_formal_claim_premises(report.formal_claim),
     ]
+    if include_backed_s_and_r:
+        state_invariant = next(
+            f for f in report.formal_claim.obligations if f.kind == "state_invariant"
+        )
+        results.append(_backed_numeric_s_and_r_result(state_invariant.fragment_id))
     return build_proof_object(requirement=ir, backend_results=results, dispatch=plan)
 
 
 def test_consistent_comparison_premises_discharge_through_proof_object() -> None:
     """Wiring: the claim-level SMT result actually discharges the comparison premise routes in the
-    proof object (not a unit-tested island). Consistent bounds discharge; the state_invariant
-    obligation stays open for the S ∧ R model check — Z3 never claims an invariant it cannot prove."""
-    proof = _numeric_invariant_proof("collateral >= 10 and collateral <= 50")
+    proof object (not a unit-tested island). Consistent bounds discharge through SMT, and a backed
+    S ∧ R result explicitly attributed to the numeric invariant discharges the state_invariant route."""
+    proof = _numeric_invariant_proof(
+        "collateral >= 10 and collateral <= 50", include_backed_s_and_r=True
+    )
     by_kind = {(p.node_kind, p.premise_id): p.status for p in proof.premises}
     comparison_statuses = {s for (kind, _), s in by_kind.items() if kind == "comparison"}
     invariant_statuses = {s for (kind, _), s in by_kind.items() if kind == "state_invariant"}
     assert comparison_statuses == {"discharged"}
-    assert invariant_statuses == {"open"}  # routes to Apalache S∧R, not discharged by Z3
+    assert invariant_statuses == {"discharged"}
 
 
 def test_contradictory_comparison_premises_block_through_proof_object() -> None:

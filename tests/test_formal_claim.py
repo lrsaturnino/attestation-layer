@@ -57,6 +57,26 @@ def test_formal_claim_to_proof_premise_routes_evidence_by_kind() -> None:
     assert by_backend["rejection_order"] == "solver_system_checker"
 
 
+def test_numeric_state_invariant_routes_to_solver_system_checker() -> None:
+    """A numeric_invariant obligation is discharged by the S ∧ R producer, not generic Apalache."""
+    ir = DslV3Parser().parse_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when collateral >= 10 and collateral <= 50\n"
+        "then keep collateral >= 1\n",
+        requirement_id="NUMERIC-ROUTE-001",
+        title="Numeric invariant",
+    )
+    report = build_formal_claim(ir)
+    assert report.formal_claim is not None
+
+    routes = formal_claim_to_proof_premise_routes(report.formal_claim)
+    state_route = next(route for route in routes if route.node_kind == "state_invariant")
+
+    assert state_route.backend_id == "solver_system_checker"
+    assert state_route.required_evidence == EvidenceLevel.BOUNDED_CHECKED
+
+
 def test_formal_claim_routes_count_matches_fragments() -> None:
     """ProofPremiseRoute count equals premises + obligations (not scope or action)."""
     ir = DslV3Parser().parse_ir(

@@ -1319,6 +1319,7 @@ class ComposedSandRModule:
     refusal_reason: str | None = None
     preserved_invariants: list[str] = field(default_factory=list)
     bound_predicates: list[str] = field(default_factory=list)
+    bound_state_invariants: list[dict[str, object]] = field(default_factory=list)
 
 
 # Operators the composition itself emits; an inlined spec must not redefine them.
@@ -1769,9 +1770,9 @@ def _compose_system_narrowing(
                         f"system spec variable {var_name!r} shares a single '\\* @type:' "
                         "annotation with other names on a comma-separated VARIABLES line; one "
                         "annotation cannot type several names (Apalache rejects it: 'Expected a "
-                        "type annotation for VARIABLE ...'). Declare each variable with its own "
-                        "@type in Apalache's block form so the composition preserves the reviewed "
-                        "spec's declared types"
+                        "type annotation for VARIABLE ...'). Declare each variable on its own "
+                        "single-line VARIABLE declaration immediately preceded by its own @type "
+                        "comment, e.g. '\\* @type: Int;' then 'VARIABLE collateral'"
                     ),
                 )
             if var_name in _NARROWING_RESERVED_VARIABLES:
@@ -1948,21 +1949,35 @@ def _compose_system_narrowing(
         f"{const_init}\n"
         f"====\n"
     )
+    bound_state_invariants = (
+        [
+            {
+                "kind": "numeric_invariant",
+                "premise_expr": numeric_invariant_obligation.premise_expr,
+                "obligation_expr": numeric_invariant_obligation.obligation_expr,
+                "variables": list(numeric_invariant_obligation.variables),
+            }
+        ]
+        if numeric_invariant_obligation is not None
+        else []
+    )
+
     return ComposedSandRModule(
         status="composed",
         module_text=module_text,
         preserved_invariants=[*invariants, "R_Requirement"],
         bound_predicates=bound_predicates,
+        bound_state_invariants=bound_state_invariants,
     )
 
 
 # Sentinel recorded as a declaration's type annotation when a single ``\* @type:`` comment
 # precedes a *multi-name* comma-separated CONSTANTS/VARIABLES line. Apalache itself rejects that
 # form ("Expected a type annotation for VARIABLE <second-name>"), so the composition refuses it
-# (``unsupported_spec_variable``) rather than guess that one annotation types every name — the
-# reviewed S must use Apalache's block form (one ``@type`` per name) for the composition to
-# preserve its declared types. Constants are refused wholesale upstream, so only the variable path
-# inspects this sentinel.
+# (``unsupported_spec_variable``) rather than guess that one annotation types every name. The
+# reviewed S must use the parser-supported per-variable single-line form (one ``@type`` comment
+# immediately followed by one ``VARIABLE name`` line) for the composition to preserve its declared
+# types. Constants are refused wholesale upstream, so only the variable path inspects this sentinel.
 _AMBIGUOUS_MULTI_NAME_TYPE = "__nlr_ambiguous_multi_name_type__"
 
 
@@ -2009,7 +2024,8 @@ def _split_declarations(
     names — tags each name with the ``_AMBIGUOUS_MULTI_NAME_TYPE`` sentinel so the composition
     REFUSES it (``unsupported_spec_variable``): a single annotation cannot type several names, and
     Apalache itself rejects the form ("Expected a type annotation for VARIABLE <second>"). Per-name
-    types require Apalache's block form, which this single-line parser does not read.
+    types require the supported single-name declaration form: one ``@type`` comment immediately
+    followed by one ``VARIABLE name`` line.
 
     The composition re-emits declarations at the top so a predicate that reads a spec variable
     is not declared after its use.

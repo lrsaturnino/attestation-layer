@@ -377,6 +377,7 @@ def check_solver_backed_system_consistency(
         "bounds": runner_budget.model_dump(mode="json", exclude_none=True),
         "preserved_invariants": composed.preserved_invariants,
         "bound_predicates": composed.bound_predicates,
+        "bound_state_invariants": composed.bound_state_invariants,
         "spec_hashes": {
             spec_id: sha256_text(text)
             for spec_id, text in spec_texts

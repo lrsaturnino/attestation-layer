@@ -17,6 +17,7 @@ from .formal_claim import (
     build_proof_dispatch_plan_from_formal_claim,
     formal_claim_fragment_bound_predicate,
     formal_claim_fragment_post_state_value_literal,
+    formal_claim_fragment_state_invariant_expr,
 )
 from .formal_claim_backend import build_premise_consistency_agreement
 from .formal_claim_smt import smt_check_formal_claim_predicate_fragments
@@ -219,25 +220,31 @@ def _cover_s_and_r_fragments(result: BackendResult, claim: FormalClaim) -> Backe
     """Tag a solver-backed S ∧ R result with the fragment IDs its module actually bound.
 
     Only the ``solver_system_checker`` result discharges formal_claim routes, and it covers a
-    fragment exactly when that fragment's ``Pred_*`` operator appears in the result's recorded
-    ``bound_predicates`` — the operators the composition inlined into the checked ``Inv``. A
-    ``post_state`` fragment additionally requires a VALUE match: its required value literal must
+    predicate-backed fragment exactly when that fragment's ``Pred_*`` operator appears in the
+    result's recorded ``bound_predicates`` — the operators the composition inlined into the checked
+    ``Inv``. A ``post_state`` fragment additionally requires a VALUE match: its required value literal must
     equal the ``bound_post_state_value`` the narrowing recorded, so a bounded verdict for one value
     (e.g. "accepted") can never be re-tagged as covering a post_state fragment demanding a different
-    value (e.g. "rejected") that shares the same ``Pred_<state>`` operator. The backing metadata
-    (bounds, command, run-recorded tool_version) is preserved by copying onto the existing
-    ``details``; constructing a fresh result would drop it and trip PB-9's backing checks. Results
-    without ``bound_predicates`` (the in-process Z3 fixture, a refused composition) are returned
-    unchanged — they cover nothing.
+    value (e.g. "rejected") that shares the same ``Pred_<state>`` operator. A numeric
+    ``state_invariant`` binds no ``Pred_*`` at all, so it is covered only when the result records the
+    exact checked comparison in ``bound_state_invariants``. The backing metadata (bounds, command,
+    run-recorded tool_version) is preserved by copying onto the existing ``details``; constructing a
+    fresh result would drop it and trip PB-9's backing checks. Results without any bound fragments
+    (the in-process Z3 fixture, a refused composition) are returned unchanged — they cover nothing.
     """
     if result.backend != "solver_system_checker":
         return result
     bound = set(result.details.get("bound_predicates", []))
-    if not bound:
+    bound_state_invariants = _bound_state_invariant_exprs(result)
+    if not bound and not bound_state_invariants:
         return result
     bound_post_state_value = result.details.get("bound_post_state_value")
     covered: list[str] = []
     for fragment in [*claim.premises, *claim.obligations]:
+        if fragment.kind == "state_invariant":
+            if formal_claim_fragment_state_invariant_expr(fragment) in bound_state_invariants:
+                covered.append(fragment.fragment_id)
+            continue
         if formal_claim_fragment_bound_predicate(fragment) not in bound:
             continue
         if fragment.kind == "post_state":
@@ -252,6 +259,22 @@ def _cover_s_and_r_fragments(result: BackendResult, claim: FormalClaim) -> Backe
     return result.model_copy(
         update={"details": {**result.details, "covered_fragment_ids": covered}}
     )
+
+
+def _bound_state_invariant_exprs(result: BackendResult) -> set[str]:
+    raw = result.details.get("bound_state_invariants", [])
+    if not isinstance(raw, list):
+        return set()
+    expressions: set[str] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        if item.get("kind") != "numeric_invariant":
+            continue
+        expr = item.get("obligation_expr")
+        if isinstance(expr, str) and expr:
+            expressions.add(expr)
+    return expressions
 
 
 def run_end_to_end_requirement_gate(
@@ -548,15 +571,13 @@ def run_end_to_end_requirement_gate(
         )
         record("backend_agreement", "backend-agreement.json", backend_agreement)
         # Discharge the formal fragments the S ∧ R model check ACTUALLY verified. The solver
-        # result (solver_system_checker, BOUNDED_CHECKED) covers a fragment only when that
-        # fragment's Pred_* operator was bound into the composed module the checker ran —
-        # read from the result's own recorded ``bound_predicates``, never a static kind
-        # table. A stateless S that binds only the premise predicate covers the predicate but
-        # leaves the rejection-order obligation open (its outcome predicate was not bound); a
-        # stateful S that binds the forbidden outcome covers both. A counterexample/timeout
-        # marks the fragments covered as well, so _evaluate_premise blocks them (named) on the
-        # real verdict rather than reporting "no result". Tying coverage to what was checked
-        # keeps a false high-assurance label impossible.
+        # result (solver_system_checker, BOUNDED_CHECKED) covers a predicate-backed fragment only when
+        # that fragment's Pred_* operator was bound into the composed module the checker ran — read
+        # from the result's own recorded ``bound_predicates``, never a static kind table. Numeric
+        # state_invariant fragments bind no Pred_*, so they require the exact checked comparison from
+        # ``bound_state_invariants``. A counterexample/timeout marks the covered fragments too, so
+        # _evaluate_premise blocks them (named) on the real verdict rather than reporting "no result".
+        # Tying coverage to what was checked keeps a false high-assurance label impossible.
         system_backend_results = [
             _cover_s_and_r_fragments(result, formal_claim_preview.formal_claim)
             for result in system_backend_results

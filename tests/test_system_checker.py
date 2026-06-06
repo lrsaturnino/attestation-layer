@@ -7,7 +7,10 @@ import pytest
 
 from nlreq.cli import main
 from nlreq.dsl_v2 import DslV2Parser
+from nlreq.end_to_end_gate import _cover_s_and_r_fragments
 from nlreq.formal_backend import FormalBackendBudget, FormalBackendExecution
+from nlreq.formal_claim import build_formal_claim, build_proof_dispatch_plan_from_formal_claim
+from nlreq.formal_claim_smt import smt_check_formal_claim_predicate_fragments
 from nlreq.formal_lowering import (
     OutcomePredicate,
     PostStateObligation,
@@ -20,6 +23,7 @@ from nlreq.formal_lowering import (
 from nlreq.impact import ImpactAnalysisArtifact
 from nlreq.models import EvidenceLevel, RequirementIR
 from nlreq.parser import RequirementParser
+from nlreq.proof_closure import build_proof_object
 from nlreq.system_checker import (
     APALACHE_S_AND_R_COMMAND,
     DEFAULT_S_AND_R_DEPTH,
@@ -559,6 +563,20 @@ def _itf_traces_under(artifact_dir: Path) -> list[dict]:
     return traces
 
 
+def _numeric_invariant_proof_from_solver_result(ir, result):
+    claim = build_formal_claim(ir).formal_claim
+    assert claim is not None
+    covered_solver_result = _cover_s_and_r_fragments(result.result, claim)
+    return build_proof_object(
+        requirement=ir,
+        backend_results=[
+            covered_solver_result,
+            *smt_check_formal_claim_predicate_fragments(claim),
+        ],
+        dispatch=build_proof_dispatch_plan_from_formal_claim(claim),
+    )
+
+
 @pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
 def test_solver_backed_narrowing_compatible_requirement_is_valid(tmp_path: Path) -> None:
     """SP2-B (stateful S): a requirement compatible with a reviewed S that has its own
@@ -702,6 +720,16 @@ def test_solver_backed_numeric_invariant_compatible_is_valid(tmp_path: Path) -> 
     assert "R_Requirement == collateral >= 10 /\\ collateral <= 50 => collateral >= 1" in composed
     assert "nlr_prev_premise" not in composed  # numeric is a same-state invariant: no ghost variable
 
+    proof = _numeric_invariant_proof_from_solver_result(ir, result)
+    state_invariant = next(p for p in proof.premises if p.node_kind == "state_invariant")
+    comparison = [p for p in proof.premises if p.node_kind == "comparison"]
+    assert comparison
+    assert all(p.status == "discharged" for p in comparison)
+    assert state_invariant.routed_backend == "solver_system_checker"
+    assert state_invariant.status == "discharged"
+    assert state_invariant.producer_id == "solver_system_checker"
+    assert state_invariant.achieved_evidence == EvidenceLevel.BOUNDED_CHECKED
+
 
 @pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
 def test_solver_backed_numeric_invariant_violating_yields_counterexample(tmp_path: Path) -> None:
@@ -735,6 +763,12 @@ def test_solver_backed_numeric_invariant_violating_yields_counterexample(tmp_pat
     # The violation is a real S behavior: S steps `collateral` into the premise band yet below the
     # kept bound (in [10, 50] and < 20), reachable only via S's own decrement transition.
     assert any(c is not None and 10 <= c <= 50 and c < 20 for c in collaterals), collaterals
+
+    proof = _numeric_invariant_proof_from_solver_result(ir, result)
+    state_invariant = next(p for p in proof.premises if p.node_kind == "state_invariant")
+    assert state_invariant.routed_backend == "solver_system_checker"
+    assert state_invariant.status == "blocked"
+    assert state_invariant.backend_status == "counterexample"
 
 
 def test_solver_backed_runs_checker_over_composed_module(tmp_path: Path) -> None:
@@ -1752,7 +1786,7 @@ def test_compose_s_and_r_narrowing_refuses_typed_multi_name_variables() -> None:
     several names — Apalache itself rejects the form ("Expected a type annotation for VARIABLE
     <second>") — so the composition refuses rather than guess that the annotation types every name
     and check the reviewed S against a changed variable surface. A real numeric/Bool spec must use
-    Apalache's block form (one ``@type`` per name) to carry per-variable types through."""
+    one supported single-name ``VARIABLE`` declaration per type annotation."""
     spec_typed_multi = (
         "---- MODULE Sys ----\n"
         "EXTENDS Naturals, TLC\n\n"
@@ -1777,6 +1811,8 @@ def test_compose_s_and_r_narrowing_refuses_typed_multi_name_variables() -> None:
 
     assert composed.status == "refused"
     assert composed.refusal_kind == "unsupported_spec_variable"
+    assert "single-line VARIABLE declaration" in (composed.refusal_reason or "")
+    assert "block form" not in (composed.refusal_reason or "")
 
 
 def test_compose_s_and_r_narrowing_refuses_undefined_outcome_predicate() -> None:
