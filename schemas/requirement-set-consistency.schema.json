@@ -5,8 +5,9 @@
       "properties": {
         "contradiction_type": {
           "enum": [
-            "opposite_predicate",
-            "numeric_bound_conflict"
+            "numeric_range_disjointness",
+            "mutual_exclusion",
+            "action_order_conflict"
           ],
           "title": "Contradiction Type",
           "type": "string"
@@ -29,6 +30,7 @@
           "items": {
             "$ref": "#/$defs/SourceSpan"
           },
+          "minItems": 1,
           "title": "Source Spans",
           "type": "array"
         }
@@ -36,7 +38,8 @@
       "required": [
         "contradiction_type",
         "requirement_ids",
-        "fragments"
+        "fragments",
+        "source_spans"
       ],
       "title": "RequirementContradiction",
       "type": "object"

@@ -1,11 +1,14 @@
 from __future__ import annotations
 
-from fractions import Fraction
 from pathlib import Path
-from typing import Literal, NamedTuple
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .contradiction_taxonomy import (
+    RequirementContradiction,
+    detect_cross_requirement_contradictions,
+)
 from .formal_backend import FormalBackendBudget, FormalBackendExecution
 from .formal_lowering import (
     NumericInvariantObligation,
@@ -31,13 +34,9 @@ from .models import (
     BackendResult,
     Counterexample,
     EvidenceLevel,
-    Predicate,
-    RequirementIR,
     RequirementIRV2,
-    SourceSpan,
     bounded_evidence_backing_complete,
 )
-from .numeric_literal import exact_fraction, numeric_bounds_conflict
 from .system_spec import SystemSpecRegistry, build_system_spec_registry_report, specs_for_impact
 from .impact import ImpactAnalysisArtifact
 from .translator import LoweredFormalArtifact
@@ -106,15 +105,6 @@ class SystemConsistencyResult(BaseModel):
     result: BackendResult
     counterexamples: list[Counterexample] = Field(default_factory=list)
     spec_ids: list[str] = Field(default_factory=list)
-
-
-class RequirementContradiction(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
-    contradiction_type: Literal["opposite_predicate", "numeric_bound_conflict"]
-    requirement_ids: list[str]
-    fragments: list[str]
-    source_spans: list[SourceSpan] = Field(default_factory=list)
 
 
 class RequirementSetConsistencyReport(BaseModel):
@@ -489,119 +479,33 @@ def unsupported_system_consistency_without_invariant(
     )
 
 
-def check_requirement_set_consistency(requirements: list[RequirementIR]) -> RequirementSetConsistencyReport:
-    contradictions: list[RequirementContradiction] = []
-    seen: dict[tuple[str, tuple[str, ...]], tuple[str, Predicate]] = {}
-    opposites = {
-        "authorized": "not_authorized",
-        "not_authorized": "authorized",
-        "approved": "not_approved",
-        "not_approved": "approved",
-        "eq": "neq",
-        "neq": "eq",
-    }
-    for ir in requirements:
-        for predicate in ir.claim.condition:
-            args = tuple(str(arg.value) for arg in predicate.args)
-            opposite = (opposites.get(predicate.op, ""), args)
-            if opposite in seen:
-                other_id, other_predicate = seen[opposite]
-                contradictions.append(
-                    RequirementContradiction(
-                        contradiction_type="opposite_predicate",
-                        requirement_ids=[other_id, ir.requirement_id],
-                        fragments=[other_predicate.source_span.text, predicate.source_span.text],
-                        source_spans=[other_predicate.source_span, predicate.source_span],
-                    )
-                )
-            seen[(predicate.op, args)] = (ir.requirement_id, predicate)
-    contradictions.extend(_numeric_bound_conflicts(requirements))
+def check_requirement_set_consistency(
+    requirements: list[RequirementIRV2],
+) -> RequirementSetConsistencyReport:
+    """Cross-requirement consistency decided over typed ``FormalClaim`` fragments.
+
+    Each requirement is lowered to a ``FormalClaim`` and the deterministic taxonomy
+    (:func:`nlreq.contradiction_taxonomy.detect_cross_requirement_contradictions`) compares the
+    *obligations* of every pair of requirements whose premises provably co-occur on a shared scope.
+    Opposite premises across requirements are the two halves of a complete specification, not a
+    contradiction, so they are never flagged. A requirement that cannot be lowered is skipped here —
+    its lowering refusal is surfaced by ``build_formal_claim`` itself — rather than silently treated
+    as consistent with the rest.
+    """
+    # Local import: formal_claim's module transitively imports this one, so importing it at module
+    # scope would close an initialization cycle. At call time every module is fully loaded.
+    from .formal_claim import build_formal_claim
+
+    claims = []
+    for requirement in requirements:
+        report = build_formal_claim(requirement)
+        if report.result == "lowered" and report.formal_claim is not None:
+            claims.append(report.formal_claim)
+    contradictions = detect_cross_requirement_contradictions(claims)
     return RequirementSetConsistencyReport(
         result="contradiction" if contradictions else "valid",
         contradictions=contradictions,
     )
-
-
-# Comparison ops that bound a value: gt/gte are lower bounds, lt/lte upper bounds.
-_NUMERIC_BOUND_OPS = frozenset({"gt", "lt", "gte", "lte"})
-
-
-class _NumericBound(NamedTuple):
-    variable: str
-    requirement_id: str
-    predicate: Predicate
-    value: Fraction
-    inclusive: bool
-    is_lower: bool
-
-
-def _numeric_bound(requirement_id: str, predicate: Predicate) -> _NumericBound | None:
-    """A comparison ``<identifier> <op> <number>`` read as a lower/upper bound on that identifier.
-
-    Only the canonical ``identifier <op> numeric-literal`` shape contributes a bound — mirroring the
-    single-requirement numeric checker (`requirement_self_consistency._numeric_bound_conflicts`). A
-    non-numeric operand, a reversed ``number <op> identifier``, or an undecidable literal yields no
-    bound and is left undecided rather than guessed. ``gt``/``gte`` are lower bounds, ``lt``/``lte``
-    upper bounds; ``gte``/``lte`` are inclusive. The literal is read at exact precision so a conflict
-    between large-integer bounds is not lost to float rounding.
-    """
-    if predicate.op not in _NUMERIC_BOUND_OPS or len(predicate.args) < 2:
-        return None
-    variable, literal = predicate.args[0], predicate.args[1]
-    if variable.kind != "identifier" or literal.kind != "number":
-        return None
-    value = exact_fraction(literal.value)
-    if value is None:
-        return None
-    return _NumericBound(
-        variable=str(variable.value),
-        requirement_id=requirement_id,
-        predicate=predicate,
-        value=value,
-        inclusive=predicate.op in {"gte", "lte"},
-        is_lower=predicate.op in {"gt", "gte"},
-    )
-
-
-def _numeric_bound_conflicts(
-    requirements: list[RequirementIR],
-) -> list[RequirementContradiction]:
-    """Flag any value whose numeric bounds, pooled across the requirement set, cannot all hold.
-
-    The opposites table above only catches literal ``approved``/``not_approved`` style pairs and
-    misses incompatible numeric ranges. Here every comparison-to-a-literal in any requirement's
-    condition contributes a lower or upper bound on its identifier; bounds for the same identifier
-    are pooled across ALL requirements, so ``collateral is at least 10`` in one requirement and
-    ``collateral is at most 5`` in another are recognised as a joint contradiction (an empty
-    interval) even though each requirement is satisfiable on its own. Interval reasoning is exact
-    (see :func:`numeric_bounds_conflict`). This is the deterministic cross-set numeric class; general
-    joint satisfiability over the full premise conjunction is a separate SMT concern.
-    """
-    bounds_by_variable: dict[str, list[_NumericBound]] = {}
-    for ir in requirements:
-        for predicate in ir.claim.condition:
-            bound = _numeric_bound(ir.requirement_id, predicate)
-            if bound is not None:
-                bounds_by_variable.setdefault(bound.variable, []).append(bound)
-    contradictions: list[RequirementContradiction] = []
-    for bounds in bounds_by_variable.values():
-        lower = [(bound.value, bound.inclusive) for bound in bounds if bound.is_lower]
-        upper = [(bound.value, bound.inclusive) for bound in bounds if not bound.is_lower]
-        if not lower or not upper or not numeric_bounds_conflict(lower, upper):
-            continue
-        requirement_ids: list[str] = []
-        for bound in bounds:
-            if bound.requirement_id not in requirement_ids:
-                requirement_ids.append(bound.requirement_id)
-        contradictions.append(
-            RequirementContradiction(
-                contradiction_type="numeric_bound_conflict",
-                requirement_ids=requirement_ids,
-                fragments=[bound.predicate.source_span.text for bound in bounds],
-                source_spans=[bound.predicate.source_span for bound in bounds],
-            )
-        )
-    return contradictions
 
 
 def _system_result(

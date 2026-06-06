@@ -2714,10 +2714,15 @@ def main(argv: list[str] | None = None) -> int:
             return 0
         if args.command == "requirement-set-consistency":
             from .jsonutil import write_json
+            from .models import RequirementIRV2
 
-            report = check_requirement_set_consistency(
-                [RequirementIR.model_validate_json(path.read_text()) for path in args.ir]
-            )
+            requirements = []
+            for path in args.ir:
+                ir = validate_requirement_ir_json(path.read_text())
+                if not isinstance(ir, RequirementIRV2):
+                    raise ValueError("requirement-set-consistency requires ir_version 0.2")
+                requirements.append(ir)
+            report = check_requirement_set_consistency(requirements)
             if args.out:
                 write_json(args.out, report)
                 print(f"Requirement set consistency: {args.out}")

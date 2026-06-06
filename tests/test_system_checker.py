@@ -6,7 +6,9 @@ from pathlib import Path
 import pytest
 
 from nlreq.cli import main
+from nlreq.contradiction_taxonomy import build_cross_requirement_contradiction_taxonomy
 from nlreq.dsl_v2 import DslV2Parser
+from nlreq.dsl_v3 import DslV3Parser
 from nlreq.end_to_end_gate import _cover_s_and_r_fragments
 from nlreq.formal_backend import FormalBackendBudget, FormalBackendExecution
 from nlreq.formal_claim import build_formal_claim, build_proof_dispatch_plan_from_formal_claim
@@ -21,8 +23,7 @@ from nlreq.formal_lowering import (
     validate_state_postcondition_shape,
 )
 from nlreq.impact import ImpactAnalysisArtifact
-from nlreq.models import EvidenceLevel, RequirementIR
-from nlreq.parser import RequirementParser
+from nlreq.models import EvidenceLevel
 from nlreq.proof_closure import build_proof_object
 from nlreq.system_checker import (
     APALACHE_S_AND_R_COMMAND,
@@ -118,93 +119,330 @@ def test_system_consistency_returns_unsupported_for_refused_lowering(tmp_path: P
     assert result.result.status == "unsupported"
 
 
-def test_requirement_set_consistency_detects_opposite_predicates() -> None:
-    parser = RequirementParser()
-    approved = parser.parse_ir(
-        "For every operation request:\n"
-        "if actor is approved\n"
-        "then operation must succeed.\n",
-        requirement_id="REQ-APPROVED",
-        title="Approved",
-        claim_kind="state_precondition",
+def _set_ir(text: str, requirement_id: str):
+    """Parse one v3 requirement for the cross-requirement set checker."""
+    return DslV3Parser().parse_ir(text, requirement_id=requirement_id, title=requirement_id)
+
+
+# Cross-requirement consistency is decided over typed FormalClaim *obligation* fragments. The unit
+# of conflict is what two requirements must both make true under co-occurring premises on a shared
+# scope — not their premises. Each detected class below has a positive fixture and a discrimination
+# control; the four classes the v3 grammar cannot express across requirements have controls showing
+# the checker does not invent a contradiction (see the taxonomy table for the reason each is
+# catalogued but not emitted).
+
+
+def test_requirement_set_consistency_numeric_range_disjointness() -> None:
+    """Two invariant obligations on one variable, under the same condition, bound an empty interval."""
+    floor = _set_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when actor is approved\n"
+        "then keep collateral >= 10\n",
+        "REQ-FLOOR",
     )
-    not_approved = parser.parse_ir(
-        "For every operation request:\n"
-        "if actor is not approved\n"
-        "then operation must be rejected.\n",
-        requirement_id="REQ-NOT-APPROVED",
-        title="Not approved",
-        claim_kind="state_precondition",
-    )
-
-    report = check_requirement_set_consistency([approved, not_approved])
-
-    assert report.result == "contradiction"
-    assert report.contradictions[0].contradiction_type == "opposite_predicate"
-
-
-def test_requirement_set_consistency_detects_numeric_bound_conflict() -> None:
-    """Cross-requirement numeric-range disjointness: a lower bound in one requirement and an upper
-    bound in another bound an empty interval. The toy opposites table only caught literal
-    approved/not_approved style pairs and missed this jointly-inconsistent numeric case."""
-    parser = RequirementParser()
-    floor = parser.parse_ir(
-        "For every reserve operation:\n"
-        "if collateral is at least 10\n"
-        "then operation must succeed.\n",
-        requirement_id="REQ-FLOOR",
-        title="Collateral floor",
-        claim_kind="numeric_invariant",
-    )
-    ceiling = parser.parse_ir(
-        "For every reserve operation:\n"
-        "if collateral is at most 5\n"
-        "then operation must succeed.\n",
-        requirement_id="REQ-CEILING",
-        title="Collateral ceiling",
-        claim_kind="numeric_invariant",
+    ceiling = _set_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when actor is approved\n"
+        "then keep collateral <= 5\n",
+        "REQ-CEILING",
     )
 
     report = check_requirement_set_consistency([floor, ceiling])
 
     assert report.result == "contradiction"
     conflicts = [
-        c for c in report.contradictions if c.contradiction_type == "numeric_bound_conflict"
+        c for c in report.contradictions if c.contradiction_type == "numeric_range_disjointness"
     ]
     assert len(conflicts) == 1
     assert conflicts[0].requirement_ids == ["REQ-FLOOR", "REQ-CEILING"]
     # The offending fragments carry their source spans (no bare "set is inconsistent").
     assert [span.text for span in conflicts[0].source_spans] == [
-        "collateral is at least 10",
-        "collateral is at most 5",
+        "keep collateral >= 10",
+        "keep collateral <= 5",
     ]
 
 
 def test_requirement_set_consistency_allows_compatible_numeric_bounds() -> None:
     """Discrimination control: a lower bound below the upper bound bounds a non-empty interval, so
     the same machinery must NOT flag compatible ranges — only genuinely empty ones."""
-    parser = RequirementParser()
-    floor = parser.parse_ir(
-        "For every reserve operation:\n"
-        "if collateral is at least 10\n"
-        "then operation must succeed.\n",
-        requirement_id="REQ-FLOOR",
-        title="Collateral floor",
-        claim_kind="numeric_invariant",
+    floor = _set_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when actor is approved\n"
+        "then keep collateral >= 10\n",
+        "REQ-FLOOR",
     )
-    ceiling = parser.parse_ir(
-        "For every reserve operation:\n"
-        "if collateral is at most 50\n"
-        "then operation must succeed.\n",
-        requirement_id="REQ-CEILING",
-        title="Collateral ceiling",
-        claim_kind="numeric_invariant",
+    ceiling = _set_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when actor is approved\n"
+        "then keep collateral <= 50\n",
+        "REQ-CEILING",
     )
 
     report = check_requirement_set_consistency([floor, ceiling])
 
     assert report.result == "valid"
     assert report.contradictions == []
+
+
+def test_requirement_set_consistency_numeric_core_blames_only_binding_bounds() -> None:
+    """Minimal conflicting core: only the strongest lower and strongest upper are blamed. A third,
+    compatible bound on the same variable is not dragged into the report."""
+    floor = _set_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when actor is approved\n"
+        "then keep collateral >= 10\n",
+        "REQ-FLOOR",
+    )
+    ceiling = _set_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when actor is approved\n"
+        "then keep collateral <= 5 and keep collateral <= 8\n",
+        "REQ-CEILING",
+    )
+
+    report = check_requirement_set_consistency([floor, ceiling])
+
+    conflicts = [
+        c for c in report.contradictions if c.contradiction_type == "numeric_range_disjointness"
+    ]
+    assert len(conflicts) == 1
+    spans = [span.text for span in conflicts[0].source_spans]
+    assert spans == ["keep collateral >= 10", "keep collateral <= 5"]
+    assert "keep collateral <= 8" not in spans
+
+
+def test_requirement_set_consistency_gate_skips_disjoint_premises() -> None:
+    """Conditional-overlap gate: opposite premises (approved vs not approved) are the two halves of a
+    complete specification, never both firing, so conflicting obligations under them are NOT a
+    contradiction. The old premise-pooling checker reported this consistent pair as a conflict."""
+    approve = _set_ir(
+        "requirement state_precondition:\n"
+        "scope operation\n"
+        "when actor is approved\n"
+        "then operation must succeed\n",
+        "REQ-APPROVED",
+    )
+    reject = _set_ir(
+        "requirement state_precondition:\n"
+        "scope operation\n"
+        "when actor is not approved\n"
+        "then operation must reject before settled\n",
+        "REQ-NOT-APPROVED",
+    )
+
+    report = check_requirement_set_consistency([approve, reject])
+
+    assert report.result == "valid"
+    assert report.contradictions == []
+
+
+def test_requirement_set_consistency_mutual_exclusion() -> None:
+    """Two post-state obligations pin the same variable to incompatible values under one condition."""
+    active = _set_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        "when actor is approved\n"
+        "then state status must be active\n",
+        "REQ-ACTIVE",
+    )
+    frozen = _set_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        "when actor is approved\n"
+        "then state status must be frozen\n",
+        "REQ-FROZEN",
+    )
+
+    report = check_requirement_set_consistency([active, frozen])
+
+    assert report.result == "contradiction"
+    conflicts = [c for c in report.contradictions if c.contradiction_type == "mutual_exclusion"]
+    assert len(conflicts) == 1
+    assert conflicts[0].requirement_ids == ["REQ-ACTIVE", "REQ-FROZEN"]
+    assert [span.text for span in conflicts[0].source_spans] == [
+        "state status must be active",
+        "state status must be frozen",
+    ]
+
+
+def test_requirement_set_consistency_allows_agreeing_post_state() -> None:
+    """Discrimination control: pinning the same variable to the same value is not a conflict."""
+    active = _set_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        "when actor is approved\n"
+        "then state status must be active\n",
+        "REQ-ACTIVE-1",
+    )
+    also_active = _set_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        "when actor is approved\n"
+        "then state status must be active\n",
+        "REQ-ACTIVE-2",
+    )
+
+    report = check_requirement_set_consistency([active, also_active])
+
+    assert report.result == "valid"
+    assert report.contradictions == []
+
+
+def test_requirement_set_consistency_action_order_conflict() -> None:
+    """One requirement requires an action to succeed, another to be rejected, under one condition."""
+    succeed = _set_ir(
+        "requirement state_precondition:\n"
+        "scope operation\n"
+        "when actor is approved\n"
+        "then operation must succeed\n",
+        "REQ-SUCCEED",
+    )
+    reject = _set_ir(
+        "requirement state_precondition:\n"
+        "scope operation\n"
+        "when actor is approved\n"
+        "then operation must reject before settled\n",
+        "REQ-REJECT",
+    )
+
+    report = check_requirement_set_consistency([succeed, reject])
+
+    assert report.result == "contradiction"
+    conflicts = [
+        c for c in report.contradictions if c.contradiction_type == "action_order_conflict"
+    ]
+    assert len(conflicts) == 1
+    assert conflicts[0].requirement_ids == ["REQ-SUCCEED", "REQ-REJECT"]
+    assert [span.text for span in conflicts[0].source_spans] == [
+        "operation must succeed",
+        "operation must reject before settled",
+    ]
+
+
+def test_requirement_set_consistency_skips_conflicts_across_scopes() -> None:
+    """Quantifier-scope control: obligations on different scopes address different state, so a bound
+    conflict across two scopes is not a contradiction (the v3 grammar has no scope subsumption)."""
+    reserve = _set_ir(
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when actor is approved\n"
+        "then keep collateral >= 10\n",
+        "REQ-RESERVE",
+    )
+    vault = _set_ir(
+        "requirement numeric_invariant:\n"
+        "scope vault\n"
+        "when actor is approved\n"
+        "then keep collateral <= 5\n",
+        "REQ-VAULT",
+    )
+
+    report = check_requirement_set_consistency([reserve, vault])
+
+    assert report.result == "valid"
+    assert report.contradictions == []
+
+
+def test_requirement_set_consistency_temporal_upper_bounds_are_not_conflict() -> None:
+    """Temporal control: 'within N' is an upper bound only, so two temporal obligations can always
+    both hold (the tighter wins) and never conflict across requirements."""
+    six_hours = _set_ir(
+        "requirement bounded_temporal:\n"
+        "scope settlement\n"
+        "when actor is approved\n"
+        "then emit Settled within 6 hours\n",
+        "REQ-6H",
+    )
+    three_hours = _set_ir(
+        "requirement bounded_temporal:\n"
+        "scope settlement\n"
+        "when actor is approved\n"
+        "then emit Settled within 3 hours\n",
+        "REQ-3H",
+    )
+
+    report = check_requirement_set_consistency([six_hours, three_hours])
+
+    assert report.result == "valid"
+    assert report.contradictions == []
+
+
+def test_requirement_set_consistency_boolean_negation_surfaces_as_mutual_exclusion() -> None:
+    """Negation control: the grammar has no negatable obligation, so a direct boolean negation
+    (flag true vs flag false) surfaces through the post-state channel as mutual_exclusion — exactly
+    as the taxonomy entry for `negation` states."""
+    flag_true = _set_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        "when actor is approved\n"
+        "then state flag must be true\n",
+        "REQ-FLAG-TRUE",
+    )
+    flag_false = _set_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        "when actor is approved\n"
+        "then state flag must be false\n",
+        "REQ-FLAG-FALSE",
+    )
+
+    report = check_requirement_set_consistency([flag_true, flag_false])
+
+    assert report.result == "contradiction"
+    assert [c.contradiction_type for c in report.contradictions] == ["mutual_exclusion"]
+    assert [span.text for span in report.contradictions[0].source_spans] == [
+        "state flag must be true",
+        "state flag must be false",
+    ]
+
+
+def test_cross_requirement_contradiction_taxonomy_catalogues_seven_classes() -> None:
+    """The taxonomy enumerates all seven contradiction classes and marks which are deterministically
+    detected at the set level; the rest carry the reason they are catalogued but not emitted."""
+    taxonomy = build_cross_requirement_contradiction_taxonomy()
+
+    by_type = {entry.contradiction_type: entry for entry in taxonomy.classes}
+    assert set(by_type) == {
+        "negation",
+        "mutual_exclusion",
+        "conditional_overlap",
+        "quantifier_scope_conflict",
+        "numeric_range_disjointness",
+        "temporal_conflict",
+        "action_order_conflict",
+    }
+    detected = {name for name, entry in by_type.items() if entry.detected}
+    assert detected == {
+        "numeric_range_disjointness",
+        "mutual_exclusion",
+        "action_order_conflict",
+    }
+    # Every catalogued-but-not-detected class records why, so "not detected" is never silent.
+    assert all(entry.reason for entry in taxonomy.classes if not entry.detected)
+
+
+def test_requirement_contradiction_requires_source_spans() -> None:
+    """A deterministic contradiction must point at the offending source text: the model rejects an
+    empty span list. The set checker re-exports the same model the taxonomy module owns."""
+    from pydantic import ValidationError
+
+    from nlreq.contradiction_taxonomy import RequirementContradiction as TaxonomyContradiction
+    from nlreq.system_checker import RequirementContradiction as ReexportedContradiction
+
+    assert ReexportedContradiction is TaxonomyContradiction
+    with pytest.raises(ValidationError):
+        TaxonomyContradiction(
+            contradiction_type="numeric_range_disjointness",
+            requirement_ids=["A", "B"],
+            fragments=["invariant(gte(x,10))", "invariant(lte(x,5))"],
+            source_spans=[],
+        )
 
 
 # ---------------------------------------------------------------------------
