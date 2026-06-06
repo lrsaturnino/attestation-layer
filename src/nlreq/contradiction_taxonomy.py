@@ -107,16 +107,25 @@ class CrossRequirementConsistencyResult(NamedTuple):
     unchecked: list[UncheckedRequirement]
 
 
+# How the set checker treats a class. ``emitted``: decided over obligation fragments and reported
+# as a finding. ``gate``: implemented as the co-occurrence precondition every emitted class runs
+# under — real, tested logic, but not itself a standalone finding. ``grammar_deferred``: the v3
+# grammar cannot express the conflict across requirements, so there is nothing to detect. This
+# disambiguates the two reasons ``detected`` is False (a real implemented gate vs a grammar limit),
+# so a False entry is never mistaken for an unimplemented or skipped check.
+CrossRequirementClassHandling = Literal["emitted", "gate", "grammar_deferred"]
+
+
 class CrossRequirementContradictionClass(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     contradiction_type: str
     description: str
-    # True when the deterministic set checker emits this class; False when it is catalogued but not
-    # decided here (either the v3 grammar cannot express the conflict, or it is the co-occurrence
-    # gate rather than a standalone finding). ``reason`` records which, so "not detected" is never
-    # silent acceptance of a real contradiction.
+    # True only for ``handling == "emitted"`` classes; False for ``gate`` and ``grammar_deferred``.
+    # ``handling`` says which, and ``reason`` records why, so "not detected" is never silent
+    # acceptance of a real contradiction.
     detected: bool
+    handling: CrossRequirementClassHandling
     reason: str
 
 
@@ -144,6 +153,7 @@ def build_cross_requirement_contradiction_taxonomy() -> CrossRequirementContradi
                 contradiction_type="negation",
                 description="A requirement obligation and its direct logical negation are both required.",
                 detected=False,
+                handling="grammar_deferred",
                 reason=(
                     "The v3 obligation grammar has no negatable boolean obligation, so direct "
                     "negation between two requirements' obligations is not separately expressible. "
@@ -156,6 +166,7 @@ def build_cross_requirement_contradiction_taxonomy() -> CrossRequirementContradi
                 contradiction_type="mutual_exclusion",
                 description="Two requirements force the same post-state variable to incompatible values.",
                 detected=True,
+                handling="emitted",
                 reason=(
                     "Decided over post_state obligation fragments that pin the same variable to "
                     "different values on a shared scope with co-occurring premises."
@@ -165,6 +176,7 @@ def build_cross_requirement_contradiction_taxonomy() -> CrossRequirementContradi
                 contradiction_type="conditional_overlap",
                 description="Requirements with overlapping conditions impose conflicting obligations.",
                 detected=False,
+                handling="gate",
                 reason=(
                     "Conditional overlap is the co-occurrence gate every other class is checked "
                     "under, not a standalone finding: two requirements' obligations are compared "
@@ -180,6 +192,7 @@ def build_cross_requirement_contradiction_taxonomy() -> CrossRequirementContradi
                 contradiction_type="quantifier_scope_conflict",
                 description="Conflicting requirements quantified over incompatible scopes.",
                 detected=False,
+                handling="grammar_deferred",
                 reason=(
                     "The v3 scope grammar binds a single flat scope name with no nesting or "
                     "subsumption, so there is no quantifier alternation to conflict. Obligations on "
@@ -190,6 +203,7 @@ def build_cross_requirement_contradiction_taxonomy() -> CrossRequirementContradi
                 contradiction_type="numeric_range_disjointness",
                 description="Two requirements bound the same value to an empty numeric interval.",
                 detected=True,
+                handling="emitted",
                 reason=(
                     "Decided over state_invariant obligation bounds on a shared scope with "
                     "co-occurring premises; only the binding lower/upper pair is reported."
@@ -199,6 +213,7 @@ def build_cross_requirement_contradiction_taxonomy() -> CrossRequirementContradi
                 contradiction_type="temporal_conflict",
                 description="Two requirements impose incompatible temporal bounds on the same response.",
                 detected=False,
+                handling="grammar_deferred",
                 reason=(
                     "The v3 temporal grammar ('within N') expresses only an upper bound, so two "
                     "temporal obligations can always both hold (the tighter bound wins) and never "
@@ -210,6 +225,7 @@ def build_cross_requirement_contradiction_taxonomy() -> CrossRequirementContradi
                 contradiction_type="action_order_conflict",
                 description="Two requirements require the same action to both succeed and be rejected.",
                 detected=True,
+                handling="emitted",
                 reason=(
                     "Decided over success vs rejection_order obligation fragments naming the same "
                     "action on a shared scope with co-occurring premises."
@@ -254,18 +270,21 @@ def _premises_co_occur(left: FormalClaim, right: FormalClaim) -> bool:
 
     Two requirements impose conflicting obligations only in a state where both their premises hold,
     so this is the conditional-overlap gate every obligation detector runs under. It is decided by
-    satisfiability: the two premise sets co-occur exactly when their conjunction is satisfiable. This
-    is strictly more than the old equal-signatures rule — it also clears genuinely overlapping but
-    non-identical premises (``actor approved`` and ``actor approved and collateral >= 10`` co-occur
-    when both hold; an unconditional requirement co-occurs with any satisfiable conditional one) —
-    while still declining disjoint premises (``approved`` vs ``not_approved``, or numerically empty
-    overlaps such as ``amount >= 10`` with ``amount <= 5``), which is the never-flag invariant.
+    satisfiability: the premises co-occur exactly when their conjunction is satisfiable. This flags
+    EVERY pair whose premises can jointly hold — not only identical premises but also overlapping
+    but non-identical ones (``actor approved`` and ``actor approved and collateral >= 10``),
+    independent premises that can both be true (``approved`` and ``confirmed``), and the
+    unconditional-vs-conditional case — because from the requirements alone such premises do
+    co-occur, so a conflict between the obligations they impose is real. This breadth is deliberate,
+    strictly wider than the old equal-signatures rule. Soundness rests on the encoding catching
+    genuine impossibility as UNSAT: opposite predicates (``approved`` vs ``not_approved``) and
+    numerically empty overlaps (``amount >= 10`` with ``amount <= 5``) are declined — the never-flag
+    invariant.
 
-    Still conservative on purpose: a false positive blocks a satisfiable set, worse than a miss a
-    formal backend can still catch. When a premise cannot be encoded (an opaque named-set membership)
-    the conjunction's satisfiability is undecidable here, so it falls back to the equal-signatures
-    rule — co-occurrence provable only when both impose the identical condition — which never flags a
-    disjoint pair.
+    Only the fallback is conservative: when a premise cannot be encoded (an opaque named-set
+    membership) the conjunction's satisfiability is undecidable here, so the gate falls back to the
+    equal-signatures rule — co-occurrence provable only when both impose the identical condition —
+    rather than guess, and that fallback never flags a disjoint pair.
     """
     if _scope_signature(left) != _scope_signature(right):
         return False

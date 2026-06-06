@@ -423,6 +423,21 @@ def test_cross_requirement_contradiction_taxonomy_catalogues_seven_classes() -> 
         "mutual_exclusion",
         "action_order_conflict",
     }
+    # ``handling`` disambiguates the two reasons a class is not detected: a real implemented gate
+    # (conditional_overlap, decided by SMT) vs a grammar limitation. A detected=False entry is never
+    # an unimplemented or skipped check.
+    by_handling: dict[str, set[str]] = {}
+    for name, entry in by_type.items():
+        by_handling.setdefault(entry.handling, set()).add(name)
+    assert by_handling["emitted"] == detected
+    assert by_handling["gate"] == {"conditional_overlap"}
+    assert by_handling["grammar_deferred"] == {
+        "negation",
+        "quantifier_scope_conflict",
+        "temporal_conflict",
+    }
+    # detected is True exactly for the emitted classes; gate/grammar-deferred classes are False.
+    assert all((entry.handling == "emitted") == entry.detected for entry in taxonomy.classes)
     # Every catalogued-but-not-detected class records why, so "not detected" is never silent.
     assert all(entry.reason for entry in taxonomy.classes if not entry.detected)
 
@@ -504,6 +519,75 @@ def test_requirement_set_consistency_skips_jointly_unsatisfiable_premises() -> N
     assert report.result == "valid"
     assert report.contradictions == []
     assert report.unchecked == []
+
+
+def test_requirement_set_consistency_flags_independent_co_occurring_premises() -> None:
+    """The satisfiability gate flags independent premises that can both hold, not only identical or
+    subset-compatible ones: ``actor approved`` and ``actor confirmed`` are distinct conditions whose
+    conjunction is satisfiable, so two requirements pinning the same variable to different values
+    under them DO conflict (both obligations are required whenever both conditions hold). This breadth
+    is intentional — soundness comes from the encoding declining genuinely impossible conjunctions,
+    not from restricting the gate to identical premises."""
+    approved = _set_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        "when actor is approved\n"
+        "then state status must be active\n",
+        "REQ-APPROVED",
+    )
+    confirmed = _set_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        "when actor is confirmed\n"
+        "then state status must be frozen\n",
+        "REQ-CONFIRMED",
+    )
+
+    report = check_requirement_set_consistency([approved, confirmed])
+
+    assert report.result == "contradiction"
+    assert [c.contradiction_type for c in report.contradictions] == ["mutual_exclusion"]
+    assert report.contradictions[0].requirement_ids == ["REQ-APPROVED", "REQ-CONFIRMED"]
+    assert report.unchecked == []
+
+
+def test_requirement_set_consistency_spanless_conflict_fails_closed() -> None:
+    """Fail closed on a sourceless conflict: a detected obligation conflict whose binding fragment
+    carries no source span is not silently dropped (which would mark a real contradiction as a
+    consistent set) — it becomes an ``unchecked`` outcome so the set is not cleared. Well-formed DSL
+    always attaches spans, so the path is exercised by stripping a fragment's spans directly."""
+    from nlreq.contradiction_taxonomy import detect_cross_requirement_contradictions
+    from nlreq.formal_claim import build_formal_claim
+
+    active = build_formal_claim(
+        _set_ir(
+            "requirement state_postcondition:\nscope vault\nwhen actor is approved\n"
+            "then state status must be active\n",
+            "REQ-ACTIVE",
+        )
+    ).formal_claim
+    frozen = build_formal_claim(
+        _set_ir(
+            "requirement state_postcondition:\nscope vault\nwhen actor is approved\n"
+            "then state status must be frozen\n",
+            "REQ-FROZEN",
+        )
+    ).formal_claim
+    assert active is not None and frozen is not None
+    # Strip REQ-FROZEN's obligation spans so the detected conflict cannot be tied to source text.
+    frozen_spanless = frozen.model_copy(
+        update={
+            "obligations": [o.model_copy(update={"source_spans": []}) for o in frozen.obligations]
+        }
+    )
+
+    decision = detect_cross_requirement_contradictions([active, frozen_spanless])
+
+    assert decision.contradictions == []
+    assert len(decision.unchecked) == 1
+    entry = decision.unchecked[0]
+    assert entry.reason == "contradiction_without_source_span"
+    assert sorted(entry.requirement_ids) == ["REQ-ACTIVE", "REQ-FROZEN"]
 
 
 def test_requirement_set_consistency_unsupported_when_requirement_cannot_lower() -> None:
