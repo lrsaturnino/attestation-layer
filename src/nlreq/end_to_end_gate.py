@@ -22,7 +22,7 @@ from .formal_claim_smt import smt_check_formal_claim_predicate_fragments
 from .impact import analyze_source_impact
 from .source_impact import analyze_source_impact_with_context
 from .jsonutil import sha256_json, sha256_text, write_json
-from .models import BackendResult, EvidenceLevel, RequirementIRV2, SourceSpan
+from .models import BackendResult, RequirementIRV2, SourceSpan
 from .proof_closure import (
     BackendAgreementReport,
     EvidenceProducerMapping,
@@ -30,6 +30,7 @@ from .proof_closure import (
     SpecCoverageReport,
     TraceAlignmentReport,
     backend_results_from_system_consistency,
+    build_proof_dispatch_plan,
     build_proof_object,
     evaluate_closure_gate,
 )
@@ -183,18 +184,24 @@ def build_proof_with_formal_claim_dispatch(
 
     When build_formal_claim returns 'lowered', the dispatch plan carries formal fragment IDs
     so ProofObject.premises[*].premise_id maps to FormalClaim fragments rather than raw
-    semantic node IDs. When the claim class is unsupported (result='refused'), falls back to
-    the default semantic-node dispatch — equivalent to calling build_proof_object directly.
+    semantic node IDs. When the claim class is unsupported (result='refused'), the requirement
+    has no per-fragment routing, so its semantic-node premises route BY KIND
+    (build_proof_dispatch_plan(route_by_kind=True)) — comparison to smt-theories, membership to
+    cvc5, state/temporal to apalache, the rest to core_smt — never collapsed onto the single
+    system_checker default. This mirrors the public proof-object CLI fallback (cli.py): a lone
+    system-consistency verdict can no longer silently discharge comparison/membership/state
+    premises that need their own producer. The coarse plan keeps a uniform CONSISTENCY_CHECKED
+    floor, so a kind-routed premise is undischargeable by the gate's available results and the
+    proof blocks honestly rather than over-closing (PB-7.T3).
 
     This is the production entry point that gates and tests should use to ensure FormalClaim
     dispatch is exercised through a real code path, not only in test-only manual dispatch.
     """
     formal_claim_report = build_formal_claim(requirement)
-    dispatch = (
-        build_proof_dispatch_plan_from_formal_claim(formal_claim_report.formal_claim)
-        if formal_claim_report.result == "lowered" and formal_claim_report.formal_claim is not None
-        else None
-    )
+    if formal_claim_report.result == "lowered" and formal_claim_report.formal_claim is not None:
+        dispatch = build_proof_dispatch_plan_from_formal_claim(formal_claim_report.formal_claim)
+    else:
+        dispatch = build_proof_dispatch_plan(requirement, route_by_kind=True)
     proof = build_proof_object(
         requirement=requirement,
         backend_results=backend_results,
@@ -205,48 +212,6 @@ def build_proof_with_formal_claim_dispatch(
         dispatch=dispatch,
     )
     return proof, formal_claim_report
-
-
-def _system_consistency_floor_baseline(system_status: str) -> BackendResult | None:
-    """A CONSISTENCY_CHECKED baseline that discharges the default proof dispatch's
-    system-consistency premises when the consolidated S ∧ R stage concluded the requirement
-    is consistent with the system.
-
-    The default dispatch (``build_proof_dispatch_plan``) routes a requirement's premises to
-    the ``system_checker`` producer at the ``CONSISTENCY_CHECKED`` floor. The solver-backed
-    stage instead emits its verdict under ``solver_system_checker`` at SMT_CHECKED /
-    BOUNDED_CHECKED — a stronger level that does not match the floor route, so on its own it
-    cannot discharge those premises. When the stage established consistency (``valid``) or
-    determined there is no system obligation to discharge (``not_applicable``), this baseline
-    lets the floor premises discharge on the weaker claim that the stronger verdict — recorded
-    separately under ``solver_system_checker`` — subsumes. A non-consistent verdict
-    (counterexample / timeout / unsupported) yields no baseline: the premises stay open and
-    the gate blocks on the real result.
-    """
-    if system_status not in {"valid", "not_applicable"}:
-        return None
-    if system_status == "not_applicable":
-        details: dict[str, object] = {
-            "mode": "not_applicable",
-            "reason": (
-                "no reviewed system spec is relevant to the impacted modules; there is no S "
-                "to conjoin, so S ∧ R has no obligation to discharge"
-            ),
-        }
-    else:
-        details = {
-            "mode": "solver_backed_baseline",
-            "reason": (
-                "solver-backed S ∧ R returned valid; the stronger verdict is recorded under "
-                "solver_system_checker and subsumes this CONSISTENCY_CHECKED floor"
-            ),
-        }
-    return BackendResult(
-        backend="system_checker",
-        status="valid",
-        evidence_level=EvidenceLevel.CONSISTENCY_CHECKED,
-        details=details,
-    )
 
 
 def _cover_s_and_r_fragments(result: BackendResult, claim: FormalClaim) -> BackendResult:
@@ -522,16 +487,13 @@ def run_end_to_end_requirement_gate(
     record("delta_report", "delta-report.json", delta)
 
     system_backend_results = backend_results_from_system_consistency(system_consistency)
-    # The default proof dispatch routes system-consistency premises to the system_checker
-    # producer at the CONSISTENCY_CHECKED floor, which the solver-backed result (emitted under
-    # solver_system_checker at SMT_CHECKED/BOUNDED_CHECKED) does not match. When the stage
-    # concluded the requirement is consistent (valid) or that there is no obligation to
-    # discharge (not_applicable), add the floor baseline so those premises can close; the
-    # stronger solver verdict remains recorded separately. A non-consistent verdict adds no
-    # baseline, leaving the premises open so the gate blocks on the real result.
-    floor_baseline = _system_consistency_floor_baseline(system_status)
-    if floor_baseline is not None:
-        system_backend_results = [*system_backend_results, floor_baseline]
+    # The solver-backed S ∧ R verdict is the sole system-consistency evidence: there is no
+    # weaker CONSISTENCY_CHECKED floor baseline to subsume it. When the FormalClaim lowered, the
+    # predicate/rejection-order premises that route to solver_system_checker are discharged by
+    # _cover_s_and_r_fragments below — tagging the verdict with exactly the fragment operators
+    # the checked module bound. When it did not lower, premises route by kind
+    # (build_proof_with_formal_claim_dispatch) and a system_checker verdict discharges none of
+    # them, so the proof blocks honestly rather than over-closing on one coarse pass (PB-7.T3).
     # When the FormalClaim report is lowered, also SMT-check predicate/comparison
     # fragments. These produce smt-theories BackendResults with per-fragment covered_fragment_ids
     # so formal_claim-routed premises can be discharged without relying on the system-

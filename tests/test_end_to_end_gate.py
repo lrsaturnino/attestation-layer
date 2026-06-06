@@ -1723,35 +1723,43 @@ def test_extended_gate_s_and_r_composition_reads_solver_backed_system_consistenc
     )
 
 
-def test_system_consistency_floor_baseline_only_for_consistent_outcomes() -> None:
-    """_system_consistency_floor_baseline emits a system_checker / CONSISTENCY_CHECKED baseline
-    only when the consolidated S ∧ R stage concluded consistency (valid) or that there is no
-    obligation to discharge (not_applicable); a non-consistent verdict yields no baseline.
+def test_build_proof_with_formal_claim_dispatch_routes_unclassed_ir_by_kind() -> None:
+    """A requirement that does NOT lower to a FormalClaim routes its premises BY KIND through the
+    production gate helper — never collapsed onto the single system_checker default (PB-7.T3).
 
-    The default proof dispatch routes system-consistency premises to the system_checker
-    producer at the CONSISTENCY_CHECKED floor. A solver verdict is emitted under
-    solver_system_checker at SMT_CHECKED / BOUNDED_CHECKED — a stronger level that does not
-    match the floor route — so the baseline lets those premises close on the weaker claim the
-    solver verdict subsumes. A counterexample / unsupported / timeout must NOT produce a
-    baseline: the premises stay open so the gate blocks on the real result.
+    DSL-v2 text declares no requirement_class, so build_formal_claim refuses and there is no
+    per-fragment routing. The gate helper must then dispatch route_by_kind=True (mirroring the
+    public proof-object CLI fallback), so the comparison premise routes to smt-theories and no
+    premise routes to system_checker. With only a lone system_checker verdict supplied, none of
+    the kind-routed premises discharge, so the proof blocks honestly rather than over-closing on
+    one coarse pass. This is the regression guarding the asymmetric None fallback the gate helper
+    used to share with the retired single-backend default.
     """
-    from nlreq.end_to_end_gate import _system_consistency_floor_baseline
-    from nlreq.models import EvidenceLevel
+    from nlreq.dsl_v2 import DslV2Parser
+    from nlreq.models import BackendResult, EvidenceLevel
 
-    for consistent in ("valid", "not_applicable"):
-        baseline = _system_consistency_floor_baseline(consistent)
-        assert baseline is not None, f"{consistent} must yield a floor baseline"
-        assert baseline.backend == "system_checker"
-        assert baseline.status == "valid"
-        assert baseline.evidence_level == EvidenceLevel.CONSISTENCY_CHECKED
-        assert baseline.details["mode"] == (
-            "not_applicable" if consistent == "not_applicable" else "solver_backed_baseline"
-        )
+    ir = DslV2Parser().parse_ir(
+        DSL, requirement_id="REQ-GATE-UNCLASSED", title="Unclassed gate dispatch"
+    )
 
-    for non_consistent in ("counterexample", "unsupported", "timeout", "invalid", "needs_review"):
-        assert _system_consistency_floor_baseline(non_consistent) is None, (
-            f"{non_consistent} must NOT yield a floor baseline"
-        )
+    proof, formal_claim_report = build_proof_with_formal_claim_dispatch(
+        requirement=ir,
+        backend_results=[
+            BackendResult(
+                backend="system_checker",
+                status="valid",
+                evidence_level=EvidenceLevel.CONSISTENCY_CHECKED,
+            )
+        ],
+    )
+
+    assert formal_claim_report.result == "refused"
+    routed = {premise.routed_backend for premise in proof.premises}
+    assert "system_checker" not in routed
+    assert "smt-theories" in routed
+    # A lone system_checker verdict discharges none of the kind-routed premises.
+    assert proof.status != "closed"
+    assert all(premise.status != "discharged" for premise in proof.premises)
 
 
 def test_z3_fixture_solver_result_cannot_discharge_formal_premises(tmp_path: Path) -> None:
