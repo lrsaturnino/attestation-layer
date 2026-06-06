@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Literal
 
-from .models import RequirementIRV2, SemanticNode
+from .models import RequirementIRV2, SemanticNode, ValueRef
 
 
 FORMAL_LOWERING_VERSION = "0.2"
@@ -296,6 +296,113 @@ def validate_authorization_precondition_shape(
     return problems
 
 
+def validate_state_postcondition_shape(
+    root: SemanticNode,
+) -> list[tuple[str, str, SemanticNode | None]]:
+    """Return (kind, reason, offending_node) triples for unsupported state_postcondition shapes.
+
+    Returns an empty list when the shape is fully supported. Mirrors
+    validate_authorization_precondition_shape's contract: callers must refuse lowering when the
+    list is non-empty. The supported shape is ``forall scope: <named predicate premise> implies
+    post_state(<state>, <value>)`` — the premise carries at least one named predicate with an
+    identifier argument (the operator a reviewed S interprets), and the obligation is a
+    ``post_state`` clause naming a state and a string/number value. Comparison/membership premises
+    are projected out as in the authorization lowering (discharged by the SMT backends).
+    """
+    problems: list[tuple[str, str, SemanticNode | None]] = []
+
+    if root.premise is None:
+        problems.append(
+            ("missing_premise", "state_postcondition requires a premise clause (when ...)", None)
+        )
+    else:
+        premise = root.premise
+        nodes = premise.children if premise.kind == "and" else [premise]
+        predicate_count = 0
+        for node in nodes:
+            if node.kind == "predicate":
+                predicate_count += 1
+                if not node.name:
+                    problems.append(
+                        ("nameless_predicate", "state_postcondition premise predicate requires a name", node)
+                    )
+                elif not any(arg.kind == "identifier" for arg in node.args):
+                    problems.append((
+                        "empty_predicate_args",
+                        (
+                            f"state_postcondition premise predicate '{node.name}' must have at least "
+                            "one identifier argument (e.g. 'when actor is approved')"
+                        ),
+                        node,
+                    ))
+            elif node.kind in _PROJECTED_PREMISE_KINDS:
+                # Comparison/membership premises are discharged by the SMT backends, not the S ∧ R
+                # model check — projected out exactly as in the authorization lowering.
+                continue
+            else:
+                problems.append((
+                    node.kind,
+                    (
+                        f"unsupported premise node kind '{node.kind}' in state_postcondition; "
+                        "supported premise nodes are named predicates, comparisons, and set-membership"
+                    ),
+                    node,
+                ))
+        if predicate_count == 0:
+            # Non-vacuity guard: without a named predicate premise the narrowing antecedent is TRUE
+            # and the obligation degenerates to "the post-state holds in every reachable state",
+            # which does not encode the requirement. A reviewed S must interpret the premise
+            # predicate for S ∧ R to couple premise and post-state.
+            problems.append((
+                "no_predicate_premise",
+                (
+                    "state_postcondition premise has no named predicate clause; the S ∧ R obligation "
+                    "would be vacuous. At least one predicate premise is required (e.g. 'when actor "
+                    "is approved')"
+                ),
+                premise,
+            ))
+
+    if root.obligation is None:
+        problems.append(
+            ("missing_obligation", "state_postcondition requires an obligation clause", None)
+        )
+    else:
+        must = root.obligation.must
+        if must is None:
+            problems.append(
+                ("missing_must", "state_postcondition obligation requires a post-state clause", None)
+            )
+        elif must.kind != "post_state":
+            problems.append((
+                must.kind,
+                (
+                    f"state_postcondition obligation must be a post-state ('then state X must be V'); "
+                    f"got must node kind '{must.kind}' — unsupported obligation shape"
+                ),
+                must,
+            ))
+        elif not must.name:
+            problems.append(
+                ("nameless_post_state", "state_postcondition post-state requires a state name", must)
+            )
+        elif must.value is None:
+            problems.append(
+                ("missing_post_state_value", "state_postcondition post-state requires a required value", must)
+            )
+        elif must.value.kind not in {"string", "number"}:
+            problems.append((
+                "unsupported_post_state_value",
+                (
+                    f"state_postcondition post-state value must be a string or number literal; got "
+                    f"kind '{must.value.kind}' — no faithful TLA+ literal form"
+                ),
+                must,
+            ))
+
+    return problems
+
+
 def lower_authorization_precondition_tla(
     ir: RequirementIRV2,
     *,
@@ -383,6 +490,78 @@ def lower_authorization_precondition_tla(
         f"Next == Step_{safe_action} \\/ Step_{safe_state} \\/ UNCHANGED NLRState\n\n"
         f"Premise == {premise_expr}\n\n"
         f"Obligation == {obligation_expr}\n\n"
+        f"RequirementHolds == Premise => Obligation\n\n"
+        f"====\n"
+    )
+
+
+def lower_state_postcondition_tla(
+    ir: RequirementIRV2,
+    *,
+    bounds_json: str = "[]",
+) -> str:
+    """Produce a non-vacuous TLA+ module for state_postcondition.
+
+    Premises are CONSTANT uninterpreted operators a reviewed S interprets; the obligation is the
+    AFFIRMED post-state re-expressed over a harness variable (``Premise => NLRState =
+    "nlr_post_state"``). Like the authorization lowering, this standalone module is
+    checker-distinguishable — with the premise predicate TRUE the harness can leave NLRState
+    unmet, so a checker finds a counterexample — but it is auxiliary: the real S ∧ R evidence comes
+    from the stateful-S narrowing (compose_s_and_r_module), which replaces this abstract harness
+    obligation with ``Premise => Pred_<state>(<value>)`` over S's own state. The concrete required
+    value is carried by :class:`PostStateObligation` into that narrowing, not by this harness, so a
+    numeric or string post-state value never has to typecheck against the harness variable here.
+
+    Caller must invoke validate_state_postcondition_shape first and refuse if any problems are
+    returned; this function assumes a supported shape.
+    """
+    root = ir.semantic_ir
+    module_name = "Req_" + _safe_name(ir.requirement_id)
+
+    predicates = _premise_predicates(root)
+    const_identifiers = sorted(_scope_identifiers(root))
+
+    pred_decls = "\n".join(
+        f"\\* @type: {_pred_type_annotation(args)};\nCONSTANT {pred_name(name)}({', '.join('_' for _ in args)})"
+        for name, args in predicates
+        if args  # validation refused empty-arg predicates before reaching here
+    )
+
+    premise_parts = [
+        f"{pred_name(name)}({', '.join(args)})"
+        for name, args in predicates
+        if args
+    ]
+    premise_expr = " /\\ ".join(premise_parts) if premise_parts else "TRUE"
+
+    const_line = (
+        "\n".join(f"\\* @type: Str;\nCONSTANT {ident}" for ident in const_identifiers) + "\n\n"
+        if const_identifiers
+        else ""
+    )
+
+    return (
+        f"---- MODULE {module_name} ----\n"
+        f"EXTENDS Naturals, TLC\n\n"
+        f"\\* Non-vacuous state_postcondition lowering.\n"
+        f"\\* Generated by nlreq translator {FORMAL_LOWERING_VERSION}; semantics: non_vacuous.\n"
+        f"\\* Requirement: {ir.requirement_id}\n"
+        f"\\* Temporal bounds: {bounds_json}\n\n"
+        f"{const_line}"
+        f"{pred_decls}\n\n"
+        f"\\* @type: Str;\n"
+        f"VARIABLE NLRState\n\n"
+        f"Init == NLRState = \"nlr_init\"\n\n"
+        f"\\* Harness: the premise does not gate the post-state, so the checker explores both\n"
+        f"\\* reaching it (\"nlr_post_state\") and not (\"nlr_unmet\"). The concrete post-state value\n"
+        f"\\* is checked against S's own state by the stateful-S narrowing; here it is an abstract\n"
+        f"\\* reached/unmet boundary so the standalone module stays checker-distinguishable.\n"
+        f"Step_reach ==\n"
+        f"  /\\ NLRState = \"nlr_init\"\n"
+        f"  /\\ NLRState' \\in {{\"nlr_post_state\", \"nlr_unmet\"}}\n\n"
+        f"Next == Step_reach \\/ UNCHANGED NLRState\n\n"
+        f"Premise == {premise_expr}\n\n"
+        f"Obligation == {premise_expr} => NLRState = \"nlr_post_state\"\n\n"
         f"RequirementHolds == Premise => Obligation\n\n"
         f"====\n"
     )
@@ -735,6 +914,69 @@ def derive_outcome_predicate(root: SemanticNode) -> OutcomePredicate:
     return OutcomePredicate(name=pred_name(action_name), args=tuple(subject))
 
 
+@dataclass(frozen=True)
+class PostStateObligation:
+    """The affirmed post-state of a state_postcondition, as a shared predicate over S's state.
+
+    Where an authorization_precondition's :class:`OutcomePredicate` is a FORBIDDEN outcome the
+    narrowing negates (``Premise => ~Pred_<action>``), a state postcondition is AFFIRMED:
+    ``Premise => Pred_<state>(<value>)``. ``predicate_name`` is ``Pred_<state>`` (e.g.
+    ``Pred_operation_status``) — the operator a reviewed S interprets over its own state as
+    "<state> equals the argument". ``value_literal`` is the required post-state value already
+    rendered as a TLA+ literal (a quoted string ``"accepted"`` or a bare number ``42``); it is a
+    VALUE the obligation passes to the predicate, never a scope identifier, so it is emitted inline
+    and never declared as a CONSTANT the composition would have to pin (which would make it a free
+    symbol the checker rejects). The stateful-S narrowing (Case B) conjoins ``Premise =>
+    Pred_<state>(<value>)`` into ``Inv`` over S's real ``Init``/``Next`` — so a counterexample is a
+    reachable S behaviour where the premise holds but the post-state value is not the required one.
+    """
+
+    predicate_name: str
+    value_literal: str
+
+
+def derive_post_state_obligation(root: SemanticNode) -> PostStateObligation:
+    """Derive the affirmed post-state predicate ``Pred_<state>(<value>)`` from the IR.
+
+    The obligation ``then state <state> must be <value>`` requires the system's ``<state>`` to
+    equal ``<value>`` whenever the premise holds. ``Pred_<state>`` is the operator a reviewed S
+    interprets over its own state, and ``<value>`` is rendered as a TLA+ literal passed to it.
+    Caller must invoke validate_state_postcondition_shape first; raises on a malformed shape.
+    """
+    if root.obligation is None or root.obligation.must is None:
+        raise ValueError(
+            "derive_post_state_obligation: no post_state obligation node — "
+            "validate_state_postcondition_shape must be called first"
+        )
+    post_state = root.obligation.must
+    if post_state.kind != "post_state" or not post_state.name or post_state.value is None:
+        raise ValueError(
+            "derive_post_state_obligation: obligation is not a named post_state with a value — "
+            "validate_state_postcondition_shape must be called first"
+        )
+    return PostStateObligation(
+        predicate_name=pred_name(post_state.name),
+        value_literal=_render_value_literal(post_state.value),
+    )
+
+
+def _render_value_literal(value: ValueRef) -> str:
+    """Render a post-state value as the TLA+ literal the obligation passes to ``Pred_<state>``.
+
+    A string becomes a quoted TLA+ string (``"accepted"``); a number is rendered bare (``42``).
+    Other value kinds (e.g. an identifier) have no faithful literal form here and raise — the
+    caller refuses rather than emit an ungrounded obligation.
+    """
+    if value.kind == "string":
+        return f'"{value.value}"'
+    if value.kind == "number":
+        return str(value.value)
+    raise ValueError(
+        f"_render_value_literal: unsupported post-state value kind {value.kind!r}; "
+        "validate_state_postcondition_shape must reject it first"
+    )
+
+
 def _scope_identifiers(root: SemanticNode) -> set[str]:
     """Collect identifier names from scope nodes and premise PREDICATE args.
 
@@ -842,12 +1084,13 @@ class ComposedSandRModule:
     A refusal is honest non-evidence — the composition declines rather than
     emitting a module that would prove a tautology. refusal_kind is one of
     ``unsupported_requirement_shape``, ``no_system_invariant``,
-    ``operator_name_collision``, ``undefined_predicate``, or
-    ``undefined_invariant`` (stateless S, Case A); the stateful-S narrowing (Case B)
-    additionally uses ``incomplete_transition_operators``,
-    ``unsupported_spec_constant``, ``variable_name_collision``,
-    ``undefined_transition_operator``, ``missing_outcome_predicate``, and
-    ``undefined_outcome_predicate``.
+    ``operator_name_collision``, ``undefined_predicate``,
+    ``undefined_invariant``, or ``state_postcondition_requires_stateful_spec``
+    (stateless S, Case A); the stateful-S narrowing (Case B) additionally uses
+    ``incomplete_transition_operators``, ``unsupported_spec_constant``,
+    ``variable_name_collision``, ``undefined_transition_operator``,
+    ``missing_outcome_predicate``, and ``undefined_outcome_predicate`` (the last two
+    cover both the forbidden-outcome and affirmed post-state obligation predicates).
     """
 
     status: Literal["composed", "refused"]
@@ -898,6 +1141,7 @@ def compose_s_and_r_module(
     contributions: list[SystemSpecContribution],
     *,
     outcome_predicate: OutcomePredicate | None = None,
+    post_state_obligation: PostStateObligation | None = None,
 ) -> ComposedSandRModule:
     """Compose the lowered requirement R with reviewed system specs S.
 
@@ -913,16 +1157,20 @@ def compose_s_and_r_module(
     - Stateless S (Case A): S contributes only predicate interpretations and
       invariant operators; R supplies the single state machine (``Init``/``Next``)
       and the obligation operator is ``RequirementHolds``. ``outcome_predicate`` is
-      unused — R's harness models the accepted/rejected outcome itself.
+      unused — R's harness models the accepted/rejected outcome itself. A
+      ``post_state_obligation`` here is refused: an affirmed post-state has no meaning
+      without S's transitions to reach it.
     - Stateful S (Case B): S brings its own ``Init``/``Next`` over its own
       variables, and R *narrows* it. The composition uses S's real ``Init``/``Next``
-      as the only state machine and conjoins ``Premise => ~Pred_<action>(subject)``
-      — the requirement obligation as a pure state invariant over S's variables —
-      into ``Inv``. R adds NO transitions and NO variable: a counterexample is a
-      real S behavior reaching the forbidden outcome while the premise holds, not an
-      artifact of R's own harness stepping. ``outcome_predicate`` names the forbidden
-      ``Pred_<action>`` (from the IR via ``derive_outcome_predicate``); S must
-      interpret it or the composition refuses. See _compose_system_narrowing.
+      as the only state machine and conjoins the requirement obligation — as a pure
+      state invariant over S's variables — into ``Inv``. R adds NO transitions and NO
+      variable: a counterexample is a real S behavior, not an artifact of R's own
+      harness stepping. Exactly one obligation drives the narrowing: an
+      ``outcome_predicate`` (authorization_precondition) makes ``Inv`` forbid the
+      accepted/executed outcome (``Premise => ~Pred_<action>``); a
+      ``post_state_obligation`` (state_postcondition) makes it require the affirmed
+      post-state (``Premise => Pred_<state>(<value>)``). S must interpret the named
+      predicate or the composition refuses. See _compose_system_narrowing.
     """
     identifier_constants = parse_lowered_identifier_constants(lowered_content)
     abstract_predicates = _parse_module_pred_constants(lowered_content)
@@ -941,8 +1189,9 @@ def compose_s_and_r_module(
 
     # When any reviewed spec brings its own transition system (init_op/next_op), R narrows
     # S: S's own Init/Next are the only state machine and R contributes a state invariant
-    # (Premise => ~Pred_<action>) conjoined into Inv. Otherwise S is a stateless set of
-    # predicate interpretations + invariants and R supplies the only state machine (Case A).
+    # (Premise => ~Pred_<action>, or Premise => Pred_<state>(<value>)) conjoined into Inv.
+    # Otherwise S is a stateless set of predicate interpretations + invariants and R supplies
+    # the only state machine (Case A).
     if any(c.init_op or c.next_op for c in contributions):
         return _compose_system_narrowing(
             module_name=module_name,
@@ -951,6 +1200,23 @@ def compose_s_and_r_module(
             logic_body=logic_body,
             contributions=contributions,
             outcome_predicate=outcome_predicate,
+            post_state_obligation=post_state_obligation,
+        )
+
+    # Case A is stateless: a post-state obligation asserts the system reaches a value, which only
+    # S's transitions can establish. With no stateful S there is nothing to reach, and the Case A
+    # product would evaluate the post-state over R's disconnected harness variable. Refuse rather
+    # than emit that vacuous module — the honest outcome for a state_postcondition whose impacted
+    # modules have no reviewed stateful S.
+    if post_state_obligation is not None:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="state_postcondition_requires_stateful_spec",
+            refusal_reason=(
+                "a state_postcondition narrows a reviewed spec that brings its own transition "
+                "system (init_op/next_op); no relevant spec declares one, so there is no S to "
+                "reach the post-state and the affirmed obligation cannot be checked"
+            ),
         )
 
     requirement_operators = set(parse_operator_definition_names(logic_body))
@@ -1085,31 +1351,41 @@ def _compose_system_narrowing(
     logic_body: str,
     contributions: list[SystemSpecContribution],
     outcome_predicate: OutcomePredicate | None,
+    post_state_obligation: PostStateObligation | None = None,
 ) -> ComposedSandRModule:
     """Compose S ∧ R as a *narrowing* when S brings its own transition system (Case B).
 
     S's own ``Init``/``Next`` are the sole state machine; R adds no transitions and no
-    variable. R contributes a single state invariant
-    ``R_Requirement == Premise => ~Pred_<action>(subject)`` — the obligation re-expressed
-    over S's state through the shared predicates — conjoined with S's named invariants into
-    ``Inv``. A model checker then verifies ``Spec => []Inv`` against S's *real* transitions,
-    so a counterexample is a genuine S behavior that reaches the forbidden outcome (the
-    action accepted/executed) while the premise holds — not an artifact of a requirement
-    harness stepping its own variable, which the prior synchronous product admitted.
+    variable. R contributes a single state invariant ``R_Requirement == Premise => <obligation>``
+    — the obligation re-expressed over S's state through the shared predicates — conjoined with
+    S's named invariants into ``Inv``. A model checker then verifies ``Spec => []Inv`` against S's
+    *real* transitions, so a counterexample is a genuine S behavior — not an artifact of a
+    requirement harness stepping its own variable, which the prior synchronous product admitted.
 
-    Soundness note. ``R_Requirement`` is a single-state safety invariant: it forbids any
-    reachable state where the premise holds *and* the forbidden outcome holds. This captures
-    "if the precondition holds, the action must not be executed" soundly precisely when S
-    models the precondition as stable through the forbidden transition — i.e. the step that
-    reaches ``Pred_<action>`` does not in the same step clear the premise. Reviewed specs
-    that gate an outcome on a persisting precondition satisfy this; a future temporal lowering
-    of the event/causal fragments generalises it without the stability assumption.
+    Exactly one obligation drives the consequent, by polarity:
+
+    - ``outcome_predicate`` (authorization_precondition): the FORBIDDEN outcome, negated —
+      ``Premise => ~Pred_<action>(subject)``. A counterexample reaches the accepted/executed
+      outcome while the premise holds.
+    - ``post_state_obligation`` (state_postcondition): the AFFIRMED post-state —
+      ``Premise => Pred_<state>(<value>)``. A counterexample is a reachable premise-state where
+      the system's ``<state>`` is not the required ``<value>``.
+
+    Soundness note. ``R_Requirement`` is a single-state safety invariant over S's reachable
+    states. For the forbidden-outcome form it captures "if the precondition holds, the action
+    must not be executed" soundly precisely when S models the precondition as stable through the
+    forbidden transition. For the affirmed post-state form it captures "if the precondition holds,
+    the state already equals the value" — sound precisely when the premise predicate holds only in
+    states where the post-state has been established (so a premise-state that has not yet reached
+    the value would be a real violation, not a spurious one). Reviewed specs that couple premise
+    and post-state this way satisfy it; a future temporal lowering generalises it without the
+    single-state assumption.
 
     Refuses, rather than emitting a meaningless module, when: a spec declares only one of
     init_op/next_op; a named transition operator is undefined; a spec brings its own CONSTANTS
     (the composition cannot pin them in ConstInit); two specs declare the same variable; an S
-    operator shadows a reserved name; a premise predicate is uninterpreted; the forbidden
-    outcome predicate was not supplied or is uninterpreted by S; or no invariant is declared.
+    operator shadows a reserved name; a premise predicate is uninterpreted; no obligation was
+    supplied or the obligation predicate is uninterpreted by S; or no invariant is declared.
     """
     incomplete = [
         c.spec_id
@@ -1139,13 +1415,39 @@ def _compose_system_narrowing(
             ),
         )
 
-    if outcome_predicate is None:
+    # The single obligation R conjoins into Inv, by polarity. An authorization_precondition's
+    # forbidden outcome is NEGATED (``=> ~Pred_<action>``); a state_postcondition's post-state is
+    # AFFIRMED (``=> Pred_<state>(<value>)``). Both name exactly one Pred_* the narrowing binds and
+    # S must interpret. ``obligation_phrase`` is the human description inlined in the module comment
+    # — its first line keeps the authorization wording byte-for-byte so that golden unchanged.
+    if outcome_predicate is not None:
+        outcome_call = (
+            f"{outcome_predicate.name}({', '.join(outcome_predicate.args)})"
+            if outcome_predicate.args
+            else outcome_predicate.name
+        )
+        obligation_consequent = f"~{outcome_call}"
+        obligation_pred_names: tuple[str, ...] = (outcome_predicate.name,)
+        obligation_phrase = (
+            f"forbids S reaching the accepted/executed outcome ({outcome_predicate.name})"
+        )
+    elif post_state_obligation is not None:
+        obligation_consequent = (
+            f"{post_state_obligation.predicate_name}({post_state_obligation.value_literal})"
+        )
+        obligation_pred_names = (post_state_obligation.predicate_name,)
+        obligation_phrase = (
+            f"requires every premise-state of S to reach the post-state "
+            f"({post_state_obligation.predicate_name})"
+        )
+    else:
         return ComposedSandRModule(
             status="refused",
             refusal_kind="missing_outcome_predicate",
             refusal_reason=(
-                "no forbidden-outcome predicate was supplied; narrowing a stateful S needs "
-                "the requirement's Pred_<action> to constrain S's reachable states"
+                "no obligation predicate was supplied; narrowing a stateful S needs the "
+                "requirement's forbidden-outcome or affirmed post-state Pred_* to constrain S's "
+                "reachable states"
             ),
         )
 
@@ -1238,14 +1540,15 @@ def _compose_system_narrowing(
             ),
         )
 
-    if outcome_predicate.name not in defined_predicates:
+    undefined_obligation = [name for name in obligation_pred_names if name not in defined_predicates]
+    if undefined_obligation:
         return ComposedSandRModule(
             status="refused",
             refusal_kind="undefined_outcome_predicate",
             refusal_reason=(
-                "reviewed system specs do not interpret the forbidden-outcome predicate "
-                f"{outcome_predicate.name!r}; without it the narrowing cannot tell whether "
-                "S reaches the outcome the requirement forbids"
+                "reviewed system specs do not interpret the obligation predicate(s) "
+                f"{sorted(undefined_obligation)}; without them the narrowing cannot tell whether "
+                "S reaches the outcome/post-state the requirement constrains"
             ),
         )
 
@@ -1263,18 +1566,13 @@ def _compose_system_narrowing(
     constant_block = _render_constant_block(identifier_constants)
     system_variable_blocks = _render_system_variable_blocks(system_variables)
     system_block = "\n\n".join(block for block in system_blocks if block).strip()
-    outcome_call = (
-        f"{outcome_predicate.name}({', '.join(outcome_predicate.args)})"
-        if outcome_predicate.args
-        else outcome_predicate.name
-    )
-    requirement_line = f"R_Requirement == {premise_expr} => ~{outcome_call}"
+    requirement_line = f"R_Requirement == {premise_expr} => {obligation_consequent}"
     init_line = "Init == " + " /\\ ".join(init_ops)
     next_line = "Next == " + " /\\ ".join(next_ops)
     inv_line = "Inv == " + " /\\ ".join([*invariants, "R_Requirement"])
     const_init = _render_const_init(identifier_constants)
     bound_predicates = sorted(
-        (set(abstract_predicates) | {outcome_predicate.name}) & defined_predicates
+        (set(abstract_predicates) | set(obligation_pred_names)) & defined_predicates
     )
 
     module_text = (
@@ -1286,7 +1584,7 @@ def _compose_system_narrowing(
         f"{system_block}\n\n"
         f"\\* ===== Requirement R narrows S: a state invariant over S's own variables. R adds\n"
         f"\\* no transitions and no variable — S's Init/Next are the only state machine. The\n"
-        f"\\* obligation forbids S reaching the accepted/executed outcome ({outcome_predicate.name})\n"
+        f"\\* obligation {obligation_phrase}\n"
         f"\\* while the premise holds, so a counterexample is a real S behavior — not an artifact\n"
         f"\\* of a requirement harness stepping its own state. =====\n"
         f"{requirement_line}\n\n"
