@@ -10,6 +10,7 @@ from pydantic import ValidationError
 from nlreq.cli import main
 from nlreq.coverage_alignment import build_spec_coverage_report, build_trace_alignment_report
 from nlreq.dsl_v2 import DslV2Parser
+from nlreq.dsl_v3 import DslV3Parser
 from nlreq.impact import ImpactAnalysisArtifact
 from nlreq.models import BackendResult, EvidenceLevel, NormalizedTraceArtifact
 from nlreq.proof_closure import (
@@ -24,7 +25,7 @@ from nlreq.proof_closure import (
     default_evidence_producer_mapping,
     evaluate_closure_gate,
 )
-from nlreq.system_checker import check_system_consistency_fixture
+from nlreq.system_checker import SystemConsistencyResult, check_system_consistency_fixture
 from nlreq.system_spec import SystemSpecRegistry
 from nlreq.translator import lower_ir_v2_to_tla
 
@@ -293,8 +294,85 @@ def test_proof_object_and_closure_gate_cli(tmp_path: Path, capsys) -> None:
     assert gate_exit == 0
     assert "Proof object:" in output
     assert "Closure gate report:" in output
-    assert json.loads(proof_path.read_text())["status"] == "closed"
-    assert json.loads(gate_path.read_text())["result"] == "passed"
+    # The public proof-object command routes each premise to the backend that can discharge it
+    # rather than collapsing every premise onto system_checker. The single fixture S ∧ R result
+    # (backend system_checker) therefore discharges none of the routed premises, so the proof
+    # blocks with them open — a lone S ∧ R verdict no longer over-closes a multi-premise
+    # requirement whose comparison and predicate premises need their own producers.
+    proof = json.loads(proof_path.read_text())
+    assert proof["status"] == "blocked"
+    open_premises = [premise for premise in proof["premises"] if premise["status"] != "discharged"]
+    assert open_premises
+    # The comparison premise (requested_amount <= spendable_balance) routes to smt-theories, and no
+    # premise is left routed to the single system_checker verdict that previously closed them all.
+    assert any(premise["routed_backend"] == "smt-theories" for premise in open_premises)
+    assert all(premise["routed_backend"] != "system_checker" for premise in proof["premises"])
+    assert json.loads(gate_path.read_text())["result"] == "blocked"
+
+
+def test_proof_object_cli_routes_lowered_requirement_to_formal_claim_backends(
+    tmp_path: Path,
+) -> None:
+    # A requirement that lowers to a FormalClaim drives the public proof-object command through the
+    # authoritative per-fragment routing: its predicate and rejection-order premises route to
+    # solver_system_checker (the S ∧ R producer), which the coarse kind-only router never selects.
+    # A raw S ∧ R verdict that does not attribute itself to specific fragments (no
+    # covered_fragment_ids — the coverage the gate synthesizes, which this low-level command does
+    # not) therefore discharges none of them, so the proof blocks with the formal-claim premises
+    # left open rather than over-closing on one verdict.
+    fixture = (
+        Path(__file__).parent
+        / "fixtures"
+        / "requirements"
+        / "authorization_precondition_v3.nlreq"
+    )
+    ir = DslV3Parser().parse_ir(
+        fixture.read_text(),
+        requirement_id="AUTH-CLI-001",
+        title="Authorization precondition",
+    )
+    consistency = SystemConsistencyResult(
+        requirement_id="AUTH-CLI-001",
+        spec_ids=["spec:authorization"],
+        result=BackendResult(
+            backend="solver_system_checker",
+            status="valid",
+            evidence_level=EvidenceLevel.BOUNDED_CHECKED,
+            details={
+                "bounds": {"length": 5},
+                "command": "apalache-mc check",
+                "tool_version": "0.44.0",
+            },
+        ),
+    )
+    ir_path = tmp_path / "req.ir.json"
+    consistency_path = tmp_path / "system-consistency.json"
+    proof_path = tmp_path / "proof.json"
+    ir_path.write_text(json.dumps(ir.model_dump(mode="json"), indent=2))
+    consistency_path.write_text(consistency.model_dump_json(indent=2))
+
+    exit_code = main(
+        [
+            "proof-object",
+            "--requirement-ir",
+            str(ir_path),
+            "--system-consistency",
+            str(consistency_path),
+            "--out",
+            str(proof_path),
+        ]
+    )
+
+    assert exit_code == 0
+    proof = json.loads(proof_path.read_text())
+    # The FormalClaim dispatch ran through the CLI: a premise routes to the S ∧ R producer, which
+    # the coarse kind-only fallback (predicate -> core_smt) would never select.
+    routed_backends = {premise["routed_backend"] for premise in proof["premises"]}
+    assert "solver_system_checker" in routed_backends
+    assert "system_checker" not in routed_backends
+    # A non-attributed verdict discharges none of the routed fragments, so closure is honest.
+    assert proof["status"] == "blocked"
+    assert all(premise["status"] != "discharged" for premise in proof["premises"])
 
 
 def test_backend_for_proof_node_routes_each_kind_to_its_discharging_backend() -> None:
@@ -314,12 +392,15 @@ def test_backend_for_proof_node_routes_each_kind_to_its_discharging_backend() ->
 
 def test_dispatch_plan_route_by_kind_sends_premises_to_distinct_backends() -> None:
     ir = _ir()
-    default_plan = build_proof_dispatch_plan(ir, backend_id="system_checker")
+    # The single-backend plan is a legacy, explicitly-requested construction (it requires naming
+    # backend_id) that collapses every premise onto one backend. It is not the public proof-object
+    # routing: that path routes each premise to the backend its kind needs (route_by_kind / the
+    # FormalClaim dispatch), so a lone verdict cannot over-close a multi-backend requirement.
+    legacy_single_backend_plan = build_proof_dispatch_plan(ir, backend_id="system_checker")
     routed_plan = build_proof_dispatch_plan(ir, route_by_kind=True)
 
-    # Default (opt-out): every premise still routes to the single backend — zero behavior change.
-    assert {route.backend_id for route in default_plan.routes} == {"system_checker"}
-    # Opt-in: each route goes to the backend its kind needs, and the comparison premise
+    assert {route.backend_id for route in legacy_single_backend_plan.routes} == {"system_checker"}
+    # Each route goes to the backend its kind needs, and the comparison premise
     # (requested_amount <= spendable_balance) routes somewhere other than the propositional default.
     for route in routed_plan.routes:
         assert route.backend_id == backend_for_proof_node(route.role, route.node_kind)

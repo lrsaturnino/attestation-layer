@@ -3208,9 +3208,10 @@ def main(argv: list[str] | None = None) -> int:
             from .coverage_alignment import SpecCoverageReport, TraceAlignmentReport
             from .backend_agreement import BackendAgreementReport
             from .formal_backend import FormalBackendResponse
+            from .formal_claim import build_proof_dispatch_plan_from_formal_claim
             from .jsonutil import write_json
             from .models import BackendResult, RequirementIRV2
-            from .proof_closure import EvidenceProducerMapping
+            from .proof_closure import EvidenceProducerMapping, build_proof_dispatch_plan
             from .system_checker import SystemConsistencyResult
 
             ir = validate_requirement_ir_json(args.requirement_ir.read_text())
@@ -3231,9 +3232,22 @@ def main(argv: list[str] | None = None) -> int:
                 )
             for path in args.backend_result:
                 backend_results.append(BackendResult.model_validate_json(path.read_text()))
+            # Route each premise to the backend that can discharge it, rather than collapsing every
+            # premise onto one backend. A requirement that lowers to a FormalClaim carries the
+            # authoritative per-fragment routing (predicate/rejection-order to the S ∧ R check,
+            # comparison to smt-theories, membership to cvc5); a requirement that does not lower
+            # (no supported requirement_class) has no FormalClaim, so its semantic-node premises
+            # route by kind. Either way a lone S ∧ R verdict no longer silently discharges
+            # comparison/membership/state premises that need their own producer.
+            claim_report = build_formal_claim(ir)
+            if claim_report.result == "lowered" and claim_report.formal_claim is not None:
+                dispatch = build_proof_dispatch_plan_from_formal_claim(claim_report.formal_claim)
+            else:
+                dispatch = build_proof_dispatch_plan(ir, route_by_kind=True)
             proof = build_proof_object(
                 requirement=ir,
                 backend_results=backend_results,
+                dispatch=dispatch,
                 coverage=(
                     SpecCoverageReport.model_validate_json(args.spec_coverage.read_text())
                     if args.spec_coverage
