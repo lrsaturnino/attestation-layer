@@ -350,6 +350,29 @@ def formal_claim_fragment_bound_predicate(fragment: FormalClaimFragment) -> str 
     return None
 
 
+def formal_claim_fragment_post_state_value_literal(fragment: FormalClaimFragment) -> str | None:
+    """The TLA+ value literal a ``post_state`` fragment's required value lowers to, or None.
+
+    Mirrors formal_lowering._render_value_literal (which derive_post_state_obligation uses to build
+    the obligation the composition checks): a string value becomes a quoted TLA+ literal
+    (``"accepted"``), a number is rendered bare (``42``). Post_state coverage is value-EXACT — the
+    S ∧ R result records the value literal it actually checked, and a fragment is covered only when
+    BOTH its ``Pred_<state>`` operator and this value literal match what the composition bound, so a
+    bounded verdict for "accepted" can never be re-tagged as covering a "rejected" fragment that
+    shares the operator. Returns None for a non-post_state fragment (or one missing its value
+    operand / carrying an unsupported value kind the lowering would have refused), which then
+    matches no recorded value and so covers nothing.
+    """
+    if fragment.kind != "post_state" or len(fragment.operands) < 2:
+        return None
+    value = fragment.operands[1]
+    if value.kind == "string":
+        return f'"{value.value}"'
+    if value.kind == "number":
+        return str(value.value)
+    return None
+
+
 def _evidence_for_fragment_kind(kind: FormalClaimFragmentKind) -> EvidenceLevel:
     _map: dict[FormalClaimFragmentKind, EvidenceLevel] = {
         # A premise predicate is an uninterpreted boolean: it has no fragment-level SMT

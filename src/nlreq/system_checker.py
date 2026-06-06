@@ -350,40 +350,47 @@ def check_solver_backed_system_consistency(
     )
     status = _solver_status_for_runner(runner_result.outcome)
     counterexamples = _solver_counterexamples(requirement.requirement_id, runner_result)
+    details = {
+        "mode": "solver_backed",
+        "checker_id": execution.checker_id,
+        "runner_outcome": runner_result.outcome,
+        "runner_result_hash": sha256_json(runner_result),
+        "artifact_dir": artifact_dir.as_posix(),
+        "module": module_path.name,
+        "module_hash": sha256_text(module_path.read_text()),
+        "config": config_path.name,
+        "config_hash": sha256_text(config_path.read_text()),
+        "command": command,
+        "reproducibility": runner_result.reproducibility.model_dump(
+            mode="json", exclude_none=True
+        ),
+        "bounds": runner_budget.model_dump(mode="json", exclude_none=True),
+        "preserved_invariants": composed.preserved_invariants,
+        "bound_predicates": composed.bound_predicates,
+        "spec_hashes": {
+            spec_id: sha256_text(text)
+            for spec_id, text in spec_texts
+        },
+        "counterexamples": [
+            item.model_dump(mode="json", exclude_none=True)
+            for item in counterexamples
+        ],
+        "stdout": runner_result.stdout.model_dump(mode="json"),
+        "stderr": runner_result.stderr.model_dump(mode="json"),
+        "unsupported_markers": runner_result.unsupported_markers,
+        "tool_error": runner_result.tool_error,
+    }
+    # Record the exact post-state value the narrowing checked so coverage can be value-EXACT: a
+    # bounded verdict for one value (e.g. "accepted") must not be re-tagged as covering a post_state
+    # fragment demanding a different value (e.g. "rejected") that shares the same Pred_<state>
+    # operator. Only emitted for a state_postcondition (an auth result has no post-state value).
+    if post_state_obligation is not None:
+        details["bound_post_state_value"] = post_state_obligation.value_literal
     return _solver_result(
         requirement.requirement_id,
         status,
         spec_ids,
-        {
-            "mode": "solver_backed",
-            "checker_id": execution.checker_id,
-            "runner_outcome": runner_result.outcome,
-            "runner_result_hash": sha256_json(runner_result),
-            "artifact_dir": artifact_dir.as_posix(),
-            "module": module_path.name,
-            "module_hash": sha256_text(module_path.read_text()),
-            "config": config_path.name,
-            "config_hash": sha256_text(config_path.read_text()),
-            "command": command,
-            "reproducibility": runner_result.reproducibility.model_dump(
-                mode="json", exclude_none=True
-            ),
-            "bounds": runner_budget.model_dump(mode="json", exclude_none=True),
-            "preserved_invariants": composed.preserved_invariants,
-            "bound_predicates": composed.bound_predicates,
-            "spec_hashes": {
-                spec_id: sha256_text(text)
-                for spec_id, text in spec_texts
-            },
-            "counterexamples": [
-                item.model_dump(mode="json", exclude_none=True)
-                for item in counterexamples
-            ],
-            "stdout": runner_result.stdout.model_dump(mode="json"),
-            "stderr": runner_result.stderr.model_dump(mode="json"),
-            "unsupported_markers": runner_result.unsupported_markers,
-            "tool_error": runner_result.tool_error,
-        },
+        details,
         counterexamples=counterexamples,
     )
 

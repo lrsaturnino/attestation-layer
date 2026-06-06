@@ -16,6 +16,7 @@ from .formal_claim import (
     build_formal_claim,
     build_proof_dispatch_plan_from_formal_claim,
     formal_claim_fragment_bound_predicate,
+    formal_claim_fragment_post_state_value_literal,
 )
 from .formal_claim_backend import build_premise_consistency_agreement
 from .formal_claim_smt import smt_check_formal_claim_predicate_fragments
@@ -219,22 +220,33 @@ def _cover_s_and_r_fragments(result: BackendResult, claim: FormalClaim) -> Backe
 
     Only the ``solver_system_checker`` result discharges formal_claim routes, and it covers a
     fragment exactly when that fragment's ``Pred_*`` operator appears in the result's recorded
-    ``bound_predicates`` — the operators the composition inlined into the checked ``Inv``. The
-    backing metadata (bounds, command, run-recorded tool_version) is preserved by copying onto
-    the existing ``details``; constructing a fresh result would drop it and trip PB-9's backing
-    checks. Results without ``bound_predicates`` (the in-process Z3 fixture, a refused
-    composition) are returned unchanged — they cover nothing.
+    ``bound_predicates`` — the operators the composition inlined into the checked ``Inv``. A
+    ``post_state`` fragment additionally requires a VALUE match: its required value literal must
+    equal the ``bound_post_state_value`` the narrowing recorded, so a bounded verdict for one value
+    (e.g. "accepted") can never be re-tagged as covering a post_state fragment demanding a different
+    value (e.g. "rejected") that shares the same ``Pred_<state>`` operator. The backing metadata
+    (bounds, command, run-recorded tool_version) is preserved by copying onto the existing
+    ``details``; constructing a fresh result would drop it and trip PB-9's backing checks. Results
+    without ``bound_predicates`` (the in-process Z3 fixture, a refused composition) are returned
+    unchanged — they cover nothing.
     """
     if result.backend != "solver_system_checker":
         return result
     bound = set(result.details.get("bound_predicates", []))
     if not bound:
         return result
-    covered = [
-        fragment.fragment_id
-        for fragment in [*claim.premises, *claim.obligations]
-        if formal_claim_fragment_bound_predicate(fragment) in bound
-    ]
+    bound_post_state_value = result.details.get("bound_post_state_value")
+    covered: list[str] = []
+    for fragment in [*claim.premises, *claim.obligations]:
+        if formal_claim_fragment_bound_predicate(fragment) not in bound:
+            continue
+        if fragment.kind == "post_state":
+            # Value-exact: the operator alone is not enough — the verdict must have checked THIS
+            # fragment's required value. A missing recorded value (or a mismatch) covers nothing.
+            value_literal = formal_claim_fragment_post_state_value_literal(fragment)
+            if bound_post_state_value is None or value_literal != bound_post_state_value:
+                continue
+        covered.append(fragment.fragment_id)
     if not covered:
         return result
     return result.model_copy(

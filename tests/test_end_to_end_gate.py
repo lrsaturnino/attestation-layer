@@ -702,6 +702,9 @@ def test_state_postcondition_post_state_discharged_by_covering_s_and_r() -> None
         evidence_level=EvidenceLevel.BOUNDED_CHECKED,
         details={
             "bound_predicates": ["Pred_approved", "Pred_operation_status"],
+            # The exact post-state value the narrowing checked — coverage of the post_state fragment
+            # is value-exact against this, not just the Pred_<state> operator name.
+            "bound_post_state_value": '"accepted"',
             "bounds": {"max_depth": 6, "timeout_seconds": 60},
             "command": ["apalache-mc", "check", "REQ.tla"],
             "reproducibility": {"tool_version": "0.58.0"},
@@ -727,6 +730,84 @@ def test_state_postcondition_post_state_discharged_by_covering_s_and_r() -> None
     # spec-coverage / trace-alignment context the full gate supplies (the real-Apalache gate tests
     # above assert that closure end to end). Here the point is the per-premise discharge.
     assert all(blocker.premise_id is None for blocker in proof.blockers)
+
+
+def test_post_state_coverage_is_value_exact() -> None:
+    """A bounded S ∧ R verdict covers a ``post_state`` fragment only when the value it CHECKED
+    matches the fragment's required value — not merely the ``Pred_<state>`` operator.
+
+    The requirement demands operation_status = "accepted". A verdict that bound Pred_operation_status
+    but checked the value "rejected" (``bound_post_state_value`` is ``"rejected"``) must NOT be
+    re-tagged as covering the "accepted" post_state fragment, even though both share the operator —
+    otherwise a checked-the-wrong-value verdict could falsely discharge the obligation. The predicate
+    premise (name-only coverage) is still covered; only the value-sensitive post_state fragment is
+    withheld.
+    """
+    from nlreq.models import BackendResult, EvidenceLevel
+
+    ir = DslV3Parser().parse_ir(
+        "requirement state_postcondition:\n"
+        "scope operation\n"
+        "when actor is approved\n"
+        'then state operation_status must be "accepted"\n',
+        requirement_id="STATE-POST-VALUE",
+        title="State postcondition",
+    )
+    claim = build_formal_claim(ir).formal_claim
+    assert claim is not None
+    post_state_fragment = next(f for f in claim.obligations if f.kind == "post_state")
+    predicate_fragment = next(f for f in claim.premises if f.kind == "predicate")
+
+    # Same bound operators, but the verdict checked the WRONG post-state value.
+    mismatched = BackendResult(
+        backend="solver_system_checker",
+        status="valid",
+        evidence_level=EvidenceLevel.BOUNDED_CHECKED,
+        details={
+            "bound_predicates": ["Pred_approved", "Pred_operation_status"],
+            "bound_post_state_value": '"rejected"',
+            "bounds": {"max_depth": 6, "timeout_seconds": 60},
+            "command": ["apalache-mc", "check", "REQ.tla"],
+            "reproducibility": {"tool_version": "0.58.0"},
+        },
+    )
+    covered = _cover_s_and_r_fragments(mismatched, claim).details.get("covered_fragment_ids", [])
+    # The operator-only predicate premise is still covered; the value-mismatched post_state is NOT.
+    assert predicate_fragment.fragment_id in covered
+    assert post_state_fragment.fragment_id not in covered
+
+    # A result that records no post-state value at all also cannot cover the post_state fragment.
+    no_value = mismatched.model_copy(
+        update={"details": {k: v for k, v in mismatched.details.items() if k != "bound_post_state_value"}}
+    )
+    covered_no_value = _cover_s_and_r_fragments(no_value, claim).details.get("covered_fragment_ids", [])
+    assert post_state_fragment.fragment_id not in covered_no_value
+    assert predicate_fragment.fragment_id in covered_no_value
+
+
+def test_post_state_value_literal_matches_obligation_rendering() -> None:
+    """The coverage matcher renders a post_state fragment's value to the SAME TLA+ literal the
+    narrowing's checked obligation uses, so the two cannot drift and silently break value-exact
+    coverage (a mismatch would make every real verdict fail to cover its own fragment).
+    """
+    from nlreq.formal_claim import formal_claim_fragment_post_state_value_literal
+    from nlreq.formal_lowering import derive_post_state_obligation
+
+    ir = DslV3Parser().parse_ir(
+        "requirement state_postcondition:\n"
+        "scope operation\n"
+        "when actor is approved\n"
+        'then state operation_status must be "accepted"\n',
+        requirement_id="STATE-POST-RENDER",
+        title="State postcondition",
+    )
+    claim = build_formal_claim(ir).formal_claim
+    assert claim is not None
+    fragment = next(f for f in claim.obligations if f.kind == "post_state")
+    obligation = derive_post_state_obligation(ir.semantic_ir)
+    # What the coverage matcher compares == the value literal the checked obligation carried.
+    assert formal_claim_fragment_post_state_value_literal(fragment) == obligation.value_literal
+    assert obligation.value_literal == '"accepted"'
 
 
 # The two faces of one requirement used by the multi-backend tests below: the full requirement
