@@ -361,6 +361,44 @@ def backend_for_proof_node(role: str, node_kind: str) -> str:
     return _ROUTE_BACKEND_CORE_SMT
 
 
+# The evidence level each kind-routed backend discharges a premise at. A route_by_kind plan must ask
+# each route for exactly the level its routed backend emits: ``_evaluate_premise`` requires the
+# achieved evidence to EQUAL ``route.required_evidence`` — it never widens, because equality is what
+# keeps a BOUNDED_CHECKED result from silently satisfying an SMT_CHECKED obligation (the evidence-level
+# non-conflation discipline). A kind-routed route left at the flat CONSISTENCY_CHECKED default could
+# therefore never be discharged: none of these producers emit CONSISTENCY_CHECKED. Each level here is
+# the routed backend's SOLE allowed level in ``default_evidence_producer_mapping`` —
+# ``test_route_by_kind_routes_dischargeable_by_routed_producers`` pins this table to that registry so
+# the two cannot drift (the same "must stay in sync" contract ``formal_claim._backend_for_evidence``
+# carries). CONSISTENCY_CHECKED is intentionally absent: only the legacy single-backend
+# ``system_checker`` plan requires it, and route_by_kind never routes there.
+_REQUIRED_EVIDENCE_FOR_BACKEND: dict[str, EvidenceLevel] = {
+    _ROUTE_BACKEND_CORE_SMT: EvidenceLevel.SMT_CHECKED,
+    _ROUTE_BACKEND_SMT_THEORIES: EvidenceLevel.SMT_CHECKED,
+    _ROUTE_BACKEND_CVC5: EvidenceLevel.SMT_CHECKED,
+    _ROUTE_BACKEND_APALACHE: EvidenceLevel.BOUNDED_CHECKED,
+    _ROUTE_BACKEND_TRACE: EvidenceLevel.TRACE_VALIDATED,
+}
+
+
+def required_evidence_for_proof_node(role: str, node_kind: str) -> EvidenceLevel:
+    """The evidence level a route_by_kind premise of ``node_kind`` must reach to discharge.
+
+    Derived from the backend its kind routes to (:func:`backend_for_proof_node`): each kind-routed
+    backend discharges at a single level (its sole entry in :func:`default_evidence_producer_mapping`),
+    and the exact-match evidence gate in :func:`_evaluate_premise` requires the route to ask for
+    exactly that level. Comparison/numeric and authorization/propositional premises route to SMT
+    backends (SMT_CHECKED), set-membership to cvc5 (SMT_CHECKED), state/temporal to the Apalache
+    S ∧ R model check (BOUNDED_CHECKED), and trace-grounded fragments to trace validation
+    (TRACE_VALIDATED). This is the evidence *requirement* a kind-routed premise carries — discharging
+    it still needs the routed producer to have produced a matching valid result; it does not itself
+    run any backend.
+    """
+    return _REQUIRED_EVIDENCE_FOR_BACKEND.get(
+        backend_for_proof_node(role, node_kind), EvidenceLevel.CONSISTENCY_CHECKED
+    )
+
+
 def build_proof_dispatch_plan(
     requirement: RequirementIRV2,
     *,
@@ -372,11 +410,16 @@ def build_proof_dispatch_plan(
     """Build the per-premise dispatch plan for a requirement's compositional proof.
 
     With ``route_by_kind=True`` each premise routes to the backend its kind needs
-    (:func:`backend_for_proof_node`) — the multi-backend plan :func:`build_proof_object` builds when
-    no explicit dispatch is given. With ``route_by_kind=False`` (the default of THIS builder) every
-    premise instead routes to the single ``backend_id``; that legacy single-backend plan is no longer
-    the closure default and must be requested explicitly (it requires naming ``backend_id``), so a
-    lone verdict cannot silently close a multi-premise proof.
+    (:func:`backend_for_proof_node`) AND asks for the evidence level that backend discharges at
+    (:func:`required_evidence_for_proof_node`) — the multi-backend plan :func:`build_proof_object`
+    builds when no explicit dispatch is given. Deriving the per-route evidence is what makes the plan
+    dischargeable: the closure evidence gate is exact-match, so a kind-routed route left at the flat
+    ``required_evidence`` default would block on a valid routed result (e.g. ``smt-theories`` emits
+    SMT_CHECKED, never the CONSISTENCY_CHECKED default). With ``route_by_kind=False`` (the default of
+    THIS builder) every premise instead routes to the single ``backend_id`` at the flat
+    ``required_evidence``; that legacy single-backend plan is no longer the closure default and must
+    be requested explicitly (it requires naming ``backend_id``), so a lone verdict cannot silently
+    close a multi-premise proof.
     """
     routes = [
         ProofPremiseRoute(
@@ -385,7 +428,15 @@ def build_proof_dispatch_plan(
             node_kind=node.kind,
             role=role,
             backend_id=backend_for_proof_node(role, node.kind) if route_by_kind else backend_id,
-            required_evidence=required_evidence,
+            # A kind-routed premise must require the level ITS routed backend emits, not the flat
+            # ``required_evidence`` default — else a valid routed result blocks on the exact-match
+            # evidence gate in _evaluate_premise. The single-backend path keeps the caller's
+            # ``required_evidence`` (the legacy ``system_checker`` plan emits CONSISTENCY_CHECKED).
+            required_evidence=(
+                required_evidence_for_proof_node(role, node.kind)
+                if route_by_kind
+                else required_evidence
+            ),
             reason=(
                 f"routed by fragment kind '{node.kind}'"
                 if route_by_kind

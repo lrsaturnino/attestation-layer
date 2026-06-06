@@ -1,9 +1,6 @@
 import json
 from pathlib import Path
 
-import json
-from pathlib import Path
-
 import pytest
 from pydantic import ValidationError
 
@@ -24,6 +21,7 @@ from nlreq.proof_closure import (
     build_proof_object,
     default_evidence_producer_mapping,
     evaluate_closure_gate,
+    required_evidence_for_proof_node,
 )
 from nlreq.system_checker import SystemConsistencyResult, check_system_consistency_fixture
 from nlreq.system_spec import SystemSpecRegistry
@@ -89,6 +87,55 @@ def test_lone_system_checker_verdict_blocks_by_default_but_closes_under_explicit
     assert {premise.status for premise in closed.premises} == {"discharged"}
     assert closed.coverage_result == "passed"
     assert closed.trace_alignment_result == "passed"
+    assert gate.result == "passed"
+
+
+def test_route_by_kind_premises_discharge_at_their_routed_producers_evidence(
+    tmp_path: Path,
+) -> None:
+    """A kind-routed proof closes when each premise's routed backend supplies a valid result.
+
+    The no-dispatch default routes each premise to the backend its kind needs and asks for the
+    evidence level that backend emits (SMT_CHECKED for the core_smt / smt-theories routes this
+    requirement produces). Feeding valid results from those routed producers discharges every
+    premise — the closure path is now dischargeable at the evidence boundary, where before the
+    fix it blocked because the route asked for CONSISTENCY_CHECKED that no routed producer emits.
+    This does not run the backends; it asserts a real routed result is no longer rejected on an
+    evidence mismatch the routing itself created.
+    """
+    ir = _ir()
+    coverage = _coverage(tmp_path)
+    alignment = _alignment(ir, coverage)
+    # The redemption requirement's premises route to core_smt (authorization predicate + the action
+    # obligation) and smt-theories (the requested_amount <= spendable_balance comparison); both
+    # discharge at SMT_CHECKED. No covered_fragment_ids, so each result matches all its backend's
+    # routes (semantic-node backward-compatible matching).
+    results = [
+        BackendResult(
+            backend="core_smt",
+            status="valid",
+            evidence_level=EvidenceLevel.SMT_CHECKED,
+        ),
+        BackendResult(
+            backend="smt-theories",
+            status="valid",
+            evidence_level=EvidenceLevel.SMT_CHECKED,
+        ),
+    ]
+
+    proof = build_proof_object(
+        requirement=ir,
+        backend_results=results,
+        coverage=coverage,
+        trace_alignment=alignment,
+    )
+    gate = evaluate_closure_gate(proof, downstream_action="merge")
+
+    assert proof.status == "closed"
+    assert {premise.status for premise in proof.premises} == {"discharged"}
+    # The proof closed on the per-kind producers, never the legacy single-backend system_checker.
+    assert all(premise.routed_backend != "system_checker" for premise in proof.premises)
+    assert {premise.routed_backend for premise in proof.premises} == {"core_smt", "smt-theories"}
     assert gate.result == "passed"
 
 
@@ -429,11 +476,67 @@ def test_dispatch_plan_route_by_kind_sends_premises_to_distinct_backends() -> No
     routed_plan = build_proof_dispatch_plan(ir, route_by_kind=True)
 
     assert {route.backend_id for route in legacy_single_backend_plan.routes} == {"system_checker"}
-    # Each route goes to the backend its kind needs, and the comparison premise
-    # (requested_amount <= spendable_balance) routes somewhere other than the propositional default.
+    # Each route goes to the backend its kind needs AND asks for the evidence that backend emits
+    # (not the flat CONSISTENCY_CHECKED default), so a valid routed result can actually discharge it.
+    # The comparison premise (requested_amount <= spendable_balance) routes off the propositional
+    # default. The legacy single-backend plan still carries the flat CONSISTENCY_CHECKED.
     for route in routed_plan.routes:
         assert route.backend_id == backend_for_proof_node(route.role, route.node_kind)
+        assert route.required_evidence == required_evidence_for_proof_node(
+            route.role, route.node_kind
+        )
     assert {route.backend_id for route in routed_plan.routes} != {"system_checker"}
+    assert {route.required_evidence for route in legacy_single_backend_plan.routes} == {
+        EvidenceLevel.CONSISTENCY_CHECKED
+    }
+
+
+def test_required_evidence_for_proof_node_matches_each_routed_backend() -> None:
+    """Each premise kind requires exactly the evidence level its routed backend discharges at.
+
+    Comparison/numeric and authorization/propositional kinds route to SMT backends (SMT_CHECKED),
+    set-membership to cvc5 (SMT_CHECKED), state/temporal to the Apalache S ∧ R check (BOUNDED_CHECKED),
+    and trace-grounded kinds to trace validation (TRACE_VALIDATED). CONSISTENCY_CHECKED never appears:
+    only the legacy single-backend system_checker plan requires it, and route_by_kind never routes
+    there.
+    """
+    expected = {
+        "comparison": EvidenceLevel.SMT_CHECKED,
+        "lte": EvidenceLevel.SMT_CHECKED,
+        "predicate": EvidenceLevel.SMT_CHECKED,
+        "and": EvidenceLevel.SMT_CHECKED,
+        "membership": EvidenceLevel.SMT_CHECKED,
+        "post_state": EvidenceLevel.BOUNDED_CHECKED,
+        "invariant": EvidenceLevel.BOUNDED_CHECKED,
+        "trace_ref": EvidenceLevel.TRACE_VALIDATED,
+    }
+    for node_kind, level in expected.items():
+        assert required_evidence_for_proof_node("premise", node_kind) == level
+
+
+def test_route_by_kind_routes_dischargeable_by_routed_producers() -> None:
+    """Every kind-routed (backend, required-evidence) pair is dischargeable by its routed producer.
+
+    Mirrors the FormalClaim dispatch's dischargeability invariant: a route must not require an
+    evidence level its routed producer cannot produce, or a valid result blocks on the exact-match
+    evidence gate. Representative kinds cover all five kind-routed backends (core_smt, smt-theories,
+    cvc5, apalache, trace_validation), pinning the _REQUIRED_EVIDENCE_FOR_BACKEND table to the
+    producer registry so the two cannot drift.
+    """
+    producer_by_id = {p.producer_id: p for p in default_evidence_producer_mapping().producers}
+    # One node kind per kind-routed backend, so every table row is checked against the registry.
+    representative_kinds = ["predicate", "comparison", "membership", "post_state", "trace_ref"]
+    routed_backends = {backend_for_proof_node("premise", kind) for kind in representative_kinds}
+    assert routed_backends == {"core_smt", "smt-theories", "cvc5", "apalache", "trace_validation"}
+
+    for node_kind in representative_kinds:
+        backend_id = backend_for_proof_node("premise", node_kind)
+        required = required_evidence_for_proof_node("premise", node_kind)
+        producer = producer_by_id.get(backend_id)
+        assert producer is not None, f"kind '{node_kind}' routes to unknown backend: {backend_id}"
+        assert required in producer.allowed_evidence_levels, (
+            f"backend '{backend_id}' cannot produce '{required}' (node kind: {node_kind})"
+        )
 
 
 def _ir():
