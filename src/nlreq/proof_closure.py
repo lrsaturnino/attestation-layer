@@ -287,9 +287,11 @@ def default_evidence_producer_mapping() -> EvidenceProducerMapping:
 
 
 # Per-premise backend routing table over generic SemanticNode kinds. Encoded as data + a pure
-# function so the routing decision is executable and tested; it is opt-in (see ``route_by_kind``
-# below) and NOT the default. The AUTHORITATIVE production routing is
-# ``formal_claim._backend_for_fragment_kind``, which routes the FormalClaim fragments the gate
+# function so the routing decision is executable and tested. This is the routing used for a
+# requirement that does NOT lower to a FormalClaim: ``build_proof_object``'s no-dispatch default,
+# the gate's refused-claim fallback, and the CLI's non-lowered fallback all build it via
+# ``build_proof_dispatch_plan(route_by_kind=True)``. The AUTHORITATIVE routing for a LOWERED claim
+# is ``formal_claim._backend_for_fragment_kind``, which routes the FormalClaim fragments the gate
 # actually dispatches. This coarse generic router aligns its THEORY-routed kinds with that policy:
 # comparison -> smt-theories and set-membership -> cvc5 on both surfaces, so a theory premise never
 # routes to two different backends across the two APIs. It deliberately does NOT mirror

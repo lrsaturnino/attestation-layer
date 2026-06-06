@@ -222,8 +222,8 @@ def _cover_s_and_r_fragments(result: BackendResult, claim: FormalClaim) -> Backe
     ``bound_predicates`` — the operators the composition inlined into the checked ``Inv``. The
     backing metadata (bounds, command, run-recorded tool_version) is preserved by copying onto
     the existing ``details``; constructing a fresh result would drop it and trip PB-9's backing
-    checks. Results without ``bound_predicates`` (the in-process Z3 fixture, the CONSISTENCY
-    floor baseline, a refused composition) are returned unchanged — they cover nothing.
+    checks. Results without ``bound_predicates`` (the in-process Z3 fixture, a refused
+    composition) are returned unchanged — they cover nothing.
     """
     if result.backend != "solver_system_checker":
         return result
