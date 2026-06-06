@@ -1493,6 +1493,137 @@ def test_compose_s_and_r_narrowing_refuses_variable_name_collision() -> None:
     assert composed.refusal_kind == "variable_name_collision"
 
 
+def test_compose_s_and_r_narrowing_refuses_plural_spec_constant() -> None:
+    """A spec declaring its constant with the plural ``CONSTANTS`` keyword (real TLA's form for
+    several names) is refused identically to the singular ``CONSTANT`` — the declaration must
+    reach the ``unsupported_spec_constant`` guard, not slip into the body unexamined."""
+    spec_with_constant = (
+        "---- MODULE Sys ----\n"
+        "EXTENDS Naturals, TLC\n\n"
+        "\\* @type: Str;\n"
+        "CONSTANTS threshold\n\n"
+        "\\* @type: Str;\n"
+        "VARIABLE authPhase\n\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_authorized(a) == FALSE\n"
+        "\\* @type: (Str) => Bool;\n"
+        'Pred_finalize_redemption(a) == FALSE\n'
+        'SystemClosed == Pred_authorized("wallet") = FALSE\n'
+        'SInit == authPhase = "init"\n'
+        "SNext == UNCHANGED authPhase\n"
+        "====\n"
+    )
+    contribution = build_system_spec_contribution(
+        "spec:sys", spec_with_constant, ["SystemClosed"], init_op="SInit", next_op="SNext"
+    )
+    composed = compose_s_and_r_module(
+        "Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution],
+        outcome_predicate=_OUTCOME_FINALIZE,
+    )
+
+    assert composed.status == "refused"
+    assert composed.refusal_kind == "unsupported_spec_constant"
+
+
+def test_compose_s_and_r_narrowing_refuses_plural_ghost_variable_collision() -> None:
+    """A spec declaring the narrowing's reserved ghost variable via the plural ``VARIABLES``
+    keyword is refused with ``variable_name_collision`` — the plural form must reach the
+    reserved-variable guard, or the post-state history bit would be conflated with S's state."""
+    spec_with_ghost = (
+        "---- MODULE Sys ----\n"
+        "EXTENDS Naturals, TLC\n\n"
+        "\\* @type: Str;\n"
+        "VARIABLES nlr_prev_premise\n\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_authorized(a) == FALSE\n"
+        "\\* @type: (Str) => Bool;\n"
+        'Pred_finalize_redemption(a) == FALSE\n'
+        'SystemClosed == Pred_authorized("wallet") = FALSE\n'
+        'SInit == nlr_prev_premise = "init"\n'
+        "SNext == UNCHANGED nlr_prev_premise\n"
+        "====\n"
+    )
+    contribution = build_system_spec_contribution(
+        "spec:sys", spec_with_ghost, ["SystemClosed"], init_op="SInit", next_op="SNext"
+    )
+    composed = compose_s_and_r_module(
+        "Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution],
+        outcome_predicate=_OUTCOME_FINALIZE,
+    )
+
+    assert composed.status == "refused"
+    assert composed.refusal_kind == "variable_name_collision"
+
+
+def test_compose_s_and_r_narrowing_refuses_ghost_collision_in_second_comma_name() -> None:
+    """The reserved ghost variable as the SECOND name of a comma-separated ``VARIABLES``
+    declaration is still caught. This discriminates real comma-splitting from a parser that
+    reads only the first identifier or treats the whole remainder as one name — the collision
+    holds only if the second token is reached."""
+    spec_two_vars = (
+        "---- MODULE Sys ----\n"
+        "EXTENDS Naturals, TLC\n\n"
+        "VARIABLES authPhase, nlr_prev_premise\n\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_authorized(a) == FALSE\n"
+        "\\* @type: (Str) => Bool;\n"
+        'Pred_finalize_redemption(a) == FALSE\n'
+        'SystemClosed == Pred_authorized("wallet") = FALSE\n'
+        'SInit == authPhase = "init" /\\ nlr_prev_premise = "init"\n'
+        "SNext == UNCHANGED <<authPhase, nlr_prev_premise>>\n"
+        "====\n"
+    )
+    contribution = build_system_spec_contribution(
+        "spec:sys", spec_two_vars, ["SystemClosed"], init_op="SInit", next_op="SNext"
+    )
+    composed = compose_s_and_r_module(
+        "Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution],
+        outcome_predicate=_OUTCOME_FINALIZE,
+    )
+
+    assert composed.status == "refused"
+    assert composed.refusal_kind == "variable_name_collision"
+
+
+def test_compose_s_and_r_narrowing_composes_comma_separated_variables() -> None:
+    """A reviewed spec declaring several variables on one comma-separated ``VARIABLES`` line
+    composes: every name is extracted and re-emitted as its own Apalache-typed VARIABLE block,
+    and the original single-line declaration is consumed (not left verbatim mid-body where the
+    checker's parser would reject it)."""
+    spec_multi_var = (
+        "---- MODULE RedemptionAuthorizationMulti ----\n"
+        "EXTENDS Naturals, TLC\n\n"
+        "VARIABLES authPhase, redeemPhase\n\n"
+        "\\* @type: (Str) => Bool;\n"
+        "Pred_authorized(a) == FALSE\n"
+        "\\* @type: (Str) => Bool;\n"
+        'Pred_not_authorized(a) == authPhase \\in {"denied", "finalized"}\n'
+        "\\* @type: (Str) => Bool;\n"
+        'Pred_finalize_redemption(a) == authPhase = "finalized"\n'
+        "\\* System invariant: authorization defaults closed.\n"
+        'AuthorizationDefaultsClosed == Pred_authorized("wallet") = FALSE\n'
+        'SInit == authPhase = "init" /\\ redeemPhase = "idle"\n'
+        'SNext == \\/ (authPhase = "init" /\\ authPhase\' = "denied" /\\ UNCHANGED redeemPhase)\n'
+        "         \\/ UNCHANGED <<authPhase, redeemPhase>>\n"
+        "====\n"
+    )
+    contribution = build_system_spec_contribution(
+        "spec:sys", spec_multi_var, ["AuthorizationDefaultsClosed"],
+        init_op="SInit", next_op="SNext",
+    )
+    composed = compose_s_and_r_module(
+        "Req_GOLDEN_S_AND_R", _GOLDEN_LOWERED, [contribution],
+        outcome_predicate=_OUTCOME_FINALIZE,
+    )
+
+    assert composed.status == "composed"
+    # Both comma-separated names are extracted and re-emitted as their own typed VARIABLE blocks.
+    assert "VARIABLE\n  \\* @type: Str;\n  authPhase\n" in composed.module_text
+    assert "VARIABLE\n  \\* @type: Str;\n  redeemPhase\n" in composed.module_text
+    # The original single-line declaration was consumed, not kept verbatim in the inlined body.
+    assert "VARIABLES authPhase, redeemPhase" not in composed.module_text
+
+
 def test_compose_s_and_r_narrowing_refuses_undefined_outcome_predicate() -> None:
     """If the reviewed S does not interpret the forbidden-outcome predicate Pred_<action>,
     the narrowing cannot tell whether S reaches the outcome the requirement forbids, so it

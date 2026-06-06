@@ -1663,17 +1663,61 @@ def _compose_system_narrowing(
     )
 
 
+def _decl_names(remainder: str) -> list[str] | None:
+    """Return the bare identifiers a declaration's name list holds, or None if it is not one.
+
+    ``remainder`` is everything after the ``CONSTANT[S]``/``VARIABLE[S]`` keyword on its line —
+    e.g. ``log, currentTerm, votedFor, state`` — split on commas and trimmed. Returns the names
+    in order when every token is a bare identifier; returns None otherwise so the caller leaves
+    the line in the spec body untouched rather than misclassifying a form it cannot pin (a
+    parametrized constant ``Foo(_)``, a tuple, or a trailing same-line comment). Returning None
+    is fail-closed: an unparsed declaration left in the body is never pinned by ConstInit (a
+    constant) nor re-emitted with the Apalache type annotation a variable needs, so it cannot
+    yield a spurious ``valid`` — Apalache fails the check on the unbound constant or untyped
+    variable instead.
+    """
+    import re
+
+    tokens = [token.strip() for token in remainder.split(",")]
+    if tokens and all(re.fullmatch(r"\w+", token) for token in tokens):
+        return tokens
+    return None
+
+
 def _split_declarations(
     operator_body: str,
 ) -> tuple[list[tuple[str, str | None]], list[tuple[str, str | None]], str]:
     """Separate CONSTANT/VARIABLE declarations from a spec's operator definitions.
 
     Returns ``(constants, variables, body_without_declarations)`` where constants and
-    variables are ``(name, type_annotation_or_None)``. An Apalache ``\\* @type: …;``
-    comment immediately preceding a declaration is consumed with it (and re-emitted by the
-    composition); a ``@type`` comment preceding an operator *definition* (e.g. a predicate)
-    is kept in the body. The composition re-emits declarations at the top so a predicate
-    that reads a spec variable is not declared after its use.
+    variables are ``(name, type_annotation_or_None)``. Both the singular keywords
+    (``CONSTANT``/``VARIABLE``) and the plural forms real TLA uses for several names
+    (``CONSTANTS``/``VARIABLES``, e.g. ``VARIABLES log, currentTerm, votedFor, state``) are
+    recognized, and a comma-separated name list on one line yields one entry per name — so a
+    reviewed spec's constants and variables reach the composition's refusal guards
+    (``unsupported_spec_constant``, ``variable_name_collision``) instead of slipping through
+    into the body unexamined.
+
+    An Apalache ``\\* @type: …;`` comment immediately preceding a *single-name* declaration is
+    consumed with it (and re-emitted by the composition); a ``@type`` comment preceding an
+    operator *definition* (e.g. a predicate) is kept in the body. A comma-separated declaration
+    is recorded untyped (each name defaults to ``Str`` on re-emit) because one preceding comment
+    cannot describe several differently-typed names — per-name types require Apalache's block
+    form, which this single-line parser does not read.
+
+    The composition re-emits declarations at the top so a predicate that reads a spec variable
+    is not declared after its use.
+
+    TODO: this reads only single-line declarations. Two real-TLA forms still fall through to the
+    body unparsed: (1) Apalache's *block form*, where the keyword stands alone on its line and
+    each name follows on its own line with its own ``\\* @type: …;`` comment; and (2) a
+    declaration with a trailing same-line comment. TLA+ permits declarations and definitions in
+    any order, so an unparsed declaration left mid-body is NOT a parse error — but it is still
+    fail-closed: an unparsed CONSTANT is never pinned by ConstInit (the check cannot complete
+    over an unbound constant) and, on the post_state path, a block-declared ``nlr_prev_premise``
+    duplicates the ghost VARIABLE the composition injects, so no unparsed form yields a spurious
+    ``valid``. Extend ``_decl_names`` and this loop to read the block form before treating an
+    arbitrary reviewed ``S`` as fully real-spec-ready.
     """
     import re
 
@@ -1683,22 +1727,30 @@ def _split_declarations(
     kept: list[str] = []
     index = 0
     total = len(lines)
-    decl_re = re.compile(r"\s*(CONSTANT|VARIABLE)\s+(\w+)")
+    decl_re = re.compile(r"\s*(CONSTANT|VARIABLE)S?\s+(.+?)\s*$")
     type_re = re.compile(r"\s*\\\*\s*@type:\s*(.+?);\s*$")
     while index < total:
         line = lines[index]
         type_match = type_re.match(line)
         next_line = lines[index + 1] if index + 1 < total else ""
         paired_decl = decl_re.match(next_line) if type_match else None
-        if type_match and paired_decl:
-            entry = (paired_decl.group(2), type_match.group(1).strip())
-            (constants if paired_decl.group(1) == "CONSTANT" else variables).append(entry)
+        paired_names = _decl_names(paired_decl.group(2)) if paired_decl else None
+        if type_match and paired_names is not None:
+            bucket = constants if paired_decl.group(1) == "CONSTANT" else variables
+            # A single preceding @type comment annotates a single-name declaration; a
+            # comma-separated declaration is recorded untyped (one comment cannot type several
+            # differently-typed names — per-name types need Apalache's block form).
+            if len(paired_names) == 1:
+                bucket.append((paired_names[0], type_match.group(1).strip()))
+            else:
+                bucket.extend((name, None) for name in paired_names)
             index += 2
             continue
         bare_decl = decl_re.match(line)
-        if bare_decl:
-            entry = (bare_decl.group(2), None)
-            (constants if bare_decl.group(1) == "CONSTANT" else variables).append(entry)
+        bare_names = _decl_names(bare_decl.group(2)) if bare_decl else None
+        if bare_names is not None:
+            bucket = constants if bare_decl.group(1) == "CONSTANT" else variables
+            bucket.extend((name, None) for name in bare_names)
             index += 1
             continue
         kept.append(line)
