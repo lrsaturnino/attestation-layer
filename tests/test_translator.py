@@ -322,6 +322,95 @@ def test_lower_state_postcondition_refuses_malformed_shape() -> None:
     assert any(kind == "no_predicate_premise" for kind in (d.kind for d in artifact.diagnostics))
 
 
+def test_lower_state_precondition_lowers_non_vacuously() -> None:
+    """state_precondition (``when <predicate> then <action> must succeed``) lowers to a non-vacuous
+    module — the affirmative dual of authorization_precondition. The premise predicate is an
+    abstract CONSTANT a reviewed S interprets; the obligation is the safety invariant ``Premise =>
+    NLRState /= "failed"`` (the action must not fail when its precondition holds), with no predicate
+    in the transition relation, so the harness stays checker-distinguishable.
+    """
+    ir = DslV3Parser().parse_ir(
+        "requirement state_precondition:\n"
+        "scope operation\n"
+        "when actor is approved\n"
+        "then operation must succeed\n",
+        requirement_id="REQ-STATEPRE-LOWER",
+        title="State precondition",
+    )
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "lowered"
+    assert artifact.content is not None
+    assert artifact.metadata.get("semantics") == "non_vacuous"
+    assert artifact.metadata.get("claim_class") == "state_precondition"
+    assert artifact.translator == "nlreq.formal_lowering.state_precondition"
+    # The premise predicate is abstract (a reviewed S interprets it) — not stubbed to TRUE or 0.
+    assert "CONSTANT Pred_approved(_)" in artifact.content
+    assert "== TRUE" not in artifact.content
+    assert "== 0" not in artifact.content
+    # The obligation forbids the "failed" outcome under the premise (i.e. the action must succeed).
+    assert 'Obligation == Pred_approved(actor) => NLRState /= "failed"' in artifact.content
+    # The premise predicate must NOT gate the transition relation, or the checker is self-satisfied.
+    for line in artifact.content.splitlines():
+        if line.startswith("Step_") or line.startswith("Next =="):
+            assert "Pred_" not in line, f"predicate leaked into transition: {line!r}"
+
+
+def test_lower_state_precondition_is_deterministic() -> None:
+    ir = DslV3Parser().parse_ir(
+        "requirement state_precondition:\n"
+        "scope operation\n"
+        "when actor is approved\n"
+        "then operation must succeed\n",
+        requirement_id="REQ-STATEPRE-DET",
+        title="State precondition",
+    )
+    assert lower_ir_v2_to_tla(ir).content == lower_ir_v2_to_tla(ir).content
+
+
+def test_lower_state_precondition_refuses_non_succeed_obligation() -> None:
+    """A state_precondition whose obligation is not ``must succeed`` (here a ``reject before``)
+    refuses rather than misencode it as a success obligation — the shape guard keeps each claim
+    kind bound to its own lowering.
+    """
+    ir = DslV3Parser().parse_ir(
+        "requirement state_precondition:\n"
+        "scope operation\n"
+        "when actor is approved\n"
+        "then operation must reject before settled\n",
+        requirement_id="REQ-STATEPRE-REFUSE-OBL",
+        title="State precondition",
+    )
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "refused"
+    assert artifact.content is None
+    assert artifact.metadata.get("refusal_code") == "NLR-LOWERING-UNSUPPORTED-SHAPE"
+    assert any(d.kind == "before" for d in artifact.diagnostics)
+
+
+def test_lower_state_precondition_refuses_comparison_only_premise() -> None:
+    """A comparison-only premise (no named predicate) refuses — projecting it out leaves the
+    narrowing antecedent vacuously TRUE, the same honesty guard the other lowerings enforce.
+    """
+    ir = DslV3Parser().parse_ir(
+        "requirement state_precondition:\n"
+        "scope operation\n"
+        "when balance >= 5\n"
+        "then operation must succeed\n",
+        requirement_id="REQ-STATEPRE-REFUSE-PREM",
+        title="State precondition",
+    )
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "refused"
+    assert artifact.content is None
+    assert any(d.kind == "no_predicate_premise" for d in artifact.diagnostics)
+
+
 def test_lower_authorization_precondition_refuses_comparison_only_premise() -> None:
     """A comparison-ONLY premise must refuse — projecting it out leaves Premise == TRUE.
 

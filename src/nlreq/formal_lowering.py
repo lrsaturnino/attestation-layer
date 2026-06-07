@@ -403,6 +403,112 @@ def validate_state_postcondition_shape(
     return problems
 
 
+def validate_state_precondition_shape(
+    root: SemanticNode,
+) -> list[tuple[str, str, SemanticNode | None]]:
+    """Return (kind, reason, offending_node) triples for unsupported state_precondition shapes.
+
+    Returns an empty list when the shape is fully supported. Mirrors the other shape validators'
+    contract: callers must refuse lowering when the list is non-empty — never silently emit a
+    skeleton. The supported shape is ``forall scope: <named predicate premise> implies <action>
+    succeeds`` — the premise carries at least one named predicate with an identifier argument (the
+    operator a reviewed S interprets), and the obligation is a ``succeed`` clause (``then <action>
+    must succeed``) naming the action. This is the AFFIRMATIVE dual of authorization_precondition:
+    where the authorization obligation forbids the action's accepted outcome, a state_precondition
+    requires the action to succeed when its precondition holds. Comparison/membership premises are
+    projected out as in the authorization lowering (discharged by the SMT backends), so a premise
+    built only from them refuses for vacuity.
+    """
+    problems: list[tuple[str, str, SemanticNode | None]] = []
+
+    if root.premise is None:
+        problems.append(
+            ("missing_premise", "state_precondition requires a premise clause (when ...)", None)
+        )
+    else:
+        premise = root.premise
+        nodes = premise.children if premise.kind == "and" else [premise]
+        predicate_count = 0
+        for node in nodes:
+            if node.kind == "predicate":
+                predicate_count += 1
+                if not node.name:
+                    problems.append(
+                        ("nameless_predicate", "state_precondition premise predicate requires a name", node)
+                    )
+                elif not any(arg.kind == "identifier" for arg in node.args):
+                    problems.append((
+                        "empty_predicate_args",
+                        (
+                            f"state_precondition premise predicate '{node.name}' must have at least "
+                            "one identifier argument (e.g. 'when actor is approved')"
+                        ),
+                        node,
+                    ))
+            elif node.kind in _PROJECTED_PREMISE_KINDS:
+                # Comparison/membership premises are discharged by the SMT backends, not the S ∧ R
+                # model check — projected out exactly as in the authorization lowering.
+                continue
+            else:
+                problems.append((
+                    node.kind,
+                    (
+                        f"unsupported premise node kind '{node.kind}' in state_precondition; "
+                        "supported premise nodes are named predicates, comparisons, and set-membership"
+                    ),
+                    node,
+                ))
+        if predicate_count == 0:
+            # Non-vacuity guard (same rationale as authorization/post_state): without a named
+            # predicate premise the antecedent is TRUE and the obligation degenerates to "the action
+            # never fails in any reachable state" — a check S ∧ R cannot couple to a reviewed S. A
+            # premise built only from comparison/membership clauses carries no predicate for S to
+            # interpret, so refuse rather than emit a meaningless module; the SMT backends still
+            # check those clauses on their own route.
+            problems.append((
+                "no_predicate_premise",
+                (
+                    "state_precondition premise has no named predicate clause; the S ∧ R obligation "
+                    "would be vacuous. At least one predicate premise is required (e.g. 'when actor "
+                    "is approved')"
+                ),
+                premise,
+            ))
+
+    if root.obligation is None:
+        problems.append(
+            ("missing_obligation", "state_precondition requires an obligation clause (must succeed)", None)
+        )
+    else:
+        action_node = root.obligation.action
+        if action_node is None or not action_node.name:
+            problems.append((
+                "missing_action",
+                "state_precondition obligation requires a named action node",
+                action_node if action_node is not None else root.obligation,
+            ))
+        must = root.obligation.must
+        if must is None:
+            problems.append(("missing_must", "state_precondition obligation requires a must clause", None))
+        elif must.kind != "predicate" or must.name != "succeeds":
+            # The DSL v3 ``succeed`` obligation lowers to a predicate node named ``succeeds``. Any
+            # other must-node (e.g. a ``before`` rejection, a ``post_state``, a ``within`` event)
+            # is a different claim shape with its own lowering; refuse here rather than misencode it
+            # as a success obligation.
+            problems.append((
+                must.kind,
+                (
+                    f"state_precondition obligation must be 'must succeed'; got must node kind "
+                    f"'{must.kind}'"
+                    + (f" name '{must.name}'" if must.name else "")
+                    + " — unsupported obligation shape"
+                ),
+                must,
+            ))
+
+    return problems
+
+
 def lower_authorization_precondition_tla(
     ir: RequirementIRV2,
     *,
@@ -564,6 +670,93 @@ def lower_state_postcondition_tla(
         f"Next == Step_reach \\/ UNCHANGED NLRState\n\n"
         f"Premise == {premise_expr}\n\n"
         f"Obligation == {premise_expr} => NLRState = \"nlr_post_state\"\n\n"
+        f"RequirementHolds == Premise => Obligation\n\n"
+        f"====\n"
+    )
+
+
+def lower_state_precondition_tla(
+    ir: RequirementIRV2,
+    *,
+    bounds_json: str = "[]",
+) -> str:
+    """Produce a non-vacuous TLA+ module for state_precondition.
+
+    state_precondition is the AFFIRMATIVE dual of authorization_precondition: ``when <predicate>
+    then <action> must succeed``. Premises are CONSTANT uninterpreted operators a reviewed S
+    interprets; the harness state machine is UNCONSTRAINED with respect to the premise — the action
+    nondeterministically reaches ``"succeeded"`` or ``"failed"`` without consulting the predicate —
+    and the obligation is the safety invariant ``Premise => NLRState /= "failed"`` (when the
+    precondition holds the action must not fail, i.e. it must succeed). Where authorization forbids
+    the ``"accepted"`` outcome, this forbids the ``"failed"`` one.
+
+    Like the authorization lowering, this module is checker-distinguishable and composes through the
+    stateless-S product (Case A) of :func:`compose_s_and_r_module`: with a reviewed S that pins the
+    premise predicate TRUE the harness can still reach ``"failed"``, so the conjoined
+    ``RequirementHolds`` invariant has a counterexample; with S pinning it FALSE the obligation is
+    vacuously satisfied and the run is ``valid``. The premise predicate never appears in any
+    ``Step_*``/``Next`` definition, so the checker is not self-satisfied.
+
+    Caller must invoke validate_state_precondition_shape first and refuse if any problems are
+    returned; this function assumes a supported shape.
+    """
+    root = ir.semantic_ir
+    module_name = "Req_" + _safe_name(ir.requirement_id)
+
+    predicates = _premise_predicates(root)
+    const_identifiers = sorted(_scope_identifiers(root))
+
+    if root.obligation is None or root.obligation.action is None or not root.obligation.action.name:
+        raise ValueError(
+            "lower_state_precondition_tla: obligation action is missing or nameless — "
+            "validate_state_precondition_shape must be called first"
+        )
+    safe_action = _safe_name(root.obligation.action.name)
+
+    pred_decls = "\n".join(
+        f"\\* @type: {_pred_type_annotation(args)};\nCONSTANT {pred_name(name)}({', '.join('_' for _ in args)})"
+        for name, args in predicates
+        if args  # validation refused empty-arg predicates before reaching here
+    )
+
+    premise_parts = [
+        f"{pred_name(name)}({', '.join(args)})"
+        for name, args in predicates
+        if args
+    ]
+    premise_expr = " /\\ ".join(premise_parts) if premise_parts else "TRUE"
+
+    const_line = (
+        "\n".join(f"\\* @type: Str;\nCONSTANT {ident}" for ident in const_identifiers) + "\n\n"
+        if const_identifiers
+        else ""
+    )
+
+    # Safety obligation: when the premise holds, NLRState must never reach "failed".
+    # The obligation is defined without the premise predicate in the transition relation,
+    # so the checker is not self-satisfied — it explores "failed" for any predicate assignment.
+    obligation_expr = f"{premise_expr} => NLRState /= \"failed\""
+
+    return (
+        f"---- MODULE {module_name} ----\n"
+        f"EXTENDS Naturals, TLC\n\n"
+        f"\\* Non-vacuous state_precondition lowering.\n"
+        f"\\* Generated by nlreq translator {FORMAL_LOWERING_VERSION}; semantics: non_vacuous.\n"
+        f"\\* Requirement: {ir.requirement_id}\n"
+        f"\\* Temporal bounds: {bounds_json}\n\n"
+        f"{const_line}"
+        f"{pred_decls}\n\n"
+        f"\\* @type: Str;\n"
+        f"VARIABLE NLRState\n\n"
+        f"Init == NLRState = \"idle\"\n\n"
+        f"\\* Unconstrained: the outcome is not gated by the premise predicate.\n"
+        f"\\* The checker explores both \"succeeded\" and \"failed\" for any predicate assignment.\n"
+        f"Step_{safe_action} ==\n"
+        f"  /\\ NLRState = \"idle\"\n"
+        f"  /\\ NLRState' \\in {{\"succeeded\", \"failed\"}}\n\n"
+        f"Next == Step_{safe_action} \\/ UNCHANGED NLRState\n\n"
+        f"Premise == {premise_expr}\n\n"
+        f"Obligation == {obligation_expr}\n\n"
         f"RequirementHolds == Premise => Obligation\n\n"
         f"====\n"
     )

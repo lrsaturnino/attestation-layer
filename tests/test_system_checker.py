@@ -1016,6 +1016,98 @@ def test_solver_backed_s_and_r_contradicting_requirement_is_counterexample(
     assert result.counterexamples[0].backend == "solver_system_checker"
 
 
+# state_precondition (PA-1): the affirmative dual of authorization_precondition. S interprets both
+# approval predicates and declares a named invariant, so the stateless-S product is grounded.
+_STATE_PRECONDITION_S_SPEC = (
+    "---- MODULE RedemptionSystem ----\n"
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_approved(a) == TRUE\n"
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_not_approved(a) == FALSE\n"
+    "\\* System invariant: approval defaults closed.\n"
+    'SystemDefaultsClosed == Pred_not_approved("actor") = FALSE\n'
+    "====\n"
+)
+
+
+def _state_precondition_ir(premise: str, requirement_id: str):
+    return DslV3Parser().parse_ir(
+        "requirement state_precondition:\n"
+        "scope operation\n"
+        f"when {premise}\n"
+        "then operation must succeed\n",
+        requirement_id=requirement_id,
+        title="State precondition",
+    )
+
+
+def _state_precondition_impact() -> ImpactAnalysisArtifact:
+    return ImpactAnalysisArtifact(
+        adapter_id="python-source",
+        language="python",
+        input_symbols=["operation"],
+        affected_modules=["redemption"],
+    )
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_state_precondition_compatible_is_valid(tmp_path: Path) -> None:
+    """PA-1: a state_precondition compatible with S yields a real Apalache 'valid'.
+
+    R's premise is Pred_not_approved, which S pins FALSE; the 'must succeed' obligation is
+    vacuously satisfied, so no reachable state lets the action fail while the precondition holds.
+    """
+    ir = _state_precondition_ir("actor is not approved", "REQ-SP-COMPAT")
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(tmp_path, spec_text=_STATE_PRECONDITION_S_SPEC),
+        impact=_state_precondition_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=60, max_depth=6),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=_APALACHE_COMMAND,
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.status == "valid", result.result.details
+    assert result.result.backend == "solver_system_checker"
+    assert result.result.evidence_level.value == "BOUNDED_CHECKED"
+    assert "RequirementHolds" in result.result.details["preserved_invariants"]
+    assert result.result.details["bound_predicates"] == ["Pred_not_approved"]
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_state_precondition_contradiction_is_counterexample(tmp_path: Path) -> None:
+    """PA-1: a state_precondition that contradicts S yields a real Apalache counterexample.
+
+    ¬R's premise is Pred_approved, which S pins TRUE; the obligation 'must succeed' fires and the
+    harness can still reach "failed", violating the conjoined invariant. Same S as the compatible
+    sibling — the only change is the premise polarity, so the two lower to checker-distinguishable
+    modules (one valid, one counterexample).
+    """
+    ir = _state_precondition_ir("actor is approved", "REQ-SP-CONTRA")
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(tmp_path, spec_text=_STATE_PRECONDITION_S_SPEC),
+        impact=_state_precondition_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=60, max_depth=6),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=_APALACHE_COMMAND,
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.status == "counterexample", result.result.details
+    assert result.counterexamples
+    assert result.counterexamples[0].backend == "solver_system_checker"
+
+
 def test_solver_backed_command_depth_matches_recorded_bounds(tmp_path: Path) -> None:
     """The executed ``--length`` is rendered from the same budget recorded in ``bounds``.
 
