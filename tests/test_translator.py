@@ -66,10 +66,14 @@ def test_approved_draft_parses_to_ir_v2_with_original_text_and_approval() -> Non
     assert ir.source.controlled_text_approval.approved_by == "reviewer@example.invalid"
 
 
-def test_lower_ir_v2_to_tla_skeleton_records_temporal_bounds_without_evidence() -> None:
+def test_legacy_skeleton_records_temporal_bounds_without_evidence() -> None:
+    """The deprecated skeleton (opt-in via legacy_skeleton=True) keeps its historical shape: the
+    Within(event, amount, unit) passthrough and metadata evidence=not_checked. This shape is gone from
+    the live path (legacy_skeleton=False), which lowers supported classes non-vacuously or refuses.
+    """
     ir = _dsl_v2_ir()
 
-    artifact = lower_ir_v2_to_tla(ir)
+    artifact = lower_ir_v2_to_tla(ir, legacy_skeleton=True)
 
     assert artifact.status == "lowered"
     assert artifact.content is not None
@@ -80,23 +84,64 @@ def test_lower_ir_v2_to_tla_skeleton_records_temporal_bounds_without_evidence() 
     assert artifact.metadata["evidence"] == "not_checked"
 
 
-def test_lowering_refuses_unsupported_nodes_with_fragment_diagnostics() -> None:
+def test_legacy_skeleton_refuses_unsupported_nodes_with_fragment_diagnostics() -> None:
     ir = RequirementIRV2.model_validate_json(
         (FIXTURES / "compositional_ir_v02_multi_premise.json").read_text()
     )
 
-    artifact = lower_ir_v2_to_tla(ir)
+    artifact = lower_ir_v2_to_tla(ir, legacy_skeleton=True)
 
     assert artifact.status == "refused"
     assert any(diagnostic.kind == "invariant" for diagnostic in artifact.diagnostics)
     assert artifact.content is None
 
 
-def test_lowering_is_deterministic() -> None:
+def test_absent_requirement_class_skeletons_by_default() -> None:
+    """A legacy DSL v2 IR carries no requirement_class, so the live path (no flag) falls through to the
+    deprecated skeleton — preserved deliberately because the production end_to_end_gate default-parses
+    controlled text with DslV2Parser. This is the legacy v2 branch (not_checked, unchecked), distinct
+    from the non-vacuous v3 lowering of supported classes.
+    """
     ir = _dsl_v2_ir()
 
-    first = lower_ir_v2_to_tla(ir)
-    second = lower_ir_v2_to_tla(ir)
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "lowered"
+    assert artifact.metadata.get("evidence") == "not_checked"
+
+
+def test_present_but_unsupported_requirement_class_refuses() -> None:
+    """A requirement_class that is PRESENT but unrecognized is a genuine error (the v3 parser never
+    emits one), so the live path REFUSES rather than emit a meaningless skeleton — distinguishing a
+    hand-built bad class from a legacy v2 IR with no class at all.
+    """
+    base = DslV3Parser().parse_ir(
+        "requirement authorization_precondition:\n"
+        "scope redemption\n"
+        "when wallet is not authorized\n"
+        "then finalize_redemption must reject before settled\n",
+        requirement_id="REQ-BAD-CLASS",
+        title="Bad class",
+    )
+    bad_root = base.semantic_ir.model_copy(
+        update={"metadata": {**base.semantic_ir.metadata, "requirement_class": "totally_made_up_class"}}
+    )
+    ir = base.model_copy(update={"semantic_ir": bad_root})
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "refused"
+    assert artifact.content is None
+    assert artifact.metadata.get("refusal_code") == "NLR-LOWERING-UNSUPPORTED-CLASS"
+    assert any(d.kind == "unsupported_requirement_class" for d in artifact.diagnostics)
+    assert artifact.metadata.get("evidence") != "not_checked"
+
+
+def test_legacy_skeleton_is_deterministic() -> None:
+    ir = _dsl_v2_ir()
+
+    first = lower_ir_v2_to_tla(ir, legacy_skeleton=True)
+    second = lower_ir_v2_to_tla(ir, legacy_skeleton=True)
 
     assert first.model_dump(mode="json", exclude_none=True) == second.model_dump(
         mode="json",
@@ -216,14 +261,31 @@ def test_lower_authorization_precondition_obligation_references_correct_predicat
     assert "Pred_not_authorized" not in neg_obligation_line
 
 
-def test_dsl_v2_redemption_still_uses_skeleton_lowering() -> None:
-    """Routing to non-vacuous path must not affect the legacy DSL-v2 skeleton path."""
-    ir = _dsl_v2_ir()
+def test_legacy_skeleton_flag_overrides_supported_class_lowering() -> None:
+    """legacy_skeleton=True forces the deprecated skeleton even for a SUPPORTED v3 class that would
+    otherwise lower non-vacuously — the flag's unique purpose (an explicit opt-in to the historical
+    shape). A bounded_temporal makes the contrast concrete: the live path lowers to the pending-
+    deadline harness with NO Within passthrough, while the flag emits the legacy Within==event skeleton.
+    """
+    ir = DslV3Parser().parse_ir(
+        "requirement bounded_temporal:\n"
+        "scope redemption\n"
+        "when wallet is authorized\n"
+        "then emit redemption_finalized within 6 hours\n",
+        requirement_id="REQ-BT-SKEL",
+        title="Bounded temporal",
+    )
 
-    artifact = lower_ir_v2_to_tla(ir)
+    live = lower_ir_v2_to_tla(ir)
+    legacy = lower_ir_v2_to_tla(ir, legacy_skeleton=True)
 
-    assert artifact.metadata.get("evidence") == "not_checked"
-    assert artifact.status == "lowered"
+    # Live path lowers non-vacuously and contains no Within passthrough; the flag forces the vacuous
+    # skeleton, which is exactly where the Within==event passthrough is confined.
+    assert live.metadata.get("semantics") == "non_vacuous"
+    assert live.content is not None and "Within(" not in live.content
+    assert legacy.status == "lowered"
+    assert legacy.metadata.get("evidence") == "not_checked"
+    assert legacy.content is not None and 'Within(Event_redemption_finalized, 6, "hour")' in legacy.content
 
 
 def test_lower_numeric_invariant_lowers_non_vacuously() -> None:

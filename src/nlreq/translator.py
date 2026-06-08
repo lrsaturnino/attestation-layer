@@ -156,7 +156,32 @@ def parse_approved_draft_ir_v2(
     )
 
 
-def lower_ir_v2_to_tla(ir: RequirementIRV2) -> LoweredFormalArtifact:
+def lower_ir_v2_to_tla(
+    ir: RequirementIRV2, *, legacy_skeleton: bool = False
+) -> LoweredFormalArtifact:
+    """Lower a requirement IR to a TLA+ artifact for the formal backends.
+
+    Every supported DSL v3 ``requirement_class`` lowers to a NON-VACUOUS module (real typed
+    relations/constraints, never ``TRUE``/``0``) or REFUSES with source-spanned diagnostics on a
+    malformed shape — no supported claim kind silently returns the legacy ``not_checked`` skeleton.
+
+    Class dispatch on the live path (``legacy_skeleton=False``):
+      - supported class -> non-vacuous lowering (or refuse on a bad shape);
+      - a requirement_class that is PRESENT but unsupported -> REFUSE (a genuine error — the v3
+        parser never emits such a class, so it can only come from a hand-built IR);
+      - an ABSENT requirement_class -> the legacy DSL v2 skeleton. This is preserved deliberately:
+        the production ``end_to_end_gate`` default-parses controlled text with ``DslV2Parser``, which
+        carries no class metadata, so refusing absent-class would break production with no DoD gain
+        (all supported KINDS already lower non-vacuously). The ``Within(...) == event`` passthrough is
+        therefore confined to this legacy v2 branch; its ``evidence=not_checked`` keeps it honest
+        (unchecked, never a false pass).
+
+    ``legacy_skeleton=True`` forces the deprecated vacuous skeleton regardless of class (predicates ->
+    ``TRUE``, identifiers -> ``== 0``, the ``Within`` passthrough) — the explicit opt-in HELPER PA-1.T3
+    calls for, used by the back-compat golden tests that pin that historical shape.
+    """
+    if legacy_skeleton:
+        return _lower_skeleton(ir)
     claim_class = ir.semantic_ir.metadata.get("requirement_class")
     if claim_class == "authorization_precondition":
         return _lower_non_vacuous(ir, claim_class)
@@ -170,6 +195,12 @@ def lower_ir_v2_to_tla(ir: RequirementIRV2) -> LoweredFormalArtifact:
         return _lower_bounded_temporal(ir, claim_class)
     if claim_class == "cross_module_causal_obligation":
         return _lower_cross_module_causal(ir, claim_class)
+    if claim_class is not None:
+        # A present-but-unsupported requirement_class is a genuine error, not legacy input: refuse
+        # rather than emit a meaningless skeleton.
+        return _lower_refused_unsupported_class(ir, claim_class)
+    # Absent class: the legacy DSL v2 path (see docstring) — back-compat skeleton, not the live
+    # non-vacuous path.
     return _lower_skeleton(ir)
 
 
@@ -456,8 +487,53 @@ def _lower_cross_module_causal(ir: RequirementIRV2, claim_class: str) -> Lowered
     )
 
 
+def _lower_refused_unsupported_class(
+    ir: RequirementIRV2, claim_class: str
+) -> LoweredFormalArtifact:
+    """Refuse, on the live path, an IR that declares a PRESENT-but-unsupported requirement_class.
+
+    The supported classes all lower non-vacuously (or refuse on a bad shape) above; reaching here
+    means the IR carries a ``requirement_class`` the lowering does not recognize. The DSL v3 parser
+    never emits such a class, so it can only come from a hand-built IR — a genuine error. Rather than
+    emit the vacuous ``not_checked`` skeleton (which the backends would treat as a runnable-but-
+    meaningless module), refuse with a source-spanned diagnostic. (An ABSENT class is the legacy DSL v2
+    path and still skeletons — see lower_ir_v2_to_tla.)
+    """
+    label = repr(claim_class)
+    return LoweredFormalArtifact(
+        requirement_id=ir.requirement_id,
+        source_ir_version=ir.ir_version,
+        source_ir_hash=sha256_json(ir),
+        status="refused",
+        temporal_bounds=_temporal_bounds(ir.semantic_ir),
+        diagnostics=[
+            LoweringDiagnostic(
+                node_id=ir.semantic_ir.node_id,
+                kind="unsupported_requirement_class",
+                reason=(
+                    f"requirement_class {label} has no non-vacuous TLA+ lowering; the live path "
+                    "refuses rather than emit a not_checked skeleton. Supported classes: "
+                    "authorization_precondition, state_precondition, state_postcondition, "
+                    "numeric_invariant, bounded_temporal, event_state_correspondence, "
+                    "cross_module_causal_obligation. (Pass legacy_skeleton=True for the deprecated "
+                    "vacuous skeleton.)"
+                ),
+                source_spans=ir.semantic_ir.source_spans,
+            )
+        ],
+        metadata={"refusal_code": "NLR-LOWERING-UNSUPPORTED-CLASS"},
+    )
+
+
 def _lower_skeleton(ir: RequirementIRV2) -> LoweredFormalArtifact:
-    """Legacy vacuous skeleton lowering (deprecated for claim kinds with non-vacuous support)."""
+    """Legacy vacuous skeleton lowering — reachable only via ``lower_ir_v2_to_tla(legacy_skeleton=True)``.
+
+    DEPRECATED: predicates lower to ``TRUE``, identifiers to ``== 0``, and temporal obligations to the
+    ``Within(event, amount, unit) == event`` passthrough — a tautology the backends cannot
+    meaningfully check (``metadata={"evidence": "not_checked"}``). Retained only so the historical
+    golden tests can pin this shape; the live path (``legacy_skeleton=False``) lowers supported classes
+    non-vacuously and refuses everything else.
+    """
     diagnostics = _unsupported_nodes(ir.semantic_ir)
     temporal_bounds = _temporal_bounds(ir.semantic_ir)
     source_ir_hash = sha256_json(ir)
