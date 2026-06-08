@@ -736,6 +736,109 @@ def test_load_api_key_returns_key_from_env(monkeypatch) -> None:
     assert load_api_key() == "sk-test-key"
 
 
+# ---------------------------------------------------------------------------
+# AnthropicLlmClient response extraction (PA-4) — offline, no SDK, no network
+# ---------------------------------------------------------------------------
+
+
+class _FakeContentBlock:
+    """Minimal stand-in for an Anthropic content block (duck-typed .type/.text)."""
+
+    def __init__(self, type_: str, text: str | None = None) -> None:
+        self.type = type_
+        # A non-text block (e.g. a thinking block) legitimately carries no .text
+        # attribute; only set it when present so the tests prove the extractor
+        # never reads .text off a non-text block.
+        if text is not None:
+            self.text = text
+
+
+class _FakeResponse:
+    """Minimal stand-in for a Messages API response (only .content is read)."""
+
+    def __init__(self, content: list) -> None:
+        self.content = content
+
+
+def test_extract_text_returns_first_text_block() -> None:
+    """_extract_text returns the text of the first text block (the happy path)."""
+    from nlreq.llm_client import _extract_text
+
+    response = _FakeResponse([_FakeContentBlock("text", "controlled rewrite")])
+    assert _extract_text(response) == "controlled rewrite"
+
+
+def test_extract_text_skips_leading_non_text_block() -> None:
+    """A thinking block ahead of the text block does not crash extraction.
+
+    content[0].text would raise AttributeError here (a thinking block has no
+    .text); _extract_text walks past it to the real text block.
+    """
+    from nlreq.llm_client import _extract_text
+
+    response = _FakeResponse([_FakeContentBlock("thinking"), _FakeContentBlock("text", "the answer")])
+    assert _extract_text(response) == "the answer"
+
+
+def test_extract_text_raises_on_empty_content() -> None:
+    """Empty content raises a clear ValueError instead of an opaque IndexError."""
+    from nlreq.llm_client import _extract_text
+
+    with pytest.raises(ValueError, match="no content blocks"):
+        _extract_text(_FakeResponse([]))
+
+
+def test_extract_text_raises_when_no_text_block_present() -> None:
+    """All-non-text content raises a ValueError that names the observed types."""
+    from nlreq.llm_client import _extract_text
+
+    response = _FakeResponse([_FakeContentBlock("thinking"), _FakeContentBlock("tool_use")])
+    with pytest.raises(ValueError, match="no text block") as exc:
+        _extract_text(response)
+    # The error names the block types it actually saw, for debuggability.
+    assert "thinking" in str(exc.value)
+    assert "tool_use" in str(exc.value)
+
+
+def test_propose_controlled_rewrite_extracts_text_past_thinking_block(monkeypatch) -> None:
+    """The real client routes a thinking-then-text SDK response through _extract_text.
+
+    Injects a fake 'anthropic' module (the package is not installed in CI) whose
+    messages.create returns content [thinking, text]; the client must return the
+    text block's content, proving the response-extraction path is wired to the
+    defensive helper rather than the brittle message.content[0].text.
+    """
+    import sys
+    from types import SimpleNamespace
+    from nlreq.llm_client import AnthropicLlmClient, NLREQ_API_KEY_ENV
+
+    monkeypatch.setenv(NLREQ_API_KEY_ENV, "sk-test-key")
+
+    captured: dict = {}
+
+    class _FakeMessages:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return _FakeResponse(
+                [_FakeContentBlock("thinking"), _FakeContentBlock("text", "drafted controlled text")]
+            )
+
+    class _FakeAnthropic:
+        def __init__(self, api_key: str) -> None:
+            self.api_key = api_key
+            self.messages = _FakeMessages()
+
+    monkeypatch.setitem(sys.modules, "anthropic", SimpleNamespace(Anthropic=_FakeAnthropic))
+
+    result = AnthropicLlmClient().propose_controlled_rewrite("prose text", "grammar summary")
+
+    assert result == "drafted controlled text"
+    # Sanity: the prose and grammar summary actually reached the SDK call.
+    sent_content = captured["messages"][0]["content"]
+    assert "prose text" in sent_content
+    assert "grammar summary" in sent_content
+
+
 def test_load_api_key_reads_from_dot_claude_env(monkeypatch, tmp_path: Path) -> None:
     """load_api_key() falls back to .claude/.env when the env var is absent."""
     from nlreq.llm_client import load_api_key, NLREQ_API_KEY_ENV, _parse_env_file
@@ -777,10 +880,12 @@ def test_load_api_key_env_var_takes_precedence_over_dot_claude_env(
 
 
 def test_anthropic_llm_client_response_parsing(monkeypatch, tmp_path: Path) -> None:
-    """AnthropicLlmClient extracts the text from message.content[0].text correctly.
+    """AnthropicLlmClient extracts the text from the response's first text block correctly.
 
     Uses a fake 'anthropic' module injected via sys.modules so no real network call
-    is made. Verifies that the response-parsing path message.content[0].text works.
+    is made. The fake content block carries type="text" to faithfully model a real
+    Anthropic TextBlock (every SDK content block carries a .type discriminator).
+    Verifies that the response-parsing path returns the text block's content.
     """
     import sys
     import types
@@ -789,7 +894,7 @@ def test_anthropic_llm_client_response_parsing(monkeypatch, tmp_path: Path) -> N
     monkeypatch.setenv(NLREQ_API_KEY_ENV, "sk-test-key")
 
     # Build a fake anthropic module with a Messages client that returns a fixed response.
-    fake_content = types.SimpleNamespace(text="requirement authorization_precondition:\nscope op\nwhen actor is not authorized\nthen op must reject before state_change\n")
+    fake_content = types.SimpleNamespace(type="text", text="requirement authorization_precondition:\nscope op\nwhen actor is not authorized\nthen op must reject before state_change\n")
     fake_message = types.SimpleNamespace(content=[fake_content])
     fake_messages = types.SimpleNamespace(create=lambda **kwargs: fake_message)
     fake_client_instance = types.SimpleNamespace(messages=fake_messages)

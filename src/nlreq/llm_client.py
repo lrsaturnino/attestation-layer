@@ -108,6 +108,38 @@ class RecordedLlmClient:
         return self._fixture
 
 
+def _extract_text(message: object) -> str:
+    """Return the first text block's text from a Messages API response.
+
+    The Anthropic Messages API returns ``message.content`` as a LIST of content
+    blocks (``text``, ``thinking``, ``tool_use``, ...) — not a guaranteed
+    text-first array. ``message.content[0].text`` assumes the first block is a
+    text block and fails opaquely otherwise: an ``IndexError`` on empty content,
+    or an ``AttributeError`` when the leading block is a non-text block (e.g. a
+    thinking block). Walk the blocks, return the first ``type == "text"`` block's
+    ``.text``, and raise a clear ``ValueError`` naming the observed block types
+    when none is present, so the caller gets an actionable message rather than a
+    structural crash.
+
+    Duck-typed over the block objects (``.type`` / ``.text``) so it needs no
+    import of the ``anthropic`` package and is unit-testable offline.
+    """
+    content = getattr(message, "content", None)
+    if not content:
+        raise ValueError(
+            "Anthropic response carried no content blocks; expected a text block "
+            "with the proposed controlled rewrite."
+        )
+    for block in content:
+        if getattr(block, "type", None) == "text":
+            return block.text
+    observed = ", ".join(sorted({str(getattr(b, "type", "<unknown>")) for b in content}))
+    raise ValueError(
+        "Anthropic response contained no text block; got block types: "
+        f"{observed}. Expected a text block with the proposed controlled rewrite."
+    )
+
+
 class AnthropicLlmClient:
     """Real Anthropic SDK client for controlled-rewrite drafting.
 
@@ -155,7 +187,9 @@ class AnthropicLlmClient:
                 }
             ],
         )
-        return message.content[0].text
+        # Extract the proposed text defensively: the response content is a list of
+        # content blocks and the first one is not guaranteed to be a text block.
+        return _extract_text(message)
 
 
 class UnavailableLlmClient:
