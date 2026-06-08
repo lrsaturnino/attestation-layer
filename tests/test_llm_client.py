@@ -9,6 +9,8 @@ Covers:
   - intake-draft --method manual still requires --suggested
   - Approval gate blocks parsing until explicit human approval
   - Rejecting the diff keeps the parser blocked
+  - End-to-end golden: prose -> LLM controlled -> approval -> hash-bound translation into a
+    FormalClaim; the rejected/unapproved arm refuses before any parse
 """
 from __future__ import annotations
 
@@ -27,7 +29,9 @@ from nlreq.intake import (
     create_free_form_intake,
     draft_controlled_rewrite_with_llm,
 )
+from nlreq.jsonutil import sha256_text
 from nlreq.llm_client import LlmClient, RecordedLlmClient, UnavailableLlmClient
+from nlreq.semantic_translation import translate_controlled_requirement_to_formal_claim
 
 
 # A valid DSL v3 controlled text used as a recorded fixture in all offline tests.
@@ -275,6 +279,103 @@ def test_draft_approval_gate_blocks_on_explicit_reject_decision() -> None:
     # The parser must still be blocked — a rejected approval is not valid to parse.
     with pytest.raises(ValueError):
         controlled_text_for_parsing(proposal, rejection)
+
+
+# ---------------------------------------------------------------------------
+# PA-4 end-to-end golden: prose -> LLM controlled -> approval -> hash-bound translation
+# ---------------------------------------------------------------------------
+
+
+def test_pa4_golden_llm_draft_through_approval_to_hash_bound_translation() -> None:
+    """PA-4 offline golden: prose -> RecordedLlmClient controlled rewrite -> diff -> human approval ->
+    hash-bound translation into a FormalClaim. The LLM only PROPOSES (untrusted); the approval gate and
+    the semantic-translation hash binding together decide whether the parser ever runs. Provenance
+    records method='llm', the model id, and the prompt hash.
+    """
+    intake = create_free_form_intake(
+        intake_id="INTAKE-PA4-GOLDEN",
+        original_text=_PROSE,
+        submitted_at="2026-06-01T00:00:00Z",
+    )
+    client = RecordedLlmClient(_FIXTURE_CONTROLLED)
+    proposal = draft_controlled_rewrite_with_llm(
+        intake=intake,
+        client=client,
+        proposal_id="PROP-PA4-GOLDEN",
+        timestamp="2026-06-01T00:01:00Z",
+        model="claude-haiku-4-5-20251001",
+    )
+    # Provenance: the LLM is recorded as an untrusted drafter (method/model/prompt hash).
+    assert proposal.producer.method == "llm"
+    assert proposal.producer.model == "claude-haiku-4-5-20251001"
+    assert proposal.producer.prompt_hash is not None
+    assert proposal.status == "needs_approval"
+
+    approval = approve_controlled_rewrite(
+        proposal,
+        approval_id="APPROVAL-PA4-GOLDEN",
+        approved_by="reviewer@example.invalid",
+        approved_at="2026-06-01T00:02:00Z",
+    )
+    approved_text = controlled_text_for_parsing(proposal, approval)
+    assert approved_text == _FIXTURE_CONTROLLED
+
+    # The hash binding lets the deterministic parser run only against the exact approved controlled
+    # text — the LLM's output reaches a backend claim solely through the human-approved hash.
+    report = translate_controlled_requirement_to_formal_claim(
+        controlled_text=approved_text,
+        requirement_id="REQ-PA4-GOLDEN",
+        title="Authorized actors only",
+        require_approved_controlled_text=True,
+        approved_controlled_text_hash=approval.approved_controlled_text_hash,
+    )
+    assert report.result == "accepted"
+    assert report.formal_claim_report is not None
+    claim = report.formal_claim_report.formal_claim
+    assert claim is not None
+    assert claim.claim_class == "authorization_precondition"
+    assert report.input_hashes["approved_controlled_text"] == approval.approved_controlled_text_hash
+
+
+def test_pa4_golden_rejected_diff_blocks_the_parser_and_translation() -> None:
+    """PA-4 golden (reject arm): a human reject blocks the gate that feeds the parser, AND the
+    semantic-translation hash binding independently refuses controlled text not bound to an approval —
+    so the parser never runs on text the human did not approve.
+    """
+    intake = create_free_form_intake(
+        intake_id="INTAKE-PA4-GOLDEN-REJ",
+        original_text=_PROSE,
+        submitted_at="2026-06-01T00:00:00Z",
+    )
+    client = RecordedLlmClient(_FIXTURE_CONTROLLED)
+    proposal = draft_controlled_rewrite_with_llm(
+        intake=intake,
+        client=client,
+        proposal_id="PROP-PA4-GOLDEN-REJ",
+        timestamp="2026-06-01T00:01:00Z",
+    )
+    rejection = approve_controlled_rewrite(
+        proposal,
+        approval_id="REJECTION-PA4-GOLDEN",
+        approved_by="reviewer@example.invalid",
+        approved_at="2026-06-01T00:02:00Z",
+        decision="rejected",
+    )
+    # 1. The reject decision blocks the gate that feeds the parser.
+    with pytest.raises(ValueError):
+        controlled_text_for_parsing(proposal, rejection)
+
+    # 2. The hash binding refuses the proposed text when it is not bound to an approval: requiring
+    #    approval while supplying a non-matching hash (the prose hash) refuses before any parse.
+    report = translate_controlled_requirement_to_formal_claim(
+        controlled_text=proposal.proposed_controlled_text,
+        requirement_id="REQ-PA4-GOLDEN-REJ",
+        title="Authorized actors only",
+        require_approved_controlled_text=True,
+        approved_controlled_text_hash=sha256_text(_PROSE),
+    )
+    assert report.result == "refused"
+    assert report.refusal_code == "NLR-UNAPPROVED-CONTROLLED-TEXT"
 
 
 # ---------------------------------------------------------------------------
