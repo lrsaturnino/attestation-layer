@@ -1,8 +1,10 @@
 """PA-10 refusal UX hardening.
 
-Every Pillar A drafting/translation refusal must carry actionable next_actions plus
-EITHER a real source span OR an explicit no_span_reason — never a bare
-"broken, try again". These tests pin that invariant across each refusal mode, the
+Every Pillar A drafting/translation refusal must carry actionable next_actions PLUS a
+real source span — a per-fragment span where one exists, else the whole-controlled
+-requirement fallback span — never a bare "broken, try again" and never a spanless
+"unavailable" finding. These tests pin that invariant across each refusal mode (including
+the stage-level hash/process blockers driven through their real production paths), the
 parse-error span enrichment, exact code preservation, and the CLI inline rendering.
 """
 
@@ -11,12 +13,15 @@ from __future__ import annotations
 import pytest
 
 from nlreq.cli import main
+from nlreq.decomposition_client import RecordedDecompositionClient
+from nlreq.dsl_v3 import DslV3Parser
 from nlreq.formal_claim import FormalClaimLoweringReport, FormalClaimUnsupportedFragment
 from nlreq.jsonutil import sha256_text
 from nlreq.models import SourceSpan
 from nlreq.refusal import (
     ProductRefusalFinding,
     build_refusal_report_from_semantic_translation,
+    refusal_report_markdown,
 )
 from nlreq.semantic_translation import (
     SemanticAmbiguityFinding,
@@ -37,12 +42,16 @@ STATE_PRECONDITION = (
 
 
 def _assert_actionable(finding: ProductRefusalFinding) -> None:
-    """A product refusal finding is never a dead end: it must localize OR explain why not."""
+    """A semantic-translation refusal localizes the offending fragment AND tells you what to do.
+
+    PA-10's tightened contract: a real source span (never a spanless no_span_reason on this
+    Pillar A path) plus at least one next action. The whole-requirement fallback guarantees
+    a span even for stage-level hash/process blockers.
+    """
     assert finding.next_actions, f"{finding.code} carries no next_actions"
-    has_span = bool(finding.source_spans)
-    has_reason = finding.no_span_reason is not None
-    assert has_span != has_reason, (
-        f"{finding.code} must carry exactly one of source_spans / no_span_reason"
+    assert finding.source_spans, f"{finding.code} must localize a real source span"
+    assert finding.no_span_reason is None, (
+        f"{finding.code} must not fall back to a spanless no_span_reason on the Pillar A path"
     )
 
 
@@ -124,6 +133,8 @@ def _semantic_unsupported_report() -> SemanticTranslationReport:
 
 
 def _process_blocker_report(code: str) -> SemanticTranslationReport:
+    # Mirrors a real stage-level (hash/process) blocker: no single offending fragment, so
+    # the whole controlled requirement is carried as the actionable span (PA-10).
     return SemanticTranslationReport(
         translation_id="t",
         requirement_id="R-PROC",
@@ -131,6 +142,14 @@ def _process_blocker_report(code: str) -> SemanticTranslationReport:
         syntactically_valid=True,
         refusal_code=code,
         clarification_questions=["Supply the missing audit/agreement evidence."],
+        refusal_source_spans=[
+            SourceSpan(
+                document="controlled_requirement",
+                start_char=0,
+                end_char=len(STATE_PRECONDITION.rstrip("\n")),
+                text=STATE_PRECONDITION.rstrip("\n"),
+            )
+        ],
         stages=[
             SemanticTranslationStage(
                 stage="lower_formal_claim", status="needs_review", message="process blocker"
@@ -172,13 +191,64 @@ def test_parse_refusal_carries_real_offending_fragment_span() -> None:
     assert span.end_char == len(span.text)
 
 
-def test_hash_level_refusal_uses_no_span_reason_not_a_fake_span() -> None:
+def test_hash_level_refusal_localizes_to_whole_controlled_requirement() -> None:
+    # The hash-binding blocker has no parsed fragment yet, so the whole controlled rewrite
+    # is the actionable unit — localized as a real span, not a spanless "unavailable" finding.
     report = _unapproved_report()
     assert report.refusal_code == "NLR-UNAPPROVED-CONTROLLED-TEXT"
     finding = build_refusal_report_from_semantic_translation(report).findings[0]
-    assert finding.source_spans == []
-    assert finding.no_span_reason is not None
-    assert "hash" in finding.no_span_reason
+    assert finding.no_span_reason is None
+    assert finding.source_spans, "hash-level refusal must still localize the actionable unit"
+    span = finding.source_spans[0]
+    assert span.text == STATE_PRECONDITION.rstrip("\n")
+    assert span.start_char == 0
+    assert span.end_char == len(span.text)
+
+
+def test_unaudited_ensemble_refusal_carries_whole_requirement_span_via_real_path() -> None:
+    # Drive the NLR-UNAUDITED-DECOMPOSITION blocker through the real production function
+    # (not a hand-built report): two unaudited decomposition candidates fail the trust check
+    # before any agreement comparison, and the returned report localizes the whole requirement.
+    fixture_ir = DslV3Parser().parse_ir(STATE_PRECONDITION, requirement_id="R-ENS", title="x")
+    clients = [
+        RecordedDecompositionClient(fixture_ir, candidate_id="c1"),
+        RecordedDecompositionClient(fixture_ir, candidate_id="c2"),
+    ]
+    report = translate_controlled_requirement_to_formal_claim(
+        controlled_text=STATE_PRECONDITION,
+        requirement_id="R-ENS",
+        title="x",
+        decomposition_clients=clients,
+    )
+    assert report.result == "needs_review"
+    assert report.refusal_code == "NLR-UNAUDITED-DECOMPOSITION"
+    assert report.refusal_source_spans, "real ensemble path must carry the fallback span"
+
+    finding = build_refusal_report_from_semantic_translation(report).findings[0]
+    assert finding.code == "NLR-UNAUDITED-DECOMPOSITION"
+    assert finding.no_span_reason is None
+    assert finding.source_spans[0].text == STATE_PRECONDITION.rstrip("\n")
+
+
+@pytest.mark.parametrize(
+    "report_factory",
+    [
+        _parse_report,
+        _unapproved_report,
+        _ambiguous_report,
+        _semantic_unsupported_report,
+        lambda: _process_blocker_report("NLR-UNAUDITED-DECOMPOSITION"),
+        lambda: _process_blocker_report("NLR-TRANSLATION-AGREEMENT-BLOCKED"),
+    ],
+)
+def test_no_pillar_a_refusal_renders_unavailable(report_factory) -> None:
+    # The CLI cannot trigger every mode, so prove the never-"unavailable" invariant at the
+    # renderer: no semantic-translation refusal finding lacks a span, and the markdown surface
+    # never prints the "unavailable (" spanless marker for any Pillar A mode.
+    refusal = build_refusal_report_from_semantic_translation(report_factory())
+    for finding in refusal.findings:
+        assert finding.source_spans, f"{finding.code} rendered without a span"
+    assert "unavailable (" not in refusal_report_markdown(refusal)
 
 
 def test_refusal_code_is_preserved_not_remapped() -> None:
@@ -219,4 +289,5 @@ def test_cli_semantic_translate_renders_offending_fragment_inline(tmp_path, caps
     err = capsys.readouterr().err
     assert "NLR-PARSE-UNSUPPORTED" in err
     assert 'Fragment: "Approve whatever the deployer says."' in err
+    assert "Fragment: unavailable" not in err
     assert "Next:" in err

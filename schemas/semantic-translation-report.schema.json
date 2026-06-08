@@ -1414,6 +1414,13 @@
       "default": null,
       "title": "Refusal Code"
     },
+    "refusal_source_spans": {
+      "items": {
+        "$ref": "#/$defs/SourceSpan"
+      },
+      "title": "Refusal Source Spans",
+      "type": "array"
+    },
     "requirement_id": {
       "title": "Requirement Id",
       "type": "string"

@@ -91,8 +91,12 @@ def build_refusal_report_from_semantic_translation(
     Pillar A drafting/translation refusals are emitted by semantic_translation with
     their own code vocabulary and fragment-level provenance (ambiguity findings and
     unsupported formal-claim fragments). This converter maps every refusal mode onto
-    ProductRefusalFinding so each one carries actionable next_actions plus EITHER a real
-    source span OR an explicit no_span_reason — never a bare "broken, try again" output.
+    ProductRefusalFinding so each one carries actionable next_actions plus a real source
+    span (PA-10): a per-fragment span where one exists, else the report's whole-controlled
+    -requirement fallback span — never a bare "broken, try again", and never a spanless
+    "unavailable" finding. (no_span_reason remains only for the cross-pillar end-to-end
+    gate path in build_refusal_report_from_gate, whose blockers can be genuinely
+    stage-level with no fragment to localize.)
 
     An accepted report yields an accepted decision with no findings; a needs_review
     report is surfaced as the ``unknown`` decision (a process blocker, not a defect).
@@ -127,52 +131,68 @@ def _semantic_refusal_findings(
     owner: str,
     base_actions: list[str],
 ) -> list[ProductRefusalFinding]:
-    # Fragment-bearing refusals: parse errors and ensemble disagreements carry
-    # ambiguity findings (with spans); a formal-claim refusal carries unsupported
-    # fragments (with spans + their own next_actions). Emit one product finding per
-    # offending fragment so each renders its own span; fall back to a single
-    # stage-level finding (hash-level or process blocker) with a no_span_reason.
+    # PA-10: every semantic-translation refusal carries a real source span. Fragment-bearing
+    # refusals (parse errors, ensemble disagreements, unsupported formal-claim fragments)
+    # localize per offending fragment; stage-level (hash/process) blockers — and any
+    # fragment that happens to lack its own span — fall back to the report's whole-controlled
+    # -requirement span. The whole requirement IS the actionable unit for those blockers, so
+    # the product surface renders it inline rather than a spanless "unavailable" finding.
+    fallback_spans = report.refusal_source_spans
     if report.ambiguity_findings:
         return [
-            ProductRefusalFinding(
-                code=code,
-                category=category,
-                stage=stage,
+            _finding(
+                code, category, stage, owner,
                 message=finding.reason,
-                source_spans=finding.source_spans,
-                no_span_reason=None if finding.source_spans else _no_span_reason(code),
+                source_spans=finding.source_spans or fallback_spans,
                 next_actions=_dedupe([finding.clarification_question, *base_actions]),
-                likely_owner=owner,
             )
             for finding in report.ambiguity_findings
         ]
     lowering = report.formal_claim_report
     if lowering is not None and lowering.unsupported_fragments:
         return [
-            ProductRefusalFinding(
-                code=code,
-                category=category,
-                stage=stage,
+            _finding(
+                code, category, stage, owner,
                 message=fragment.reason,
-                source_spans=fragment.source_spans,
-                no_span_reason=None if fragment.source_spans else _no_span_reason(code),
+                source_spans=fragment.source_spans or fallback_spans,
                 next_actions=_dedupe([*fragment.next_actions, *base_actions]),
-                likely_owner=owner,
             )
             for fragment in lowering.unsupported_fragments
         ]
     return [
-        ProductRefusalFinding(
-            code=code,
-            category=category,
-            stage=stage,
+        _finding(
+            code, category, stage, owner,
             message=_semantic_refusal_message(report),
-            source_spans=[],
-            no_span_reason=_no_span_reason(code),
+            source_spans=fallback_spans,
             next_actions=_dedupe([*report.clarification_questions, *base_actions]),
-            likely_owner=owner,
         )
     ]
+
+
+def _finding(
+    code: RefusalCode,
+    category: Literal["refused", "unknown"],
+    stage: str,
+    owner: str,
+    *,
+    message: str,
+    source_spans: list[SourceSpan],
+    next_actions: list[str],
+) -> ProductRefusalFinding:
+    # no_span_reason is the last-resort explanation only when no span is available at all.
+    # With the whole-requirement fallback populated at every refusal site, the semantic
+    # -translation path always supplies a span; this stays defensive so a future spanless
+    # site degrades to an explained finding rather than an empty, mute one.
+    return ProductRefusalFinding(
+        code=code,
+        category=category,
+        stage=stage,
+        message=message,
+        source_spans=source_spans,
+        no_span_reason=None if source_spans else _no_span_reason(code),
+        next_actions=next_actions,
+        likely_owner=owner,
+    )
 
 
 def _coerce_refusal_code(raw: str) -> RefusalCode:

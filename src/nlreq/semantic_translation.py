@@ -80,6 +80,13 @@ class SemanticTranslationReport(BaseModel):
     formal_claim_report: FormalClaimLoweringReport | None = None
     ambiguity_findings: list[SemanticAmbiguityFinding] = Field(default_factory=list)
     clarification_questions: list[str] = Field(default_factory=list)
+    # Whole-controlled-requirement fallback span(s) for stage-level (hash/process) refusals
+    # that have no single offending fragment to localize — unapproved controlled text,
+    # unaudited decomposition, translator-agreement blockers. The whole controlled
+    # requirement IS the actionable unit in those modes, so the PA-10 product refusal
+    # surface renders it inline instead of a spanless "unavailable" finding. Empty on
+    # accepted reports and on fragment-bearing refusals (which localize per fragment).
+    refusal_source_spans: list[SourceSpan] = Field(default_factory=list)
     stages: list[SemanticTranslationStage] = Field(default_factory=list)
     input_hashes: dict[str, str] = Field(default_factory=dict)
     # Per-candidate provenance from the ensemble decomposition (PA-5/PA-6). Populated
@@ -118,6 +125,9 @@ def translate_controlled_requirement_to_formal_claim(
             clarification_questions=[
                 "Approve the controlled rewrite and pass its exact controlled text hash before translation."
             ],
+            # No parsed fragment exists yet (rejected at hash-binding), so the whole
+            # controlled rewrite is the actionable unit to approve and bind.
+            refusal_source_spans=[_whole_controlled_requirement_span(controlled_text)],
             stages=[
                 SemanticTranslationStage(
                     stage="canonicalize",
@@ -166,6 +176,9 @@ def translate_controlled_requirement_to_formal_claim(
             refusal_code="NLR-PARSE-UNSUPPORTED",
             ambiguity_findings=[ambiguity],
             clarification_questions=[question],
+            # Fall back to the whole controlled requirement when the parse error carries
+            # no resolvable line/column (generic LarkError), so the refusal still localizes.
+            refusal_source_spans=[_whole_controlled_requirement_span(controlled_text)],
             stages=[
                 *stages,
                 SemanticTranslationStage(
@@ -253,6 +266,9 @@ def translate_controlled_requirement_to_formal_claim(
         requirement_ir=requirement,
         semantic_decomposition=semantic_decomposition,
         formal_claim_report=formal_claim_report,
+        # Whole-requirement fallback for a formal-claim refusal whose unsupported
+        # fragments happen to lack their own span; empty-effect on the accepted path.
+        refusal_source_spans=[_whole_controlled_requirement_span(controlled_text)],
         stages=stages,
         input_hashes={
             "controlled_text": source_hash,
@@ -334,6 +350,7 @@ def refuse_ambiguous_ensemble(
     semantic_decomposition: "SemanticDecompositionTree | None" = None,
     ensemble_candidate_provenances: list[dict[str, str]] | None = None,
     ensemble_candidate_audit_verdicts: list[AuditVerdict | None] | None = None,
+    refusal_source_spans: list[SourceSpan] | None = None,
 ) -> SemanticTranslationReport:
     """Return a REFUSED_AMBIGUOUS report for ensemble signature disagreement.
 
@@ -345,8 +362,17 @@ def refuse_ambiguous_ensemble(
 
     All provenance params are optional for backward-compatibility with call sites
     that only supply requirement_id and disagreements (e.g. end_to_end_gate).
+
+    ``refusal_source_spans`` is the whole-requirement fallback the PA-10 product surface
+    renders when a per-disagreement span is unavailable. When the caller does not pass it,
+    it is derived from the parsed ``requirement_ir`` root span so both the standalone
+    ensemble path and the gate path (which supplies ``requirement_ir``) localize without
+    threading the controlled text through.
     """
     effective_id = translation_id or f"semantic-translation-{requirement_id}"
+    effective_fallback_spans = refusal_source_spans
+    if effective_fallback_spans is None and requirement_ir is not None:
+        effective_fallback_spans = list(requirement_ir.semantic_ir.source_spans)
     findings = [
         SemanticAmbiguityFinding(
             finding_id=f"ensemble-disagreement-{i}",
@@ -384,6 +410,7 @@ def refuse_ambiguous_ensemble(
         semantic_decomposition=semantic_decomposition,
         ambiguity_findings=findings,
         clarification_questions=clarification_questions,
+        refusal_source_spans=effective_fallback_spans or [],
         stages=all_stages,
         input_hashes=input_hashes or {},
         ensemble_candidate_provenances=ensemble_candidate_provenances or [],
@@ -426,6 +453,7 @@ def refuse_low_confidence_cross_language(
         refusal_code="NLR-CROSS-LANGUAGE-UNCERTAIN",
         ambiguity_findings=[finding],
         clarification_questions=[clarification],
+        refusal_source_spans=_spans_for_fragment(prose, fragment),
         stages=[
             SemanticTranslationStage(
                 stage="canonicalize",
@@ -437,6 +465,25 @@ def refuse_low_confidence_cross_language(
             )
         ],
         input_hashes={"source_prose": sha256_text(prose)} if prose is not None else {},
+    )
+
+
+def _whole_controlled_requirement_span(controlled_text: str) -> SourceSpan:
+    """Localize a stage-level refusal to the whole controlled requirement (PA-10).
+
+    Hash/process blockers — unapproved controlled text, unaudited decomposition,
+    translator-agreement — have no single offending fragment: the whole controlled
+    requirement is the actionable unit the author/reviewer must act on. The trailing
+    newline is dropped so the rendered fragment is clean and matches the parser's
+    root-node span convention (which strips line endings), keeping the displayed
+    fragment identical whether it is derived here or from the parsed IR root.
+    """
+    text = controlled_text.rstrip("\n")
+    return SourceSpan(
+        document="controlled_requirement",
+        start_char=0,
+        end_char=len(text),
+        text=text,
     )
 
 
@@ -580,6 +627,7 @@ def _check_decomposition_ensemble(
             refusal_code="NLR-UNAUDITED-DECOMPOSITION",
             requirement_ir=requirement_ir,
             semantic_decomposition=semantic_decomposition,
+            refusal_source_spans=[_whole_controlled_requirement_span(controlled_text)],
             clarification_questions=[
                 "Ensemble decomposition candidates must be audited (PA-6 audit) and explicitly "
                 "approved before their IR can drive a formal-claim comparison. "
@@ -641,6 +689,7 @@ def _check_decomposition_ensemble(
             semantic_decomposition=semantic_decomposition,
             ensemble_candidate_provenances=candidate_provenances,
             ensemble_candidate_audit_verdicts=candidate_audit_verdicts,
+            refusal_source_spans=[_whole_controlled_requirement_span(controlled_text)],
         ), candidate_provenances, candidate_audit_verdicts
 
     if agreement.status == "needs_review":
@@ -654,6 +703,7 @@ def _check_decomposition_ensemble(
             refusal_code="NLR-TRANSLATION-AGREEMENT-BLOCKED",
             requirement_ir=requirement_ir,
             semantic_decomposition=semantic_decomposition,
+            refusal_source_spans=[_whole_controlled_requirement_span(controlled_text)],
             clarification_questions=[
                 f"Translator agreement blocked: {b}" for b in agreement.blockers
             ],
