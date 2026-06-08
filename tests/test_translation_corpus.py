@@ -68,6 +68,9 @@ def test_release_corpus_passes_with_zero_false_rates_per_domain() -> None:
     # Both rates reported per domain, never collapsed into one accuracy number.
     assert {d.domain for d in report.domains} == {"procurement-approval", "protocol-safety"}
     for domain in report.domains:
+        # The gate itself enforces the >=30-per-domain floor, so a future corpus truncation
+        # cannot silently shrink the bar while still reading as "passed".
+        assert domain.total_cases >= 30
         assert domain.false_acceptance_count == 0
         assert domain.false_refusal_count == 0
         assert domain.false_acceptance_rate == 0.0
