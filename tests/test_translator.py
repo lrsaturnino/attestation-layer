@@ -723,14 +723,21 @@ def test_lower_authorization_precondition_projects_comparison_and_membership() -
 
 
 def test_projected_comparison_and_membership_premises_route_to_their_smt_backends() -> None:
-    """Closes the projection loop (PA-1, option (b) accepted design): the comparison and membership
-    premises projected OUT of the Apalache S ∧ R module are not lost — the FormalClaim routes each to
-    its theory-aware SMT backend (comparison -> smt-theories/z3, membership -> cvc5, PB-7). Those
-    backends supply the per-kind requirement-vs-negation discrimination — a consistent premise
-    discharges and its contradictory negation blocks — proven in tests/test_formal_claim_smt.py
+    """Closes the projection loop for an AUTHORIZATION requirement whose comparison/membership premises
+    are R-side constants (``requested_amount <= spendable_balance``, ``tier is in {gold, silver}`` —
+    operands the reviewed S does not declare). These are projected OUT of the Apalache S ∧ R module
+    but not lost: the FormalClaim routes each to its theory-aware SMT backend (comparison ->
+    smt-theories/z3, membership -> cvc5, PB-7). Those backends supply the per-kind
+    requirement-vs-negation discrimination — a consistent premise discharges and its contradictory
+    negation blocks — proven in tests/test_formal_claim_smt.py
     (test_consistent_comparison_premises_discharge_through_proof_object and its disjoint/contradictory
-    siblings). So comparison/membership are genuinely checked, just by the SMT backends rather than by
-    Apalache; the auth predicate stays on the bounded S ∧ R model check.
+    siblings). So an R-side comparison/membership premise is genuinely checked by the SMT backends
+    while the auth predicate stays on the bounded S ∧ R model check.
+
+    This is the R-side half of the picture; a comparison/membership premise that ranges over a
+    variable the reviewed S DECLARES is instead kept in S ∧ R and made Apalache-discriminable (see
+    tests/test_system_checker.test_state_postcondition_comparison_premise_apalache_discriminates_on_threshold
+    and ..._membership_premise_apalache_discriminates_on_set). The keep-vs-project split is per clause.
     """
     mixed = DslV3Parser().parse_ir(
         "requirement authorization_precondition: scope redemption "
@@ -763,11 +770,15 @@ def test_comparison_and_membership_classes_refuse_with_smt_route_named() -> None
     not the generic unsupported-class refusal.
 
     comparison/membership are theory fragments: the DSL v3 grammar admits them only as PREMISE nodes,
-    so the parser never emits them as a requirement_class (this IR is hand-built), and they have no
-    standalone TLA obligation module to model-check. The refusal keeps their real proof route open
-    (comparison -> smt-theories or a numeric_invariant 'keep' obligation, membership -> cvc5) rather
-    than claiming a TLA discharge. This pins the live-path half of the PB-7 routing contract in SOURCE:
-    lower_ir_v2_to_tla refuses-and-routes, while the FormalClaim dispatch (backend_for_proof_node)
+    so the parser never emits them as a requirement_class (this IR is hand-built), and the synthetic
+    CLASS form has no standalone TLA obligation module to model-check. Refusing the class is NOT a
+    claim that comparison/membership are un-checkable by Apalache — their PREMISE form IS
+    Apalache-discriminable when it ranges over an S-declared variable (kept as a guard in the
+    state_postcondition narrowing; see
+    tests/test_system_checker.test_state_postcondition_comparison_premise_apalache_discriminates_on_threshold
+    and ..._membership_premise_apalache_discriminates_on_set). The refusal keeps the class form's real
+    routes open (comparison -> smt-theories or a numeric_invariant 'keep' obligation, membership ->
+    cvc5) rather than claiming a TLA discharge, while the FormalClaim dispatch (backend_for_proof_node)
     carries the fragment to its backend (proven in tests/test_formal_claim_smt.py and
     tests/test_cvc5_backend.py)."""
     base = DslV3Parser().parse_ir(

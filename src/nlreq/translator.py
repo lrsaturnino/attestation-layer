@@ -200,11 +200,13 @@ def lower_ir_v2_to_tla(
     if claim_class == "cross_module_causal_obligation":
         return _lower_cross_module_causal(ir, claim_class)
     if claim_class in {"comparison", "membership"}:
-        # comparison/membership are THEORY-FRAGMENT kinds, not TLA obligation forms. The DSL v3 parser
-        # never emits them as a requirement_class (the grammar admits them only as PREMISE node kinds —
-        # see dsl_v3.lark), so an IR carrying one as its class is hand-built. They have a SOUND producer,
-        # just not Apalache, so refuse the TLA path EXPLICITLY and name the route they keep open rather
-        # than fold them into the generic unsupported-class refusal below.
+        # comparison/membership are THEORY-FRAGMENT kinds. The DSL v3 parser never emits them as a
+        # requirement_class (the grammar admits them only as PREMISE node kinds — see dsl_v3.lark), so
+        # an IR carrying one as its CLASS is hand-built and has no standalone TLA obligation MODULE to
+        # lower. Refusing this synthetic class is not a claim that the kinds are un-checkable by
+        # Apalache: their PREMISE form over an S-declared variable IS kept in S ∧ R and discriminated
+        # (state_postcondition narrowing). Refuse the class explicitly and name the routes it keeps
+        # open rather than fold it into the generic unsupported-class refusal below.
         return _lower_refused_smt_routed_class(ir, claim_class)
     if claim_class is not None:
         # A present-but-unsupported requirement_class is a genuine error, not legacy input: refuse
@@ -504,21 +506,25 @@ def _lower_cross_module_causal(ir: RequirementIRV2, claim_class: str) -> Lowered
 def _lower_refused_smt_routed_class(
     ir: RequirementIRV2, claim_class: str
 ) -> LoweredFormalArtifact:
-    """Refuse, on the live TLA path, a comparison/membership requirement_class — keep the SMT route open.
+    """Refuse, on the live TLA path, a comparison/membership requirement_class — keep its real routes open.
 
-    comparison and set-membership are theory-fragment kinds, not TLA obligation forms: the DSL v3
-    grammar admits them ONLY as PREMISE nodes (``X >= V``, ``X is in {...}``), never as a top-level
-    requirement_class, so an IR that carries one as its class is hand-built. They have a SOUND producer,
-    just not Apalache:
-      - comparison -> the theory-aware SMT backend (smt-theories) as a projected premise, or an
-        Apalache-discriminable ``numeric_invariant`` ``keep <comparison>`` obligation when the
-        comparison ranges over a reviewed S's OWN state variable;
-      - concrete set-membership -> cvc5's finite-set decision procedure.
-    Emitting a vacuous TLA skeleton — or folding these into the generic unsupported-class refusal —
-    would hide that they ARE checked, just on a different backend. Refuse EXPLICITLY with the route
-    named, so the FormalClaim dispatch (``backend_for_proof_node``) discharges the fragment on its real
-    backend without a false TLA discharge. This is the live-path half of the PB-7 per-premise routing,
-    enforced in source rather than only documented.
+    comparison and set-membership are theory-fragment kinds: the DSL v3 grammar admits them ONLY as
+    PREMISE nodes (``X >= V``, ``X is in {...}``), never as a top-level requirement_class, so an IR
+    that carries one as its class is hand-built and has no standalone TLA OBLIGATION module to
+    model-check. This refuses that synthetic class form — it does NOT mean comparison/membership are
+    un-checkable by Apalache. Their real surfaces all have a producer:
+      - a comparison/membership PREMISE that ranges over a variable a reviewed S declares IS
+        Apalache-discriminable — it is kept as a guard in the S ∧ R narrowing (state_postcondition,
+        see derive_post_state_premise_guard) so a threshold/set change flips valid vs counterexample;
+      - a comparison OBLIGATION lowers to an Apalache-discriminable ``numeric_invariant``
+        (``keep <comparison>``) over S's own state variable;
+      - a comparison/membership premise over an R-side CONSTANT (no S binding), or an opaque set
+        reference, stays on the theory-aware SMT backends (comparison -> smt-theories, set-membership
+        -> cvc5) per the PB-7 per-premise routing.
+    Emitting a vacuous TLA skeleton for the synthetic class — or folding it into the generic
+    unsupported-class refusal — would hide those real routes. Refuse EXPLICITLY with the route named,
+    so the FormalClaim dispatch (``backend_for_proof_node``) discharges the fragment on its real
+    backend without a false TLA discharge.
     """
     if claim_class == "comparison":
         route = (

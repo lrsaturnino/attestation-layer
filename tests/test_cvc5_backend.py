@@ -179,16 +179,17 @@ def test_cvc5_membership_requirement_and_negation_discriminate() -> None:
     finite-set theory is a real decision procedure here, not a rubber stamp: it discriminates a member
     from a non-member.
 
-    Membership has NO Apalache-discriminable lowering, by design and by grammar. The v3 grammar
-    (`dsl_v3.lark`) admits membership ONLY as a PREMISE (`NAME is in {...}`) and never as an obligation,
-    so a membership constraint never ranges over a reviewed S's transitions and has no standalone
-    module whose invariant Apalache could distinguish — unlike comparison, which IS Apalache-
-    discriminable as the `keep <comparison>` numeric_invariant obligation (see
-    test_system_checker.test_numeric_invariant_comparison_requirement_and_negation_apalache_discriminate).
-    Inventing a membership obligation purely to force an Apalache module would violate the Plan A
-    section-0 rule ("wire a real producer behind an existing contract, not add representation"); no
-    producer needs it. The sound producer for concrete set-membership is cvc5, and this is its
-    discrimination test."""
+    This is cvc5's surface: a membership constraint as a FormalClaim theory fragment, and the route
+    for an OPAQUE set reference (`NAME is in NAME`) that names no finite literal Apalache could decide.
+    It is NOT the only membership surface — a membership PREMISE whose variable a reviewed S declares
+    (`tier is in {gold, silver}` over S's own `tier`) IS Apalache-discriminable: the
+    state_postcondition narrowing keeps it as a finite-set guard so a set change flips valid vs
+    counterexample (see
+    test_system_checker.test_state_postcondition_membership_premise_apalache_discriminates_on_set).
+    The v3 grammar admits membership only as a premise (never a `keep` obligation), so unlike
+    comparison it has no Apalache OBLIGATION form — but the S-declared premise above and this cvc5
+    fragment/opaque-set route are both real producers. This is the cvc5 discrimination test (member ->
+    valid, non-member -> invalid)."""
 
     def membership_verdicts(premise_clause: str) -> set[str]:
         claim = _claim(premise_clause)

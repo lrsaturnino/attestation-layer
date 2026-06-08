@@ -10,30 +10,30 @@ from .models import RequirementIRV2, SemanticNode, ValueRef
 FORMAL_LOWERING_VERSION = "0.2"
 
 
-# Premise node kinds an authorization_precondition accepts but PROJECTS OUT of the S ∧ R
-# obligation: comparisons (eq/neq/lt/lte/gt/gte) and set-membership. They introduce only
-# R-side constants that are disconnected from a reviewed S's transition system, so the model
-# check gains nothing from them; they are discharged instead by the theory-aware SMT backends
-# (smt-theories / cvc5) per the PB-7 per-premise routing. See
-# validate_authorization_precondition_shape for the soundness and non-vacuity rationale.
+# Premise node kinds the STANDALONE requirement lowerings accept but do NOT emit into the standalone
+# TLA+ module: comparisons (eq/neq/lt/lte/gt/gte) and set-membership. A standalone module has no
+# reviewed S, so a comparison/membership operand would be a free symbol there — the standalone harness
+# gains nothing from it. Whether such a premise reaches the model check is decided at COMPOSITION,
+# where S's declared variables are known (see derive_post_state_premise_guard and the
+# state_postcondition narrowing):
 #
-# PA-1 discrimination (why these are NOT given an Apalache req-vs-negation module here):
-#   - COMPARISON *is* Apalache-discriminable — but as the OBLIGATION of a numeric_invariant
-#     (`keep <comparison>`), where it ranges over S's OWN state variable and is checked as a
-#     same-state invariant. That discrimination test exists:
-#     test_system_checker.test_numeric_invariant_comparison_requirement_and_negation_apalache_discriminate
-#     (`keep collateral >= 1` valid vs its negation `keep collateral <= 0` counterexample). A comparison
-#     PREMISE, by contrast, only constrains the antecedent of `premise => ~outcome`; adding it weakens
-#     the obligation a fortiori and adds no checkable content (an extra antecedent conjunct), so a model
-#     check cannot discriminate on it — the SMT theory backend decides it instead.
-#   - MEMBERSHIP has NO Apalache-discriminable lowering at all: the v3 grammar (dsl_v3.lark) admits
-#     membership ONLY as a premise (`NAME is in {...}`), never as an obligation, so it never ranges over
-#     S's transitions and has no standalone module to discriminate. Inventing a membership obligation
-#     purely to force an Apalache module would add representation no producer needs (Plan A §0: "wire a
-#     real producer behind an existing contract, not add representation"). Its sound producer is cvc5,
-#     and its discrimination test lives at
-#     test_cvc5_backend.test_cvc5_membership_requirement_and_negation_discriminate (member -> valid,
-#     non-member -> invalid).
+#   - A comparison/finite-set-membership premise that ranges over a variable a reviewed S DECLARES is
+#     a real guard on S's reachable states, NOT an R-side constant. The state_postcondition narrowing
+#     keeps it (conjoined into the ghost history bit), so it IS Apalache-discriminable: two
+#     requirements differing only in a comparison threshold or a membership set lower to composed
+#     modules a real Apalache run tells apart — one valid, one counterexample. See the discrimination
+#     tests test_state_postcondition_comparison_premise_apalache_discriminates_on_threshold and
+#     test_state_postcondition_membership_premise_apalache_discriminates_on_set. (Comparison is ALSO
+#     Apalache-discriminable as the OBLIGATION of a numeric_invariant, `keep <comparison>`; membership
+#     has no obligation form in the v3 grammar, so the S-declared premise is its only Apalache surface.)
+#   - A comparison/membership premise over an R-side CONSTANT — an operand no reviewed S declares — is
+#     disconnected from S's transitions, so it stays projected to the theory-aware SMT backends
+#     (comparison -> smt-theories, set-membership -> cvc5) per the PB-7 per-premise routing; an opaque
+#     set reference (no finite literal) likewise stays on cvc5, never claimed as Apalache evidence.
+#     This is the common case for authorization_precondition premises (e.g.
+#     `requested_amount <= spendable_balance`), which is why the auth lowering projects them — the
+#     decision is per clause, made at composition, never a blanket "comparison/membership can't be
+#     model-checked". See validate_authorization_precondition_shape for the non-vacuity rationale.
 _PROJECTED_PREMISE_KINDS = frozenset({"eq", "neq", "lt", "lte", "gt", "gte", "membership"})
 
 
@@ -209,19 +209,22 @@ def validate_authorization_precondition_shape(
                     ))
             elif node.kind in _PROJECTED_PREMISE_KINDS:
                 # Comparison and set-membership premises are accepted but PROJECTED OUT of the
-                # S ∧ R obligation rather than lowered into the TLA+ module. The
+                # authorization S ∧ R obligation rather than lowered into the TLA+ module. The
                 # authorization_precondition obligation stays `<predicate conjunction> => ~outcome`;
                 # these fragments are discharged independently by the theory-aware SMT backends
                 # (comparison -> smt-theories, set-membership -> cvc5) per the PB-7 routing.
-                # Projecting them is sound: under any witness that satisfies them,
-                # `(auth /\ extra) => ~outcome` follows a fortiori from `auth => ~outcome`, and the
-                # SMT backends confirm the extra antecedents are realizable. They lower to R-side
-                # CONSTANTs disconnected from S's transitions, so encoding them into the module
-                # would add no checkable content to S ∧ R — only a vacuity-risk surface (pin the
-                # witness wrong -> a false `valid`). Faithful comparison lowering is deferred to
-                # obligations whose comparison ranges over S's OWN state (PB-4.T2, e.g.
-                # numeric_invariant), where the comparison interacts with S's transitions and
-                # projection is impossible; that path has no S ∧ R consumer today.
+                # Projecting them is sound HERE because an authorization premise's comparison/
+                # membership operands are typically R-side CONSTANTS disconnected from S's transitions
+                # (e.g. `requested_amount <= spendable_balance`): `(auth /\ extra) => ~outcome` follows
+                # a fortiori from `auth => ~outcome`, the SMT backends confirm the extra antecedents are
+                # realizable, and encoding a free symbol into the module would only add a vacuity-risk
+                # surface (pin the witness wrong -> a false `valid`). When such a premise instead ranges
+                # over a variable a reviewed S DECLARES it is a real guard, and it IS kept in S ∧ R and
+                # made Apalache-discriminable — but at the state_postcondition narrowing
+                # (derive_post_state_premise_guard), which has S in hand to bind the variable and to
+                # decide per clause whether to keep or project. The auth standalone lowering has no S,
+                # so it cannot draw that line and projects uniformly; the comparison-over-S's-own-state
+                # consumer the older note called "deferred" now exists there.
                 continue
             else:
                 problems.append((
@@ -326,7 +329,9 @@ def validate_state_postcondition_shape(
     post_state(<state>, <value>)`` — the premise carries at least one named predicate with an
     identifier argument (the operator a reviewed S interprets), and the obligation is a
     ``post_state`` clause naming a state and a string/number value. Comparison/membership premises
-    are projected out as in the authorization lowering (discharged by the SMT backends).
+    are accepted here and left out of the STANDALONE module (which has no S to bind their operands);
+    the composition then keeps each one that ranges over a variable a reviewed S declares as an
+    Apalache guard and projects the rest to the SMT backends — see derive_post_state_premise_guard.
     """
     problems: list[tuple[str, str, SemanticNode | None]] = []
 
@@ -355,8 +360,11 @@ def validate_state_postcondition_shape(
                         node,
                     ))
             elif node.kind in _PROJECTED_PREMISE_KINDS:
-                # Comparison/membership premises are discharged by the SMT backends, not the S ∧ R
-                # model check — projected out exactly as in the authorization lowering.
+                # Comparison/membership premises are accepted here but not emitted into the STANDALONE
+                # module (no S to bind their operands). The composition keeps each clause that ranges
+                # over a variable a reviewed S declares as an Apalache guard (so the premise becomes
+                # discriminable) and projects R-side constants to the SMT backends — the per-clause
+                # decision is in derive_post_state_premise_guard / _compose_system_narrowing.
                 continue
             else:
                 problems.append((
@@ -822,6 +830,73 @@ def _comparison_nodes(premise: SemanticNode | None) -> list[SemanticNode]:
     if premise is None:
         return []
     return list(premise.children) if premise.kind == "and" else [premise]
+
+
+def _render_membership_tla(node: SemanticNode) -> str:
+    """Render a finite set-literal membership premise as a TLA+ set-membership relation.
+
+    e.g. ``membership(tier, gold, silver)`` (from ``tier is in {gold, silver}``) -> ``tier \\in
+    {"gold", "silver"}``. The first arg is the state variable a reviewed S declares and evolves; the
+    remaining args are the finite set's element values, rendered as TLA+ string literals (the Str
+    domain a post-state value also uses). Only the brace-literal form is renderable here — the parser
+    tags it ``metadata["membership"] == "set_literal"``. An opaque set reference (``tier is in
+    approved_set``) names no decidable finite set, so it is left projected to cvc5 and must never
+    reach this function; a non-set-literal or malformed node raises rather than silently lowering to
+    a partial expression.
+    """
+    if (
+        node.kind != "membership"
+        or node.metadata.get("membership") != "set_literal"
+        or len(node.args) < 2
+        or node.args[0].kind != "identifier"
+    ):
+        raise ValueError(
+            "_render_membership_tla: node is not a finite set-literal membership over a named "
+            f"variable (kind={node.kind!r}, membership={node.metadata.get('membership')!r}, "
+            f"{len(node.args)} args); the caller must filter to set_literal membership first"
+        )
+    variable = str(node.args[0].value)
+    elements = ", ".join(f'"{element.value}"' for element in node.args[1:])
+    return f"{variable} \\in {{{elements}}}"
+
+
+def derive_post_state_premise_guard(root: SemanticNode) -> tuple[PremiseGuardClause, ...]:
+    """Derive the comparison/set-membership premise guard CLAUSES of a state_postcondition.
+
+    A state_postcondition's named predicate premise lowers to ``Pred_<name>`` (the standalone
+    module's ``Premise``), but a comparison (``balance >= 100``) or finite set-membership (``tier is
+    in {gold, silver}``) premise can range over a variable a reviewed S DECLARES — then it is not an
+    R-side constant but a real guard on S's reachable states. This returns each such clause with the
+    state variables it names; the narrowing keeps a clause as an Apalache guard only when S declares
+    every one of its variables (conjoining it into the ghost history bit
+    ``nlr_prev_premise' = (premise /\\ guards)``), and otherwise leaves it projected to the SMT
+    backend. Two requirements that differ ONLY in a comparison threshold or a membership set then
+    lower to composed modules a real Apalache run tells apart, so the PREMISE — not just the
+    obligation — carries checkable content.
+
+    An opaque set reference (no ``set_literal`` tag) names no decidable finite set and is omitted
+    here entirely: it stays projected to the cvc5 backend (PB-7 routing), never claimed as Apalache
+    evidence. Returning clauses (not a pre-joined string) is deliberate — only the composition, which
+    knows S's declared variables, can decide per clause whether it ranges over S's state or is an
+    R-side constraint.
+    """
+    clauses: list[PremiseGuardClause] = []
+    for node in _comparison_nodes(root.premise):
+        if node.kind in _COMPARISON_TLA_OPERATORS:
+            variables = tuple(
+                dict.fromkeys(
+                    str(arg.value) for arg in node.args if arg.kind == "identifier"
+                )
+            )
+            clauses.append(PremiseGuardClause(expr=_render_comparison_tla(node), variables=variables))
+        elif node.kind == "membership" and node.metadata.get("membership") == "set_literal":
+            clauses.append(
+                PremiseGuardClause(
+                    expr=_render_membership_tla(node),
+                    variables=(str(node.args[0].value),),
+                )
+            )
+    return tuple(clauses)
 
 
 def validate_numeric_invariant_shape(
@@ -1839,6 +1914,24 @@ def derive_outcome_predicate(root: SemanticNode) -> OutcomePredicate:
 
 
 @dataclass(frozen=True)
+class PremiseGuardClause:
+    """One comparison/finite-set-membership premise clause that may range over S's own state.
+
+    ``expr`` is the TLA+ relation (``balance >= 100``, ``tier \\in {"gold", "silver"}``);
+    ``variables`` are the state variable names it references. The narrowing keeps the clause as an
+    Apalache guard ONLY when a reviewed S declares EVERY variable; otherwise the clause is an R-side
+    constraint disconnected from S's transition system and stays PROJECTED to the theory-aware SMT
+    backend (PB-7 routing), never encoded as a free symbol the model checker would reject. So an
+    S-declared comparison/membership premise becomes Apalache-discriminable while an R-side constant
+    keeps its existing SMT route — the same split the authorization lowering draws, applied per
+    clause here because only the composition knows which variables S declares.
+    """
+
+    expr: str
+    variables: tuple[str, ...]
+
+
+@dataclass(frozen=True)
 class PostStateObligation:
     """The affirmed post-state of a state_postcondition, as a shared predicate over S's state.
 
@@ -1855,10 +1948,19 @@ class PostStateObligation:
     premise held in the pre-state and ``Inv`` requires ``Pred_<state>(<value>)`` after it — so a
     counterexample is a real S step OUT of a premise-state that fails to establish the post-state
     value (see _compose_system_narrowing).
+
+    ``premise_guard_clauses`` carries the comparison/finite-set-membership premise clauses
+    (``balance >= 100``, ``tier \\in {"gold", "silver"}``) — empty when the premise has none. The
+    narrowing conjoins into the ghost history bit only the clauses whose variables a reviewed S
+    declares, so the post-state obligation fires out of the guarded premise-states and the
+    comparison/membership PREMISE (not just the obligation) becomes Apalache-discriminable; clauses
+    over variables S does not model stay projected to the SMT backend. See
+    derive_post_state_premise_guard.
     """
 
     predicate_name: str
     value_literal: str
+    premise_guard_clauses: tuple[PremiseGuardClause, ...] = ()
 
 
 def derive_post_state_obligation(root: SemanticNode) -> PostStateObligation:
@@ -1883,6 +1985,7 @@ def derive_post_state_obligation(root: SemanticNode) -> PostStateObligation:
     return PostStateObligation(
         predicate_name=pred_name(post_state.name),
         value_literal=_render_value_literal(post_state.value),
+        premise_guard_clauses=derive_post_state_premise_guard(root),
     )
 
 
@@ -2676,7 +2779,25 @@ def _compose_system_narrowing(
         system_variable_blocks += _render_system_variable_blocks([(ghost, "Bool")])
         requirement_line = f"R_Requirement == {ghost} => {obligation_consequent}"
         init_line = "Init == " + " /\\ ".join([*init_ops, f"{ghost} = FALSE"])
-        next_line = "Next == " + " /\\ ".join([*next_ops, f"{ghost}' = ({premise_expr})"])
+        # The ghost records the FULL premise in the pre-state: the named predicate (premise_expr,
+        # parsed from R's standalone Premise) AND every comparison/finite-set-membership guard clause
+        # that ranges over a variable S declares. A clause whose variables S does NOT model is an
+        # R-side constant disconnected from S's transitions — it is left out (projected to the SMT
+        # backend), never bound as a free symbol. With no kept clause the update is byte-identical to
+        # the predicate-only form; with one or more, the obligation fires only out of the guarded
+        # premise-states, so two requirements differing only in a threshold/set lower to modules
+        # Apalache tells apart.
+        kept_guards = [
+            clause.expr
+            for clause in post_state_obligation.premise_guard_clauses
+            if all(variable in seen_variables for variable in clause.variables)
+        ]
+        ghost_premise = premise_expr
+        if kept_guards:
+            ghost_premise = "(" + premise_expr + ") /\\ " + " /\\ ".join(
+                f"({expr})" for expr in kept_guards
+            )
+        next_line = "Next == " + " /\\ ".join([*next_ops, f"{ghost}' = ({ghost_premise})"])
         narrowing_comment = (
             "\\* ===== Requirement R narrows S's TRANSITIONS into a post-state obligation. R adds\n"
             f"\\* one ghost VARIABLE {ghost} recording, after each step, whether the premise held in\n"

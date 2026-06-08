@@ -17,11 +17,13 @@ from nlreq.formal_claim_smt import smt_check_formal_claim_predicate_fragments
 from nlreq.formal_lowering import (
     OutcomePredicate,
     PostStateObligation,
+    PremiseGuardClause,
     build_system_spec_contribution,
     compose_s_and_r_module,
     derive_bounded_temporal_obligation,
     derive_cross_module_causal_obligation,
     derive_post_state_obligation,
+    derive_post_state_premise_guard,
     lower_bounded_temporal_tla,
     lower_cross_module_causal_tla,
     lower_state_postcondition_tla,
@@ -3777,6 +3779,288 @@ def test_state_postcondition_requirement_and_negation_apalache_discriminate(
     assert requirement.result.details["bound_post_state_value"] == '"accepted"'
     assert negation.result.status == "counterexample", negation.result.details
     assert negation.counterexamples
+
+
+# A reviewed stateful S whose accepting step opens `status` only when `balance >= 100`. The
+# comparison PREMISE `balance >= T` ranges over S's OWN `balance`, so it is a real guard on S's
+# reachable states, not an R-side constant — the narrowing keeps it in the ghost history bit and a
+# real Apalache run discriminates a threshold S satisfies from one it does not.
+_COMPARISON_PREMISE_STATEFUL_SPEC = (
+    "---- MODULE BalanceGate ----\n"
+    "EXTENDS Naturals, TLC\n\n"
+    "\\* @type: Int;\n"
+    "VARIABLE balance\n"
+    "\\* @type: Bool;\n"
+    "VARIABLE approved_flag\n"
+    "\\* @type: Str;\n"
+    "VARIABLE status\n\n"
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_approved(a) == approved_flag = TRUE\n"
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_status(v) == status = v\n"
+    "\\* System invariant: status stays within its reviewed value domain.\n"
+    'StatusClosed == status \\in {"init", "open", "closed"}\n'
+    "\\* Approval is granted only in the accepting step (never at init), so the premise predicate\n"
+    "\\* Pred_approved holds only after acceptance — a stutter out of the init state cannot make the\n"
+    "\\* premise true while status is still 'init'. The accepting step opens status iff balance >= 100.\n"
+    'SInit == balance \\in {60, 120} /\\ approved_flag = FALSE /\\ status = "init"\n'
+    'SNext == \\/ (status = "init" /\\ approved_flag\' = TRUE'
+    ' /\\ status\' = (IF balance >= 100 THEN "open" ELSE "closed") /\\ UNCHANGED balance)\n'
+    "         \\/ UNCHANGED <<balance, approved_flag, status>>\n"
+    "====\n"
+)
+
+
+# A reviewed stateful S whose accepting step opens `status` only when `tier` is gold or silver. The
+# membership PREMISE `tier is in {...}` ranges over S's OWN `tier`, so the narrowing keeps it as a
+# finite-set guard and a real Apalache run discriminates a set S stays inside from one it escapes.
+_MEMBERSHIP_PREMISE_STATEFUL_SPEC = (
+    "---- MODULE TierGate ----\n"
+    "EXTENDS Naturals, TLC\n\n"
+    "\\* @type: Str;\n"
+    "VARIABLE tier\n"
+    "\\* @type: Bool;\n"
+    "VARIABLE approved_flag\n"
+    "\\* @type: Str;\n"
+    "VARIABLE status\n\n"
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_approved(a) == approved_flag = TRUE\n"
+    "\\* @type: (Str) => Bool;\n"
+    "Pred_status(v) == status = v\n"
+    "\\* System invariant: status stays within its reviewed value domain.\n"
+    'StatusClosed == status \\in {"init", "open", "closed"}\n'
+    "\\* Approval is granted only in the accepting step (never at init), so the premise predicate\n"
+    "\\* Pred_approved holds only after acceptance. The accepting step opens status iff tier is gold\n"
+    "\\* or silver.\n"
+    'SInit == tier \\in {"gold", "silver", "bronze"} /\\ approved_flag = FALSE /\\ status = "init"\n'
+    'SNext == \\/ (status = "init" /\\ approved_flag\' = TRUE'
+    ' /\\ status\' = (IF tier \\in {"gold", "silver"} THEN "open" ELSE "closed") /\\ UNCHANGED tier)\n'
+    "         \\/ UNCHANGED <<tier, approved_flag, status>>\n"
+    "====\n"
+)
+
+
+def _comparison_premise_s_registry(tmp_path: Path) -> SystemSpecRegistry:
+    return _reviewed_s_registry(
+        tmp_path,
+        spec_text=_COMPARISON_PREMISE_STATEFUL_SPEC,
+        invariants=("StatusClosed",),
+        init_op="SInit",
+        next_op="SNext",
+    )
+
+
+def _membership_premise_s_registry(tmp_path: Path) -> SystemSpecRegistry:
+    return _reviewed_s_registry(
+        tmp_path,
+        spec_text=_MEMBERSHIP_PREMISE_STATEFUL_SPEC,
+        invariants=("StatusClosed",),
+        init_op="SInit",
+        next_op="SNext",
+    )
+
+
+def _comparison_premise_ir(threshold: int):
+    from nlreq.dsl_v3 import DslV3Parser
+
+    return DslV3Parser().parse_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        f"when actor is approved and balance >= {threshold}\n"
+        'then state status must be "open"\n',
+        requirement_id="REQ-STATEPOST-CMP",
+        title="State postcondition comparison premise",
+    )
+
+
+def _membership_premise_ir(set_clause: str):
+    from nlreq.dsl_v3 import DslV3Parser
+
+    return DslV3Parser().parse_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        f"when actor is approved and tier is in {set_clause}\n"
+        'then state status must be "open"\n',
+        requirement_id="REQ-STATEPOST-MEM",
+        title="State postcondition membership premise",
+    )
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_state_postcondition_comparison_premise_apalache_discriminates_on_threshold(
+    tmp_path: Path,
+) -> None:
+    """PA-1 comparison PREMISE discrimination: two state_postconditions that differ ONLY in a
+    comparison threshold lower to composed modules a real Apalache run tells apart — one valid, one
+    counterexample — against the SAME reviewed stateful S AND the SAME post-state obligation.
+
+    S opens `status` in its accepting step iff `balance >= 100`; `balance` is chosen at init from
+    {60, 120}. The premise comparison `balance >= T` ranges over S's OWN `balance`, so the narrowing
+    keeps it as a guard on the ghost history bit (`nlr_prev_premise' = Pred_approved(actor) /\\
+    balance >= T`). With T = 100 the obligation `status must be "open"` fires only when balance = 120,
+    which S opens — valid. With T = 50 the obligation also fires when balance = 60, which S closes —
+    a real S step out of a guarded premise-state that fails the post-state, so Apalache returns a
+    counterexample. S and the obligation are byte-identical between the two runs; the comparison
+    threshold is the ONLY variable, so the verdict flip isolates the comparison PREMISE semantics
+    (and, since it flips against one fixed S, proves the guard is reachable — non-vacuous). This is
+    the premise surface the projection comment deferred, now an Apalache consumer."""
+    registry = _comparison_premise_s_registry(tmp_path)
+
+    def run(threshold: int, sub: str):
+        ir = _comparison_premise_ir(threshold)
+        lowered = lower_ir_v2_to_tla(ir)
+        assert lowered.status == "lowered"
+        result = check_solver_backed_system_consistency(
+            requirement=ir,
+            lowered=lowered,
+            registry=registry,
+            impact=_authz_impact(),
+            project_root=tmp_path,
+            budget=FormalBackendBudget(timeout_seconds=60, max_depth=10),
+            execution=FormalBackendExecution(
+                checker_id="apalache",
+                command=_APALACHE_COMMAND,
+                artifact_dir=(tmp_path / sub).as_posix(),
+            ),
+        )
+        composed = (tmp_path / sub / "REQ_STATEPOST_CMP_S_AND_R.tla").read_text()
+        return result, composed
+
+    satisfied, satisfied_module = run(100, "requirement")
+    violated, violated_module = run(50, "negation")
+
+    # The comparison premise is kept in S ∧ R over S's own balance — not projected, not a free symbol.
+    assert "balance >= 100" in satisfied_module
+    assert "balance >= 50" in violated_module
+    assert satisfied.result.status == "valid", satisfied.result.details
+    assert violated.result.status == "counterexample", violated.result.details
+    assert violated.counterexamples
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_state_postcondition_membership_premise_apalache_discriminates_on_set(
+    tmp_path: Path,
+) -> None:
+    """PA-1 membership PREMISE discrimination: two state_postconditions that differ ONLY in the
+    finite membership set lower to composed modules a real Apalache run tells apart — one valid, one
+    counterexample — against the SAME reviewed stateful S AND the SAME post-state obligation.
+
+    This is membership's FIRST Apalache-discriminable surface (the v3 grammar admits membership only
+    as a premise, never an obligation). S opens `status` iff `tier` is gold or silver; `tier` is
+    chosen at init from {gold, silver, bronze}. The premise `tier is in {...}` ranges over S's OWN
+    `tier`, so the narrowing keeps it as a finite-set guard. With the set {gold, silver} the
+    obligation `status must be "open"` fires only for tiers S opens — valid. Widening the set to
+    {gold, silver, bronze} makes it fire for bronze too, which S closes — a real S step out of a
+    guarded premise-state that fails the post-state, so Apalache returns a counterexample. S and the
+    obligation are byte-identical between the runs; the membership SET is the ONLY variable, so the
+    flip isolates the membership PREMISE semantics. An opaque set reference would instead stay routed
+    to cvc5 (see the projection test)."""
+    registry = _membership_premise_s_registry(tmp_path)
+
+    def run(set_clause: str, sub: str):
+        ir = _membership_premise_ir(set_clause)
+        lowered = lower_ir_v2_to_tla(ir)
+        assert lowered.status == "lowered"
+        result = check_solver_backed_system_consistency(
+            requirement=ir,
+            lowered=lowered,
+            registry=registry,
+            impact=_authz_impact(),
+            project_root=tmp_path,
+            budget=FormalBackendBudget(timeout_seconds=60, max_depth=10),
+            execution=FormalBackendExecution(
+                checker_id="apalache",
+                command=_APALACHE_COMMAND,
+                artifact_dir=(tmp_path / sub).as_posix(),
+            ),
+        )
+        composed = (tmp_path / sub / "REQ_STATEPOST_MEM_S_AND_R.tla").read_text()
+        return result, composed
+
+    satisfied, satisfied_module = run("{gold, silver}", "requirement")
+    violated, violated_module = run("{gold, silver, bronze}", "negation")
+
+    # The membership premise is kept in S ∧ R over S's own tier — as a finite TLA+ set literal.
+    assert 'tier \\in {"gold", "silver"}' in satisfied_module
+    assert 'tier \\in {"gold", "silver", "bronze"}' in violated_module
+    assert satisfied.result.status == "valid", satisfied.result.details
+    assert violated.result.status == "counterexample", violated.result.details
+    assert violated.counterexamples
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_state_postcondition_rside_comparison_premise_stays_projected(
+    tmp_path: Path,
+) -> None:
+    """Soundness boundary: a comparison premise over a variable the reviewed S does NOT model is an
+    R-side constant — it is PROJECTED OUT of the Apalache S ∧ R module (kept on its SMT route),
+    never bound as a free symbol that would let a vacuous run claim a false `valid`.
+
+    The reviewed S (BalanceGate) declares `balance`, not `requested_amount`. A premise
+    `requested_amount >= 100` therefore ranges over no S state: the narrowing drops the clause from
+    the ghost history bit, exactly as the authorization lowering projects comparison premises (see
+    tests/test_translator.py for the auth analogue). The composition still SUCCEEDS over the
+    predicate premise — `requested_amount` simply never appears in the composed module — so this is a
+    real check with the R-side clause projected, not a refusal and not a free-symbol vacuity."""
+    from nlreq.dsl_v3 import DslV3Parser
+
+    ir = DslV3Parser().parse_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        "when actor is approved and requested_amount >= 100\n"
+        'then state status must be "open"\n',
+        requirement_id="REQ-STATEPOST-RSIDE",
+        title="State postcondition R-side premise",
+    )
+    lowered = lower_ir_v2_to_tla(ir)
+    assert lowered.status == "lowered"
+    check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lowered,
+        registry=_comparison_premise_s_registry(tmp_path),
+        impact=_authz_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=60, max_depth=10),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=_APALACHE_COMMAND,
+            artifact_dir=(tmp_path / "rside").as_posix(),
+        ),
+    )
+
+    composed = (tmp_path / "rside" / "REQ_STATEPOST_RSIDE_S_AND_R.tla").read_text()
+    # The R-side comparison operand never reaches the composed module — projected, not a free symbol.
+    assert "requested_amount" not in composed
+    # The kept predicate premise still drives the ghost history bit.
+    assert "Pred_approved(actor)" in composed
+
+
+def test_derive_post_state_premise_guard_keeps_comparison_and_set_literal_drops_opaque() -> None:
+    """derive_post_state_premise_guard returns one clause per comparison / finite set-literal
+    membership premise (with the state variables each names) and OMITS an opaque set reference.
+
+    The opaque `tier is in approved_set` form names no decidable finite set, so it has no
+    Apalache-checkable guard and must stay projected to cvc5 — it is absent from the clauses rather
+    than rendered as a partial expression. A predicate premise contributes no clause (it lowers to
+    the standalone module's Premise instead)."""
+    from nlreq.dsl_v3 import DslV3Parser
+
+    ir = DslV3Parser().parse_ir(
+        "requirement state_postcondition:\n"
+        "scope vault\n"
+        "when actor is approved and balance >= 100 and tier is in {gold, silver} "
+        "and segment is in opaque_segments\n"
+        'then state status must be "open"\n',
+        requirement_id="REQ-STATEPOST-GUARD",
+        title="State postcondition guard derivation",
+    )
+
+    clauses = derive_post_state_premise_guard(ir.semantic_ir)
+
+    assert clauses == (
+        PremiseGuardClause(expr="balance >= 100", variables=("balance",)),
+        PremiseGuardClause(expr='tier \\in {"gold", "silver"}', variables=("tier",)),
+    )
 
 
 def test_solver_result_labels_valid_run_bounded_only_with_full_backing() -> None:
