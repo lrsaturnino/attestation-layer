@@ -15,6 +15,8 @@ from nlreq.cli import main
 from nlreq.dsl_v3 import DslV3Parser
 from nlreq.formal_claim import build_formal_claim, formal_claim_signature
 from nlreq.intake import (
+    ControlledRewriteProposal,
+    FreeFormIntakeArtifact,
     build_dsl_grammar_summary,
     build_rewrite_prompt,
     create_controlled_rewrite_proposal,
@@ -105,6 +107,54 @@ def test_merchant_string_stays_verbatim_through_the_non_llm_intake_path() -> Non
     )
     # The verbatim, non-ASCII merchant string is preserved on both the intake and the
     # proposal; the controlled DSL keeps it inside the quoted literal, untranslated.
+    assert merchant in intake.original_text
+    assert merchant in proposal.proposed_controlled_text
+
+
+def test_cli_intake_draft_pt_records_source_language_and_keeps_merchant_verbatim(tmp_path) -> None:
+    # The CLI intake path (not only the manual proposal helper) must thread --language pt
+    # through PA-4: the intake records source_language=pt, the LLM draft uses the non-English
+    # prompt addendum, and the verbatim non-ASCII merchant string survives into the proposal.
+    merchant = "Café Lögïstica Ltda"
+    prose = f"O pagamento ao {merchant} deve ser registrado quando o pagador estiver aprovado."
+    original = tmp_path / "prose.pt.txt"
+    original.write_text(prose)
+    fixture = tmp_path / "fixture.nlreq3"
+    fixture.write_text(_MERCHANT_CONTROLLED)
+    intake_out = tmp_path / "intake.json"
+    proposal_out = tmp_path / "proposal.json"
+
+    exit_code = main(
+        [
+            "intake-draft",
+            str(original),
+            "--method",
+            "llm",
+            "--fixture",
+            str(fixture),
+            "--language",
+            "pt",
+            "--intake-id",
+            "INTAKE-PT-1",
+            "--proposal-id",
+            "PROP-PT-1",
+            "--intake-out",
+            str(intake_out),
+            "--out",
+            str(proposal_out),
+        ]
+    )
+    assert exit_code == 0
+
+    intake = FreeFormIntakeArtifact.model_validate_json(intake_out.read_text())
+    proposal = ControlledRewriteProposal.model_validate_json(proposal_out.read_text())
+    # Provenance records the submitted language, not the English default.
+    assert intake.language == "pt"
+    assert proposal.producer.metadata["source_language"] == "pt"
+    assert proposal.producer.method == "llm"
+    # The drafting prompt took the non-English path (the addendum names the language code).
+    assert "code 'pt'" in (proposal.producer.prompt or "")
+    # The verbatim merchant string stayed verbatim from PT prose into the controlled output.
     assert merchant in intake.original_text
     assert merchant in proposal.proposed_controlled_text
 

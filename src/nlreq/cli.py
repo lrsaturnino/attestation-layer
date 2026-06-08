@@ -508,6 +508,16 @@ def main(argv: list[str] | None = None) -> int:
     intake_draft_cmd.add_argument("--proposal-id", required=True)
     intake_draft_cmd.add_argument("--submitted-by")
     intake_draft_cmd.add_argument("--submitted-at", default="2026-06-01T00:00:00Z")
+    intake_draft_cmd.add_argument(
+        "--language",
+        default="en",
+        help=(
+            "Source language of the prose (BCP-47-ish, e.g. 'en', 'pt'). Recorded as the "
+            "intake's source language and, for --method llm, steers the non-English drafting "
+            "prompt and is carried into the proposal's source_language provenance (PA-11). "
+            "The IR is language-neutral; merchant names/identifiers stay verbatim."
+        ),
+    )
     intake_draft_cmd.add_argument("--timestamp", default="2026-06-01T00:00:00Z")
     intake_draft_cmd.add_argument("--method", choices=["manual", "llm", "rule_based"], default="manual")
     intake_draft_cmd.add_argument("--model")
@@ -2111,6 +2121,7 @@ def main(argv: list[str] | None = None) -> int:
                 original_text=args.original.read_text(),
                 submitted_by=args.submitted_by,
                 submitted_at=args.submitted_at,
+                language=args.language,
             )
             if args.method == "llm":
                 from .llm_client import AnthropicLlmClient, RecordedLlmClient
