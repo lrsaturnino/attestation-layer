@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .audit_client import AuditVerdict
-from .dsl_v3 import DslV3ParseError, DslV3Parser
+from .dsl_v3 import DslV3ParseError, DslV3Parser, canonicalize_dsl_v3_text
 from .formal_claim import FormalClaimLoweringReport, build_formal_claim
 from .jsonutil import sha256_json, sha256_text
 from .models import RequirementIRV2, SemanticNode, SourceSpan
@@ -151,9 +151,11 @@ def translate_controlled_requirement_to_formal_claim(
         )
     except DslV3ParseError as exc:
         question = _parse_repair_question(exc)
+        parse_span = _span_for_parse_error(canonicalize_dsl_v3_text(controlled_text), exc)
         ambiguity = SemanticAmbiguityFinding(
             finding_id="parse-unsupported",
             reason=str(exc),
+            source_spans=[parse_span] if parse_span is not None else [],
             clarification_question=question,
         )
         return SemanticTranslationReport(
@@ -625,6 +627,37 @@ def remap_disagreement_spans_to_original(
             )
             remapped.append(d.model_copy(update={"reason": fallback_reason}))
     return remapped
+
+
+def _span_for_parse_error(
+    canonical_text: str, exc: DslV3ParseError
+) -> SourceSpan | None:
+    """Resolve a DSL v3 parse error's line/column to a SourceSpan over the offending line.
+
+    The parser canonicalises the controlled text before parsing, so the error's
+    ``line``/``column`` (Lark, 1-based) index the *canonicalised* text — this helper
+    must therefore receive that same canonical text so the offsets line up. The span
+    covers the whole offending line (a more useful "fragment" to render than a single
+    column), with ``text`` set to the offending line so refusal renderers can show it
+    verbatim. Returns ``None`` when the error carries no position (the generic
+    ``LarkError`` branch) or the line is blank/out of range, so the caller emits a
+    ``no_span_reason`` rather than a contorted empty span.
+    """
+    if exc.line is None or exc.column is None:
+        return None
+    lines = canonical_text.splitlines(keepends=True)
+    if exc.line < 1 or exc.line > len(lines):
+        return None
+    start_of_line = sum(len(item) for item in lines[: exc.line - 1])
+    offending = lines[exc.line - 1].rstrip("\r\n")
+    if not offending.strip():
+        return None
+    return SourceSpan(
+        document="controlled_requirement",
+        start_char=start_of_line,
+        end_char=start_of_line + len(offending),
+        text=offending,
+    )
 
 
 def _parse_repair_question(exc: DslV3ParseError) -> str:

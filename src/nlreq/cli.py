@@ -185,6 +185,7 @@ from .requirement_self_consistency import check_requirement_self_consistency
 from .refusal import (
     ProductRefusalReport,
     build_refusal_report_from_gate,
+    build_refusal_report_from_semantic_translation,
     refusal_report_markdown,
 )
 from .semantic_agreement import (
@@ -2298,6 +2299,8 @@ def main(argv: list[str] | None = None) -> int:
                 print(f"Semantic translation report: {args.out}")
             else:
                 print(canonical_json(report), end="")
+            if report.result != "accepted":
+                _render_semantic_translation_refusal(report)
             return 0 if report.result == "accepted" else 1
         if args.command == "semantic-agreement":
             from .jsonutil import write_json
@@ -4866,6 +4869,29 @@ def _print_package_validation(ir: RequirementIR, evidence: EvidenceObject, statu
         print("Next:")
         for action in status.next_actions:
             print(f"  - {action}")
+
+
+def _render_semantic_translation_refusal(report: SemanticTranslationReport) -> None:
+    """Print a human-readable refusal summary (offending fragment + next actions) to stderr.
+
+    Routes the report through build_refusal_report_from_semantic_translation so the same
+    code/span/next_actions mapping backs both the JSON surface and this inline rendering.
+    Writes to stderr so machine-readable JSON on stdout stays uncorrupted while still
+    satisfying the PA-10 bar: every refusal renders its offending fragment inline, never
+    a bare "broken, try again".
+    """
+    refusal = build_refusal_report_from_semantic_translation(report)
+    if refusal.decision == "accepted" or not refusal.findings:
+        return
+    print(f"Translation {refusal.decision}: {report.requirement_id}", file=sys.stderr)
+    for finding in refusal.findings:
+        print(f"  [{finding.code}] {finding.message}", file=sys.stderr)
+        for span in finding.source_spans:
+            print(f'    Fragment: "{span.text}"', file=sys.stderr)
+        if not finding.source_spans and finding.no_span_reason:
+            print(f"    Fragment: unavailable ({finding.no_span_reason})", file=sys.stderr)
+        for action in finding.next_actions:
+            print(f"    Next: {action}", file=sys.stderr)
 
 
 def _generic_conformance_fixture() -> AdapterConformanceFixture:
