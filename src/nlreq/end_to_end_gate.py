@@ -286,19 +286,26 @@ def _bound_state_invariant_exprs(result: BackendResult) -> set[str]:
     return expressions
 
 
-def _bound_response_keys(result: BackendResult) -> set[tuple[str, int]]:
-    """The (response predicate, bound) keys a bounded_temporal narrowing recorded in this result.
+def _bound_response_keys(
+    result: BackendResult,
+) -> set[tuple[str, int, str | None, str | None]]:
+    """The (response predicate, bound, source module, target module) keys a bounded_temporal narrowing recorded.
 
     The S ∧ R pending-deadline narrowing records, for a bounded_temporal / cross_module_causal
     obligation, a ``bound_state_invariants`` entry ``{"kind": "bounded_temporal", "response_predicate":
-    ..., "bound": k}``. A bounded-response fragment (event_emission / causal_transition) is covered only
-    when ITS (Pred_<response>, bound) appears here — predicate-and-bound exact, the temporal analogue of
-    the post_state value-exact and state_invariant expr-exact coverage.
+    ..., "bound": k}`` — plus ``source_module``/``target_module`` for a cross_module_causal obligation,
+    which carry the RESPONSE IDENTITY (``module A causes module B to <action>``). A bounded-response
+    fragment (event_emission / causal_transition) is covered only when ITS (Pred_<response>, bound,
+    source, target) appears here — predicate-and-bound-and-identity exact, so a verdict for one
+    causal claim cannot false-cover a different-module claim sharing the same action and bound. A plain
+    emit obligation names no modules, so its source/target default to ``None`` on both this recorded
+    side and the fragment side (``formal_claim_fragment_bounded_response_key``), preserving the
+    historical (predicate, bound) match for event_emission.
     """
     raw = result.details.get("bound_state_invariants", [])
     if not isinstance(raw, list):
         return set()
-    keys: set[tuple[str, int]] = set()
+    keys: set[tuple[str, int, str | None, str | None]] = set()
     for item in raw:
         if not isinstance(item, dict):
             continue
@@ -306,8 +313,15 @@ def _bound_response_keys(result: BackendResult) -> set[tuple[str, int]]:
             continue
         predicate = item.get("response_predicate")
         bound = item.get("bound")
+        source = item.get("source_module")
+        target = item.get("target_module")
         if isinstance(predicate, str) and predicate and isinstance(bound, int):
-            keys.add((predicate, bound))
+            keys.add((
+                predicate,
+                bound,
+                source if isinstance(source, str) else None,
+                target if isinstance(target, str) else None,
+            ))
     return keys
 
 

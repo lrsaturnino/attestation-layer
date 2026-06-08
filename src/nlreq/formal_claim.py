@@ -403,27 +403,40 @@ def formal_claim_fragment_state_invariant_expr(fragment: FormalClaimFragment) ->
 
 def formal_claim_fragment_bounded_response_key(
     fragment: FormalClaimFragment,
-) -> tuple[str, int] | None:
-    """The ``(response predicate, bound)`` a bounded-response fragment is discharged by, or None.
+) -> tuple[str, int, str | None, str | None] | None:
+    """The ``(response predicate, bound, source module, target module)`` a bounded-response fragment is discharged by, or None.
 
     ``event_emission`` (``emit <event> within k``) and ``causal_transition`` (``module A causes module
     B to <action> within k``) are bounded-response obligations the S ∧ R pending-deadline narrowing
-    checks. Coverage is matched (predicate AND bound) exactly against the ``bound_state_invariants``
-    entry the ``solver_system_checker`` records — so a bounded verdict for one deadline cannot
-    false-cover a fragment naming a different response event/action or a different bound. The response
-    predicate is ``Pred_<event>`` for an event_emission (its single operand) and ``Pred_<action>`` for
-    a causal_transition (its third operand — source, target, action); the bound is the temporal bound
-    rounded UP to whole steps, mirroring derive_bounded_temporal_obligation. Returns None for any other
-    fragment kind (or a bounded-response fragment missing its bound/operands), which then matches no
-    recorded entry and so covers nothing.
+    checks. Coverage is matched exactly against the ``bound_state_invariants`` entry the
+    ``solver_system_checker`` records — so a bounded verdict for one deadline cannot false-cover a
+    fragment naming a different response event/action or a different bound. The response predicate is
+    ``Pred_<event>`` for an event_emission (its single operand) and ``Pred_<action>`` for a
+    causal_transition (its third operand — operands are ``source, target, action``); the bound is the
+    temporal bound rounded UP to whole steps, mirroring derive_bounded_temporal_obligation.
+
+    A causal_transition ALSO keys on its source/target module identity (operands[0]/operands[1]) so two
+    causal claims sharing one action+bound but naming different modules (``module redemption causes
+    module ledger to settle`` vs ``module foo causes module bar to settle``) get distinct keys and
+    cannot cross-cover. The response predicate stays the bare ``Pred_<action>`` the target module's
+    reviewed S defines — the identity rides in the key, not in a module-qualified predicate name. An
+    event_emission names no modules, so its source/target are ``None`` (matching the recorded entry,
+    which omits the keys, defaulted to None on the reading side). Returns None for any other fragment
+    kind (or a bounded-response fragment missing its bound/operands), which then matches no recorded
+    entry and so covers nothing.
     """
     if fragment.temporal_bound is None:
         return None
     bound = math.ceil(fragment.temporal_bound.value)
     if fragment.kind == "event_emission" and fragment.operands:
-        return (pred_name(str(fragment.operands[0].value)), bound)
+        return (pred_name(str(fragment.operands[0].value)), bound, None, None)
     if fragment.kind == "causal_transition" and len(fragment.operands) >= 3:
-        return (pred_name(str(fragment.operands[2].value)), bound)
+        return (
+            pred_name(str(fragment.operands[2].value)),
+            bound,
+            str(fragment.operands[0].value),
+            str(fragment.operands[1].value),
+        )
     return None
 
 

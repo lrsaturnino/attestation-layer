@@ -1520,6 +1520,11 @@ def test_compose_s_and_r_narrowing_cross_module_causal_binds_action_response() -
     assert composed.bound_predicates == ["Pred_authorized", "Pred_settle"]
     assert composed.bound_state_invariants[0]["response_predicate"] == "Pred_settle"
     assert composed.bound_state_invariants[0]["bound"] == 2
+    # The cross-module RESPONSE IDENTITY (source/target module) rides into the recorded entry
+    # alongside the bare Pred_settle, so the coverage bridge can tell this causal claim apart from a
+    # different-module claim sharing the same action+bound.
+    assert composed.bound_state_invariants[0]["source_module"] == "redemption"
+    assert composed.bound_state_invariants[0]["target_module"] == "ledger"
 
 
 @pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
@@ -1637,6 +1642,45 @@ def test_bounded_response_coverage_is_predicate_and_bound_exact() -> None:
     assert covered_for("Pred_redemption_finalized", 6)  # exact match discharges
     assert not covered_for("Pred_redemption_finalized", 5)  # wrong bound covers nothing
     assert not covered_for("Pred_other_event", 6)  # wrong response predicate covers nothing
+
+
+def test_bounded_response_coverage_is_source_target_module_exact() -> None:
+    """Tool-free: a causal_transition's bounded-response coverage keys on its SOURCE/TARGET module
+    identity, not just (action, bound). A verdict recorded for `module redemption causes module ledger
+    to settle within 2` must NOT false-cover a different-module claim that shares the same action
+    `settle` and bound — the prior key dropped the module identity (it keyed only on operand[2]+bound)
+    and would have cross-covered any same-action/same-bound `settle` causal fragment. Uses
+    model_construct to inject an unbacked solver result (the PB-9 backing is irrelevant to the matching
+    logic under test)."""
+    ir = _cross_module_causal_ir("REQ-CAUSAL-EXACT", k=2)
+    claim = build_formal_claim(ir).formal_claim
+    assert claim is not None
+    transition = next(f for f in claim.obligations if f.kind == "causal_transition")
+
+    def covered_for(*, source: str, target: str) -> bool:
+        result = BackendResult.model_construct(
+            backend="solver_system_checker",
+            status="valid",
+            evidence_level=EvidenceLevel.BOUNDED_CHECKED,
+            details={
+                "bound_predicates": ["Pred_authorized", "Pred_settle"],
+                "bound_state_invariants": [
+                    {
+                        "kind": "bounded_temporal",
+                        "response_predicate": "Pred_settle",
+                        "bound": 2,
+                        "source_module": source,
+                        "target_module": target,
+                    }
+                ],
+            },
+        )
+        ids = _cover_s_and_r_fragments(result, claim).details.get("covered_fragment_ids", [])
+        return transition.fragment_id in ids
+
+    assert covered_for(source="redemption", target="ledger")  # exact identity discharges
+    assert not covered_for(source="foo", target="ledger")  # wrong source module covers nothing
+    assert not covered_for(source="redemption", target="bar")  # wrong target module covers nothing
 
 
 def test_solver_backed_command_depth_matches_recorded_bounds(tmp_path: Path) -> None:

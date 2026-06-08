@@ -1144,11 +1144,22 @@ class BoundedTemporalObligation:
     reachable only at search depth ``>= k + 1``; the caller raises ``ModelCheckerBudget.max_depth``
     accordingly. (Measuring from the trigger and latching the deadline fixes the prior single
     since-init clock, which false-FAILED a late trigger and false-PASSED a one-shot trigger.)
+
+    ``source_module`` / ``target_module`` carry the cross-module RESPONSE IDENTITY for a
+    cross_module_causal_obligation (``module A causes module B to <action>``); they are ``None`` for a
+    plain bounded_temporal / event_state_correspondence emit obligation, which names no modules. The
+    response predicate ``Pred_<action>`` is NOT module-qualified (the target module's reviewed S
+    defines ``Pred_<action>`` by that bare name, so qualifying it would desync the narrowing). Instead
+    the identity rides ALONGSIDE the predicate into the recorded coverage key so that two causal
+    claims sharing one action+bound but differing in source/target module cannot cross-cover each
+    other's bounded verdict.
     """
 
     response_predicate_name: str
     response_event_name: str
     bound: int
+    source_module: str | None = None
+    target_module: str | None = None
 
 
 def derive_bounded_temporal_obligation(root: SemanticNode) -> BoundedTemporalObligation:
@@ -1215,11 +1226,20 @@ def derive_cross_module_causal_obligation(root: SemanticNode) -> BoundedTemporal
             "derive_cross_module_causal_obligation: obligation is not a 'module A causes module B to "
             "<action> within <k>' clause — validate_cross_module_causal_shape must be called first"
         )
-    action_name = must.children[0].name
+    transition = must.children[0]
+    action_name = transition.name
+    # The source/target module identity is carried so the recorded coverage key distinguishes two
+    # causal claims that share one action+bound but name different modules (e.g. `module redemption
+    # causes module ledger to settle` vs `module foo causes module bar to settle`). The response
+    # predicate stays the bare `Pred_<action>` the target module's reviewed S defines.
+    source_module = transition.metadata.get("source_module")
+    target_module = transition.metadata.get("target_module")
     return BoundedTemporalObligation(
         response_predicate_name=pred_name(action_name),
         response_event_name=action_name,
         bound=math.ceil(must.temporal_bound.value),
+        source_module=str(source_module) if source_module is not None else None,
+        target_module=str(target_module) if target_module is not None else None,
     )
 
 
@@ -2742,14 +2762,23 @@ def _compose_system_narrowing(
             }
         ]
     elif bounded_temporal_obligation is not None:
-        bound_state_invariants = [
-            {
-                "kind": "bounded_temporal",
-                "premise_expr": premise_expr,
-                "response_predicate": bounded_temporal_obligation.response_predicate_name,
-                "bound": bounded_temporal_obligation.bound,
-            }
-        ]
+        entry: dict[str, object] = {
+            "kind": "bounded_temporal",
+            "premise_expr": premise_expr,
+            "response_predicate": bounded_temporal_obligation.response_predicate_name,
+            "bound": bounded_temporal_obligation.bound,
+        }
+        # A cross_module_causal obligation records its source/target module identity ALONGSIDE the
+        # response predicate so the coverage bridge keys on (predicate, bound, source, target) — a
+        # bounded verdict for `module A causes module B to <action>` then cannot false-cover a
+        # different-module claim sharing the same action+bound. A plain emit obligation names no
+        # modules and omits the keys (the reading side defaults them to None on both sides, so the
+        # event_emission key stays the historical (predicate, bound) pair).
+        if bounded_temporal_obligation.source_module is not None:
+            entry["source_module"] = bounded_temporal_obligation.source_module
+        if bounded_temporal_obligation.target_module is not None:
+            entry["target_module"] = bounded_temporal_obligation.target_module
+        bound_state_invariants = [entry]
     else:
         bound_state_invariants = []
 
