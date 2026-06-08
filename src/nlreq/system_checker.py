@@ -19,6 +19,7 @@ from .formal_lowering import (
     build_system_spec_contribution,
     compose_s_and_r_module,
     derive_bounded_temporal_obligation,
+    derive_cross_module_causal_obligation,
     derive_numeric_invariant_obligation,
     derive_outcome_predicate,
     derive_post_state_obligation,
@@ -26,6 +27,7 @@ from .formal_lowering import (
     next_has_steps,
     parse_obligation_predicates,
     validate_bounded_temporal_shape,
+    validate_cross_module_causal_shape,
     validate_numeric_invariant_shape,
 )
 from .jsonutil import sha256_json, sha256_text
@@ -310,11 +312,16 @@ def check_solver_backed_system_consistency(
         # same-state property (no Pred_*, no ghost). See compose_s_and_r_module.
         numeric_invariant_obligation = _derive_numeric_invariant_obligation(requirement)
     elif claim_class in {"bounded_temporal", "event_state_correspondence"}:
-        # bounded_temporal yields a bounded-response obligation; the narrowing adds a ghost
-        # step-counter that ticks against S's own transitions and checks
-        # ``Premise => (Pred_<event> \/ nlr_clock <= k)``. The bound ``k`` also raises the search
-        # depth below so the violating state (clock = k + 1) is reachable. See compose_s_and_r_module.
+        # bounded_temporal yields a bounded-response obligation; the narrowing adds a pending-deadline
+        # monitor over S's own transitions and checks ``nlr_pending => nlr_age <= k``. The bound ``k``
+        # also raises the search depth below so the violating state (nlr_age = k + 1) is reachable.
+        # See compose_s_and_r_module.
         bounded_temporal_obligation = _derive_bounded_temporal_obligation(requirement)
+    elif claim_class == "cross_module_causal_obligation":
+        # cross_module_causal is the cross-module sibling of bounded_temporal — the response is a
+        # target-module transition (``Pred_<action>``) rather than an emitted event — so it reuses the
+        # same bounded-response obligation and pending-deadline narrowing.
+        bounded_temporal_obligation = _derive_cross_module_causal_obligation(requirement)
     else:
         outcome_predicate = _derive_outcome_predicate(requirement)
     module_name = _safe_tla_name(f"{requirement.requirement_id}_S_AND_R")
@@ -831,6 +838,26 @@ def _derive_bounded_temporal_obligation(
         return None
     try:
         return derive_bounded_temporal_obligation(requirement.semantic_ir)
+    except (ValueError, AttributeError):
+        return None
+
+
+def _derive_cross_module_causal_obligation(
+    requirement: RequirementIRV2,
+) -> BoundedTemporalObligation | None:
+    """Derive a cross_module_causal_obligation's bounded-response obligation (``Pred_<action>`` + step
+    bound), or None for an unsupported shape.
+
+    cross_module_causal is the cross-module sibling of bounded_temporal — the response is a target-
+    module transition rather than an emitted event — so it shares the BoundedTemporalObligation and the
+    pending-deadline narrowing. A requirement whose obligation is not a supported ``module A causes
+    module B to <action> within <k>`` shape has none; returning None lets the narrowing refuse honestly
+    rather than raise.
+    """
+    if validate_cross_module_causal_shape(requirement.semantic_ir):
+        return None
+    try:
+        return derive_cross_module_causal_obligation(requirement.semantic_ir)
     except (ValueError, AttributeError):
         return None
 

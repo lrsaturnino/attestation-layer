@@ -996,6 +996,135 @@ def validate_bounded_temporal_shape(
     return problems
 
 
+def validate_cross_module_causal_shape(
+    root: SemanticNode,
+) -> list[tuple[str, str, SemanticNode | None]]:
+    """Return (kind, reason, offending_node) triples for unsupported cross_module_causal shapes.
+
+    Returns an empty list when the shape is fully supported. Mirrors the other shape validators'
+    contract: callers must refuse lowering when the list is non-empty. The supported shape is
+    ``forall scope: <named predicate premise> implies module A causes module B to <action> within <k>
+    <unit>`` — the premise carries at least one named predicate with an identifier argument (the
+    trigger a reviewed S interprets), and the obligation is a ``within`` node whose single child is a
+    ``transition`` naming the target-module action and a positive bound. This is the cross-module
+    sibling of bounded_temporal: same trigger shape, but the response is a target-module transition
+    rather than an emitted event, so an obligation lowering an ``event`` child (an
+    ``emit … within``) is refused here. Comparison/membership premises are projected out as in the
+    other predicate lowerings.
+    """
+    problems: list[tuple[str, str, SemanticNode | None]] = []
+
+    if root.premise is None:
+        problems.append(
+            ("missing_premise", "cross_module_causal_obligation requires a premise clause (when ...)", None)
+        )
+    else:
+        premise = root.premise
+        nodes = premise.children if premise.kind == "and" else [premise]
+        predicate_count = 0
+        for node in nodes:
+            if node.kind == "predicate":
+                predicate_count += 1
+                if not node.name:
+                    problems.append(
+                        ("nameless_predicate", "cross_module_causal_obligation premise predicate requires a name", node)
+                    )
+                elif not any(arg.kind == "identifier" for arg in node.args):
+                    problems.append((
+                        "empty_predicate_args",
+                        (
+                            f"cross_module_causal_obligation premise predicate '{node.name}' must have at "
+                            "least one identifier argument (e.g. 'when wallet is authorized')"
+                        ),
+                        node,
+                    ))
+            elif node.kind in _PROJECTED_PREMISE_KINDS:
+                continue
+            else:
+                problems.append((
+                    node.kind,
+                    (
+                        f"unsupported premise node kind '{node.kind}' in cross_module_causal_obligation; "
+                        "supported premise nodes are named predicates, comparisons, and set-membership"
+                    ),
+                    node,
+                ))
+        if predicate_count == 0:
+            # Non-vacuity guard (same rationale as bounded_temporal): without a named predicate
+            # premise the trigger antecedent is TRUE and the S ∧ R deadline obligation degenerates to
+            # "S must always perform the action within k of every state" — vacuous, with no predicate
+            # S can interpret to fire the deadline.
+            problems.append((
+                "no_predicate_premise",
+                (
+                    "cross_module_causal_obligation premise has no named predicate clause; the S ∧ R "
+                    "obligation would be vacuous. At least one predicate premise is required (e.g. "
+                    "'when wallet is authorized')"
+                ),
+                premise,
+            ))
+
+    if root.obligation is None:
+        problems.append((
+            "missing_obligation",
+            "cross_module_causal_obligation requires an obligation (module A causes module B to ... within ...)",
+            None,
+        ))
+    else:
+        must = root.obligation.must
+        if must is None:
+            problems.append((
+                "missing_must",
+                "cross_module_causal_obligation requires a 'module A causes module B to <action> within' clause",
+                None,
+            ))
+        elif must.kind != "within":
+            problems.append((
+                must.kind,
+                (
+                    f"cross_module_causal_obligation must be 'module A causes module B to <action> within "
+                    f"<k> <unit>'; got must node kind '{must.kind}' — unsupported obligation shape"
+                ),
+                must,
+            ))
+        elif must.temporal_bound is None:
+            problems.append((
+                "missing_temporal_bound",
+                "cross_module_causal_obligation requires a temporal bound (within <k> <unit>)",
+                must,
+            ))
+        elif not must.children or must.children[0].kind != "transition":
+            # A bounded_temporal obligation also lowers to a `within` node, but its child is an
+            # `event`, not a `transition`. Refuse rather than misencode it as a cross-module response.
+            offending = must.children[0] if must.children else must
+            problems.append((
+                "missing_transition",
+                (
+                    "cross_module_causal_obligation must name a cross-module transition within the bound "
+                    "('module A causes module B to <action> within <k> <unit>'); an emitted-event "
+                    "response is a different claim shape (bounded_temporal)"
+                ),
+                offending,
+            ))
+        elif not must.children[0].name:
+            problems.append((
+                "nameless_transition",
+                "cross_module_causal_obligation transition requires a named action",
+                must.children[0],
+            ))
+        elif must.temporal_bound.value <= 0:
+            problems.append((
+                "non_positive_bound",
+                (
+                    f"cross_module_causal_obligation bound must be a positive number of steps; got "
+                    f"{must.temporal_bound.value} — a non-positive deadline cannot be reached"
+                ),
+                must,
+            ))
+
+    return problems
+
+
 @dataclass(frozen=True)
 class BoundedTemporalObligation:
     """The bounded-response obligation of a bounded_temporal / event_state_correspondence claim.
@@ -1052,6 +1181,44 @@ def derive_bounded_temporal_obligation(root: SemanticNode) -> BoundedTemporalObl
     return BoundedTemporalObligation(
         response_predicate_name=pred_name(event_name),
         response_event_name=event_name,
+        bound=math.ceil(must.temporal_bound.value),
+    )
+
+
+def derive_cross_module_causal_obligation(root: SemanticNode) -> BoundedTemporalObligation:
+    """Derive the bounded-response obligation of a cross_module_causal_obligation claim.
+
+    ``module A causes module B to <action> within <k> <unit>`` is a bounded-response property whose
+    RESPONSE is "module B performs <action>", not an emitted event — the obligation lowers to a
+    ``within`` node whose single child is a ``transition`` (carrying the action name and the
+    source/target module metadata) rather than an ``event``. The semantics are otherwise identical to
+    bounded_temporal: the response must occur within ``k`` steps of the trigger, so it reuses the same
+    BoundedTemporalObligation and the same pending-deadline narrowing. ``response_predicate_name`` is
+    ``Pred_<action>`` — the operator the TARGET module's reviewed S interprets over its own state as
+    "the action has occurred" (e.g. ``Pred_settle == (ledger_phase = "settled")``). Caller must invoke
+    validate_cross_module_causal_shape first; raises on a malformed shape.
+    """
+    if root.obligation is None or root.obligation.must is None:
+        raise ValueError(
+            "derive_cross_module_causal_obligation: no obligation node — "
+            "validate_cross_module_causal_shape must be called first"
+        )
+    must = root.obligation.must
+    if (
+        must.kind != "within"
+        or must.temporal_bound is None
+        or not must.children
+        or must.children[0].kind != "transition"
+        or not must.children[0].name
+    ):
+        raise ValueError(
+            "derive_cross_module_causal_obligation: obligation is not a 'module A causes module B to "
+            "<action> within <k>' clause — validate_cross_module_causal_shape must be called first"
+        )
+    action_name = must.children[0].name
+    return BoundedTemporalObligation(
+        response_predicate_name=pred_name(action_name),
+        response_event_name=action_name,
         bound=math.ceil(must.temporal_bound.value),
     )
 
@@ -1184,9 +1351,53 @@ def lower_bounded_temporal_tla(
     Caller must invoke validate_bounded_temporal_shape first and refuse if any problems are returned;
     this function assumes a supported shape.
     """
+    return _render_bounded_response_harness(
+        ir, derive_bounded_temporal_obligation(ir.semantic_ir), bounds_json=bounds_json
+    )
+
+
+def lower_cross_module_causal_tla(
+    ir: RequirementIRV2,
+    *,
+    bounds_json: str = "[]",
+) -> str:
+    """Produce a non-vacuous bounded-response TLA+ module for cross_module_causal_obligation.
+
+    ``when <predicate> then module A causes module B to <action> within <k> <unit>`` is the cross-
+    module sibling of bounded_temporal: the RESPONSE is "module B performs <action>" (the operator
+    ``Pred_<action>`` the target module's reviewed S interprets) rather than an emitted event. It lowers
+    to the SAME auxiliary worst-case harness (response latency modelled abstractly by ``nlr_emitted``),
+    so the standalone module never validates by passthrough; the real S ∧ R evidence is the pending-
+    deadline narrowing (compose_s_and_r_module), which counts S's own steps from the trigger against the
+    deadline. Caller must invoke validate_cross_module_causal_shape first and refuse if any problems are
+    returned; this function assumes a supported shape.
+    """
+    return _render_bounded_response_harness(
+        ir, derive_cross_module_causal_obligation(ir.semantic_ir), bounds_json=bounds_json
+    )
+
+
+def _render_bounded_response_harness(
+    ir: RequirementIRV2,
+    obligation: BoundedTemporalObligation,
+    *,
+    bounds_json: str = "[]",
+) -> str:
+    """Render the auxiliary worst-case standalone harness shared by every bounded-response class.
+
+    bounded_temporal / event_state_correspondence (response = emitted event) and
+    cross_module_causal_obligation (response = a target-module transition) lower to the SAME standalone
+    shape: the premise predicate(s) are abstract CONSTANTs a reviewed S interprets (the trigger), the
+    response latency is modelled abstractly by ``nlr_emitted`` (unbounded — it may fire now or let time
+    pass), and ``Obligation == nlr_emitted \\/ nlr_clock <= k`` is the bounded-reachability invariant a
+    standalone check trips with a late-response counterexample. Only the obligation's bound ``k`` and
+    response name differ between the classes, both carried on ``BoundedTemporalObligation`` — so one
+    renderer serves all three. This harness is AUXILIARY: the real S ∧ R evidence is the pending-
+    deadline narrowing (compose_s_and_r_module), which discards it and checks
+    ``nlr_pending => nlr_age <= k`` over S's own transitions.
+    """
     root = ir.semantic_ir
     module_name = "Req_" + _safe_name(ir.requirement_id)
-    obligation = derive_bounded_temporal_obligation(root)
     k = obligation.bound
 
     predicates = _premise_predicates(root)
@@ -1214,14 +1425,14 @@ def lower_bounded_temporal_tla(
     return (
         f"---- MODULE {module_name} ----\n"
         f"EXTENDS Naturals, TLC\n\n"
-        f"\\* Non-vacuous bounded_temporal lowering: bounded response within {k} steps.\n"
+        f"\\* Non-vacuous bounded-response lowering: response within {k} steps.\n"
         f"\\* Generated by nlreq translator {FORMAL_LOWERING_VERSION}; semantics: non_vacuous.\n"
         f"\\* Requirement: {ir.requirement_id}\n"
         f"\\* Temporal bounds: {bounds_json}\n"
         f"\\* Auxiliary worst-case harness: the response latency is unbounded, so a standalone check\n"
-        f"\\* finds the late-emission counterexample. The real S ∧ R evidence is the stateful-S\n"
-        f"\\* narrowing (compose_s_and_r_module), which conjoins a ghost step-counter into S's own\n"
-        f"\\* Next and checks Premise => (Pred_{_safe_name(obligation.response_event_name)} \\/ clock <= {k}).\n\n"
+        f"\\* finds the late-response counterexample. The real S ∧ R evidence is the stateful-S\n"
+        f"\\* narrowing (compose_s_and_r_module), which adds a pending-deadline monitor over S's own\n"
+        f"\\* Next and checks nlr_pending => nlr_age <= {k} (response Pred_{_safe_name(obligation.response_event_name)}).\n\n"
         f"{const_line}"
         f"{pred_decls}\n\n"
         f"\\* @type: Int;\n"
@@ -1230,7 +1441,7 @@ def lower_bounded_temporal_tla(
         f"VARIABLE nlr_emitted\n\n"
         f"Init == nlr_clock = 0 /\\ nlr_emitted = FALSE\n\n"
         f"\\* Worst-case system: the response may fire now, or time may pass (unbounded latency).\n"
-        f"\\* The clock ticks every step until the response fires, so a late emission trips the bound.\n"
+        f"\\* The clock ticks every step until the response fires, so a late response trips the bound.\n"
         f"EmitNow == nlr_emitted = FALSE /\\ nlr_emitted' = TRUE /\\ UNCHANGED nlr_clock\n"
         f"LetTimePass == nlr_emitted = FALSE /\\ nlr_clock' = nlr_clock + 1 /\\ UNCHANGED nlr_emitted\n"
         f"Settled == nlr_emitted /\\ UNCHANGED <<nlr_clock, nlr_emitted>>\n"

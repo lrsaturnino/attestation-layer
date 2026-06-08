@@ -532,6 +532,57 @@ def test_lower_bounded_temporal_refuses_comparison_only_premise() -> None:
     assert any(d.kind == "no_predicate_premise" for d in artifact.diagnostics)
 
 
+def test_lower_cross_module_causal_lowers_non_vacuously() -> None:
+    """cross_module_causal_obligation (``module A causes module B to <action> within <k>``) lowers to
+    a real bounded-response module on the live path — NOT the not_checked skeleton it formerly fell
+    through to. The response is the target-module action (Pred_settle), and the bound is carried.
+    """
+    ir = DslV3Parser().parse_ir(
+        "requirement cross_module_causal_obligation:\n"
+        "scope redemption\n"
+        "when wallet is authorized\n"
+        "then module redemption causes module ledger to settle within 3 blocks\n",
+        requirement_id="REQ-CAUSAL-LOWER",
+        title="Cross module causal",
+    )
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "lowered"
+    assert artifact.content is not None
+    assert artifact.metadata.get("semantics") == "non_vacuous"
+    assert artifact.metadata.get("claim_class") == "cross_module_causal_obligation"
+    assert artifact.translator == "nlreq.formal_lowering.cross_module_causal"
+    # Real bounded-response encoding — never the legacy Within passthrough or the not_checked skeleton.
+    assert "Within(" not in artifact.content
+    assert artifact.metadata.get("evidence") != "not_checked"
+    assert "CONSTANT Pred_authorized(_)" in artifact.content
+    assert artifact.temporal_bounds[0].value == 3
+    assert artifact.temporal_bounds[0].unit == "block"
+
+
+def test_lower_cross_module_causal_refuses_event_response() -> None:
+    """A cross_module_causal_obligation whose obligation is an emitted event (not a cross-module
+    transition) refuses rather than misencode it — the inverse of the bounded_temporal transition
+    refusal. The ``within`` node carries an ``event`` child, not a ``transition``.
+    """
+    ir = DslV3Parser().parse_ir(
+        "requirement cross_module_causal_obligation:\n"
+        "scope redemption\n"
+        "when wallet is authorized\n"
+        "then emit redemption_finalized within 2 blocks\n",
+        requirement_id="REQ-CAUSAL-REFUSE-OBL",
+        title="Cross module causal",
+    )
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "refused"
+    assert artifact.content is None
+    assert artifact.metadata.get("refusal_code") == "NLR-LOWERING-UNSUPPORTED-SHAPE"
+    assert any(d.kind == "missing_transition" for d in artifact.diagnostics)
+
+
 def test_lower_authorization_precondition_refuses_comparison_only_premise() -> None:
     """A comparison-ONLY premise must refuse — projecting it out leaves Premise == TRUE.
 

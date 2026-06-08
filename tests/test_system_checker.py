@@ -19,8 +19,10 @@ from nlreq.formal_lowering import (
     build_system_spec_contribution,
     compose_s_and_r_module,
     derive_bounded_temporal_obligation,
+    derive_cross_module_causal_obligation,
     derive_post_state_obligation,
     lower_bounded_temporal_tla,
+    lower_cross_module_causal_tla,
     lower_state_postcondition_tla,
     validate_state_postcondition_shape,
 )
@@ -1436,6 +1438,109 @@ def test_solver_backed_bounded_temporal_refuses_stateless_spec(tmp_path: Path) -
 
     assert result.result.status == "unsupported"
     assert result.result.details["refusal_kind"] == "bounded_temporal_requires_stateful_spec"
+
+
+# cross_module_causal_obligation (PA-1): the cross-module sibling of bounded_temporal. "module A
+# causes module B to <action> within k" is a bounded-response whose RESPONSE is the target-module
+# action (Pred_settle), not an emitted event. It reuses the same pending-deadline narrowing, so a
+# reviewed S that settles within k of the trigger is valid and one that settles late yields a real
+# counterexample — never the not_checked skeleton the prior live path fell through to.
+def _cross_module_causal_ir(requirement_id: str, k: int = 2):
+    return DslV3Parser().parse_ir(
+        "requirement cross_module_causal_obligation:\n"
+        "scope redemption\n"
+        "when wallet is authorized\n"
+        f"then module redemption causes module ledger to settle within {k} blocks\n",
+        requirement_id=requirement_id,
+        title="Cross module causal",
+    )
+
+
+def _cross_module_causal_s_spec(*, settle_at: int) -> str:
+    return (
+        "---- MODULE LedgerSystem ----\n"
+        "\\* @type: Int;\nVARIABLE tick\n"
+        "\\* @type: Bool;\nVARIABLE settled\n"
+        "\\* @type: (Str) => Bool;\nPred_authorized(a) == (tick = 0)\n"
+        "\\* @type: Bool;\nPred_settle == settled\n"
+        "SystemLive == tick >= 0\n"
+        "SInit == tick = 0 /\\ settled = FALSE\n"
+        f"SNext == tick' = tick + 1 /\\ settled' = (settled \\/ (tick + 1 >= {settle_at}))\n"
+        "===="
+    )
+
+
+def _run_cross_module_causal_check(tmp_path: Path, *, requirement_id: str, settle_at: int):
+    ir = _cross_module_causal_ir(requirement_id)
+    return check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(
+            tmp_path,
+            spec_text=_cross_module_causal_s_spec(settle_at=settle_at),
+            invariants=("SystemLive",),
+            init_op="SInit",
+            next_op="SNext",
+        ),
+        impact=_bounded_temporal_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=60),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=_APALACHE_COMMAND,
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+
+def test_compose_s_and_r_narrowing_cross_module_causal_binds_action_response() -> None:
+    """A cross_module_causal narrows a reviewed S with the SAME pending-deadline monitor as
+    bounded_temporal, but the response predicate is the target-module action (Pred_settle). The
+    trigger and the action response are both bound, and the deadline is recorded as a
+    bound_state_invariant. Tool-free — composition only, no checker run.
+    """
+    ir = _cross_module_causal_ir("REQ-CAUSAL-STABLE")
+    lowered = lower_cross_module_causal_tla(ir)
+    contribution = build_system_spec_contribution(
+        "spec:ledger",
+        _cross_module_causal_s_spec(settle_at=2),
+        ["SystemLive"],
+        init_op="SInit",
+        next_op="SNext",
+    )
+    obligation = derive_cross_module_causal_obligation(ir.semantic_ir)
+    composed = compose_s_and_r_module(
+        "REQ_CAUSAL_S_AND_R", lowered, [contribution], bounded_temporal_obligation=obligation
+    )
+
+    assert composed.status == "composed"
+    assert "R_Requirement == nlr_pending => nlr_age <= 2" in composed.module_text
+    assert "Pred_settle" in composed.module_text
+    assert composed.bound_predicates == ["Pred_authorized", "Pred_settle"]
+    assert composed.bound_state_invariants[0]["response_predicate"] == "Pred_settle"
+    assert composed.bound_state_invariants[0]["bound"] == 2
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_cross_module_causal_within_deadline_is_valid(tmp_path: Path) -> None:
+    """PA-1: a cross_module_causal whose reviewed target S performs the action within k steps of the
+    trigger is a real Apalache 'valid' at BOUNDED_CHECKED — the causal claim is genuinely checked
+    through the pending-deadline narrowing, not the not_checked skeleton.
+    """
+    result = _run_cross_module_causal_check(tmp_path, requirement_id="REQ-CAUSAL-FAST", settle_at=2)
+    assert result.result.status == "valid", result.result.details
+    assert result.result.evidence_level.value == "BOUNDED_CHECKED"
+    assert "Pred_settle" in result.result.details["bound_predicates"]
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_cross_module_causal_late_action_is_counterexample(tmp_path: Path) -> None:
+    """PA-1: a cross_module_causal whose target S performs the action LATE (after k steps) yields a
+    real Apalache counterexample — the violating cross-module trace.
+    """
+    result = _run_cross_module_causal_check(tmp_path, requirement_id="REQ-CAUSAL-SLOW", settle_at=99)
+    assert result.result.status == "counterexample", result.result.details
+    assert result.counterexamples
 
 
 def test_solver_backed_command_depth_matches_recorded_bounds(tmp_path: Path) -> None:
