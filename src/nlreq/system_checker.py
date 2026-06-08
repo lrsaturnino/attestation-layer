@@ -13,16 +13,19 @@ from .contradiction_taxonomy import (
 from .formal_backend import FormalBackendBudget, FormalBackendExecution
 from .formal_lowering import (
     NumericInvariantObligation,
+    BoundedTemporalObligation,
     OutcomePredicate,
     PostStateObligation,
     build_system_spec_contribution,
     compose_s_and_r_module,
+    derive_bounded_temporal_obligation,
     derive_numeric_invariant_obligation,
     derive_outcome_predicate,
     derive_post_state_obligation,
     obligation_consequent_is_real,
     next_has_steps,
     parse_obligation_predicates,
+    validate_bounded_temporal_shape,
     validate_numeric_invariant_shape,
 )
 from .jsonutil import sha256_json, sha256_text
@@ -298,6 +301,7 @@ def check_solver_backed_system_consistency(
     outcome_predicate = None
     post_state_obligation = None
     numeric_invariant_obligation = None
+    bounded_temporal_obligation = None
     if claim_class == "state_postcondition":
         post_state_obligation = _derive_post_state_obligation(requirement)
     elif claim_class == "numeric_invariant":
@@ -305,6 +309,12 @@ def check_solver_backed_system_consistency(
         # variable the reviewed S declares and evolves; the narrowing conjoins it into Inv as a
         # same-state property (no Pred_*, no ghost). See compose_s_and_r_module.
         numeric_invariant_obligation = _derive_numeric_invariant_obligation(requirement)
+    elif claim_class in {"bounded_temporal", "event_state_correspondence"}:
+        # bounded_temporal yields a bounded-response obligation; the narrowing adds a ghost
+        # step-counter that ticks against S's own transitions and checks
+        # ``Premise => (Pred_<event> \/ nlr_clock <= k)``. The bound ``k`` also raises the search
+        # depth below so the violating state (clock = k + 1) is reachable. See compose_s_and_r_module.
+        bounded_temporal_obligation = _derive_bounded_temporal_obligation(requirement)
     else:
         outcome_predicate = _derive_outcome_predicate(requirement)
     module_name = _safe_tla_name(f"{requirement.requirement_id}_S_AND_R")
@@ -315,6 +325,7 @@ def check_solver_backed_system_consistency(
         outcome_predicate=outcome_predicate,
         post_state_obligation=post_state_obligation,
         numeric_invariant_obligation=numeric_invariant_obligation,
+        bounded_temporal_obligation=bounded_temporal_obligation,
     )
     if composed.status == "refused" or composed.module_text is None:
         return _solver_result(
@@ -346,8 +357,16 @@ def check_solver_backed_system_consistency(
     config_path.write_text("INIT Init\nNEXT Next\nINVARIANT Inv\n")
 
     # One effective budget is the single source of truth: its max_depth renders the command's
-    # --length AND is recorded in bounds, so a run cannot claim a depth it did not search.
-    runner_budget = _runner_budget(budget)
+    # --length AND is recorded in bounds, so a run cannot claim a depth it did not search. A
+    # bounded_temporal obligation's violating state has nlr_clock = k + 1, reachable only at search
+    # depth >= k + 1, so its bound RAISES the floor on max_depth — otherwise the deadline could not
+    # be tripped and the run would false-pass as valid (see ModelCheckerBudget / the bounded-temporal
+    # narrowing in compose_s_and_r_module). The bound only ever raises the depth, never lowers a
+    # larger caller-supplied or default depth.
+    required_min_depth = (
+        bounded_temporal_obligation.bound + 1 if bounded_temporal_obligation is not None else None
+    )
+    runner_budget = _runner_budget(budget, min_depth=required_min_depth)
     command = _solver_checker_command(
         execution, module_path, config_path, module_name, max_depth=runner_budget.max_depth
     )
@@ -796,6 +815,26 @@ def _derive_numeric_invariant_obligation(
         return None
 
 
+def _derive_bounded_temporal_obligation(
+    requirement: RequirementIRV2,
+) -> BoundedTemporalObligation | None:
+    """Derive the requirement's bounded-response obligation (``Pred_<event>`` + step bound), or None
+    for an unsupported shape.
+
+    The stateful-S narrowing needs the response predicate and the bound to add the ghost step-counter
+    and check ``Premise => (Pred_<event> \\/ nlr_clock <= k)``. A requirement whose obligation is not
+    a supported ``emit <event> within <k>`` shape has none; returning None lets the narrowing refuse
+    honestly rather than raise. (On the solver path the lowering has already validated the shape, so
+    this normally succeeds.)
+    """
+    if validate_bounded_temporal_shape(requirement.semantic_ir):
+        return None
+    try:
+        return derive_bounded_temporal_obligation(requirement.semantic_ir)
+    except (ValueError, AttributeError):
+        return None
+
+
 # Version commands for the pinned backends (docs/formal-backend-guide.md). The runner
 # executes these to record the resolved tool version in the run's reproducibility metadata,
 # so a bounded result always carries the exact checker it was produced by. Unknown checker
@@ -837,19 +876,35 @@ def _solver_checker_command(
     return rendered
 
 
-def _runner_budget(budget: FormalBackendBudget | None) -> ModelCheckerBudget:
+def _runner_budget(
+    budget: FormalBackendBudget | None, *, min_depth: int | None = None
+) -> ModelCheckerBudget:
     # The effective S ∧ R budget. ``max_depth`` always resolves to a concrete value
     # (DEFAULT_S_AND_R_DEPTH when the caller supplies none) because it is the single source of
     # truth for both the rendered ``--length`` and the recorded ``bounds.max_depth``; leaving it
-    # None would let the command's depth and the claimed depth drift apart.
+    # None would let the command's depth and the claimed depth drift apart. ``min_depth`` raises
+    # that resolved depth to a floor a claim kind needs to reach its violation (a bounded_temporal
+    # deadline trips only at depth >= k + 1); it never lowers a larger caller/default depth.
     if budget is None:
-        return ModelCheckerBudget(timeout_seconds=120, max_depth=DEFAULT_S_AND_R_DEPTH)
+        resolved_depth = DEFAULT_S_AND_R_DEPTH
+        timeout = 120
+        max_states = None
+        memory = None
+        solver_options: dict = {}
+    else:
+        resolved_depth = budget.max_depth or DEFAULT_S_AND_R_DEPTH
+        timeout = budget.timeout_seconds or 120
+        max_states = budget.max_states
+        memory = budget.memory_budget_mb
+        solver_options = budget.solver_options
+    if min_depth is not None:
+        resolved_depth = max(resolved_depth, min_depth)
     return ModelCheckerBudget(
-        timeout_seconds=budget.timeout_seconds or 120,
-        max_depth=budget.max_depth or DEFAULT_S_AND_R_DEPTH,
-        max_states=budget.max_states,
-        memory_budget_mb=budget.memory_budget_mb,
-        solver_options=budget.solver_options,
+        timeout_seconds=timeout,
+        max_depth=resolved_depth,
+        max_states=max_states,
+        memory_budget_mb=memory,
+        solver_options=solver_options,
     )
 
 

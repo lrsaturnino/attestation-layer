@@ -9,10 +9,12 @@ from .dsl_v2 import DslV2Parser
 from .formal_lowering import (
     FORMAL_LOWERING_VERSION,
     lower_authorization_precondition_tla,
+    lower_bounded_temporal_tla,
     lower_numeric_invariant_tla,
     lower_state_postcondition_tla,
     lower_state_precondition_tla,
     validate_authorization_precondition_shape,
+    validate_bounded_temporal_shape,
     validate_numeric_invariant_shape,
     validate_state_postcondition_shape,
     validate_state_precondition_shape,
@@ -162,6 +164,8 @@ def lower_ir_v2_to_tla(ir: RequirementIRV2) -> LoweredFormalArtifact:
         return _lower_state_precondition(ir, claim_class)
     if claim_class == "numeric_invariant":
         return _lower_numeric_invariant(ir, claim_class)
+    if claim_class in {"bounded_temporal", "event_state_correspondence"}:
+        return _lower_bounded_temporal(ir, claim_class)
     return _lower_skeleton(ir)
 
 
@@ -343,6 +347,54 @@ def _lower_state_precondition(ir: RequirementIRV2, claim_class: str) -> LoweredF
         source_ir_version=ir.ir_version,
         source_ir_hash=source_ir_hash,
         translator="nlreq.formal_lowering.state_precondition",
+        translator_version=FORMAL_LOWERING_VERSION,
+        status="lowered",
+        content=content,
+        content_hash=sha256_text(content),
+        temporal_bounds=temporal_bounds,
+        metadata={"evidence": "lowered", "semantics": "non_vacuous", "claim_class": claim_class},
+    )
+
+
+def _lower_bounded_temporal(ir: RequirementIRV2, claim_class: str) -> LoweredFormalArtifact:
+    """Non-vacuous bounded-temporal lowering for bounded_temporal / event_state_correspondence.
+
+    Replaces the legacy ``Within(event, amount, unit) == event`` skeleton passthrough on the live
+    v3 path. The obligation ``emit <event> within <k> <unit>`` lowers to a step-counter encoding of
+    the bounded-response property — the standalone harness models a worst-case (unbounded-latency)
+    system, and the real S ∧ R evidence comes from the stateful-S narrowing (compose_s_and_r_module),
+    which counts S's own steps against the deadline. A malformed shape (e.g. a cross-module
+    transition response, or a predicate-free premise) refuses with source-spanned diagnostics rather
+    than emit a misleading ``status="lowered"`` artifact.
+    """
+    shape_problems = validate_bounded_temporal_shape(ir.semantic_ir)
+    if shape_problems:
+        return LoweredFormalArtifact(
+            requirement_id=ir.requirement_id,
+            source_ir_version=ir.ir_version,
+            source_ir_hash=sha256_json(ir),
+            status="refused",
+            temporal_bounds=_temporal_bounds(ir.semantic_ir),
+            diagnostics=[
+                LoweringDiagnostic(
+                    node_id=offending.node_id if offending is not None else ir.semantic_ir.node_id,
+                    kind=kind,
+                    reason=reason,
+                    source_spans=offending.source_spans if offending is not None else ir.semantic_ir.source_spans,
+                )
+                for kind, reason, offending in shape_problems
+            ],
+            metadata={"refusal_code": "NLR-LOWERING-UNSUPPORTED-SHAPE"},
+        )
+    temporal_bounds = _temporal_bounds(ir.semantic_ir)
+    source_ir_hash = sha256_json(ir)
+    bounds_json = canonical_json([b.model_dump(mode="json") for b in temporal_bounds]).strip()
+    content = lower_bounded_temporal_tla(ir, bounds_json=bounds_json)
+    return LoweredFormalArtifact(
+        requirement_id=ir.requirement_id,
+        source_ir_version=ir.ir_version,
+        source_ir_hash=source_ir_hash,
+        translator="nlreq.formal_lowering.bounded_temporal",
         translator_version=FORMAL_LOWERING_VERSION,
         status="lowered",
         content=content,

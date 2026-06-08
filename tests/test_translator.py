@@ -411,6 +411,127 @@ def test_lower_state_precondition_refuses_comparison_only_premise() -> None:
     assert any(d.kind == "no_predicate_premise" for d in artifact.diagnostics)
 
 
+def test_lower_bounded_temporal_lowers_non_vacuously() -> None:
+    """bounded_temporal (``when <predicate> then emit <event> within <k> <unit>``) lowers to a real
+    step-counter bounded-response module — the ``Within(event, amount, unit) == event`` skeleton
+    passthrough is gone from this path. The module carries a ghost clock and the bounded-reachability
+    invariant ``Premise => (nlr_emitted \\/ nlr_clock <= k)``; the premise predicate is an abstract
+    CONSTANT a reviewed S interprets (the trigger).
+    """
+    ir = DslV3Parser().parse_ir(
+        "requirement bounded_temporal:\n"
+        "scope redemption\n"
+        "when wallet is authorized\n"
+        "then emit redemption_finalized within 6 hours\n",
+        requirement_id="REQ-BT-LOWER",
+        title="Bounded temporal",
+    )
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "lowered"
+    assert artifact.content is not None
+    assert artifact.metadata.get("semantics") == "non_vacuous"
+    assert artifact.metadata.get("claim_class") == "bounded_temporal"
+    assert artifact.translator == "nlreq.formal_lowering.bounded_temporal"
+    # Real step-counter bounded-response encoding — NOT the legacy Within passthrough.
+    assert "Within(" not in artifact.content
+    assert "VARIABLE nlr_clock" in artifact.content
+    assert "nlr_clock <= 6" in artifact.content
+    assert "CONSTANT Pred_authorized(_)" in artifact.content
+    # The bound is recorded in temporal_bounds (carried into the model-checker depth downstream).
+    assert artifact.temporal_bounds[0].value == 6
+    assert artifact.temporal_bounds[0].unit == "hour"
+
+
+def test_lower_event_state_correspondence_lowers_through_bounded_temporal() -> None:
+    """event_state_correspondence carries the same ``emit … within`` obligation, so it lowers through
+    the same bounded-temporal path (bound = 1 here), never the vacuous skeleton.
+    """
+    ir = DslV3Parser().parse_ir(
+        "requirement event_state_correspondence:\n"
+        "scope operation\n"
+        "when actor is approved\n"
+        "then emit operation_accepted within 1 minute\n",
+        requirement_id="REQ-ESC-LOWER",
+        title="Event state correspondence",
+    )
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "lowered"
+    assert artifact.content is not None
+    assert artifact.metadata.get("claim_class") == "event_state_correspondence"
+    assert artifact.translator == "nlreq.formal_lowering.bounded_temporal"
+    assert "Within(" not in artifact.content
+    assert "nlr_clock <= 1" in artifact.content
+
+
+def test_lower_bounded_temporal_sibling_with_different_bound_is_distinct() -> None:
+    """A sibling differing only in the bound lowers to a distinct module — the bound is carried, not
+    collapsed, so the S ∧ R check discriminates a 6-step deadline from a 7-step one.
+    """
+    six = DslV3Parser().parse_ir(
+        "requirement bounded_temporal: scope redemption when wallet is authorized "
+        "then emit redemption_finalized within 6 hours.",
+        requirement_id="REQ-BT-SIB",
+        title="bt",
+    )
+    seven = DslV3Parser().parse_ir(
+        "requirement bounded_temporal: scope redemption when wallet is authorized "
+        "then emit redemption_finalized within 7 hours.",
+        requirement_id="REQ-BT-SIB",
+        title="bt",
+    )
+    art_six = lower_ir_v2_to_tla(six)
+    art_seven = lower_ir_v2_to_tla(seven)
+    assert art_six.content is not None and art_seven.content is not None
+    assert "nlr_clock <= 6" in art_six.content
+    assert "nlr_clock <= 7" in art_seven.content
+    assert art_six.content != art_seven.content
+
+
+def test_lower_bounded_temporal_refuses_non_event_response() -> None:
+    """A bounded_temporal whose response is a cross-module transition (not an emitted event) refuses
+    rather than misencode it — its ``within`` node carries a ``transition`` child, not an ``event``.
+    """
+    ir = DslV3Parser().parse_ir(
+        "requirement bounded_temporal:\n"
+        "scope redemption\n"
+        "when wallet is authorized\n"
+        "then module bridge causes module treasury to reserve_credit within 2 blocks\n",
+        requirement_id="REQ-BT-REFUSE-OBL",
+        title="Bounded temporal",
+    )
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "refused"
+    assert artifact.content is None
+    assert artifact.metadata.get("refusal_code") == "NLR-LOWERING-UNSUPPORTED-SHAPE"
+    assert any(d.kind == "missing_event" for d in artifact.diagnostics)
+
+
+def test_lower_bounded_temporal_refuses_comparison_only_premise() -> None:
+    """A comparison-only premise (no named trigger predicate) refuses — the deadline antecedent would
+    be vacuously TRUE with no predicate S can interpret to fire the trigger.
+    """
+    ir = DslV3Parser().parse_ir(
+        "requirement bounded_temporal:\n"
+        "scope redemption\n"
+        "when balance >= 5\n"
+        "then emit redemption_finalized within 6 hours\n",
+        requirement_id="REQ-BT-REFUSE-PREM",
+        title="Bounded temporal",
+    )
+
+    artifact = lower_ir_v2_to_tla(ir)
+
+    assert artifact.status == "refused"
+    assert artifact.content is None
+    assert any(d.kind == "no_predicate_premise" for d in artifact.diagnostics)
+
+
 def test_lower_authorization_precondition_refuses_comparison_only_premise() -> None:
     """A comparison-ONLY premise must refuse — projecting it out leaves Premise == TRUE.
 

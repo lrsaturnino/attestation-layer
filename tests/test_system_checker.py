@@ -1108,6 +1108,148 @@ def test_solver_backed_state_precondition_contradiction_is_counterexample(tmp_pa
     assert result.counterexamples[0].backend == "solver_system_checker"
 
 
+# bounded_temporal (PA-3): a reviewed stateful S whose response (Pred_redemption_finalized) fires
+# after `emit_by` of its own steps. S brings its own Init/Next, so R narrows it with a ghost
+# step-counter and the bounded-response deadline. A fast S (emits within k) is valid; a slow S
+# (emits late) yields a real counterexample.
+def _bounded_temporal_s_spec(emit_by: int) -> str:
+    return (
+        "---- MODULE RedemptionSystem ----\n"
+        "\\* @type: Str;\nVARIABLE phase\n"
+        "\\* @type: Int;\nVARIABLE s_age\n"
+        "\\* @type: (Str) => Bool;\nPred_authorized(a) == TRUE\n"
+        '\\* @type: Bool;\nPred_redemption_finalized == (phase = "done")\n'
+        'SystemLive == phase \\in {"pending", "done"}\n'
+        'SInit == phase = "pending" /\\ s_age = 0\n'
+        "SNext ==\n"
+        "  \\/ /\\ phase = \"pending\"\n"
+        "     /\\ s_age' = s_age + 1\n"
+        f'     /\\ phase\' = (IF s_age + 1 >= {emit_by} THEN "done" ELSE "pending")\n'
+        '  \\/ /\\ phase = "done"\n'
+        "     /\\ UNCHANGED <<phase, s_age>>\n"
+        "====\n"
+    )
+
+
+def _bounded_temporal_ir(requirement_id: str):
+    return DslV3Parser().parse_ir(
+        "requirement bounded_temporal:\n"
+        "scope redemption\n"
+        "when wallet is authorized\n"
+        "then emit redemption_finalized within 6 hours\n",
+        requirement_id=requirement_id,
+        title="Bounded temporal",
+    )
+
+
+def _bounded_temporal_impact() -> ImpactAnalysisArtifact:
+    return ImpactAnalysisArtifact(
+        adapter_id="python-source",
+        language="python",
+        input_symbols=["finalize_redemption"],
+        affected_modules=["redemption"],
+    )
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_bounded_temporal_within_deadline_is_valid(tmp_path: Path) -> None:
+    """PA-3: a bounded_temporal whose reviewed S emits the response within k steps is a real
+    Apalache 'valid' at BOUNDED_CHECKED, and the recorded depth is raised to k + 1 (= 7) so the
+    deadline could have been tripped — the validity is a real bounded check, never a passthrough.
+    """
+    ir = _bounded_temporal_ir("REQ-BT-FAST")
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(
+            tmp_path,
+            spec_text=_bounded_temporal_s_spec(emit_by=2),
+            invariants=("SystemLive",),
+            init_op="SInit",
+            next_op="SNext",
+        ),
+        impact=_bounded_temporal_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=60),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=_APALACHE_COMMAND,
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.status == "valid", result.result.details
+    assert result.result.evidence_level.value == "BOUNDED_CHECKED"
+    # The bound (6 steps) raises the searched depth to k + 1 so a late emission would be reachable.
+    assert result.result.details["bounds"]["max_depth"] == 7
+    assert "Pred_redemption_finalized" in result.result.details["bound_predicates"]
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_bounded_temporal_late_response_is_counterexample(tmp_path: Path) -> None:
+    """PA-3: a bounded_temporal whose reviewed S emits the response LATE (after k steps) yields a
+    real Apalache counterexample — the violating trace the DoD requires. Same S shape as the
+    within-deadline sibling; only the emission latency changes.
+    """
+    ir = _bounded_temporal_ir("REQ-BT-SLOW")
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(
+            tmp_path,
+            spec_text=_bounded_temporal_s_spec(emit_by=9),
+            invariants=("SystemLive",),
+            init_op="SInit",
+            next_op="SNext",
+        ),
+        impact=_bounded_temporal_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=60),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=_APALACHE_COMMAND,
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.status == "counterexample", result.result.details
+    assert result.counterexamples
+    assert result.result.details["bounds"]["max_depth"] == 7
+
+
+def test_solver_backed_bounded_temporal_refuses_stateless_spec(tmp_path: Path) -> None:
+    """A bounded_temporal needs S's own transitions to count the deadline against. A stateless S
+    (no init_op/next_op) cannot advance the clock or fire the response, so the composition refuses
+    rather than range the deadline over R's disconnected worst-case harness. Tool-free: the refusal
+    happens before any checker runs.
+    """
+    ir = _bounded_temporal_ir("REQ-BT-STATELESS")
+    stateless_spec = (
+        "---- MODULE RedemptionSystem ----\n"
+        "\\* @type: (Str) => Bool;\nPred_authorized(a) == TRUE\n"
+        "\\* @type: Bool;\nPred_redemption_finalized == TRUE\n"
+        'SystemLive == Pred_authorized("wallet")\n'
+        "====\n"
+    )
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(
+            tmp_path, spec_text=stateless_spec, invariants=("SystemLive",)
+        ),
+        impact=_bounded_temporal_impact(),
+        project_root=tmp_path,
+        execution=FormalBackendExecution(
+            checker_id="custom",
+            command=[sys.executable, "-c", "print('verification successful')"],
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.status == "unsupported"
+    assert result.result.details["refusal_kind"] == "bounded_temporal_requires_stateful_spec"
+
+
 def test_solver_backed_command_depth_matches_recorded_bounds(tmp_path: Path) -> None:
     """The executed ``--length`` is rendered from the same budget recorded in ``bounds``.
 

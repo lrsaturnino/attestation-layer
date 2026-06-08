@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -874,6 +875,184 @@ def validate_numeric_invariant_shape(
     return problems
 
 
+def validate_bounded_temporal_shape(
+    root: SemanticNode,
+) -> list[tuple[str, str, SemanticNode | None]]:
+    """Return (kind, reason, offending_node) triples for unsupported bounded_temporal shapes.
+
+    Returns an empty list when the shape is fully supported. Mirrors the other shape validators'
+    contract: callers must refuse lowering when the list is non-empty. The supported shape is
+    ``forall scope: <named predicate premise> implies emit <event> within <k> <unit>`` — the
+    premise carries at least one named predicate with an identifier argument (the trigger a reviewed
+    S interprets), and the obligation is an ``emit <event> within <k> <unit>`` clause naming the
+    response event and a positive bound. This covers both ``bounded_temporal`` and
+    ``event_state_correspondence`` (which carry the same ``emit … within`` obligation); a
+    cross-module ``module A causes module B …`` obligation lowers a ``transition`` child instead of
+    an ``event`` and is refused here. Comparison/membership premises are projected out as in the
+    other predicate lowerings.
+    """
+    problems: list[tuple[str, str, SemanticNode | None]] = []
+
+    if root.premise is None:
+        problems.append(
+            ("missing_premise", "bounded_temporal requires a premise clause (when ...)", None)
+        )
+    else:
+        premise = root.premise
+        nodes = premise.children if premise.kind == "and" else [premise]
+        predicate_count = 0
+        for node in nodes:
+            if node.kind == "predicate":
+                predicate_count += 1
+                if not node.name:
+                    problems.append(
+                        ("nameless_predicate", "bounded_temporal premise predicate requires a name", node)
+                    )
+                elif not any(arg.kind == "identifier" for arg in node.args):
+                    problems.append((
+                        "empty_predicate_args",
+                        (
+                            f"bounded_temporal premise predicate '{node.name}' must have at least "
+                            "one identifier argument (e.g. 'when wallet is authorized')"
+                        ),
+                        node,
+                    ))
+            elif node.kind in _PROJECTED_PREMISE_KINDS:
+                continue
+            else:
+                problems.append((
+                    node.kind,
+                    (
+                        f"unsupported premise node kind '{node.kind}' in bounded_temporal; "
+                        "supported premise nodes are named predicates, comparisons, and set-membership"
+                    ),
+                    node,
+                ))
+        if predicate_count == 0:
+            # Non-vacuity guard (same rationale as the other predicate lowerings): without a named
+            # predicate premise the trigger antecedent is TRUE, the S ∧ R obligation degenerates to
+            # "S must always emit within k of every state", and the narrowing has no predicate S can
+            # interpret to fire the deadline.
+            problems.append((
+                "no_predicate_premise",
+                (
+                    "bounded_temporal premise has no named predicate clause; the S ∧ R obligation "
+                    "would be vacuous. At least one predicate premise is required (e.g. 'when wallet "
+                    "is authorized')"
+                ),
+                premise,
+            ))
+
+    if root.obligation is None:
+        problems.append(
+            ("missing_obligation", "bounded_temporal requires an obligation clause (emit ... within ...)", None)
+        )
+    else:
+        must = root.obligation.must
+        if must is None:
+            problems.append(
+                ("missing_must", "bounded_temporal obligation requires an 'emit ... within' clause", None)
+            )
+        elif must.kind != "within":
+            problems.append((
+                must.kind,
+                (
+                    f"bounded_temporal obligation must be 'emit <event> within <k> <unit>'; got must "
+                    f"node kind '{must.kind}' — unsupported obligation shape"
+                ),
+                must,
+            ))
+        elif must.temporal_bound is None:
+            problems.append(
+                ("missing_temporal_bound", "bounded_temporal obligation requires a temporal bound (within <k> <unit>)", must)
+            )
+        elif not must.children or must.children[0].kind != "event":
+            # A cross-module causal obligation also lowers to a `within` node, but its child is a
+            # `transition`, not an `event`. Refuse rather than misencode it as an event response.
+            offending = must.children[0] if must.children else must
+            problems.append((
+                "missing_event",
+                (
+                    "bounded_temporal obligation must emit a named event within the bound "
+                    "('emit <event> within <k> <unit>'); a non-event response (e.g. a cross-module "
+                    "transition) is a different claim shape"
+                ),
+                offending,
+            ))
+        elif not must.children[0].name:
+            problems.append(
+                ("nameless_event", "bounded_temporal emitted event requires a name", must.children[0])
+            )
+        elif must.temporal_bound.value <= 0:
+            problems.append((
+                "non_positive_bound",
+                (
+                    f"bounded_temporal bound must be a positive number of steps; got "
+                    f"{must.temporal_bound.value} — a non-positive deadline cannot be reached"
+                ),
+                must,
+            ))
+
+    return problems
+
+
+@dataclass(frozen=True)
+class BoundedTemporalObligation:
+    """The bounded-response obligation of a bounded_temporal / event_state_correspondence claim.
+
+    ``then emit <event> within <k> <unit>`` requires the system to emit the response event within
+    ``k`` steps of the premise (the trigger). ``response_predicate_name`` is ``Pred_<event>`` — the
+    operator a reviewed S interprets over its own state as "the response event has occurred" (e.g.
+    ``Pred_redemption_finalized == (phase = "finalized")``). ``bound`` is ``k`` as an ABSTRACT step
+    count (the unit — hour/minute/block — is not modelled; one transition of S is one step). The
+    stateful-S narrowing (Case B) adds a ghost step-counter ``nlr_clock`` that ticks on every step
+    while the response has not fired, and checks the SAME-STATE invariant
+    ``Premise => (Pred_<event> \\/ nlr_clock <= k)`` over S's real ``Init``/``Next`` — so a
+    counterexample is a real S behaviour that lets ``k`` steps pass after the trigger without
+    emitting the response. The ghost clock is conjoined into ``Next`` (not a disjunct), so S cannot
+    pause the deadline by stuttering. The violating state has ``nlr_clock = k + 1``, reachable only
+    at search depth ``>= k + 1``; the caller raises ``ModelCheckerBudget.max_depth`` accordingly.
+    """
+
+    response_predicate_name: str
+    response_event_name: str
+    bound: int
+
+
+def derive_bounded_temporal_obligation(root: SemanticNode) -> BoundedTemporalObligation:
+    """Derive the bounded-response obligation ``Pred_<event>`` + step bound ``k`` from the IR.
+
+    The obligation ``then emit <event> within <k> <unit>`` lowers to a ``within`` node carrying a
+    temporal bound and a single ``event`` child. ``Pred_<event>`` is the operator a reviewed S
+    interprets, and ``k`` is the bound rounded UP to a whole step count (a fractional bound rounds
+    up so the deadline is never understated). Caller must invoke validate_bounded_temporal_shape
+    first; raises on a malformed shape.
+    """
+    if root.obligation is None or root.obligation.must is None:
+        raise ValueError(
+            "derive_bounded_temporal_obligation: no obligation node — "
+            "validate_bounded_temporal_shape must be called first"
+        )
+    must = root.obligation.must
+    if (
+        must.kind != "within"
+        or must.temporal_bound is None
+        or not must.children
+        or must.children[0].kind != "event"
+        or not must.children[0].name
+    ):
+        raise ValueError(
+            "derive_bounded_temporal_obligation: obligation is not an 'emit <event> within <k>' "
+            "clause — validate_bounded_temporal_shape must be called first"
+        )
+    event_name = must.children[0].name
+    return BoundedTemporalObligation(
+        response_predicate_name=pred_name(event_name),
+        response_event_name=event_name,
+        bound=math.ceil(must.temporal_bound.value),
+    )
+
+
 @dataclass(frozen=True)
 class NumericInvariantObligation:
     """The numeric state invariant a numeric_invariant narrows a reviewed S with.
@@ -968,6 +1147,91 @@ def lower_numeric_invariant_tla(
         f"Next == Step_evolve \\/ {unchanged}\n\n"
         f"Premise == {obligation.premise_expr}\n\n"
         f"Obligation == ({obligation.premise_expr}) => {obligation.obligation_expr}\n\n"
+        f"RequirementHolds == Premise => Obligation\n\n"
+        f"====\n"
+    )
+
+
+def lower_bounded_temporal_tla(
+    ir: RequirementIRV2,
+    *,
+    bounds_json: str = "[]",
+) -> str:
+    """Produce a non-vacuous bounded-temporal TLA+ module for bounded_temporal / event_state_correspondence.
+
+    ``when <predicate> then emit <event> within <k> <unit>`` lowers to a step-counter encoding of
+    the bounded-response property ``[]( trigger => <>_{<=k} response )``. The premise predicate(s)
+    are abstract CONSTANTs a reviewed S interprets (the trigger); the standalone harness here models
+    a WORST-CASE system whose response latency is unbounded (it may emit now, or let time pass), and
+    the obligation is the bounded-reachability invariant ``Premise => (nlr_emitted \\/ nlr_clock <=
+    k)``. A standalone check therefore finds the late-emission counterexample — the honest "no system
+    guarantee" outcome — and is never vacuously valid by passthrough (the old ``Within(event,…)==
+    event`` skeleton is gone from this path).
+
+    Like the other narrowing lowerings this standalone harness is AUXILIARY: the real S ∧ R evidence
+    comes from the stateful-S narrowing (compose_s_and_r_module), which discards this harness and
+    instead conjoins a ghost step-counter into S's own ``Next`` (ticking on every step while the
+    response has not fired) and checks ``Premise => (Pred_<event> \\/ nlr_clock <= k)`` over S's real
+    transitions — so a counterexample is a real S behaviour that lets ``k`` steps pass after the
+    trigger without emitting the response. The violating state has ``nlr_clock = k + 1``, reachable
+    only at search depth ``>= k + 1``.
+
+    Caller must invoke validate_bounded_temporal_shape first and refuse if any problems are returned;
+    this function assumes a supported shape.
+    """
+    root = ir.semantic_ir
+    module_name = "Req_" + _safe_name(ir.requirement_id)
+    obligation = derive_bounded_temporal_obligation(root)
+    k = obligation.bound
+
+    predicates = _premise_predicates(root)
+    const_identifiers = sorted(_scope_identifiers(root))
+
+    pred_decls = "\n".join(
+        f"\\* @type: {_pred_type_annotation(args)};\nCONSTANT {pred_name(name)}({', '.join('_' for _ in args)})"
+        for name, args in predicates
+        if args  # validation refused empty-arg predicates before reaching here
+    )
+
+    premise_parts = [
+        f"{pred_name(name)}({', '.join(args)})"
+        for name, args in predicates
+        if args
+    ]
+    premise_expr = " /\\ ".join(premise_parts) if premise_parts else "TRUE"
+
+    const_line = (
+        "\n".join(f"\\* @type: Str;\nCONSTANT {ident}" for ident in const_identifiers) + "\n\n"
+        if const_identifiers
+        else ""
+    )
+
+    return (
+        f"---- MODULE {module_name} ----\n"
+        f"EXTENDS Naturals, TLC\n\n"
+        f"\\* Non-vacuous bounded_temporal lowering: bounded response within {k} steps.\n"
+        f"\\* Generated by nlreq translator {FORMAL_LOWERING_VERSION}; semantics: non_vacuous.\n"
+        f"\\* Requirement: {ir.requirement_id}\n"
+        f"\\* Temporal bounds: {bounds_json}\n"
+        f"\\* Auxiliary worst-case harness: the response latency is unbounded, so a standalone check\n"
+        f"\\* finds the late-emission counterexample. The real S ∧ R evidence is the stateful-S\n"
+        f"\\* narrowing (compose_s_and_r_module), which conjoins a ghost step-counter into S's own\n"
+        f"\\* Next and checks Premise => (Pred_{_safe_name(obligation.response_event_name)} \\/ clock <= {k}).\n\n"
+        f"{const_line}"
+        f"{pred_decls}\n\n"
+        f"\\* @type: Int;\n"
+        f"VARIABLE nlr_clock\n"
+        f"\\* @type: Bool;\n"
+        f"VARIABLE nlr_emitted\n\n"
+        f"Init == nlr_clock = 0 /\\ nlr_emitted = FALSE\n\n"
+        f"\\* Worst-case system: the response may fire now, or time may pass (unbounded latency).\n"
+        f"\\* The clock ticks every step until the response fires, so a late emission trips the bound.\n"
+        f"EmitNow == nlr_emitted = FALSE /\\ nlr_emitted' = TRUE /\\ UNCHANGED nlr_clock\n"
+        f"LetTimePass == nlr_emitted = FALSE /\\ nlr_clock' = nlr_clock + 1 /\\ UNCHANGED nlr_emitted\n"
+        f"Settled == nlr_emitted /\\ UNCHANGED <<nlr_clock, nlr_emitted>>\n"
+        f"Next == EmitNow \\/ LetTimePass \\/ Settled\n\n"
+        f"Premise == {premise_expr}\n\n"
+        f"Obligation == nlr_emitted \\/ nlr_clock <= {k}\n\n"
         f"RequirementHolds == Premise => Obligation\n\n"
         f"====\n"
     )
@@ -1557,6 +1821,7 @@ def compose_s_and_r_module(
     outcome_predicate: OutcomePredicate | None = None,
     post_state_obligation: PostStateObligation | None = None,
     numeric_invariant_obligation: NumericInvariantObligation | None = None,
+    bounded_temporal_obligation: BoundedTemporalObligation | None = None,
 ) -> ComposedSandRModule:
     """Compose the lowered requirement R with reviewed system specs S.
 
@@ -1623,6 +1888,7 @@ def compose_s_and_r_module(
             outcome_predicate=outcome_predicate,
             post_state_obligation=post_state_obligation,
             numeric_invariant_obligation=numeric_invariant_obligation,
+            bounded_temporal_obligation=bounded_temporal_obligation,
         )
 
     # Case A is stateless: a post-state obligation asserts the system reaches a value, which only
@@ -1652,6 +1918,22 @@ def compose_s_and_r_module(
                 "a numeric_invariant narrows a reviewed spec that brings its own transition system "
                 "(init_op/next_op); no relevant spec declares one, so there is no S evolving the "
                 "variable the invariant ranges over and the kept obligation cannot be checked"
+            ),
+        )
+
+    # A bounded_temporal narrows S's reachable states over TIME: its step-counter ticks against S's
+    # own transitions, and the response predicate is one S interprets over its own state. With no
+    # stateful S there is no transition system to advance the clock or fire the response, so the
+    # bounded-response deadline cannot be checked. Refuse honestly rather than range the deadline
+    # over R's disconnected worst-case harness.
+    if bounded_temporal_obligation is not None:
+        return ComposedSandRModule(
+            status="refused",
+            refusal_kind="bounded_temporal_requires_stateful_spec",
+            refusal_reason=(
+                "a bounded_temporal narrows a reviewed spec that brings its own transition system "
+                "(init_op/next_op); no relevant spec declares one, so there is no S whose steps the "
+                "deadline counts and the bounded-response obligation cannot be checked"
             ),
         )
 
@@ -1784,7 +2066,16 @@ _NARROWING_RESERVED_OPERATORS = frozenset({"Init", "Next", "Inv", "ConstInit", "
 # invariant over the augmented state. A reviewed S that itself declared a variable of this name
 # would conflate its own state with R's history bit, so the composition refuses rather than merge.
 _NARROWING_POST_STATE_GHOST_VAR = "nlr_prev_premise"
-_NARROWING_RESERVED_VARIABLES = frozenset({_NARROWING_POST_STATE_GHOST_VAR})
+
+# The single ghost VARIABLE the bounded_temporal narrowing adds to S (see _compose_system_narrowing):
+# a step-counter that ticks on EVERY step while the response has not fired, so the bounded-response
+# deadline (Premise => Pred_<event> \/ nlr_clock <= k) is enforced even across S's stutter/UNCHANGED
+# steps — S cannot pause the clock to dodge the bound. A reviewed S declaring a variable of this name
+# would conflate its own state with R's step counter, so the composition refuses rather than merge.
+_NARROWING_BOUNDED_TEMPORAL_GHOST_VAR = "nlr_clock"
+_NARROWING_RESERVED_VARIABLES = frozenset(
+    {_NARROWING_POST_STATE_GHOST_VAR, _NARROWING_BOUNDED_TEMPORAL_GHOST_VAR}
+)
 
 
 def _compose_system_narrowing(
@@ -1797,6 +2088,7 @@ def _compose_system_narrowing(
     outcome_predicate: OutcomePredicate | None,
     post_state_obligation: PostStateObligation | None = None,
     numeric_invariant_obligation: NumericInvariantObligation | None = None,
+    bounded_temporal_obligation: BoundedTemporalObligation | None = None,
 ) -> ComposedSandRModule:
     """Compose S ∧ R as a *narrowing* when S brings its own transition system (Case B).
 
@@ -1910,6 +2202,22 @@ def _compose_system_narrowing(
         obligation_phrase = (
             f"keeps the numeric invariant ({numeric_invariant_obligation.obligation_expr}) over S's "
             "state whenever the premise bounds hold"
+        )
+    elif bounded_temporal_obligation is not None:
+        # A bounded_temporal is a bounded-RESPONSE obligation over TIME: R adds a ghost step-counter
+        # (handled in the assembly branch below). The response predicate Pred_<event> is one S
+        # interprets over its own state; obligation_pred_names carries it so the undefined-obligation
+        # guard requires S to interpret it. obligation_consequent is the deadline disjunction
+        # (response \/ clock <= k), reused by neither same-state branch — the assembly branch builds
+        # R_Requirement directly so it can also emit the ghost's Init/Next update.
+        response = bounded_temporal_obligation.response_predicate_name
+        obligation_consequent = (
+            f"{response} \\/ {_NARROWING_BOUNDED_TEMPORAL_GHOST_VAR} <= {bounded_temporal_obligation.bound}"
+        )
+        obligation_pred_names = (response,)
+        obligation_phrase = (
+            f"requires S to emit the response ({response}) within "
+            f"{bounded_temporal_obligation.bound} steps of the trigger"
         )
     else:
         return ComposedSandRModule(
@@ -2113,6 +2421,38 @@ def _compose_system_narrowing(
             "\\* next-step reading). Apalache 0.58 silently false-passes a primed-variable action\n"
             "\\* invariant over a non-establishing step, so the faithful Next-relation check is this\n"
             "\\* history-variable state invariant. =====\n"
+        )
+    elif bounded_temporal_obligation is not None:
+        # bounded_temporal / event_state_correspondence: a bounded-RESPONSE obligation. "emit
+        # <event> within k steps" constrains how LONG S may take, so R adds one ghost step-counter
+        # nlr_clock that ticks on EVERY step while the response has not fired — Init sets it 0; Next
+        # CONJOINS its update (nlr_clock' = IF Pred_<event>' THEN 0 ELSE nlr_clock + 1) so S cannot
+        # pause the deadline by stuttering (a \/ UNCHANGED disjunct of S's Next still advances the
+        # clock). R_Requirement is the single-state invariant Premise => (Pred_<event> \/ nlr_clock
+        # <= k), so a counterexample is a real S behaviour that lets k steps pass after the trigger
+        # without emitting the response. The violating state has nlr_clock = k + 1, reachable only at
+        # search depth >= k + 1 (the caller raises max_depth to match). A same-state invariant over a
+        # ghost counter — not a primed-variable action invariant — for the same Apalache 0.58
+        # soundness reason as post_state (a primed action invariant false-passes over stutter).
+        ghost = _NARROWING_BOUNDED_TEMPORAL_GHOST_VAR
+        response = bounded_temporal_obligation.response_predicate_name
+        bound = bounded_temporal_obligation.bound
+        system_variable_blocks += _render_system_variable_blocks([(ghost, "Int")])
+        requirement_line = f"R_Requirement == {premise_expr} => ({response} \\/ {ghost} <= {bound})"
+        init_line = "Init == " + " /\\ ".join([*init_ops, f"{ghost} = 0"])
+        next_line = (
+            "Next == "
+            + " /\\ ".join([*next_ops, f"{ghost}' = (IF {response}' THEN 0 ELSE {ghost} + 1)"])
+        )
+        narrowing_comment = (
+            "\\* ===== Requirement R narrows S's TIMING into a bounded-response obligation. R adds\n"
+            f"\\* one ghost step-counter {ghost} that ticks on every step while the response\n"
+            f"\\* ({response}) has not fired (Init sets it 0; Next conjoins its update, so S's stutter\n"
+            "\\* steps cannot pause it). The obligation " + obligation_phrase + " — checked as the\n"
+            f"\\* state invariant R_Requirement == Premise => ({response} \\/ {ghost} <= {bound}), so a\n"
+            "\\* counterexample is a real S behaviour that misses the deadline. A same-state invariant\n"
+            "\\* over the ghost counter, not a primed action invariant (Apalache 0.58 false-passes the\n"
+            "\\* latter over stutter). =====\n"
         )
     else:
         requirement_line = f"R_Requirement == {premise_expr} => {obligation_consequent}"
