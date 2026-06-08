@@ -26,7 +26,10 @@ from nlreq.intake import (
 )
 from nlreq.llm_client import CROSS_LANGUAGE_CLARIFY_SENTINEL, RecordedLlmClient
 from nlreq.refusal import build_refusal_report_from_semantic_translation
-from nlreq.semantic_translation import refuse_low_confidence_cross_language
+from nlreq.semantic_translation import (
+    SemanticTranslationReport,
+    refuse_low_confidence_cross_language,
+)
 from nlreq.translation_benchmark import (
     RequirementTranslationCorpus,
     build_translation_benchmark_report,
@@ -194,6 +197,58 @@ def test_low_confidence_cross_language_refusal_is_actionable() -> None:
     # The untranslatable fragment is localized verbatim (non-ASCII preserved) with actions.
     assert finding.source_spans[0].text == "carência contratual de resgate antecipado"
     assert finding.next_actions
+
+
+def test_cli_intake_draft_pt_low_confidence_sentinel_refuses(tmp_path, capsys) -> None:
+    # PA-11: when the (recorded) drafter emits the clarify sentinel for a non-English fragment
+    # it cannot confidently translate, the intake-draft CLI must REFUSE — not persist a guessed
+    # rewrite. It renders the offending Portuguese fragment inline with next actions (PA-10),
+    # exits nonzero, and writes a refusal report (never an approvable proposal) to --out.
+    fragment = "carência contratual de resgate antecipado"
+    prose = f"O saque respeita a {fragment} antes do vencimento."
+    original = tmp_path / "prose.pt.txt"
+    original.write_text(prose)
+    fixture = tmp_path / "fixture.nlreq3"
+    fixture.write_text(f"{CROSS_LANGUAGE_CLARIFY_SENTINEL} {fragment}")
+    out = tmp_path / "out.json"
+
+    exit_code = main(
+        [
+            "intake-draft",
+            str(original),
+            "--method",
+            "llm",
+            "--fixture",
+            str(fixture),
+            "--language",
+            "pt",
+            "--intake-id",
+            "INTAKE-PT-LC",
+            "--proposal-id",
+            "PROP-PT-LC",
+            "--out",
+            str(out),
+        ]
+    )
+
+    # A refusal is a nonzero exit, not a silent pass that persists a guessed proposal.
+    assert exit_code == 1
+
+    # PA-10: the offending Portuguese fragment, its code, and next actions render inline (stderr).
+    err = capsys.readouterr().err
+    assert "NLR-CROSS-LANGUAGE-UNCERTAIN" in err
+    assert fragment in err
+    assert "Next:" in err
+
+    # --out holds an auditable refusal report, NOT an approvable controlled-rewrite proposal.
+    report = SemanticTranslationReport.model_validate_json(out.read_text())
+    assert report.result == "refused"
+    assert report.refusal_code == "NLR-CROSS-LANGUAGE-UNCERTAIN"
+    # The span localizes to the real offset in the original prose (not the fragment-self fallback).
+    span = report.refusal_source_spans[0]
+    assert span.document == "source_prose"
+    assert span.text == fragment
+    assert span.start_char == prose.index(fragment)
 
 
 # --- multilingual corpus: per-language metrics + EN<->PT equivalence -----------------------

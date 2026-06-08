@@ -136,6 +136,7 @@ from .intake import (
     approve_controlled_rewrite,
     create_controlled_rewrite_proposal,
     create_free_form_intake,
+    cross_language_clarification,
     draft_controlled_rewrite_with_llm,
 )
 from .javascript_source_adapter import JavaScriptSourceLanguageAdapter
@@ -196,6 +197,7 @@ from .semantic_agreement import (
 )
 from .semantic_translation import (
     SemanticTranslationReport,
+    refuse_low_confidence_cross_language,
     translate_controlled_requirement_to_formal_claim,
 )
 from .reference_demo import (
@@ -2143,6 +2145,26 @@ def main(argv: list[str] | None = None) -> int:
                     timestamp=args.timestamp,
                     model=effective_model,
                 )
+                # PA-11: a low-confidence cross-language draft emits a clarify sentinel
+                # instead of guessing a controlled rewrite. Refuse with
+                # NLR-CROSS-LANGUAGE-UNCERTAIN — render the offending fragment inline
+                # (PA-10) and persist the refusal report at --out, never an approvable
+                # proposal built from a guessed rewrite.
+                clarify_fragment = cross_language_clarification(proposal.proposed_controlled_text)
+                if clarify_fragment is not None:
+                    refusal = refuse_low_confidence_cross_language(
+                        requirement_id=args.intake_id,
+                        language=intake.language,
+                        fragment=clarify_fragment,
+                        prose=intake.original_text,
+                    )
+                    if args.intake_out:
+                        write_json(args.intake_out, intake)
+                        print(f"Free-form intake: {args.intake_out}")
+                    _render_semantic_translation_refusal(refusal)
+                    write_json(args.out, refusal)
+                    print(f"Cross-language refusal: {args.out}", file=sys.stderr)
+                    return 1
             else:
                 if args.suggested is None:
                     print(
