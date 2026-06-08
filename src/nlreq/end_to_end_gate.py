@@ -16,6 +16,7 @@ from .formal_claim import (
     build_formal_claim,
     build_proof_dispatch_plan_from_formal_claim,
     formal_claim_fragment_bound_predicate,
+    formal_claim_fragment_bounded_response_key,
     formal_claim_fragment_post_state_value_literal,
     formal_claim_fragment_state_invariant_expr,
 )
@@ -236,13 +237,21 @@ def _cover_s_and_r_fragments(result: BackendResult, claim: FormalClaim) -> Backe
         return result
     bound = set(result.details.get("bound_predicates", []))
     bound_state_invariants = _bound_state_invariant_exprs(result)
-    if not bound and not bound_state_invariants:
+    bound_response_keys = _bound_response_keys(result)
+    if not bound and not bound_state_invariants and not bound_response_keys:
         return result
     bound_post_state_value = result.details.get("bound_post_state_value")
     covered: list[str] = []
     for fragment in [*claim.premises, *claim.obligations]:
         if fragment.kind == "state_invariant":
             if formal_claim_fragment_state_invariant_expr(fragment) in bound_state_invariants:
+                covered.append(fragment.fragment_id)
+            continue
+        if fragment.kind in {"event_emission", "causal_transition"}:
+            # Bounded-response obligation: covered exactly when the narrowing checked THIS fragment's
+            # (response predicate, bound). Matching predicate-and-bound keeps a verdict for one
+            # deadline from false-covering a fragment naming a different event/action or bound.
+            if formal_claim_fragment_bounded_response_key(fragment) in bound_response_keys:
                 covered.append(fragment.fragment_id)
             continue
         if formal_claim_fragment_bound_predicate(fragment) not in bound:
@@ -275,6 +284,31 @@ def _bound_state_invariant_exprs(result: BackendResult) -> set[str]:
         if isinstance(expr, str) and expr:
             expressions.add(expr)
     return expressions
+
+
+def _bound_response_keys(result: BackendResult) -> set[tuple[str, int]]:
+    """The (response predicate, bound) keys a bounded_temporal narrowing recorded in this result.
+
+    The S ∧ R pending-deadline narrowing records, for a bounded_temporal / cross_module_causal
+    obligation, a ``bound_state_invariants`` entry ``{"kind": "bounded_temporal", "response_predicate":
+    ..., "bound": k}``. A bounded-response fragment (event_emission / causal_transition) is covered only
+    when ITS (Pred_<response>, bound) appears here — predicate-and-bound exact, the temporal analogue of
+    the post_state value-exact and state_invariant expr-exact coverage.
+    """
+    raw = result.details.get("bound_state_invariants", [])
+    if not isinstance(raw, list):
+        return set()
+    keys: set[tuple[str, int]] = set()
+    for item in raw:
+        if not isinstance(item, dict):
+            continue
+        if item.get("kind") != "bounded_temporal":
+            continue
+        predicate = item.get("response_predicate")
+        bound = item.get("bound")
+        if isinstance(predicate, str) and predicate and isinstance(bound, int):
+            keys.add((predicate, bound))
+    return keys
 
 
 def run_end_to_end_requirement_gate(

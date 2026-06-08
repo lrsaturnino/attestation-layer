@@ -10,7 +10,7 @@ from nlreq.contradiction_taxonomy import build_cross_requirement_contradiction_t
 from nlreq.dsl_v2 import DslV2Parser
 from nlreq.dsl_v3 import DslV3Parser
 from nlreq.end_to_end_gate import _cover_s_and_r_fragments
-from nlreq.formal_backend import FormalBackendBudget, FormalBackendExecution
+from nlreq.formal_backend import BackendResult, FormalBackendBudget, FormalBackendExecution
 from nlreq.formal_claim import build_formal_claim, build_proof_dispatch_plan_from_formal_claim
 from nlreq.formal_claim_smt import smt_check_formal_claim_predicate_fragments
 from nlreq.formal_lowering import (
@@ -1541,6 +1541,88 @@ def test_solver_backed_cross_module_causal_late_action_is_counterexample(tmp_pat
     result = _run_cross_module_causal_check(tmp_path, requirement_id="REQ-CAUSAL-SLOW", settle_at=99)
     assert result.result.status == "counterexample", result.result.details
     assert result.counterexamples
+
+
+def _bounded_response_proof_from_solver_result(ir, result):
+    """Build a ProofObject from a bounded_temporal / cross_module_causal solver result, covering the
+    bounded-response fragment (event_emission / causal_transition) via the recorded deadline."""
+    claim = build_formal_claim(ir).formal_claim
+    assert claim is not None
+    covered = _cover_s_and_r_fragments(result.result, claim)
+    return build_proof_object(
+        requirement=ir,
+        backend_results=[covered, *smt_check_formal_claim_predicate_fragments(claim)],
+        dispatch=build_proof_dispatch_plan_from_formal_claim(claim),
+    )
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_bounded_temporal_event_emission_discharges_through_proof_object(
+    tmp_path: Path,
+) -> None:
+    """PA-3 (#5 coverage bridge): a valid bounded_temporal S ∧ R run discharges the event_emission
+    fragment in the ProofObject at BOUNDED_CHECKED via solver_system_checker — the bounded deadline is
+    a real proof premise, not an unrouted obligation. The S ∧ R result's recorded (response predicate,
+    bound) covers the fragment exactly."""
+    result = _run_bounded_temporal_trigger_check(
+        tmp_path, requirement_id="REQ-BT-PROOF", k=2, trigger_at=1, respond_at=2
+    )
+    assert result.result.status == "valid", result.result.details
+
+    proof = _bounded_response_proof_from_solver_result(_bounded_temporal_ir_k("REQ-BT-PROOF", 2), result)
+    event = next(p for p in proof.premises if p.node_kind == "event_emission")
+    assert event.status == "discharged"
+    assert event.routed_backend == "solver_system_checker"
+    assert event.producer_id == "solver_system_checker"
+    assert event.achieved_evidence == EvidenceLevel.BOUNDED_CHECKED
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_cross_module_causal_transition_discharges_through_proof_object(
+    tmp_path: Path,
+) -> None:
+    """PA-3 (#5) / PA-1: a valid cross_module_causal S ∧ R run discharges the causal_transition
+    fragment in the ProofObject at BOUNDED_CHECKED — completing the causal lowering (without the
+    bridge the new causal claim could be checked but never discharged in a proof)."""
+    result = _run_cross_module_causal_check(tmp_path, requirement_id="REQ-CAUSAL-PROOF", settle_at=2)
+    assert result.result.status == "valid", result.result.details
+
+    proof = _bounded_response_proof_from_solver_result(
+        _cross_module_causal_ir("REQ-CAUSAL-PROOF"), result
+    )
+    transition = next(p for p in proof.premises if p.node_kind == "causal_transition")
+    assert transition.status == "discharged"
+    assert transition.routed_backend == "solver_system_checker"
+    assert transition.achieved_evidence == EvidenceLevel.BOUNDED_CHECKED
+
+
+def test_bounded_response_coverage_is_predicate_and_bound_exact() -> None:
+    """Tool-free: the bounded-response coverage matches the recorded (response predicate, bound)
+    exactly — a verdict for one deadline cannot false-cover a fragment naming a different response or
+    a different bound. Uses model_construct to inject an unbacked solver result (the PB-9 backing is
+    irrelevant to the matching logic under test)."""
+    ir = _bounded_temporal_ir_k("REQ-BT-EXACT", 6)
+    claim = build_formal_claim(ir).formal_claim
+    event = next(f for f in claim.obligations if f.kind == "event_emission")
+
+    def covered_for(response_predicate: str, bound: int) -> bool:
+        result = BackendResult.model_construct(
+            backend="solver_system_checker",
+            status="valid",
+            evidence_level=EvidenceLevel.BOUNDED_CHECKED,
+            details={
+                "bound_predicates": ["Pred_authorized", "Pred_redemption_finalized"],
+                "bound_state_invariants": [
+                    {"kind": "bounded_temporal", "response_predicate": response_predicate, "bound": bound}
+                ],
+            },
+        )
+        ids = _cover_s_and_r_fragments(result, claim).details.get("covered_fragment_ids", [])
+        return event.fragment_id in ids
+
+    assert covered_for("Pred_redemption_finalized", 6)  # exact match discharges
+    assert not covered_for("Pred_redemption_finalized", 5)  # wrong bound covers nothing
+    assert not covered_for("Pred_other_event", 6)  # wrong response predicate covers nothing
 
 
 def test_solver_backed_command_depth_matches_recorded_bounds(tmp_path: Path) -> None:

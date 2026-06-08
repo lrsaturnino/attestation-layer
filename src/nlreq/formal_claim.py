@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import math
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -400,6 +401,32 @@ def formal_claim_fragment_state_invariant_expr(fragment: FormalClaimFragment) ->
     return f"{_operand_tla(left)} {symbol} {_operand_tla(right)}"
 
 
+def formal_claim_fragment_bounded_response_key(
+    fragment: FormalClaimFragment,
+) -> tuple[str, int] | None:
+    """The ``(response predicate, bound)`` a bounded-response fragment is discharged by, or None.
+
+    ``event_emission`` (``emit <event> within k``) and ``causal_transition`` (``module A causes module
+    B to <action> within k``) are bounded-response obligations the S ∧ R pending-deadline narrowing
+    checks. Coverage is matched (predicate AND bound) exactly against the ``bound_state_invariants``
+    entry the ``solver_system_checker`` records — so a bounded verdict for one deadline cannot
+    false-cover a fragment naming a different response event/action or a different bound. The response
+    predicate is ``Pred_<event>`` for an event_emission (its single operand) and ``Pred_<action>`` for
+    a causal_transition (its third operand — source, target, action); the bound is the temporal bound
+    rounded UP to whole steps, mirroring derive_bounded_temporal_obligation. Returns None for any other
+    fragment kind (or a bounded-response fragment missing its bound/operands), which then matches no
+    recorded entry and so covers nothing.
+    """
+    if fragment.temporal_bound is None:
+        return None
+    bound = math.ceil(fragment.temporal_bound.value)
+    if fragment.kind == "event_emission" and fragment.operands:
+        return (pred_name(str(fragment.operands[0].value)), bound)
+    if fragment.kind == "causal_transition" and len(fragment.operands) >= 3:
+        return (pred_name(str(fragment.operands[2].value)), bound)
+    return None
+
+
 def _operand_tla(operand: FormalClaimOperand) -> str:
     if operand.kind == "string":
         return f'"{operand.value}"'
@@ -423,11 +450,18 @@ def _evidence_for_fragment_kind(kind: FormalClaimFragmentKind) -> EvidenceLevel:
         # the universally-quantified obligation, so TRACE_VALIDATED would let a single observed run
         # discharge a claim the ``Next`` relation never verified. Its honest level is therefore
         # BOUNDED_CHECKED, matching the state/temporal kinds below and the kind-only proof router
-        # (proof_closure._STATE_TEMPORAL_NODE_KINDS). Contrast ``event_emission``, which stays
-        # TRACE_VALIDATED: "the event was observed" IS an execution observation, not a Next-relation
-        # safety obligation.
+        # (proof_closure._STATE_TEMPORAL_NODE_KINDS).
         "post_state": EvidenceLevel.BOUNDED_CHECKED,
-        "event_emission": EvidenceLevel.TRACE_VALIDATED,
+        # ``event_emission`` (``emit <event> within k``) is the bounded-RESPONSE twin of post_state:
+        # "the response fires within k of the trigger" is a UNIVERSAL obligation the S ∧ R bounded
+        # check verifies (no/late emission -> the pending-deadline monitor's age exceeds k -> a real
+        # counterexample). A trace observing one timely emission is WEAKER evidence for the SAME
+        # obligation, not a co-equal distinct one — the exact conflation post_state fixed — so its
+        # honest fragment level is BOUNDED_CHECKED, discharged by the S ∧ R model check.
+        # ``cross_module_causal_obligation``'s ``causal_transition`` is already BOUNDED_CHECKED for the
+        # same reason. (The class-level TRACE_VALIDATED requirement — that a real execution was
+        # observed — is supplied by the separate trace-alignment stage, not by this fragment route.)
+        "event_emission": EvidenceLevel.BOUNDED_CHECKED,
         "state_invariant": EvidenceLevel.BOUNDED_CHECKED,
         "causal_transition": EvidenceLevel.BOUNDED_CHECKED,
         "rejection_order": EvidenceLevel.BOUNDED_CHECKED,
@@ -455,8 +489,14 @@ def _evidence_for_fragment_kind(kind: FormalClaimFragmentKind) -> EvidenceLevel:
 # ``Premise => Obligation`` over S's own state variable into ``Inv``. It binds no ``Pred_*``, so the
 # coverage bridge matches the checked numeric comparison through ``bound_state_invariants`` metadata
 # emitted by ``solver_system_checker`` instead of through predicate names.
+# ``event_emission`` (bounded_temporal/event_state_correspondence) and ``causal_transition``
+# (cross_module_causal_obligation) are the bounded-RESPONSE obligations: the S ∧ R pending-deadline
+# narrowing conjoins ``nlr_pending => nlr_age <= k`` over S's own transitions and records the
+# response predicate + bound in ``bound_state_invariants`` (kind ``bounded_temporal``). The coverage
+# bridge matches that recorded (response predicate, bound) against the fragment, so a bounded verdict
+# for one deadline cannot false-cover a fragment with a different response or bound.
 _S_AND_R_DISCHARGED_KINDS: frozenset[FormalClaimFragmentKind] = frozenset(
-    {"predicate", "rejection_order", "post_state", "state_invariant"}
+    {"predicate", "rejection_order", "post_state", "state_invariant", "event_emission", "causal_transition"}
 )
 
 # Per-premise theory routing (PB-7). Comparison premises are discharged by the z3 Int/Real
