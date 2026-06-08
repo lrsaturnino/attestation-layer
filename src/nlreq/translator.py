@@ -199,6 +199,13 @@ def lower_ir_v2_to_tla(
         return _lower_bounded_temporal(ir, claim_class)
     if claim_class == "cross_module_causal_obligation":
         return _lower_cross_module_causal(ir, claim_class)
+    if claim_class in {"comparison", "membership"}:
+        # comparison/membership are THEORY-FRAGMENT kinds, not TLA obligation forms. The DSL v3 parser
+        # never emits them as a requirement_class (the grammar admits them only as PREMISE node kinds —
+        # see dsl_v3.lark), so an IR carrying one as its class is hand-built. They have a SOUND producer,
+        # just not Apalache, so refuse the TLA path EXPLICITLY and name the route they keep open rather
+        # than fold them into the generic unsupported-class refusal below.
+        return _lower_refused_smt_routed_class(ir, claim_class)
     if claim_class is not None:
         # A present-but-unsupported requirement_class is a genuine error, not legacy input: refuse
         # rather than emit a meaningless skeleton.
@@ -491,6 +498,56 @@ def _lower_cross_module_causal(ir: RequirementIRV2, claim_class: str) -> Lowered
         content_hash=sha256_text(content),
         temporal_bounds=temporal_bounds,
         metadata={"evidence": "lowered", "semantics": "non_vacuous", "claim_class": claim_class},
+    )
+
+
+def _lower_refused_smt_routed_class(
+    ir: RequirementIRV2, claim_class: str
+) -> LoweredFormalArtifact:
+    """Refuse, on the live TLA path, a comparison/membership requirement_class — keep the SMT route open.
+
+    comparison and set-membership are theory-fragment kinds, not TLA obligation forms: the DSL v3
+    grammar admits them ONLY as PREMISE nodes (``X >= V``, ``X is in {...}``), never as a top-level
+    requirement_class, so an IR that carries one as its class is hand-built. They have a SOUND producer,
+    just not Apalache:
+      - comparison -> the theory-aware SMT backend (smt-theories) as a projected premise, or an
+        Apalache-discriminable ``numeric_invariant`` ``keep <comparison>`` obligation when the
+        comparison ranges over a reviewed S's OWN state variable;
+      - concrete set-membership -> cvc5's finite-set decision procedure.
+    Emitting a vacuous TLA skeleton — or folding these into the generic unsupported-class refusal —
+    would hide that they ARE checked, just on a different backend. Refuse EXPLICITLY with the route
+    named, so the FormalClaim dispatch (``backend_for_proof_node``) discharges the fragment on its real
+    backend without a false TLA discharge. This is the live-path half of the PB-7 per-premise routing,
+    enforced in source rather than only documented.
+    """
+    if claim_class == "comparison":
+        route = (
+            "the theory-aware SMT backend (smt-theories) as a projected premise, or an "
+            "Apalache-discriminable numeric_invariant 'keep <comparison>' obligation"
+        )
+    else:
+        route = "cvc5's finite-set decision procedure"
+    return LoweredFormalArtifact(
+        requirement_id=ir.requirement_id,
+        source_ir_version=ir.ir_version,
+        source_ir_hash=sha256_json(ir),
+        status="refused",
+        temporal_bounds=_temporal_bounds(ir.semantic_ir),
+        diagnostics=[
+            LoweringDiagnostic(
+                node_id=ir.semantic_ir.node_id,
+                kind="smt_routed_requirement_class",
+                reason=(
+                    f"requirement_class {claim_class!r} has no standalone TLA+ obligation module to "
+                    f"model-check — it is a theory fragment the DSL v3 grammar admits only as a premise "
+                    f"node, not a top-level class. Its sound producer is {route}; the live TLA path "
+                    f"refuses rather than emit a vacuous module, and the FormalClaim routing discharges "
+                    f"the fragment on that backend."
+                ),
+                source_spans=ir.semantic_ir.source_spans,
+            )
+        ],
+        metadata={"refusal_code": "NLR-LOWERING-SMT-ROUTED-CLASS"},
     )
 
 

@@ -757,6 +757,54 @@ def test_projected_comparison_and_membership_premises_route_to_their_smt_backend
     assert routes["rejection_order"] == ("solver_system_checker", "BOUNDED_CHECKED")
 
 
+def test_comparison_and_membership_classes_refuse_with_smt_route_named() -> None:
+    """A hand-built IR carrying a comparison/membership requirement_class refuses on the live TLA path
+    with an EXPLICIT typed diagnostic that NAMES the sound backend route — not a vacuous skeleton and
+    not the generic unsupported-class refusal.
+
+    comparison/membership are theory fragments: the DSL v3 grammar admits them only as PREMISE nodes,
+    so the parser never emits them as a requirement_class (this IR is hand-built), and they have no
+    standalone TLA obligation module to model-check. The refusal keeps their real proof route open
+    (comparison -> smt-theories or a numeric_invariant 'keep' obligation, membership -> cvc5) rather
+    than claiming a TLA discharge. This pins the live-path half of the PB-7 routing contract in SOURCE:
+    lower_ir_v2_to_tla refuses-and-routes, while the FormalClaim dispatch (backend_for_proof_node)
+    carries the fragment to its backend (proven in tests/test_formal_claim_smt.py and
+    tests/test_cvc5_backend.py)."""
+    base = DslV3Parser().parse_ir(
+        "requirement numeric_invariant:\n"
+        "scope redemption\n"
+        "when collateral >= 10\n"
+        "then keep collateral >= 1\n",
+        requirement_id="REQ-SMT-ROUTED",
+        title="SMT-routed class",
+    )
+
+    for claim_class, route_marker in [("comparison", "smt-theories"), ("membership", "cvc5")]:
+        ir = base.model_copy(
+            update={
+                "semantic_ir": base.semantic_ir.model_copy(
+                    update={
+                        "metadata": {
+                            **base.semantic_ir.metadata,
+                            "requirement_class": claim_class,
+                        }
+                    }
+                )
+            }
+        )
+
+        artifact = lower_ir_v2_to_tla(ir)
+
+        assert artifact.status == "refused"
+        assert artifact.content is None
+        assert artifact.metadata.get("refusal_code") == "NLR-LOWERING-SMT-ROUTED-CLASS"
+        assert [d.kind for d in artifact.diagnostics] == ["smt_routed_requirement_class"]
+        assert route_marker in artifact.diagnostics[0].reason
+        # NOT the generic unsupported-class refusal — that path is reserved for genuinely unknown
+        # classes and would not name the SMT/cvc5 route the fragment is actually checked on.
+        assert artifact.diagnostics[0].kind != "unsupported_requirement_class"
+
+
 def test_lower_authorization_precondition_refuses_non_before_obligation() -> None:
     """Obligation shapes other than 'before' in authorization_precondition must refuse.
 
