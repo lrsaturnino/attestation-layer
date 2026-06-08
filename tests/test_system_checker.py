@@ -7,6 +7,7 @@ import pytest
 
 from nlreq.cli import main
 from nlreq.contradiction_taxonomy import build_cross_requirement_contradiction_taxonomy
+from nlreq.coverage_alignment import SpecCoverageReport, TraceAlignmentReport
 from nlreq.dsl_v2 import DslV2Parser
 from nlreq.dsl_v3 import DslV3Parser
 from nlreq.end_to_end_gate import _cover_s_and_r_fragments
@@ -1545,7 +1546,10 @@ def test_solver_backed_cross_module_causal_late_action_is_counterexample(tmp_pat
 
 def _bounded_response_proof_from_solver_result(ir, result):
     """Build a ProofObject from a bounded_temporal / cross_module_causal solver result, covering the
-    bounded-response fragment (event_emission / causal_transition) via the recorded deadline."""
+    bounded-response fragment (event_emission / causal_transition) via the recorded deadline. Passes a
+    passing spec-coverage and trace-alignment report so a fully-discharged proof CLOSES — the
+    class-level TRACE_VALIDATED requirement is supplied by the trace-alignment stage here, not by the
+    event_emission fragment route (which now routes to the bounded S ∧ R check)."""
     claim = build_formal_claim(ir).formal_claim
     assert claim is not None
     covered = _cover_s_and_r_fragments(result.result, claim)
@@ -1553,6 +1557,11 @@ def _bounded_response_proof_from_solver_result(ir, result):
         requirement=ir,
         backend_results=[covered, *smt_check_formal_claim_predicate_fragments(claim)],
         dispatch=build_proof_dispatch_plan_from_formal_claim(claim),
+        coverage=SpecCoverageReport(
+            result="passed", threshold=0.0, covered_modules=0, total_modules=0,
+            coverage_ratio=1.0, modules=[],
+        ),
+        trace_alignment=TraceAlignmentReport(result="passed", alignments=[]),
     )
 
 
@@ -1575,6 +1584,10 @@ def test_solver_backed_bounded_temporal_event_emission_discharges_through_proof_
     assert event.routed_backend == "solver_system_checker"
     assert event.producer_id == "solver_system_checker"
     assert event.achieved_evidence == EvidenceLevel.BOUNDED_CHECKED
+    # The whole proof CLOSES — every premise (trigger predicate + bounded deadline) discharged, and
+    # the class-level TRACE requirement satisfied by the trace-alignment stage (not the fragment).
+    assert proof.status == "closed", [b.message for b in proof.blockers]
+    assert all(p.status == "discharged" for p in proof.premises)
 
 
 @pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
@@ -1594,6 +1607,7 @@ def test_solver_backed_cross_module_causal_transition_discharges_through_proof_o
     assert transition.status == "discharged"
     assert transition.routed_backend == "solver_system_checker"
     assert transition.achieved_evidence == EvidenceLevel.BOUNDED_CHECKED
+    assert proof.status == "closed", [b.message for b in proof.blockers]
 
 
 def test_bounded_response_coverage_is_predicate_and_bound_exact() -> None:

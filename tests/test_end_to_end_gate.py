@@ -2327,6 +2327,76 @@ def test_state_postcondition_post_state_not_discharged_by_trace_alone() -> None:
     )
 
 
+def test_bounded_response_obligation_not_discharged_by_trace_alone() -> None:
+    """The symmetric twin of ``test_state_postcondition_post_state_not_discharged_by_trace_alone``: a
+    bounded-response obligation (``emit <event> within k``) routes to the bounded S ∧ R check, so a
+    trace-validated result alone cannot discharge it.
+
+    ``emit redemption_finalized within k`` is a UNIVERSAL deadline obligation that must hold on every
+    behaviour of the reviewed S, which only the bounded model check (``solver_system_checker`` at
+    BOUNDED_CHECKED) establishes — a trace observing one timely emission is strictly weaker
+    TRACE_VALIDATED evidence for the SAME obligation (the conflation post_state already fixed). A valid
+    TRACE_VALIDATED result that even NAMES the event_emission fragment cannot discharge it, because the
+    routed backend is no longer ``trace_validation``. The class-level TRACE requirement is supplied by
+    the separate trace-alignment stage, not this fragment route. ``event_state_correspondence`` and
+    ``cross_module_causal_obligation`` emit event_emission / causal_transition through the same lowering
+    and inherit the same routing.
+    """
+    from nlreq.formal_claim import formal_claim_to_proof_premise_routes
+    from nlreq.models import BackendResult, EvidenceLevel
+
+    ir = DslV3Parser().parse_ir(
+        "requirement bounded_temporal:\n"
+        "scope redemption\n"
+        "when wallet is authorized\n"
+        "then emit redemption_finalized within 6 hours\n",
+        requirement_id="BT-TRACE-001",
+        title="Bounded temporal",
+    )
+
+    claim = build_formal_claim(ir).formal_claim
+    assert claim is not None
+    routes = formal_claim_to_proof_premise_routes(claim)
+    event_route = next(route for route in routes if route.node_kind == "event_emission")
+    assert event_route.backend_id == "solver_system_checker"
+    assert event_route.required_evidence == EvidenceLevel.BOUNDED_CHECKED
+
+    # A valid TRACE_VALIDATED result from the producer the pre-fix route used, naming the
+    # event_emission fragment it claims to cover — the precise shape that would have discharged it.
+    trace_result = BackendResult(
+        backend="trace_validation",
+        status="valid",
+        evidence_level=EvidenceLevel.TRACE_VALIDATED,
+        details={
+            "covered_fragment_ids": [event_route.premise_id],
+            "trace_mapping": {
+                "validator_id": "event-observed",
+                "requirement_id": "BT-TRACE-001",
+                "trace_hash": "sha256:" + "c3" * 32,
+                "trace_source_hash": "sha256:trace-source",
+                "observed_events": ["authorize", "redemption_finalized"],
+                "observed_event_ids": ["evt-1", "evt-2"],
+                "fragment": {"event_emission": ["redemption_finalized"]},
+            },
+        },
+    )
+
+    proof, report = build_proof_with_formal_claim_dispatch(
+        requirement=ir,
+        backend_results=[trace_result],
+    )
+
+    assert report.result == "lowered"
+    event_premise = next(p for p in proof.premises if p.node_kind == "event_emission")
+    # Open, routed to the S ∧ R producer, with NO achieved evidence — the trace result never reached
+    # the premise, so trace evidence did not (and cannot) discharge the bounded deadline.
+    assert event_premise.status == "open"
+    assert event_premise.routed_backend == "solver_system_checker"
+    assert event_premise.required_evidence == EvidenceLevel.BOUNDED_CHECKED
+    assert event_premise.achieved_evidence is None
+    assert proof.status != "closed"
+
+
 def test_z3_fixture_solver_result_cannot_discharge_formal_premises(tmp_path: Path) -> None:
     """The in-process Z3 fixture cannot discharge formal-claim premises — only a real bounded
     S ∧ R can.
