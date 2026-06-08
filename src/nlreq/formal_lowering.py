@@ -1005,13 +1005,16 @@ class BoundedTemporalObligation:
     operator a reviewed S interprets over its own state as "the response event has occurred" (e.g.
     ``Pred_redemption_finalized == (phase = "finalized")``). ``bound`` is ``k`` as an ABSTRACT step
     count (the unit — hour/minute/block — is not modelled; one transition of S is one step). The
-    stateful-S narrowing (Case B) adds a ghost step-counter ``nlr_clock`` that ticks on every step
-    while the response has not fired, and checks the SAME-STATE invariant
-    ``Premise => (Pred_<event> \\/ nlr_clock <= k)`` over S's real ``Init``/``Next`` — so a
-    counterexample is a real S behaviour that lets ``k`` steps pass after the trigger without
-    emitting the response. The ghost clock is conjoined into ``Next`` (not a disjunct), so S cannot
-    pause the deadline by stuttering. The violating state has ``nlr_clock = k + 1``, reachable only
-    at search depth ``>= k + 1``; the caller raises ``ModelCheckerBudget.max_depth`` accordingly.
+    stateful-S narrowing (Case B) adds a two-variable PENDING-DEADLINE monitor (``nlr_pending`` +
+    ``nlr_age``): a deadline is owed from the moment the trigger fires (latched until the response,
+    independent of whether the trigger still holds) and ``nlr_age`` counts steps since the oldest
+    unanswered trigger. It checks the SAME-STATE invariant ``nlr_pending => nlr_age <= k`` over S's
+    real ``Init``/``Next`` — so a counterexample is a real S behaviour that lets ``k`` steps pass
+    after the trigger without the response. The ghosts are conjoined into ``Next`` (not a disjunct),
+    so S cannot pause the deadline by stuttering. The violating state has ``nlr_age = k + 1``,
+    reachable only at search depth ``>= k + 1``; the caller raises ``ModelCheckerBudget.max_depth``
+    accordingly. (Measuring from the trigger and latching the deadline fixes the prior single
+    since-init clock, which false-FAILED a late trigger and false-PASSED a one-shot trigger.)
     """
 
     response_predicate_name: str
@@ -1170,11 +1173,13 @@ def lower_bounded_temporal_tla(
 
     Like the other narrowing lowerings this standalone harness is AUXILIARY: the real S ∧ R evidence
     comes from the stateful-S narrowing (compose_s_and_r_module), which discards this harness and
-    instead conjoins a ghost step-counter into S's own ``Next`` (ticking on every step while the
-    response has not fired) and checks ``Premise => (Pred_<event> \\/ nlr_clock <= k)`` over S's real
-    transitions — so a counterexample is a real S behaviour that lets ``k`` steps pass after the
-    trigger without emitting the response. The violating state has ``nlr_clock = k + 1``, reachable
-    only at search depth ``>= k + 1``.
+    instead conjoins a two-variable pending-deadline monitor (``nlr_pending`` + ``nlr_age``) into S's
+    own ``Next`` (a deadline owed from the trigger, latched until the response) and checks the
+    same-state invariant ``nlr_pending => nlr_age <= k`` over S's real transitions — so a
+    counterexample is a real S behaviour that lets ``k`` steps pass after the trigger without the
+    response. The violating state has ``nlr_age = k + 1``, reachable only at search depth ``>= k + 1``.
+    (This standalone harness keeps its own ``nlr_clock``/``nlr_emitted`` worst-case latency model; the
+    narrowing's pending-deadline shape is what runs against a reviewed S.)
 
     Caller must invoke validate_bounded_temporal_shape first and refuse if any problems are returned;
     this function assumes a supported shape.
@@ -2067,14 +2072,25 @@ _NARROWING_RESERVED_OPERATORS = frozenset({"Init", "Next", "Inv", "ConstInit", "
 # would conflate its own state with R's history bit, so the composition refuses rather than merge.
 _NARROWING_POST_STATE_GHOST_VAR = "nlr_prev_premise"
 
-# The single ghost VARIABLE the bounded_temporal narrowing adds to S (see _compose_system_narrowing):
-# a step-counter that ticks on EVERY step while the response has not fired, so the bounded-response
-# deadline (Premise => Pred_<event> \/ nlr_clock <= k) is enforced even across S's stutter/UNCHANGED
-# steps — S cannot pause the clock to dodge the bound. A reviewed S declaring a variable of this name
-# would conflate its own state with R's step counter, so the composition refuses rather than merge.
-_NARROWING_BOUNDED_TEMPORAL_GHOST_VAR = "nlr_clock"
+# The two ghost VARIABLEs the bounded_temporal narrowing adds to S (see _compose_system_narrowing).
+# A bounded-response obligation []( trigger => <>_{<=k} response ) is a PENDING-DEADLINE property,
+# not a since-init step count: nlr_pending latches once a trigger fires with no simultaneous response
+# and stays set (independent of whether the trigger still holds) until the response arrives; nlr_age
+# counts steps since the oldest unanswered trigger (0 at the trigger step). The deadline invariant is
+# the SAME-STATE property nlr_pending => nlr_age <= k. This fixes two defects of the prior single
+# since-init clock: it false-FAILED a trigger that fired later than k (its age was the system uptime)
+# and false-PASSED a one-shot trigger that went false before the response (the premise-gated
+# invariant degenerated to vacuously-true). Both ghosts are conjoined into Next so S's stutter cannot
+# pause the deadline. A reviewed S declaring a variable of either name would conflate its own state
+# with R's deadline monitor, so the composition refuses rather than merge.
+_NARROWING_BOUNDED_TEMPORAL_PENDING_VAR = "nlr_pending"
+_NARROWING_BOUNDED_TEMPORAL_AGE_VAR = "nlr_age"
 _NARROWING_RESERVED_VARIABLES = frozenset(
-    {_NARROWING_POST_STATE_GHOST_VAR, _NARROWING_BOUNDED_TEMPORAL_GHOST_VAR}
+    {
+        _NARROWING_POST_STATE_GHOST_VAR,
+        _NARROWING_BOUNDED_TEMPORAL_PENDING_VAR,
+        _NARROWING_BOUNDED_TEMPORAL_AGE_VAR,
+    }
 )
 
 
@@ -2204,15 +2220,16 @@ def _compose_system_narrowing(
             "state whenever the premise bounds hold"
         )
     elif bounded_temporal_obligation is not None:
-        # A bounded_temporal is a bounded-RESPONSE obligation over TIME: R adds a ghost step-counter
-        # (handled in the assembly branch below). The response predicate Pred_<event> is one S
-        # interprets over its own state; obligation_pred_names carries it so the undefined-obligation
-        # guard requires S to interpret it. obligation_consequent is the deadline disjunction
-        # (response \/ clock <= k), reused by neither same-state branch — the assembly branch builds
-        # R_Requirement directly so it can also emit the ghost's Init/Next update.
+        # A bounded_temporal is a bounded-RESPONSE obligation over TIME: R adds a two-variable
+        # pending-deadline monitor (handled in the assembly branch below). The response predicate
+        # Pred_<event> is one S interprets over its own state; obligation_pred_names carries it so the
+        # undefined-obligation guard requires S to interpret it. obligation_consequent is unused for
+        # this class (the assembly branch builds R_Requirement and the ghost Init/Next directly), so
+        # it is set to the deadline invariant only for the shared module comment.
         response = bounded_temporal_obligation.response_predicate_name
         obligation_consequent = (
-            f"{response} \\/ {_NARROWING_BOUNDED_TEMPORAL_GHOST_VAR} <= {bounded_temporal_obligation.bound}"
+            f"{_NARROWING_BOUNDED_TEMPORAL_PENDING_VAR} => "
+            f"{_NARROWING_BOUNDED_TEMPORAL_AGE_VAR} <= {bounded_temporal_obligation.bound}"
         )
         obligation_pred_names = (response,)
         obligation_phrase = (
@@ -2423,36 +2440,54 @@ def _compose_system_narrowing(
             "\\* history-variable state invariant. =====\n"
         )
     elif bounded_temporal_obligation is not None:
-        # bounded_temporal / event_state_correspondence: a bounded-RESPONSE obligation. "emit
-        # <event> within k steps" constrains how LONG S may take, so R adds one ghost step-counter
-        # nlr_clock that ticks on EVERY step while the response has not fired — Init sets it 0; Next
-        # CONJOINS its update (nlr_clock' = IF Pred_<event>' THEN 0 ELSE nlr_clock + 1) so S cannot
-        # pause the deadline by stuttering (a \/ UNCHANGED disjunct of S's Next still advances the
-        # clock). R_Requirement is the single-state invariant Premise => (Pred_<event> \/ nlr_clock
-        # <= k), so a counterexample is a real S behaviour that lets k steps pass after the trigger
-        # without emitting the response. The violating state has nlr_clock = k + 1, reachable only at
-        # search depth >= k + 1 (the caller raises max_depth to match). A same-state invariant over a
-        # ghost counter — not a primed-variable action invariant — for the same Apalache 0.58
-        # soundness reason as post_state (a primed action invariant false-passes over stutter).
-        ghost = _NARROWING_BOUNDED_TEMPORAL_GHOST_VAR
+        # bounded_temporal / event_state_correspondence / cross_module_causal_obligation: a bounded-
+        # RESPONSE obligation []( trigger => <>_{<=k} response ). "respond within k steps of the
+        # trigger" is a PENDING-DEADLINE property — measured from the TRIGGER, latched until the
+        # response — not a since-init step count. R adds two ghost variables:
+        #   nlr_pending : a deadline is owed. It is set the moment the trigger fires with no
+        #                 simultaneous response and STAYS set, independent of whether the trigger
+        #                 still holds, until the response arrives (fixing the one-shot FALSE-PASS: a
+        #                 premise-gated invariant went vacuously-true once the transient trigger
+        #                 cleared).
+        #   nlr_age     : steps since the oldest unanswered trigger — 0 at the trigger step (fixing
+        #                 the delayed-trigger FALSE-FAIL: a since-init clock charged the trigger the
+        #                 whole system uptime).
+        # The trigger (premise_expr) and response (Pred_<event>) are S-interpreted predicates that
+        # vary over S's state, so the ghosts are driven by their POST-state (primed) values; Apalache
+        # 0.58 primes a parametrized operator application after inlining, so (premise_expr)' and
+        # Pred_<event>' are sound. Both updates are CONJOINED into Next (a \/ UNCHANGED stutter step of
+        # S's own Next still advances the monitor — S cannot pause the deadline). The obligation is the
+        # SAME-STATE invariant R_Requirement == nlr_pending => nlr_age <= k; a counterexample has
+        # nlr_pending /\ nlr_age = k + 1, reachable only at search depth >= k + 1 (the caller raises
+        # max_depth to match). A same-state ghost invariant — never a primed-variable action invariant,
+        # which Apalache 0.58 silently false-passes over stutter (same soundness reason as post_state).
+        pending = _NARROWING_BOUNDED_TEMPORAL_PENDING_VAR
+        age = _NARROWING_BOUNDED_TEMPORAL_AGE_VAR
         response = bounded_temporal_obligation.response_predicate_name
         bound = bounded_temporal_obligation.bound
-        system_variable_blocks += _render_system_variable_blocks([(ghost, "Int")])
-        requirement_line = f"R_Requirement == {premise_expr} => ({response} \\/ {ghost} <= {bound})"
-        init_line = "Init == " + " /\\ ".join([*init_ops, f"{ghost} = 0"])
-        next_line = (
-            "Next == "
-            + " /\\ ".join([*next_ops, f"{ghost}' = (IF {response}' THEN 0 ELSE {ghost} + 1)"])
+        system_variable_blocks += _render_system_variable_blocks([(pending, "Bool"), (age, "Int")])
+        requirement_line = f"R_Requirement == {pending} => {age} <= {bound}"
+        init_line = "Init == " + " /\\ ".join(
+            [*init_ops, f"{pending} = (({premise_expr}) /\\ ~{response})", f"{age} = 0"]
+        )
+        next_line = "Next == " + " /\\ ".join(
+            [
+                *next_ops,
+                f"{pending}' = (IF {response}' THEN FALSE ELSE (({premise_expr})' \\/ {pending}))",
+                f"{age}' = (IF {response}' THEN 0 ELSE IF {pending} THEN {age} + 1 ELSE 0)",
+            ]
         )
         narrowing_comment = (
-            "\\* ===== Requirement R narrows S's TIMING into a bounded-response obligation. R adds\n"
-            f"\\* one ghost step-counter {ghost} that ticks on every step while the response\n"
-            f"\\* ({response}) has not fired (Init sets it 0; Next conjoins its update, so S's stutter\n"
-            "\\* steps cannot pause it). The obligation " + obligation_phrase + " — checked as the\n"
-            f"\\* state invariant R_Requirement == Premise => ({response} \\/ {ghost} <= {bound}), so a\n"
-            "\\* counterexample is a real S behaviour that misses the deadline. A same-state invariant\n"
-            "\\* over the ghost counter, not a primed action invariant (Apalache 0.58 false-passes the\n"
-            "\\* latter over stutter). =====\n"
+            "\\* ===== Requirement R narrows S's TIMING into a bounded-response obligation. R adds a\n"
+            f"\\* two-variable pending-deadline monitor: {pending} latches when the trigger fires with\n"
+            f"\\* no response and stays set until the response ({response}) arrives, and {age} counts\n"
+            "\\* steps since the oldest unanswered trigger (0 at the trigger step). Both ghosts are\n"
+            "\\* conjoined into Next (so S's stutter cannot pause the deadline) and driven by the\n"
+            "\\* post-state trigger/response. The obligation " + obligation_phrase + " — checked as\n"
+            f"\\* the state invariant R_Requirement == {pending} => {age} <= {bound}, so a\n"
+            "\\* counterexample is a real S behaviour that misses the deadline (measured from the\n"
+            "\\* trigger, latched across a one-shot trigger). A same-state ghost invariant, not a\n"
+            "\\* primed action invariant (Apalache 0.58 false-passes the latter over stutter). =====\n"
         )
     else:
         requirement_line = f"R_Requirement == {premise_expr} => {obligation_consequent}"

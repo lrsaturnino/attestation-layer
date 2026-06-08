@@ -1245,20 +1245,26 @@ def test_compose_s_and_r_narrowing_bounded_temporal_is_byte_stable() -> None:
 
     assert first.status == "composed"
     assert first.module_text == second.module_text  # byte-stable
-    # The ghost step-counter is declared, ticks via a CONJOINED Next update (not a disjunct), and
-    # the obligation is a same-state deadline invariant.
-    assert "VARIABLE\n  \\* @type: Int;\n  nlr_clock" in first.module_text
+    # The two-variable pending-deadline monitor is declared: nlr_pending latches the owed deadline,
+    # nlr_age counts steps from the trigger. Both ghost updates are CONJOINED into Next (not a
+    # disjunct), and the obligation is the same-state deadline invariant nlr_pending => nlr_age <= k.
+    assert "VARIABLE\n  \\* @type: Bool;\n  nlr_pending" in first.module_text
+    assert "VARIABLE\n  \\* @type: Int;\n  nlr_age" in first.module_text
     assert (
-        "Next == SNext /\\ nlr_clock' = (IF Pred_redemption_finalized' THEN 0 ELSE nlr_clock + 1)"
-        in first.module_text
+        "Init == SInit /\\ nlr_pending = ((Pred_authorized(wallet)) /\\ ~Pred_redemption_finalized)"
+        " /\\ nlr_age = 0" in first.module_text
     )
-    assert "Init == SInit /\\ nlr_clock = 0" in first.module_text
     assert (
-        "R_Requirement == Pred_authorized(wallet) => (Pred_redemption_finalized \\/ nlr_clock <= 6)"
-        in first.module_text
+        "Next == SNext"
+        " /\\ nlr_pending' = (IF Pred_redemption_finalized' THEN FALSE"
+        " ELSE ((Pred_authorized(wallet))' \\/ nlr_pending))"
+        " /\\ nlr_age' = (IF Pred_redemption_finalized' THEN 0"
+        " ELSE IF nlr_pending THEN nlr_age + 1 ELSE 0)" in first.module_text
     )
-    # A same-state ghost invariant, never a primed-variable action invariant (Apalache 0.58 trap).
-    assert "Pred_redemption_finalized' = " not in first.module_text
+    assert "R_Requirement == nlr_pending => nlr_age <= 6" in first.module_text
+    # The obligation R_Requirement is a same-state invariant over the ghosts — it primes nothing,
+    # never a primed-variable action invariant (Apalache 0.58 silently false-passes those).
+    assert "R_Requirement == nlr_pending => nlr_age <= 6\n" in first.module_text + "\n"
     assert first.bound_predicates == ["Pred_authorized", "Pred_redemption_finalized"]
     assert first.bound_state_invariants == [
         {
@@ -1268,6 +1274,135 @@ def test_compose_s_and_r_narrowing_bounded_temporal_is_byte_stable() -> None:
             "bound": 6,
         }
     ]
+
+
+# bounded_temporal with a STATE-DEPENDENT trigger (PA-3 pending-deadline regression guard). Unlike
+# the always-true-trigger spec above (which only exercises a trigger that already holds at init), here
+# Pred_authorized fires only at the step ``tick == trigger_at`` — a one-shot trigger that then goes
+# false — and the response latches once ``tick >= respond_at``. This exercises the pending-deadline
+# monitor's real behaviour: the deadline is measured from the TRIGGER (not from system init) and stays
+# owed across a transient trigger. The prior single since-init clock false-FAILED a late trigger and
+# false-PASSED a one-shot trigger; these specs are the regression guard for both defects.
+def _bounded_temporal_trigger_s_spec(*, trigger_at: int, respond_at: int) -> str:
+    return (
+        "---- MODULE RedemptionTriggerSystem ----\n"
+        "\\* @type: Int;\nVARIABLE tick\n"
+        "\\* @type: Bool;\nVARIABLE finalized\n"
+        f"\\* @type: (Str) => Bool;\nPred_authorized(a) == (tick = {trigger_at})\n"
+        "\\* @type: Bool;\nPred_redemption_finalized == finalized\n"
+        "SystemLive == tick >= 0\n"
+        "SInit == tick = 0 /\\ finalized = FALSE\n"
+        f"SNext == tick' = tick + 1 /\\ finalized' = (finalized \\/ (tick + 1 >= {respond_at}))\n"
+        "===="
+    )
+
+
+def _bounded_temporal_ir_k(requirement_id: str, k: int):
+    return DslV3Parser().parse_ir(
+        "requirement bounded_temporal:\n"
+        "scope redemption\n"
+        "when wallet is authorized\n"
+        f"then emit redemption_finalized within {k} hours\n",
+        requirement_id=requirement_id,
+        title="Bounded temporal",
+    )
+
+
+def _run_bounded_temporal_trigger_check(
+    tmp_path: Path, *, requirement_id: str, k: int, trigger_at: int, respond_at: int
+):
+    ir = _bounded_temporal_ir_k(requirement_id, k)
+    return check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(
+            tmp_path,
+            spec_text=_bounded_temporal_trigger_s_spec(trigger_at=trigger_at, respond_at=respond_at),
+            invariants=("SystemLive",),
+            init_op="SInit",
+            next_op="SNext",
+        ),
+        impact=_bounded_temporal_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=60),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=_APALACHE_COMMAND,
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_bounded_temporal_delayed_trigger_is_valid(tmp_path: Path) -> None:
+    """PA-3 (false-FAIL fix): the trigger fires LATE (tick=3, after k=2 steps of system uptime) and
+    the response arrives one step later — within the deadline measured FROM THE TRIGGER. The pending
+    monitor reports 'valid'. The prior since-init clock charged the trigger the whole uptime (clock=3
+    > k=2) and reported a spurious counterexample; the deadline must start at the trigger.
+    """
+    result = _run_bounded_temporal_trigger_check(
+        tmp_path, requirement_id="REQ-BT-DELAYED", k=2, trigger_at=3, respond_at=4
+    )
+    assert result.result.status == "valid", result.result.details
+    assert result.result.evidence_level.value == "BOUNDED_CHECKED"
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_bounded_temporal_one_shot_trigger_no_response_is_counterexample(
+    tmp_path: Path,
+) -> None:
+    """PA-3 (false-PASS fix): a one-shot trigger fires at init and then goes false, and the response
+    never arrives. The pending bit LATCHES the owed deadline independent of the now-false trigger, so
+    nlr_age exceeds k and Apalache returns a real counterexample. The prior premise-gated invariant
+    went vacuously-true once the transient trigger cleared and false-passed this as 'valid'.
+    """
+    result = _run_bounded_temporal_trigger_check(
+        tmp_path, requirement_id="REQ-BT-ONESHOT", k=2, trigger_at=0, respond_at=99
+    )
+    assert result.result.status == "counterexample", result.result.details
+    assert result.counterexamples
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_bounded_temporal_state_trigger_on_time_is_valid(tmp_path: Path) -> None:
+    """PA-3: a state-dependent trigger fires at tick=1 and the response arrives at tick=2 (one step,
+    within k=2). The pending deadline clears on the timely response — 'valid'.
+    """
+    result = _run_bounded_temporal_trigger_check(
+        tmp_path, requirement_id="REQ-BT-ONTIME", k=2, trigger_at=1, respond_at=2
+    )
+    assert result.result.status == "valid", result.result.details
+    assert result.result.evidence_level.value == "BOUNDED_CHECKED"
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_bounded_temporal_state_trigger_late_response_is_counterexample(
+    tmp_path: Path,
+) -> None:
+    """PA-3: the trigger fires at init and the response DOES arrive, but only at tick=5 — later than
+    the k=2 deadline. The pending monitor trips at nlr_age = k + 1 before the late response clears it,
+    so a real counterexample is returned (a response that exists but misses the bound still fails).
+    """
+    result = _run_bounded_temporal_trigger_check(
+        tmp_path, requirement_id="REQ-BT-LATE", k=2, trigger_at=0, respond_at=5
+    )
+    assert result.result.status == "counterexample", result.result.details
+    assert result.counterexamples
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_bounded_temporal_trigger_and_response_same_step_is_valid(
+    tmp_path: Path,
+) -> None:
+    """PA-3 edge: the trigger and the response hold in the SAME state (tick=1). A zero-latency
+    response owes no deadline — the pending bit is never set (the response clears it in the same
+    step), so the monitor reports 'valid'.
+    """
+    result = _run_bounded_temporal_trigger_check(
+        tmp_path, requirement_id="REQ-BT-SAMESTEP", k=2, trigger_at=1, respond_at=1
+    )
+    assert result.result.status == "valid", result.result.details
+    assert result.result.evidence_level.value == "BOUNDED_CHECKED"
 
 
 def test_solver_backed_bounded_temporal_refuses_stateless_spec(tmp_path: Path) -> None:
