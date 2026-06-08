@@ -15,6 +15,7 @@ from nlreq.formal_lowering import (
     z3_discriminate_authorization_precondition,
     z3_discriminate_lowered_requirements,
 )
+from nlreq.formal_claim import build_formal_claim, formal_claim_to_proof_premise_routes
 from nlreq.models import RequirementIRV2
 from nlreq.translator import (
     ControlledDraft,
@@ -709,6 +710,41 @@ def test_lower_authorization_precondition_projects_comparison_and_membership() -
     assert "tier" not in content
     # Projecting yields exactly the auth-only module: same composition, same checker outcome.
     assert mixed_artifact.content == auth_artifact.content
+
+
+def test_projected_comparison_and_membership_premises_route_to_their_smt_backends() -> None:
+    """Closes the projection loop (PA-1, option (b) accepted design): the comparison and membership
+    premises projected OUT of the Apalache S ∧ R module are not lost — the FormalClaim routes each to
+    its theory-aware SMT backend (comparison -> smt-theories/z3, membership -> cvc5, PB-7). Those
+    backends supply the per-kind requirement-vs-negation discrimination — a consistent premise
+    discharges and its contradictory negation blocks — proven in tests/test_formal_claim_smt.py
+    (test_consistent_comparison_premises_discharge_through_proof_object and its disjoint/contradictory
+    siblings). So comparison/membership are genuinely checked, just by the SMT backends rather than by
+    Apalache; the auth predicate stays on the bounded S ∧ R model check.
+    """
+    mixed = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope redemption "
+        "when wallet is not authorized and requested_amount <= spendable_balance "
+        "and tier is in {gold, silver} then finalize_redemption must reject before rejected.",
+        requirement_id="AUTH-MIXED",
+        title="Mixed premise",
+    )
+
+    # The TLA lowering projects comparison/membership out (the auth predicate alone drives S ∧ R)...
+    content = lower_ir_v2_to_tla(mixed).content
+    assert content is not None
+    assert "requested_amount" not in content and "tier" not in content
+
+    # ...and the FormalClaim routes those exact projected premises to their SMT producers.
+    routes = {
+        r.node_kind: (r.backend_id, r.required_evidence.value)
+        for r in formal_claim_to_proof_premise_routes(build_formal_claim(mixed).formal_claim)
+    }
+    assert routes["comparison"] == ("smt-theories", "SMT_CHECKED")
+    assert routes["membership"] == ("cvc5", "SMT_CHECKED")
+    # The auth predicate and the forbidden outcome stay on the bounded S ∧ R model check.
+    assert routes["predicate"] == ("solver_system_checker", "BOUNDED_CHECKED")
+    assert routes["rejection_order"] == ("solver_system_checker", "BOUNDED_CHECKED")
 
 
 def test_lower_authorization_precondition_refuses_non_before_obligation() -> None:
