@@ -347,6 +347,7 @@ def refuse_ambiguous_ensemble(
     semantic_tree_hash: str | None = None,
     semantic_decomposition_hash: str | None = None,
     requirement_ir: RequirementIRV2 | None = None,
+    controlled_text: str | None = None,
     semantic_decomposition: "SemanticDecompositionTree | None" = None,
     ensemble_candidate_provenances: list[dict[str, str]] | None = None,
     ensemble_candidate_audit_verdicts: list[AuditVerdict | None] | None = None,
@@ -360,19 +361,30 @@ def refuse_ambiguous_ensemble(
     mapped from the disagreement paths, and all available prior-stage provenance
     so callers can reconstruct the full translation history.
 
-    All provenance params are optional for backward-compatibility with call sites
-    that only supply requirement_id and disagreements (e.g. end_to_end_gate).
-
-    ``refusal_source_spans`` is the whole-requirement fallback the PA-10 product surface
-    renders when a per-disagreement span is unavailable. When the caller does not pass it,
-    it is derived from the parsed ``requirement_ir`` root span so both the standalone
-    ensemble path and the gate path (which supplies ``requirement_ir``) localize without
-    threading the controlled text through.
+    The whole-requirement fallback that the PA-10 product surface renders when a
+    per-disagreement span is unavailable is resolved from the first available of, in order:
+    ``refusal_source_spans`` (explicit), the parsed ``requirement_ir`` root spans, or a
+    whole-requirement span over ``controlled_text``. PA-10 forbids a spanless product
+    finding, so if none of those is available AND any emitted finding would be left without
+    a span — a disagreement that carries no span of its own, or the generic finding emitted
+    when there are no disagreements at all — this REFUSES to emit a mute finding and raises
+    ``ValueError``: the caller must supply a localizable source. Disagreements that each
+    carry their own ``source_spans`` localize per-finding and need no fallback.
     """
     effective_id = translation_id or f"semantic-translation-{requirement_id}"
-    effective_fallback_spans = refusal_source_spans
-    if effective_fallback_spans is None and requirement_ir is not None:
+    effective_fallback_spans = list(refusal_source_spans) if refusal_source_spans else []
+    if not effective_fallback_spans and requirement_ir is not None:
         effective_fallback_spans = list(requirement_ir.semantic_ir.source_spans)
+    if not effective_fallback_spans and controlled_text is not None:
+        effective_fallback_spans = [_whole_controlled_requirement_span(controlled_text)]
+    would_render_spanless = not disagreements or any(not d.source_spans for d in disagreements)
+    if not effective_fallback_spans and would_render_spanless:
+        raise ValueError(
+            "refuse_ambiguous_ensemble cannot localize the refusal: a finding would render "
+            "without a source span and no whole-requirement fallback was derivable. Supply "
+            "refusal_source_spans, requirement_ir, or controlled_text (PA-10 requires every "
+            "refusal to render a real source span)."
+        )
     findings = [
         SemanticAmbiguityFinding(
             finding_id=f"ensemble-disagreement-{i}",

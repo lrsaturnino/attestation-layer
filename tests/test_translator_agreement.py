@@ -271,10 +271,17 @@ def test_translation_agreement_uses_formal_claim_signature_for_v3_requirements()
 
 
 def test_refuse_ambiguous_ensemble_emits_refused_ambiguous_code() -> None:
-    """refuse_ambiguous_ensemble returns a SemanticTranslationReport with NLR-REFUSED-AMBIGUOUS."""
+    """refuse_ambiguous_ensemble returns a SemanticTranslationReport with NLR-REFUSED-AMBIGUOUS.
+
+    A disagreement that carries no span of its own still localizes: the controlled requirement
+    text supplies the whole-requirement fallback, so the PA-10 product finding renders a real
+    span and never a spanless "unavailable" finding.
+    """
+    from nlreq.refusal import build_refusal_report_from_semantic_translation
     from nlreq.semantic_translation import refuse_ambiguous_ensemble
     from nlreq.translator_agreement import TranslationDisagreement
 
+    controlled_text = "requirement state_precondition:\n  actor must be authorized\n"
     disagreements = [
         TranslationDisagreement(
             left_translator_id="t1",
@@ -286,6 +293,7 @@ def test_refuse_ambiguous_ensemble_emits_refused_ambiguous_code() -> None:
     report = refuse_ambiguous_ensemble(
         requirement_id="REQ-AMBIG-001",
         disagreements=disagreements,
+        controlled_text=controlled_text,
     )
 
     assert report.result == "refused"
@@ -295,6 +303,73 @@ def test_refuse_ambiguous_ensemble_emits_refused_ambiguous_code() -> None:
     assert len(report.clarification_questions) == 1
     assert "t1" in report.clarification_questions[0]
     assert "t2" in report.clarification_questions[0]
+
+    # PA-10: the documented compatibility mode cannot render a spanless product finding.
+    refusal = build_refusal_report_from_semantic_translation(report)
+    finding = refusal.findings[0]
+    assert finding.source_spans, "ambiguous-ensemble refusal must localize a real span"
+    assert finding.no_span_reason is None
+    assert finding.source_spans[0].text == controlled_text.rstrip("\n")
+    assert finding.next_actions
+
+
+def test_refuse_ambiguous_ensemble_without_localizable_source_raises() -> None:
+    """PA-10: with no per-disagreement span, no requirement_ir, and no controlled_text, the
+    helper refuses to emit a mute, spanless product finding and raises rather than guessing a
+    source location."""
+    import pytest
+
+    from nlreq.semantic_translation import refuse_ambiguous_ensemble
+    from nlreq.translator_agreement import TranslationDisagreement
+
+    disagreements = [
+        TranslationDisagreement(
+            left_translator_id="t1",
+            right_translator_id="t2",
+            path="semantic_ir.premise",
+            reason="formal-claim signatures differ",
+        )
+    ]
+    with pytest.raises(ValueError, match="cannot localize"):
+        refuse_ambiguous_ensemble(
+            requirement_id="REQ-AMBIG-002",
+            disagreements=disagreements,
+        )
+
+
+def test_refuse_ambiguous_ensemble_controlled_text_insures_empty_ir_root_spans() -> None:
+    """PA-10 gate-shape insurance: requirement_ir alone does not guarantee a span — its root
+    spans can be empty, and a remapped disagreement can carry no span of its own. The
+    end-to-end gate also passes controlled_text, which guarantees a non-empty whole-requirement
+    fallback so the refusal localizes and never raises in that shape.
+    """
+    from nlreq.refusal import build_refusal_report_from_semantic_translation
+    from nlreq.semantic_translation import refuse_ambiguous_ensemble
+    from nlreq.translator_agreement import TranslationDisagreement
+
+    data = _ir().model_dump(mode="json")
+    data["semantic_ir"]["source_spans"] = []
+    ir_no_root_spans = RequirementIRV2.model_validate(data)
+    controlled_text = (FIXTURES / "dsl_v2_redemption.nlreq2").read_text()
+
+    report = refuse_ambiguous_ensemble(
+        requirement_id="REQ-AGREE-001",
+        disagreements=[
+            TranslationDisagreement(
+                left_translator_id="t1",
+                right_translator_id="t2",
+                path="semantic_ir.premise",
+                reason="formal-claim signatures differ",
+            )
+        ],
+        requirement_ir=ir_no_root_spans,
+        controlled_text=controlled_text,
+    )
+
+    finding = build_refusal_report_from_semantic_translation(report).findings[0]
+    assert finding.source_spans, "controlled_text must localize when IR root spans are empty"
+    assert finding.no_span_reason is None
+    assert finding.source_spans[0].text == controlled_text.rstrip("\n")
 
 
 def test_translation_agreement_unapproved_llm_with_different_ir_blocks_as_needs_review() -> None:

@@ -443,6 +443,11 @@ def run_end_to_end_requirement_gate(
             translation_id=f"gate-translation-{requirement_id}",
             disagreements=remapped_disagreements,
             requirement_ir=requirement,
+            # Insurance: requirement_ir takes precedence, but a remapped disagreement can
+            # carry no span (remap keeps empty candidate spans when a path has no original
+            # counterpart). Supplying controlled_text guarantees a non-empty whole-requirement
+            # fallback so the refusal always localizes and never raises for lack of a span.
+            controlled_text=controlled_text,
             input_hashes=gate_input_hashes,
         )
         record("translation_refusal", "translation-refusal.json", ambiguous_refusal)
