@@ -97,18 +97,24 @@ def test_legacy_skeleton_refuses_unsupported_nodes_with_fragment_diagnostics() -
     assert artifact.content is None
 
 
-def test_absent_requirement_class_skeletons_by_default() -> None:
-    """A legacy DSL v2 IR carries no requirement_class, so the live path (no flag) falls through to the
-    deprecated skeleton — preserved deliberately because the production end_to_end_gate default-parses
-    controlled text with DslV2Parser. This is the legacy v2 branch (not_checked, unchecked), distinct
-    from the non-vacuous v3 lowering of supported classes.
+def test_absent_requirement_class_refuses_by_default() -> None:
+    """A legacy DSL v2 IR carries no requirement_class, so the live path (no flag) REFUSES rather than
+    silently emit the deprecated not_checked skeleton. The vacuous skeleton (predicates -> TRUE, the
+    Within == event passthrough) is reachable only through the explicit legacy_skeleton=True opt-in, so
+    no input silently returns the not_checked skeleton on the live path.
     """
     ir = _dsl_v2_ir()
 
     artifact = lower_ir_v2_to_tla(ir)
 
-    assert artifact.status == "lowered"
-    assert artifact.metadata.get("evidence") == "not_checked"
+    assert artifact.status == "refused"
+    assert artifact.content is None
+    assert artifact.metadata.get("refusal_code") == "NLR-LOWERING-ABSENT-CLASS"
+    assert any(d.kind == "absent_requirement_class" for d in artifact.diagnostics)
+    # The deprecated skeleton is still available, but only by explicit opt-in — never silently.
+    legacy = lower_ir_v2_to_tla(ir, legacy_skeleton=True)
+    assert legacy.status == "lowered"
+    assert legacy.metadata.get("evidence") == "not_checked"
 
 
 def test_present_but_unsupported_requirement_class_refuses() -> None:
@@ -192,7 +198,11 @@ def test_translator_cli_draft_approve_parse_and_lower(tmp_path: Path, capsys) ->
     ir_output = json.loads(capsys.readouterr().out)
     ir_path = tmp_path / "requirement.ir.json"
     ir_path.write_text(json.dumps(ir_output))
-    lower_exit = main(["lower-ir-v2", str(ir_path), "--out", str(lowered_path)])
+    # The draft is parsed by DslV2Parser (no requirement_class), so the live lowering would refuse;
+    # this roundtrip exercises the deprecated skeleton path explicitly via --legacy-skeleton.
+    lower_exit = main(
+        ["lower-ir-v2", str(ir_path), "--legacy-skeleton", "--out", str(lowered_path)]
+    )
 
     output = capsys.readouterr().out
 

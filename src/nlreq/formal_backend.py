@@ -77,6 +77,11 @@ class FormalBackendRequest(BaseModel):
     entry_node_id: str = "rule.root"
     budget: FormalBackendBudget | None = None
     execution: FormalBackendExecution | None = None
+    # Opt into the deprecated vacuous TLA skeleton for a legacy DSL v2 requirement that declares no
+    # supported requirement_class. Defaults False: the live path refuses such an IR (the backend then
+    # reports `unsupported`) rather than checking a not_checked skeleton. A plumbing harness that
+    # deliberately feeds classless v2 input sets this True to exercise the backend on the legacy module.
+    legacy_skeleton: bool = False
 
 
 class FormalBackendResponse(BaseModel):
@@ -198,7 +203,7 @@ class TlaRunnerBackend:
         if request.target != self.target:
             raise ValueError(f"target mismatch: request {request.target}, backend {self.target}")
 
-        lowered = lower_ir_v2_to_tla(request.requirement)
+        lowered = lower_ir_v2_to_tla(request.requirement, legacy_skeleton=request.legacy_skeleton)
         if lowered.status != "lowered" or lowered.content is None:
             unsupported = [
                 UnsupportedConstruct(
@@ -318,7 +323,7 @@ class ProductionTlaBackend:
         if request.target != self.target:
             raise ValueError(f"target mismatch: request {request.target}, backend {self.target}")
 
-        lowered = lower_ir_v2_to_tla(request.requirement)
+        lowered = lower_ir_v2_to_tla(request.requirement, legacy_skeleton=request.legacy_skeleton)
         if lowered.status != "lowered" or lowered.content is None:
             unsupported = [
                 UnsupportedConstruct(
@@ -478,6 +483,7 @@ def build_formal_backend_request(
     backend_id: str,
     budget: FormalBackendBudget | None = None,
     execution: FormalBackendExecution | None = None,
+    legacy_skeleton: bool = False,
 ) -> FormalBackendRequest:
     backend = formal_backend_for_id(backend_id)
     return FormalBackendRequest(
@@ -486,6 +492,7 @@ def build_formal_backend_request(
         requirement=requirement,
         budget=budget,
         execution=execution,
+        legacy_skeleton=legacy_skeleton,
     )
 
 

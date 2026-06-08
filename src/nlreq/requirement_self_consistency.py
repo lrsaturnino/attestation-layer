@@ -163,6 +163,7 @@ def check_requirement_self_consistency(
     budget: FormalBackendBudget | None = None,
     execution: FormalBackendExecution | None = None,
     untrusted_suggestions: list[UntrustedContradictionSuggestion] | None = None,
+    legacy_skeleton: bool = False,
 ) -> RequirementSelfConsistencyResult:
     contradictions = _deterministic_contradictions(requirement.semantic_ir)
     checked_codes = _taxonomy_codes()
@@ -193,6 +194,10 @@ def check_requirement_self_consistency(
             backend_id=backend_id,
             budget=budget,
             execution=execution,
+            # Defaults False: a classless legacy DSL v2 requirement refuses to lower (the backend then
+            # reports unsupported) rather than self-checking a vacuous skeleton. A caller deliberately
+            # self-checking legacy v2 input opts into the skeleton with legacy_skeleton=True.
+            legacy_skeleton=legacy_skeleton,
         )
     )
     status = _result_status(response)

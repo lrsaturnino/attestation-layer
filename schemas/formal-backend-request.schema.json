@@ -834,6 +834,11 @@
       ],
       "default": null
     },
+    "legacy_skeleton": {
+      "default": false,
+      "title": "Legacy Skeleton",
+      "type": "boolean"
+    },
     "requirement": {
       "$ref": "#/$defs/RequirementIRV2"
     },

@@ -419,6 +419,14 @@ def main(argv: list[str] | None = None) -> int:
     formal_backend_check_cmd.add_argument(
         "--output-limit-bytes", type=int, default=DEFAULT_RUNNER_OUTPUT_LIMIT_BYTES
     )
+    formal_backend_check_cmd.add_argument(
+        "--legacy-skeleton",
+        action="store_true",
+        help=(
+            "Opt into the deprecated vacuous TLA skeleton for a legacy DSL v2 IR with no supported "
+            "requirement_class. By default such an IR refuses (the backend reports unsupported)."
+        ),
+    )
 
     model_checker_run_cmd = subcommands.add_parser(
         "model-checker-run", help="Run a local model checker with normalized metadata."
@@ -541,6 +549,15 @@ def main(argv: list[str] | None = None) -> int:
     )
     lower_ir_v2_cmd.add_argument("file", type=Path)
     lower_ir_v2_cmd.add_argument("--out", type=Path)
+    lower_ir_v2_cmd.add_argument(
+        "--legacy-skeleton",
+        action="store_true",
+        help=(
+            "Opt into the deprecated vacuous TLA skeleton for a legacy DSL v2 IR that declares no "
+            "supported requirement_class. By default such an IR refuses rather than lowering to the "
+            "not_checked skeleton."
+        ),
+    )
 
     controlled_semantics_cmd = subcommands.add_parser(
         "controlled-semantics", help="Emit the DSL v3 controlled requirement semantics reference."
@@ -843,6 +860,14 @@ def main(argv: list[str] | None = None) -> int:
     req_self_cmd.add_argument("--tool-version-command", nargs="+")
     req_self_cmd.add_argument(
         "--output-limit-bytes", type=int, default=DEFAULT_RUNNER_OUTPUT_LIMIT_BYTES
+    )
+    req_self_cmd.add_argument(
+        "--legacy-skeleton",
+        action="store_true",
+        help=(
+            "Opt into the deprecated vacuous TLA skeleton for a legacy DSL v2 IR with no supported "
+            "requirement_class. By default such an IR refuses (the self-check reports unsupported)."
+        ),
     )
     req_self_cmd.add_argument("--out", type=Path)
 
@@ -1936,6 +1961,7 @@ def main(argv: list[str] | None = None) -> int:
                 backend_id=args.backend,
                 budget=_formal_backend_budget_from_args(args),
                 execution=_formal_backend_execution_from_args(args, checker_command),
+                legacy_skeleton=args.legacy_skeleton,
             )
             print(canonical_json(check_formal_backend(request)), end="")
             return 0
@@ -2143,7 +2169,7 @@ def main(argv: list[str] | None = None) -> int:
             ir = validate_requirement_ir_json(args.file.read_text())
             if not isinstance(ir, RequirementIRV2):
                 raise ValueError("lower-ir-v2 requires ir_version 0.2")
-            artifact = lower_ir_v2_to_tla(ir)
+            artifact = lower_ir_v2_to_tla(ir, legacy_skeleton=args.legacy_skeleton)
             if args.out:
                 write_json(args.out, artifact)
                 print(f"Lowered formal artifact: {args.out}")
@@ -2749,6 +2775,7 @@ def main(argv: list[str] | None = None) -> int:
                 backend_id=args.backend,
                 budget=_formal_backend_budget_from_args(args),
                 execution=_formal_backend_execution_from_args(args, checker_command),
+                legacy_skeleton=args.legacy_skeleton,
             )
             if args.out:
                 write_json(args.out, report)

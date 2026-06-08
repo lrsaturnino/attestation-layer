@@ -63,6 +63,10 @@ def test_production_backends_are_registered_and_missing_tool_is_unsupported(tmp_
     request = build_formal_backend_request(
         ir,
         backend_id=ApalacheBackend.backend_id,
+        # Classless DSL v2 input: opt into the legacy skeleton so the backend has a module to run
+        # (the live path now refuses an absent requirement_class). This test exercises tool-missing
+        # plumbing, not lowering semantics.
+        legacy_skeleton=True,
         execution=FormalBackendExecution(
             checker_id="apalache",
             command=["definitely-missing-nlreq-apalache", "check", "{module}"],
@@ -81,6 +85,7 @@ def test_tlc_production_backend_accepts_custom_checker_command(tmp_path: Path) -
     request = build_formal_backend_request(
         _dsl_v2_ir(),
         backend_id=TlcProductionBackend.backend_id,
+        legacy_skeleton=True,  # classless v2 input — exercise the legacy skeleton for backend plumbing
         execution=FormalBackendExecution(
             checker_id="custom-tlc",
             command=[sys.executable, "-c", "print('verification successful')"],
@@ -170,6 +175,7 @@ def test_production_backend_surfaces_recorded_version_so_real_run_is_backed(tmp_
             _dsl_v2_ir(),
             backend_id=ApalacheBackend.backend_id,
             budget=FormalBackendBudget(timeout_seconds=5, max_depth=6),
+            legacy_skeleton=True,  # classless v2 input — legacy skeleton gives the backend a module
             execution=FormalBackendExecution(
                 checker_id="apalache",
                 command=[sys.executable, "-c", "print('The outcome is: NoError')"],
@@ -187,6 +193,7 @@ def test_production_backend_surfaces_recorded_version_so_real_run_is_backed(tmp_
             _dsl_v2_ir(),
             backend_id=ApalacheBackend.backend_id,
             budget=FormalBackendBudget(timeout_seconds=5, max_depth=6),
+            legacy_skeleton=True,  # classless v2 input — legacy skeleton gives the backend a module
             execution=FormalBackendExecution(
                 checker_id="custom-apalache",
                 command=[sys.executable, "-c", "print('The outcome is: NoError')"],
@@ -204,7 +211,9 @@ def test_production_backend_surfaces_recorded_version_so_real_run_is_backed(tmp_
 
 
 def test_tla_projection_records_bounds_and_refuses_unsupported_fragments() -> None:
-    report = build_tla_projection_report(_dsl_v2_ir())
+    # Classless DSL v2 input — the projection inspector opts into the legacy skeleton explicitly; the
+    # live path refuses an absent requirement_class.
+    report = build_tla_projection_report(_dsl_v2_ir(), legacy_skeleton=True)
 
     assert report.result == "projected"
     assert report.lowered.status == "lowered"

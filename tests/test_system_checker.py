@@ -56,7 +56,7 @@ def test_system_consistency_returns_valid_for_fresh_specs_and_lowered_requiremen
 ) -> None:
     result = check_system_consistency_fixture(
         requirement=_ir(),
-        lowered=lower_ir_v2_to_tla(_ir()),
+        lowered=lower_ir_v2_to_tla(_ir(), legacy_skeleton=True),
         registry=_registry(tmp_path),
         impact=_impact(),
         project_root=tmp_path,
@@ -69,7 +69,7 @@ def test_system_consistency_returns_valid_for_fresh_specs_and_lowered_requiremen
 def test_system_consistency_returns_counterexample_marker(tmp_path: Path) -> None:
     result = check_system_consistency_fixture(
         requirement=_ir(),
-        lowered=lower_ir_v2_to_tla(_ir()),
+        lowered=lower_ir_v2_to_tla(_ir(), legacy_skeleton=True),
         registry=_registry(tmp_path, marker="\\* NLREQ_COUNTEREXAMPLE:REQ-SYS-001\n"),
         impact=_impact(),
         project_root=tmp_path,
@@ -82,7 +82,7 @@ def test_system_consistency_returns_counterexample_marker(tmp_path: Path) -> Non
 def test_system_consistency_returns_timeout_marker(tmp_path: Path) -> None:
     result = check_system_consistency_fixture(
         requirement=_ir(),
-        lowered=lower_ir_v2_to_tla(_ir()),
+        lowered=lower_ir_v2_to_tla(_ir(), legacy_skeleton=True),
         registry=_registry(tmp_path, marker="\\* NLREQ_TIMEOUT\n"),
         impact=_impact(),
         project_root=tmp_path,
@@ -98,7 +98,7 @@ def test_system_consistency_returns_unsupported_for_stale_spec(tmp_path: Path) -
 
     result = check_system_consistency_fixture(
         requirement=_ir(),
-        lowered=lower_ir_v2_to_tla(_ir()),
+        lowered=lower_ir_v2_to_tla(_ir(), legacy_skeleton=True),
         registry=SystemSpecRegistry.model_validate(data),
         impact=_impact(),
         project_root=tmp_path,
@@ -108,7 +108,9 @@ def test_system_consistency_returns_unsupported_for_stale_spec(tmp_path: Path) -
 
 
 def test_system_consistency_returns_unsupported_for_refused_lowering(tmp_path: Path) -> None:
-    lowered = lower_ir_v2_to_tla(_ir())
+    # Start from a genuinely-lowered (legacy skeleton) artifact, then force the refused status so the
+    # test isolates the "refused lowering -> unsupported" path (not the absent-class refusal itself).
+    lowered = lower_ir_v2_to_tla(_ir(), legacy_skeleton=True)
     refused = LoweredFormalArtifact.model_validate(
         lowered.model_copy(update={"status": "refused", "content": None, "content_hash": None})
         .model_dump(mode="json", exclude_none=True)
@@ -2248,7 +2250,7 @@ def test_solver_backed_system_consistency_blocks_stale_specs_before_execution(
 
     result = check_solver_backed_system_consistency(
         requirement=_ir(),
-        lowered=lower_ir_v2_to_tla(_ir()),
+        lowered=lower_ir_v2_to_tla(_ir(), legacy_skeleton=True),
         registry=SystemSpecRegistry.model_validate(data),
         impact=_impact(),
         project_root=tmp_path,
@@ -2266,7 +2268,9 @@ def test_solver_backed_system_consistency_blocks_stale_specs_before_execution(
 
 def test_system_consistency_fixture_cli(tmp_path: Path, capsys) -> None:
     ir = _ir()
-    lowered = lower_ir_v2_to_tla(ir)
+    # Offline fixture CLI exercises classless DSL v2 input: opt into the legacy skeleton so the
+    # lowered artifact has content (the live path refuses an absent requirement_class).
+    lowered = lower_ir_v2_to_tla(ir, legacy_skeleton=True)
     registry = _registry(tmp_path)
     impact = _impact()
     ir_path = tmp_path / "requirement.ir.json"

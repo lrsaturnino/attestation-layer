@@ -466,6 +466,10 @@ def run_end_to_end_requirement_gate(
             ],
         )
 
+    # Live path (no legacy_skeleton): a caller-provided DSL v3 IR lowers non-vacuously by its
+    # requirement_class; the legacy v2 default-parse fallback (no class) REFUSES rather than silently
+    # emitting the not_checked skeleton. A refused lowering surfaces honestly downstream — the
+    # solver-backed S ∧ R check treats it as unsupported (blocks) instead of checking a vacuous module.
     lowered = lower_ir_v2_to_tla(requirement)
     record("lowered_formal", "lowered-formal.json", lowered)
 

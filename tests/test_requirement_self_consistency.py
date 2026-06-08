@@ -15,6 +15,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "requirements"
 def test_requirement_self_consistency_accepts_valid_backend_run(tmp_path: Path) -> None:
     report = check_requirement_self_consistency(
         _ir(),
+        legacy_skeleton=True,  # classless DSL v2 fixture — self-check the legacy skeleton explicitly
         budget=FormalBackendBudget(timeout_seconds=5, max_depth=8),
         execution=FormalBackendExecution(
             checker_id="custom",
@@ -43,6 +44,7 @@ def test_requirement_self_consistency_valid_run_without_version_is_not_bounded(
     itself BOUNDED_CHECKED (the backing is bounds + command + a run-recorded version)."""
     report = check_requirement_self_consistency(
         _ir(),
+        legacy_skeleton=True,  # classless DSL v2 fixture — self-check the legacy skeleton explicitly
         budget=FormalBackendBudget(timeout_seconds=5, max_depth=8),
         execution=FormalBackendExecution(
             checker_id="custom",
@@ -115,6 +117,7 @@ def test_self_consistency_keeps_satisfiable_large_integer_comparison(tmp_path: P
 def test_requirement_self_consistency_maps_backend_counterexample(tmp_path: Path) -> None:
     report = check_requirement_self_consistency(
         _ir(),
+        legacy_skeleton=True,  # classless DSL v2 fixture — self-check the legacy skeleton explicitly
         execution=FormalBackendExecution(
             checker_id="custom",
             command=[sys.executable, "-c", "print('Invariant is violated.')"],
@@ -132,7 +135,9 @@ def test_requirement_self_consistency_reports_unsupported_node() -> None:
         (FIXTURES / "compositional_ir_v02_multi_premise.json").read_text()
     )
 
-    report = check_requirement_self_consistency(ir)
+    # Classless v0.2 fixture IR with an unsupported invariant node — opt into the legacy skeleton so
+    # the unsupported-node refusal (not the absent-class refusal) is what this test exercises.
+    report = check_requirement_self_consistency(ir, legacy_skeleton=True)
 
     assert report.status == "unsupported"
     unsupported = {(item.node_id, item.kind) for item in report.unsupported_constructs}
@@ -142,6 +147,7 @@ def test_requirement_self_consistency_reports_unsupported_node() -> None:
 def test_requirement_self_consistency_timeouts_never_approve(tmp_path: Path) -> None:
     report = check_requirement_self_consistency(
         _ir(),
+        legacy_skeleton=True,  # classless DSL v2 fixture — self-check the legacy skeleton explicitly
         budget=FormalBackendBudget(timeout_seconds=1),
         execution=FormalBackendExecution(
             checker_id="custom",
@@ -158,6 +164,7 @@ def test_requirement_self_consistency_timeouts_never_approve(tmp_path: Path) -> 
 def test_requirement_self_consistency_tool_errors_never_approve(tmp_path: Path) -> None:
     report = check_requirement_self_consistency(
         _ir(),
+        legacy_skeleton=True,  # classless DSL v2 fixture — self-check the legacy skeleton explicitly
         execution=FormalBackendExecution(
             checker_id="custom",
             command=[sys.executable, "-c", "raise SystemExit(3)"],
@@ -181,6 +188,8 @@ def test_requirement_self_consistency_cli_writes_report(tmp_path: Path, capsys) 
             "requirement-self-consistency",
             "--requirement-ir",
             str(ir_path),
+            # Classless v2 IR on disk — opt into the legacy skeleton for the self-check.
+            "--legacy-skeleton",
             "--artifact-dir",
             str(artifacts),
             "--checker-id",

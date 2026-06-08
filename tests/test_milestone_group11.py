@@ -84,6 +84,9 @@ def test_phase125_apalache_records_symbolic_profile_and_non_success_outcomes(tmp
     valid = check_formal_backend(
         build_formal_backend_request(
             _ir(),
+            # Classless DSL v2 input — opt into the legacy skeleton so the backend has a module to
+            # run (the live path refuses an absent requirement_class).
+            legacy_skeleton=True,
             backend_id="apalache",
             budget=FormalBackendBudget(timeout_seconds=5, max_depth=14),
             execution=FormalBackendExecution(
@@ -99,6 +102,9 @@ def test_phase125_apalache_records_symbolic_profile_and_non_success_outcomes(tmp
     timeout = check_formal_backend(
         build_formal_backend_request(
             _ir(),
+            # Classless DSL v2 input — opt into the legacy skeleton so the backend has a module to
+            # run (the live path refuses an absent requirement_class).
+            legacy_skeleton=True,
             backend_id="apalache",
             execution=FormalBackendExecution(
                 checker_id="custom-apalache",
@@ -110,6 +116,9 @@ def test_phase125_apalache_records_symbolic_profile_and_non_success_outcomes(tmp
     missing = check_formal_backend(
         build_formal_backend_request(
             _ir(),
+            # Classless DSL v2 input — opt into the legacy skeleton so the backend has a module to
+            # run (the live path refuses an absent requirement_class).
+            legacy_skeleton=True,
             backend_id="apalache",
             execution=FormalBackendExecution(
                 checker_id="custom-apalache",
@@ -133,6 +142,9 @@ def test_phase126_tlc_records_explicit_state_counterexample(tmp_path: Path) -> N
     response = check_formal_backend(
         build_formal_backend_request(
             _ir(),
+            # Classless DSL v2 input — opt into the legacy skeleton so the backend has a module to
+            # run (the live path refuses an absent requirement_class).
+            legacy_skeleton=True,
             backend_id="tlc",
             execution=FormalBackendExecution(
                 checker_id="custom-tlc",
@@ -226,6 +238,9 @@ def test_phase128_counterexample_explanation_maps_formal_claim_spans(tmp_path: P
     response = check_formal_backend(
         build_formal_backend_request(
             _ir(),
+            # Classless DSL v2 input — opt into the legacy skeleton so the backend has a module to
+            # run (the live path refuses an absent requirement_class).
+            legacy_skeleton=True,
             backend_id="apalache",
             execution=FormalBackendExecution(
                 checker_id="custom-apalache",

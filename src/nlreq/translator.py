@@ -169,16 +169,20 @@ def lower_ir_v2_to_tla(
       - supported class -> non-vacuous lowering (or refuse on a bad shape);
       - a requirement_class that is PRESENT but unsupported -> REFUSE (a genuine error — the v3
         parser never emits such a class, so it can only come from a hand-built IR);
-      - an ABSENT requirement_class -> the legacy DSL v2 skeleton. This is preserved deliberately:
-        the production ``end_to_end_gate`` default-parses controlled text with ``DslV2Parser``, which
-        carries no class metadata, so refusing absent-class would break production with no DoD gain
-        (all supported KINDS already lower non-vacuously). The ``Within(...) == event`` passthrough is
-        therefore confined to this legacy v2 branch; its ``evidence=not_checked`` keeps it honest
-        (unchecked, never a false pass).
+      - an ABSENT requirement_class (legacy DSL v2 input) -> REFUSE. The live path never SILENTLY
+        emits the vacuous ``not_checked`` skeleton: the ``Within(...) == event`` passthrough and the
+        predicate->``TRUE`` / id->``== 0`` stubs are confined to the explicit ``legacy_skeleton=True``
+        opt-in below. A caller that legitimately processes legacy v2 text (e.g. an offline fixture
+        system-consistency check, the ``build_tla_projection_report`` inspector, a formal-backend
+        plumbing harness) must ask for the skeleton by name — its use is then auditable rather than a
+        silent default. Production callers that hold no class (the ``end_to_end_gate`` v2 fallback)
+        instead surface the refusal honestly: a refused lowering blocks rather than passing on a
+        vacuous module.
 
     ``legacy_skeleton=True`` forces the deprecated vacuous skeleton regardless of class (predicates ->
     ``TRUE``, identifiers -> ``== 0``, the ``Within`` passthrough) — the explicit opt-in HELPER PA-1.T3
-    calls for, used by the back-compat golden tests that pin that historical shape.
+    calls for, used by the back-compat golden tests that pin that historical shape and by the offline
+    legacy callers above.
     """
     if legacy_skeleton:
         return _lower_skeleton(ir)
@@ -199,9 +203,12 @@ def lower_ir_v2_to_tla(
         # A present-but-unsupported requirement_class is a genuine error, not legacy input: refuse
         # rather than emit a meaningless skeleton.
         return _lower_refused_unsupported_class(ir, claim_class)
-    # Absent class: the legacy DSL v2 path (see docstring) — back-compat skeleton, not the live
-    # non-vacuous path.
-    return _lower_skeleton(ir)
+    # Absent class (legacy DSL v2 input, no requirement_class metadata): the live path REFUSES rather
+    # than SILENTLY emit the vacuous not_checked skeleton (predicates -> TRUE, Within == event
+    # passthrough). The deprecated skeleton is now reachable ONLY through the explicit
+    # ``legacy_skeleton=True`` opt-in above, so no input silently returns the not_checked skeleton on
+    # the live path; a caller that genuinely wants the legacy shape must ask for it by name.
+    return _lower_refused_absent_class(ir)
 
 
 def _lower_numeric_invariant(ir: RequirementIRV2, claim_class: str) -> LoweredFormalArtifact:
@@ -522,6 +529,42 @@ def _lower_refused_unsupported_class(
             )
         ],
         metadata={"refusal_code": "NLR-LOWERING-UNSUPPORTED-CLASS"},
+    )
+
+
+def _lower_refused_absent_class(ir: RequirementIRV2) -> LoweredFormalArtifact:
+    """Refuse, on the live path, an IR that declares NO requirement_class (legacy DSL v2 input).
+
+    The DSL v2 parser carries no class metadata, so such an IR has no supported claim kind to lower
+    non-vacuously. Rather than SILENTLY emit the vacuous ``not_checked`` skeleton (predicates ->
+    ``TRUE``, the ``Within(...) == event`` passthrough) — which a backend would treat as a runnable but
+    meaningless module — the live path refuses with a source-spanned diagnostic. The deprecated
+    skeleton is still available, but only through the explicit ``legacy_skeleton=True`` opt-in, so its
+    use is auditable rather than a silent default. Parse the requirement through the DSL v3 grammar to
+    obtain a supported ``requirement_class`` and a non-vacuous lowering.
+    """
+    return LoweredFormalArtifact(
+        requirement_id=ir.requirement_id,
+        source_ir_version=ir.ir_version,
+        source_ir_hash=sha256_json(ir),
+        status="refused",
+        temporal_bounds=_temporal_bounds(ir.semantic_ir),
+        diagnostics=[
+            LoweringDiagnostic(
+                node_id=ir.semantic_ir.node_id,
+                kind="absent_requirement_class",
+                reason=(
+                    "requirement declares no requirement_class (legacy DSL v2 input); the live path "
+                    "refuses rather than silently emit a not_checked skeleton. Parse through the DSL v3 "
+                    "grammar to obtain a supported class (authorization_precondition, "
+                    "state_precondition, state_postcondition, numeric_invariant, bounded_temporal, "
+                    "event_state_correspondence, cross_module_causal_obligation), or pass "
+                    "legacy_skeleton=True to opt explicitly into the deprecated vacuous skeleton."
+                ),
+                source_spans=ir.semantic_ir.source_spans,
+            )
+        ],
+        metadata={"refusal_code": "NLR-LOWERING-ABSENT-CLASS"},
     )
 
 

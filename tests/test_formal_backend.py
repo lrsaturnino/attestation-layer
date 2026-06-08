@@ -105,6 +105,9 @@ def test_tla_runner_lowers_writes_artifacts_and_maps_valid_result(tmp_path: Path
     request = build_formal_backend_request(
         ir,
         backend_id=TlaRunnerBackend.backend_id,
+        # Classless DSL v2 input — the runner needs a module, so opt into the legacy skeleton (the
+        # live path refuses an absent requirement_class).
+        legacy_skeleton=True,
         budget=FormalBackendBudget(timeout_seconds=5, max_depth=10),
         execution=FormalBackendExecution(
             checker_id="custom",
@@ -135,6 +138,9 @@ def test_tla_runner_preserves_counterexample_artifacts(tmp_path: Path) -> None:
     request = build_formal_backend_request(
         _dsl_v2_ir(),
         backend_id=TlaRunnerBackend.backend_id,
+        # Classless DSL v2 input — the runner needs a module, so opt into the legacy skeleton (the
+        # live path refuses an absent requirement_class).
+        legacy_skeleton=True,
         execution=FormalBackendExecution(
             checker_id="custom",
             command=[sys.executable, "-c", "print('Invariant is violated.')"],
@@ -155,6 +161,9 @@ def test_tla_runner_refuses_unsupported_lowering_before_execution(tmp_path: Path
     request = build_formal_backend_request(
         ir,
         backend_id=TlaRunnerBackend.backend_id,
+        # Classless DSL v2 input — the runner needs a module, so opt into the legacy skeleton (the
+        # live path refuses an absent requirement_class).
+        legacy_skeleton=True,
         execution=FormalBackendExecution(
             checker_id="custom",
             command=[sys.executable, "-c", "raise SystemExit(99)"],
@@ -197,6 +206,8 @@ def test_tla_runner_cli_executes_checker_and_writes_artifacts(tmp_path: Path, ca
             str(ir_path),
             "--backend",
             TlaRunnerBackend.backend_id,
+            # Classless v2 IR written to disk — opt into the legacy skeleton for the runner.
+            "--legacy-skeleton",
             "--artifact-dir",
             str(artifact_dir),
             "--checker-id",

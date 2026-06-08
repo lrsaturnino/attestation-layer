@@ -54,7 +54,7 @@ def test_lone_system_checker_verdict_blocks_by_default_but_closes_under_explicit
     alignment = _alignment(ir, coverage)
     consistency = check_system_consistency_fixture(
         requirement=ir,
-        lowered=lower_ir_v2_to_tla(ir),
+        lowered=lower_ir_v2_to_tla(ir, legacy_skeleton=True),
         registry=_registry(tmp_path),
         impact=_impact(),
         project_root=tmp_path,
@@ -145,7 +145,7 @@ def _consistency(tmp_path: Path):
     ir = _ir()
     return check_system_consistency_fixture(
         requirement=ir,
-        lowered=lower_ir_v2_to_tla(ir),
+        lowered=lower_ir_v2_to_tla(ir, legacy_skeleton=True),
         registry=_registry(tmp_path),
         impact=_impact(),
         project_root=tmp_path,
@@ -245,7 +245,7 @@ def test_proof_object_blocks_when_coverage_or_trace_alignment_blocks(
     )
     consistency = check_system_consistency_fixture(
         requirement=ir,
-        lowered=lower_ir_v2_to_tla(ir),
+        lowered=lower_ir_v2_to_tla(ir, legacy_skeleton=True),
         registry=_registry(tmp_path),
         impact=_impact(),
         project_root=tmp_path,
@@ -324,7 +324,7 @@ def test_proof_object_and_closure_gate_cli(tmp_path: Path, capsys) -> None:
     alignment = _alignment(ir, coverage)
     consistency = check_system_consistency_fixture(
         requirement=ir,
-        lowered=lower_ir_v2_to_tla(ir),
+        lowered=lower_ir_v2_to_tla(ir, legacy_skeleton=True),
         registry=_registry(tmp_path),
         impact=_impact(),
         project_root=tmp_path,

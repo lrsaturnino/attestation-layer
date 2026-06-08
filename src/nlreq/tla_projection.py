@@ -37,8 +37,13 @@ class TlaProjectionReport(BaseModel):
     tool_version: str = TLA_PROJECTION_TOOL_VERSION
 
 
-def build_tla_projection_report(requirement: RequirementIRV2) -> TlaProjectionReport:
-    lowered = lower_ir_v2_to_tla(requirement)
+def build_tla_projection_report(
+    requirement: RequirementIRV2, *, legacy_skeleton: bool = False
+) -> TlaProjectionReport:
+    # Defaults to the live path: an IR with no supported requirement_class refuses (result
+    # "unsupported") rather than projecting the vacuous not_checked skeleton. A caller inspecting
+    # legacy DSL v2 input opts into the deprecated skeleton explicitly with legacy_skeleton=True.
+    lowered = lower_ir_v2_to_tla(requirement, legacy_skeleton=legacy_skeleton)
     diagnostics = {diagnostic.node_id: diagnostic for diagnostic in lowered.diagnostics}
     fragments = [
         TlaProjectionFragment(
