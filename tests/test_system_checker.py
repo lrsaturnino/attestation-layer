@@ -1243,6 +1243,89 @@ def test_solver_backed_bounded_temporal_late_response_is_counterexample(tmp_path
     assert result.result.details["bounds"]["max_depth"] == 7
 
 
+def test_solver_backed_bounded_temporal_floor_overrides_too_small_caller_depth(
+    tmp_path: Path,
+) -> None:
+    """PA-3.T2: a bounded_temporal bound RAISES an explicit caller ``max_depth`` smaller than k + 1.
+
+    The recorded ``bounds`` and the rendered ``--length`` both come from the floored budget. A caller
+    that naively passes ``max_depth=3`` for the k=6 (``within 6 hours``) deadline would, without the
+    floor, search only depth 3 — too shallow to reach the violation state at ``nlr_age = k + 1 = 7``,
+    so a late response would FALSE-PASS as valid. ``_runner_budget`` applies ``max(caller_depth, k +
+    1)``, so the searched and recorded depth is 7, never the caller's 3. This is the explicit-caller
+    sibling of the no-caller-depth floor tests above (which raise the DEFAULT to 7) and of
+    ``test_solver_backed_command_depth_matches_recorded_bounds`` (caller depth honored with no bound).
+    Tool-free: the floor arithmetic and command/bounds provenance are recorded regardless of the
+    (deliberately absent) checker binary, so this needs no Apalache.
+    """
+    ir = _bounded_temporal_ir("REQ-BT-FLOOR")
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(
+            tmp_path,
+            spec_text=_bounded_temporal_s_spec(emit_by=2),
+            invariants=("SystemLive",),
+            init_op="SInit",
+            next_op="SNext",
+        ),
+        impact=_bounded_temporal_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=60, max_depth=3),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=["apalache-mc-not-installed", *list(APALACHE_S_AND_R_COMMAND)[1:]],
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    # The caller asked for depth 3, but the k=6 deadline floors the searched depth at k + 1 = 7 — and
+    # the rendered --length must match the recorded bound, never the too-small caller value.
+    assert result.result.details["bounds"]["max_depth"] == 7
+    assert "--length=7" in result.result.details["command"], result.result.details["command"]
+    assert "--length=3" not in result.result.details["command"]
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_solver_backed_bounded_temporal_floor_keeps_late_response_a_counterexample(
+    tmp_path: Path,
+) -> None:
+    """PA-3.T2 soundness: with an explicit caller ``max_depth=3`` BELOW the k=6 deadline, a LATE
+    response is still caught as a real Apalache counterexample.
+
+    The bound floors the searched depth at k + 1 = 7, so the deadline violation at ``nlr_age = 7``
+    stays reachable. Without the floor, the run would search only the caller's depth 3 — too shallow
+    to reach the violation — and FALSE-PASS the late response as ``valid``. This proves the floor's
+    soundness consequence end-to-end: a too-small caller depth cannot depth-starve a bounded-temporal
+    deadline into a false discharge. The recorded depth the run claims is the floored 7, never 3.
+    """
+    ir = _bounded_temporal_ir("REQ-BT-FLOOR-LATE")
+    result = check_solver_backed_system_consistency(
+        requirement=ir,
+        lowered=lower_ir_v2_to_tla(ir),
+        registry=_reviewed_s_registry(
+            tmp_path,
+            spec_text=_bounded_temporal_s_spec(emit_by=9),
+            invariants=("SystemLive",),
+            init_op="SInit",
+            next_op="SNext",
+        ),
+        impact=_bounded_temporal_impact(),
+        project_root=tmp_path,
+        budget=FormalBackendBudget(timeout_seconds=60, max_depth=3),
+        execution=FormalBackendExecution(
+            checker_id="apalache",
+            command=_APALACHE_COMMAND,
+            artifact_dir=(tmp_path / "artifacts").as_posix(),
+        ),
+    )
+
+    assert result.result.status == "counterexample", result.result.details
+    assert result.counterexamples
+    # The caller's max_depth=3 was raised to the k + 1 = 7 floor — the depth the run actually searched.
+    assert result.result.details["bounds"]["max_depth"] == 7
+
+
 @pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
 def test_event_state_correspondence_requirement_and_negation_apalache_discriminate(
     tmp_path: Path,
