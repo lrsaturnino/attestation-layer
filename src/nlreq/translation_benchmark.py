@@ -29,6 +29,24 @@ class RequirementTranslationCase(BaseModel):
     input_text: str
     input_kind: Literal["controlled", "messy_prose", "ambiguous_prose", "incomplete_prose", "multilingual", "adversarial"]
     tags: list[str] = Field(default_factory=list)
+    # Domain label for the per-domain false-acceptance/false-refusal breakdown (PA-9).
+    # Optional so the pre-PA-9 seed corpora (domain-less) keep validating; cases without
+    # a domain are simply absent from the per-domain section of the report.
+    domain: str | None = None
+    # Source language of input_text, recorded in provenance for the per-language slice
+    # (PA-11). Reuses the intake `language` vocabulary ("en", "pt", ...); defaults to en.
+    language: str = "en"
+    # The human-approved controlled rewrite (the "approved-controlled" of the
+    # (prose, approved-controlled, gold-IR) triple). The gold IR — and thus the gold
+    # FormalClaim signature the harness scores against — is DERIVED from this by the
+    # deterministic DSL v3 parser, so no separate gold-IR file is needed. None for cases
+    # whose gold outcome is a refusal (there is no correct claim to accept).
+    gold_controlled_text: str | None = None
+    # The controlled text a recorded model run produced for input_text, replayed verbatim
+    # through RecordedLlmClient. Equals gold_controlled_text for a faithful rewrite; differs
+    # for a planted drafting error (wrong claim / inverted premise / garbled). Falls back to
+    # gold_controlled_text, then to input_text for already-controlled cases.
+    recorded_controlled_text: str | None = None
     expected: RequirementTranslationExpected
 
     @model_validator(mode="after")
@@ -38,6 +56,19 @@ class RequirementTranslationCase(BaseModel):
             if parsed.is_absolute() or ".." in parsed.parts:
                 raise ValueError("expected_ir_path must be corpus-root-relative")
         return self
+
+    def recorded_output(self) -> str:
+        """The controlled text to replay through RecordedLlmClient for this case."""
+        if self.recorded_controlled_text is not None:
+            return self.recorded_controlled_text
+        if self.gold_controlled_text is not None:
+            return self.gold_controlled_text
+        if self.input_kind == "controlled":
+            return self.input_text
+        raise ValueError(
+            f"case {self.case_id!r} has no recorded_controlled_text, gold_controlled_text, "
+            "or controlled input_text to replay"
+        )
 
 
 class RequirementTranslationCorpus(BaseModel):
@@ -101,6 +132,26 @@ class RequirementTranslationObservation(BaseModel):
     notes: list[str] = Field(default_factory=list)
 
 
+class TranslationDomainMetrics(BaseModel):
+    """Per-domain false-acceptance / false-refusal breakdown (PA-9).
+
+    Both rates are reported separately and never collapsed into a single
+    "accuracy": false-acceptance (a wrong claim accepted) and false-refusal
+    (a correct claim refused) trade off against each other and must be read
+    independently.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    domain: str
+    total_cases: int
+    semantic_match_rate: float
+    false_acceptance_count: int
+    false_acceptance_rate: float
+    false_refusal_count: int
+    false_refusal_rate: float
+
+
 class RequirementTranslationBenchmarkReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -121,6 +172,8 @@ class RequirementTranslationBenchmarkReport(BaseModel):
     clarification_quality: float | None = None
     refusal_correctness: float | None = None
     runtime_ms_total: int
+    # Per-domain breakdown of both rates (PA-9). Empty for domain-less corpora.
+    domains: list[TranslationDomainMetrics] = Field(default_factory=list)
     observations: list[RequirementTranslationObservation] = Field(default_factory=list)
 
 
@@ -128,6 +181,10 @@ class RequirementTranslationReleaseThresholds(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     false_acceptance_budget: int = Field(default=0, ge=0)
+    # When set, EACH domain's false-acceptance count must be within this budget — a
+    # per-domain gate so one domain cannot hide a regression behind another's headroom
+    # (PA-9.T3). None disables the per-domain check (corpus-wide budget still applies).
+    per_domain_false_acceptance_budget: int | None = Field(default=None, ge=0)
     false_refusal_budget: int | None = Field(default=None, ge=0)
     min_semantic_match_rate: float = Field(default=1.0, ge=0.0, le=1.0)
     min_clarification_quality: float | None = Field(default=None, ge=0.0, le=1.0)
@@ -187,8 +244,44 @@ def build_translation_benchmark_report(
         clarification_quality=_quality(clarification_cases, result_by_id),
         refusal_correctness=_refusal_correctness(refusal_cases, result_by_id),
         runtime_ms_total=runtime,
+        domains=_domain_metrics(corpus, result_by_id),
         observations=observations,
     )
+
+
+def _domain_metrics(
+    corpus: RequirementTranslationCorpus,
+    result_by_id: dict[str, RequirementTranslationCaseResult],
+) -> list[TranslationDomainMetrics]:
+    """Group both rates by case.domain. Domain-less cases are omitted (no domain bucket)."""
+    domains: list[str] = []
+    for case in corpus.cases:
+        if case.domain is not None and case.domain not in domains:
+            domains.append(case.domain)
+    metrics: list[TranslationDomainMetrics] = []
+    for domain in domains:
+        cases = [case for case in corpus.cases if case.domain == domain]
+        results = [
+            result
+            for case in cases
+            if (result := result_by_id.get(case.case_id)) is not None
+        ]
+        total = len(cases)
+        false_acceptance = sum(1 for result in results if result.false_acceptance)
+        false_refusal = sum(1 for result in results if result.false_refusal)
+        semantic = sum(1 for result in results if result.semantic_match)
+        metrics.append(
+            TranslationDomainMetrics(
+                domain=domain,
+                total_cases=total,
+                semantic_match_rate=_ratio(semantic, total),
+                false_acceptance_count=false_acceptance,
+                false_acceptance_rate=_ratio(false_acceptance, total),
+                false_refusal_count=false_refusal,
+                false_refusal_rate=_ratio(false_refusal, total),
+            )
+        )
+    return metrics
 
 
 def _observe(
@@ -238,6 +331,14 @@ def evaluate_translation_benchmark_release_bar(
             "false semantic acceptance budget exceeded: "
             f"{report.false_acceptance_count} > {effective_thresholds.false_acceptance_budget}"
         )
+    if effective_thresholds.per_domain_false_acceptance_budget is not None:
+        for domain in report.domains:
+            if domain.false_acceptance_count > effective_thresholds.per_domain_false_acceptance_budget:
+                blockers.append(
+                    f"false semantic acceptance budget exceeded in domain {domain.domain!r}: "
+                    f"{domain.false_acceptance_count} > "
+                    f"{effective_thresholds.per_domain_false_acceptance_budget}"
+                )
     if (
         effective_thresholds.false_refusal_budget is not None
         and report.false_refusal_count > effective_thresholds.false_refusal_budget
@@ -324,3 +425,130 @@ def _report_hash(report: RequirementTranslationBenchmarkReport) -> str:
     from .jsonutil import sha256_json
 
     return sha256_json(report)
+
+
+# --- PA-9 corpus runner ----------------------------------------------------------------
+#
+# Measures the LLM front-half (PA-4 drafting + PA-5 translation) over a labeled corpus,
+# OFFLINE and deterministically: each case's recorded model output is replayed through
+# RecordedLlmClient and run prose -> draft -> translate -> FormalClaim. This scores the
+# pipeline gate's quality OVER THE RECORDED OUTPUTS — it is NOT an empirical LLM error
+# rate (that is the separate, budgeted live-LLM suite). Both rates are reported, never a
+# single "accuracy":
+#   false_acceptance  = the pipeline accepted a claim it should not have — either the
+#                       gold outcome was a refusal, or the accepted claim's signature
+#                       diverges from the gold claim (wrong class / inverted or invented
+#                       premise). Equality uses the alpha/commutative-normalised
+#                       FormalClaim signature, so cosmetic id/title/order differences do
+#                       not count as divergence.
+#   false_refusal     = the pipeline refused (or needs-review) a claim the gold says
+#                       should have been accepted.
+_DEFAULT_INTAKE_TIMESTAMP = "2026-01-01T00:00:00Z"
+
+
+def evaluate_translation_case(
+    case: RequirementTranslationCase,
+    *,
+    intake_timestamp: str = _DEFAULT_INTAKE_TIMESTAMP,
+) -> RequirementTranslationCaseResult:
+    from .formal_claim import formal_claim_signature
+    from .intake import create_free_form_intake, draft_controlled_rewrite_with_llm
+    from .llm_client import RecordedLlmClient
+    from .semantic_translation import translate_controlled_requirement_to_formal_claim
+
+    recorded = case.recorded_output()
+    gold_signature = _gold_claim_signature(case)
+
+    # Route through the PA-4 drafting path so the prose -> controlled inference is exercised
+    # exactly as production would, with the recorded model output replayed offline.
+    intake = create_free_form_intake(
+        intake_id=f"intake-{case.case_id}",
+        original_text=case.input_text,
+        submitted_at=intake_timestamp,
+        language=case.language,
+    )
+    proposal = draft_controlled_rewrite_with_llm(
+        intake=intake,
+        client=RecordedLlmClient(recorded),
+        proposal_id=f"proposal-{case.case_id}",
+        timestamp=intake_timestamp,
+        model="recorded",
+    )
+    translation = translate_controlled_requirement_to_formal_claim(
+        controlled_text=proposal.proposed_controlled_text,
+        requirement_id=f"REQ-{case.case_id}",
+        title=case.title,
+    )
+
+    accepted = translation.result == "accepted"
+    claim = (
+        translation.formal_claim_report.formal_claim
+        if translation.formal_claim_report is not None
+        else None
+    )
+    semantic_match = False
+    semantic_profile: str | None = None
+    if accepted and claim is not None:
+        semantic_profile = claim.semantics_profile
+        observed_signature = formal_claim_signature(
+            claim, alpha_identifiers=False, commutative=True
+        )
+        semantic_match = gold_signature is not None and observed_signature == gold_signature
+
+    gold_is_accept = case.expected.outcome == "accepted"
+    false_acceptance = accepted and not (gold_is_accept and semantic_match)
+    false_refusal = (not accepted) and gold_is_accept
+
+    return RequirementTranslationCaseResult(
+        case_id=case.case_id,
+        outcome=translation.result,
+        syntactically_valid=translation.syntactically_valid,
+        semantic_match=semantic_match,
+        ambiguous=bool(translation.ambiguity_findings),
+        false_acceptance=false_acceptance,
+        false_refusal=false_refusal,
+        formal_claim_hash=translation.formal_claim_hash,
+        semantic_profile=semantic_profile,
+        clarification_questions=translation.clarification_questions,
+        refusal_code=translation.refusal_code,
+    )
+
+
+def run_translation_corpus(
+    corpus: RequirementTranslationCorpus,
+    *,
+    intake_timestamp: str = _DEFAULT_INTAKE_TIMESTAMP,
+) -> RequirementTranslationResults:
+    """Run every corpus case through the offline front-half and collect scored results."""
+    return RequirementTranslationResults(
+        results=[
+            evaluate_translation_case(case, intake_timestamp=intake_timestamp)
+            for case in corpus.cases
+        ]
+    )
+
+
+def _gold_claim_signature(case: RequirementTranslationCase) -> str | None:
+    """Derive the gold FormalClaim signature from the approved-controlled text.
+
+    The gold IR is the deterministic DSL v3 parse of gold_controlled_text, so there is
+    no separately maintained gold-IR file to drift. Returns None when the case declares
+    no gold (a refusal-gold case) or the approved text does not lower to a claim.
+    """
+    if case.gold_controlled_text is None:
+        return None
+    from .dsl_v3 import DslV3ParseError, DslV3Parser
+    from .formal_claim import build_formal_claim, formal_claim_signature
+
+    try:
+        ir = DslV3Parser().parse_ir(
+            case.gold_controlled_text,
+            requirement_id=f"GOLD-{case.case_id}",
+            title=case.title,
+        )
+    except DslV3ParseError:
+        return None
+    report = build_formal_claim(ir)
+    if report.formal_claim is None:
+        return None
+    return formal_claim_signature(report.formal_claim, alpha_identifiers=False, commutative=True)

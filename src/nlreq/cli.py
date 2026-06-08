@@ -303,8 +303,11 @@ from .verification_budget import (
 )
 from .translation_benchmark import (
     RequirementTranslationCorpus,
+    RequirementTranslationReleaseThresholds,
     RequirementTranslationResults,
     build_translation_benchmark_report,
+    evaluate_translation_benchmark_release_bar,
+    run_translation_corpus,
 )
 from .translation_repair import build_translation_repair_report
 from .translator_workbench import (
@@ -1168,7 +1171,34 @@ def main(argv: list[str] | None = None) -> int:
         help="Evaluate translation workbench results against a requirement translation corpus.",
     )
     benchmark_translation_cmd.add_argument("--corpus", type=Path, required=True)
-    benchmark_translation_cmd.add_argument("--results", type=Path, required=True)
+    benchmark_translation_cmd.add_argument(
+        "--results",
+        type=Path,
+        help="Pre-computed translation results JSON. Omit with --run to compute them offline.",
+    )
+    benchmark_translation_cmd.add_argument(
+        "--run",
+        action="store_true",
+        help="Run the corpus offline through the recorded front-half (RecordedLlmClient) "
+        "to produce results, instead of reading a --results file.",
+    )
+    benchmark_translation_cmd.add_argument(
+        "--release-bar",
+        action="store_true",
+        help="Also evaluate the per-domain false-acceptance release bar and exit non-zero "
+        "if any declared budget is exceeded.",
+    )
+    benchmark_translation_cmd.add_argument(
+        "--false-acceptance-budget",
+        type=int,
+        default=0,
+        help="Corpus-wide false-acceptance budget for --release-bar (default 0).",
+    )
+    benchmark_translation_cmd.add_argument(
+        "--per-domain-false-acceptance-budget",
+        type=int,
+        help="Per-domain false-acceptance budget for --release-bar (default: same as corpus-wide).",
+    )
     benchmark_translation_cmd.add_argument("--out", type=Path)
 
     validate_cmd = subcommands.add_parser("validate", help="Validate a package directory.")
@@ -3474,16 +3504,50 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "benchmark-translation":
             from .jsonutil import write_json
 
-            report = build_translation_benchmark_report(
-                RequirementTranslationCorpus.model_validate_json(args.corpus.read_text()),
-                RequirementTranslationResults.model_validate_json(args.results.read_text()),
-            )
+            corpus = RequirementTranslationCorpus.model_validate_json(args.corpus.read_text())
+            if args.run:
+                results = run_translation_corpus(corpus)
+            elif args.results is not None:
+                results = RequirementTranslationResults.model_validate_json(args.results.read_text())
+            else:
+                print(
+                    "error: benchmark-translation requires --results or --run",
+                    file=sys.stderr,
+                )
+                return 2
+            report = build_translation_benchmark_report(corpus, results)
+            if args.release_bar:
+                # The corpus mixes accept-gold and refuse-gold cases, so semantic_match_rate
+                # is diluted by the (correct) refusals; the false-acceptance budget — overall
+                # and per domain — is the gate, not the raw match rate.
+                per_domain_budget = (
+                    args.per_domain_false_acceptance_budget
+                    if args.per_domain_false_acceptance_budget is not None
+                    else args.false_acceptance_budget
+                )
+                bar = evaluate_translation_benchmark_release_bar(
+                    report,
+                    thresholds=RequirementTranslationReleaseThresholds(
+                        false_acceptance_budget=args.false_acceptance_budget,
+                        per_domain_false_acceptance_budget=per_domain_budget,
+                        min_semantic_match_rate=0.0,
+                        required_expected_outcomes=["accepted", "refused"],
+                    ),
+                )
+                if args.out:
+                    write_json(args.out, bar)
+                    print(f"Requirement translation release-bar report: {args.out}")
+                else:
+                    print(canonical_json(bar), end="")
+                for blocker in bar.blockers:
+                    print(f"  blocker: {blocker}", file=sys.stderr)
+                return 0 if bar.result == "passed" else 1
             if args.out:
                 write_json(args.out, report)
                 print(f"Requirement translation benchmark report: {args.out}")
             else:
                 print(canonical_json(report), end="")
-            return 0
+            return 0 if report.result == "passed" else 1
         if args.command == "validate":
             ir, evidence, status = validate_package(args.package_dir)
             _print_package_validation(ir, evidence, status)

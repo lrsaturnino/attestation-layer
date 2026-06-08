@@ -55,6 +55,19 @@
       "title": "Min Semantic Match Rate",
       "type": "number"
     },
+    "per_domain_false_acceptance_budget": {
+      "anyOf": [
+        {
+          "minimum": 0,
+          "type": "integer"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Per Domain False Acceptance Budget"
+    },
     "required_expected_outcomes": {
       "items": {
         "enum": [

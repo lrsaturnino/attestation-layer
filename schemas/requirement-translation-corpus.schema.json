@@ -7,8 +7,32 @@
           "title": "Case Id",
           "type": "string"
         },
+        "domain": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Domain"
+        },
         "expected": {
           "$ref": "#/$defs/RequirementTranslationExpected"
+        },
+        "gold_controlled_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Gold Controlled Text"
         },
         "input_kind": {
           "enum": [
@@ -25,6 +49,23 @@
         "input_text": {
           "title": "Input Text",
           "type": "string"
+        },
+        "language": {
+          "default": "en",
+          "title": "Language",
+          "type": "string"
+        },
+        "recorded_controlled_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recorded Controlled Text"
         },
         "tags": {
           "items": {

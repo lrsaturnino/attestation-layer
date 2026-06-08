@@ -65,6 +65,51 @@
       ],
       "title": "RequirementTranslationObservation",
       "type": "object"
+    },
+    "TranslationDomainMetrics": {
+      "additionalProperties": false,
+      "description": "Per-domain false-acceptance / false-refusal breakdown (PA-9).\n\nBoth rates are reported separately and never collapsed into a single\n\"accuracy\": false-acceptance (a wrong claim accepted) and false-refusal\n(a correct claim refused) trade off against each other and must be read\nindependently.",
+      "properties": {
+        "domain": {
+          "title": "Domain",
+          "type": "string"
+        },
+        "false_acceptance_count": {
+          "title": "False Acceptance Count",
+          "type": "integer"
+        },
+        "false_acceptance_rate": {
+          "title": "False Acceptance Rate",
+          "type": "number"
+        },
+        "false_refusal_count": {
+          "title": "False Refusal Count",
+          "type": "integer"
+        },
+        "false_refusal_rate": {
+          "title": "False Refusal Rate",
+          "type": "number"
+        },
+        "semantic_match_rate": {
+          "title": "Semantic Match Rate",
+          "type": "number"
+        },
+        "total_cases": {
+          "title": "Total Cases",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "domain",
+        "total_cases",
+        "semantic_match_rate",
+        "false_acceptance_count",
+        "false_acceptance_rate",
+        "false_refusal_count",
+        "false_refusal_rate"
+      ],
+      "title": "TranslationDomainMetrics",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -88,6 +133,13 @@
     "corpus_id": {
       "title": "Corpus Id",
       "type": "string"
+    },
+    "domains": {
+      "items": {
+        "$ref": "#/$defs/TranslationDomainMetrics"
+      },
+      "title": "Domains",
+      "type": "array"
     },
     "false_acceptance_count": {
       "default": 0,
