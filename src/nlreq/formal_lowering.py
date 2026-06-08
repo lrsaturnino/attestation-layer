@@ -16,6 +16,24 @@ FORMAL_LOWERING_VERSION = "0.2"
 # check gains nothing from them; they are discharged instead by the theory-aware SMT backends
 # (smt-theories / cvc5) per the PB-7 per-premise routing. See
 # validate_authorization_precondition_shape for the soundness and non-vacuity rationale.
+#
+# PA-1 discrimination (why these are NOT given an Apalache req-vs-negation module here):
+#   - COMPARISON *is* Apalache-discriminable — but as the OBLIGATION of a numeric_invariant
+#     (`keep <comparison>`), where it ranges over S's OWN state variable and is checked as a
+#     same-state invariant. That discrimination test exists:
+#     test_system_checker.test_numeric_invariant_comparison_requirement_and_negation_apalache_discriminate
+#     (`keep collateral >= 1` valid vs its negation `keep collateral <= 0` counterexample). A comparison
+#     PREMISE, by contrast, only constrains the antecedent of `premise => ~outcome`; adding it weakens
+#     the obligation a fortiori and adds no checkable content (an extra antecedent conjunct), so a model
+#     check cannot discriminate on it — the SMT theory backend decides it instead.
+#   - MEMBERSHIP has NO Apalache-discriminable lowering at all: the v3 grammar (dsl_v3.lark) admits
+#     membership ONLY as a premise (`NAME is in {...}`), never as an obligation, so it never ranges over
+#     S's transitions and has no standalone module to discriminate. Inventing a membership obligation
+#     purely to force an Apalache module would add representation no producer needs (Plan A §0: "wire a
+#     real producer behind an existing contract, not add representation"). Its sound producer is cvc5,
+#     and its discrimination test lives at
+#     test_cvc5_backend.test_cvc5_membership_requirement_and_negation_discriminate (member -> valid,
+#     non-member -> invalid).
 _PROJECTED_PREMISE_KINDS = frozenset({"eq", "neq", "lt", "lte", "gt", "gte", "membership"})
 
 

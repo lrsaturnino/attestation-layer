@@ -2189,6 +2189,54 @@ def test_solver_backed_numeric_invariant_violating_yields_counterexample(tmp_pat
     assert state_invariant.backend_status == "counterexample"
 
 
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_numeric_invariant_comparison_requirement_and_negation_apalache_discriminate(
+    tmp_path: Path,
+) -> None:
+    """PA-1 comparison discrimination: a comparison OBLIGATION and its exact LOGICAL NEGATION lower to
+    modules a real Apalache run distinguishes — one valid, one counterexample — against the SAME
+    reviewed stateful S.
+
+    `keep collateral >= 1` holds over S's reachable band (valid); its exact integer negation
+    `keep collateral <= 0` (¬(collateral >= 1)) is violated by the same reachable S state (collateral
+    steps into [10, 50], always > 0), so Apalache returns a counterexample. The two requirements
+    differ ONLY by negating the kept comparison, so the discrimination is the comparison semantics
+    carried to a real model-checker verdict — not a value coincidence.
+
+    Comparison is Apalache-discriminable precisely BECAUSE it is the OBLIGATION here (numeric_invariant
+    `keep <comparison>`): the comparison ranges over S's OWN state variable and is checked as a
+    same-state invariant over S's Init/Next. A comparison PREMISE in an authorization claim, by
+    contrast, is an R-side constant disconnected from S's transitions — it is projected out of S ∧ R
+    and discharged by the theory-aware SMT backend (smt-theories) instead, never lowered into a module
+    (see validate_authorization_precondition_shape / _PROJECTED_PREMISE_KINDS in formal_lowering)."""
+    registry = _numeric_stateful_s_registry(tmp_path)
+
+    def run(obligation_clause: str, sub: str):
+        ir = _numeric_invariant_ir(obligation_clause)
+        lowered = lower_ir_v2_to_tla(ir)
+        assert lowered.status == "lowered"
+        return check_solver_backed_system_consistency(
+            requirement=ir,
+            lowered=lowered,
+            registry=registry,
+            impact=_authz_impact(),
+            project_root=tmp_path,
+            budget=FormalBackendBudget(timeout_seconds=60, max_depth=10),
+            execution=FormalBackendExecution(
+                checker_id="apalache",
+                command=_APALACHE_COMMAND,
+                artifact_dir=(tmp_path / sub).as_posix(),
+            ),
+        )
+
+    requirement = run("collateral >= 1", "requirement")
+    negation = run("collateral <= 0", "negation")
+
+    assert requirement.result.status == "valid", requirement.result.details
+    assert negation.result.status == "counterexample", negation.result.details
+    assert negation.counterexamples
+
+
 def test_solver_backed_runs_checker_over_composed_module(tmp_path: Path) -> None:
     """The composed S ∧ R module is written and the checker subprocess runs over it.
 

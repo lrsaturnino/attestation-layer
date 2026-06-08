@@ -167,6 +167,51 @@ def test_cvc5_discharges_concrete_set_literal_membership() -> None:
         assert result.evidence_level == EvidenceLevel.SMT_CHECKED
 
 
+@requires_cvc5
+def test_cvc5_membership_requirement_and_negation_discriminate() -> None:
+    """PA-1 membership discrimination: a concrete set-membership question and its negation reach
+    OPPOSITE cvc5 verdicts — the cvc5 analogue of the Apalache 'one valid / one counterexample' pair.
+
+    `actor is in {alice, bob}` with the witness `actor is in {alice}` (the element IS in the set) is
+    satisfiable -> cvc5 valid; the same base set with the witness `actor is in {carol}` (the element
+    is OUTSIDE the set — the realizable negation of membership) is unsatisfiable -> cvc5 invalid,
+    because the three named members are encoded as pairwise-distinct constants. cvc5's native
+    finite-set theory is a real decision procedure here, not a rubber stamp: it discriminates a member
+    from a non-member.
+
+    Membership has NO Apalache-discriminable lowering, by design and by grammar. The v3 grammar
+    (`dsl_v3.lark`) admits membership ONLY as a PREMISE (`NAME is in {...}`) and never as an obligation,
+    so a membership constraint never ranges over a reviewed S's transitions and has no standalone
+    module whose invariant Apalache could distinguish — unlike comparison, which IS Apalache-
+    discriminable as the `keep <comparison>` numeric_invariant obligation (see
+    test_system_checker.test_numeric_invariant_comparison_requirement_and_negation_apalache_discriminate).
+    Inventing a membership obligation purely to force an Apalache module would violate the Plan A
+    section-0 rule ("wire a real producer behind an existing contract, not add representation"); no
+    producer needs it. The sound producer for concrete set-membership is cvc5, and this is its
+    discrimination test."""
+
+    def membership_verdicts(premise_clause: str) -> set[str]:
+        claim = _claim(premise_clause)
+        membership = [
+            fragment
+            for fragment in claim.premises
+            if fragment.kind == "membership" and is_set_literal_membership(fragment)
+        ]
+        assert membership, "the premise must contribute concrete set-literal membership fragments"
+        results = cvc5_check_formal_claim_premises(claim)
+        return {
+            result.status
+            for result in results
+            for fragment in membership
+            if fragment.fragment_id in result.details.get("covered_fragment_ids", [])
+        }
+
+    # Witness IN the set -> satisfiable -> cvc5 discharges the membership (valid).
+    assert membership_verdicts("actor is in {alice, bob} and actor is in {alice}") == {"valid"}
+    # Witness OUTSIDE the set (the negation) -> unsatisfiable -> cvc5 refutes it (invalid).
+    assert membership_verdicts("actor is in {alice, bob} and actor is in {carol}") == {"invalid"}
+
+
 def test_cvc5_degrades_honestly_when_absent(monkeypatch: pytest.MonkeyPatch) -> None:
     """With cvc5 forced absent, the check emits 'unsupported' results with no evidence level.
 
