@@ -1158,6 +1158,23 @@ def _bounded_temporal_impact() -> ImpactAnalysisArtifact:
     )
 
 
+def _event_state_correspondence_ir(requirement_id: str):
+    """An event_state_correspondence requirement: the event-emission sibling of bounded_temporal.
+
+    Same `emit <event> within <k> <unit>` obligation, but a distinct supported requirement_class. The
+    translator routes both classes to _lower_bounded_temporal, so a discrimination run over this IR
+    exercises the event_state_correspondence class DISPATCH end-to-end (class -> lowering ->
+    composition -> Apalache verdict)."""
+    return DslV3Parser().parse_ir(
+        "requirement event_state_correspondence:\n"
+        "scope redemption\n"
+        "when wallet is authorized\n"
+        "then emit redemption_finalized within 6 hours\n",
+        requirement_id=requirement_id,
+        title="Event state correspondence",
+    )
+
+
 @pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
 def test_solver_backed_bounded_temporal_within_deadline_is_valid(tmp_path: Path) -> None:
     """PA-3: a bounded_temporal whose reviewed S emits the response within k steps is a real
@@ -1222,6 +1239,59 @@ def test_solver_backed_bounded_temporal_late_response_is_counterexample(tmp_path
     assert result.result.status == "counterexample", result.result.details
     assert result.counterexamples
     assert result.result.details["bounds"]["max_depth"] == 7
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_event_state_correspondence_requirement_and_negation_apalache_discriminate(
+    tmp_path: Path,
+) -> None:
+    """PA-1 event_emission discrimination: an event_state_correspondence requirement is distinguished
+    by a real Apalache run — a reviewed S that emits the response within the deadline is valid; the
+    SAME requirement against an S that emits LATE is a counterexample.
+
+    event_state_correspondence is a distinct supported requirement_class whose obligation is an event
+    emission (`then emit <event> within <k>`); it lowers through the bounded_temporal pending-deadline
+    monitor (translator._lower_bounded_temporal). This closes the discrimination DoD for the
+    event-emission claim kind end-to-end (class dispatch -> lowering -> composition -> Apalache
+    verdict), not only for the bounded_temporal keyword. The two runs differ ONLY in S's emission
+    latency, so the discrimination is the deadline carried to a real model-checker verdict, never a
+    passthrough."""
+
+    def run(emit_by: int, sub: str):
+        ir = _event_state_correspondence_ir("REQ-ESC-DISC")
+        lowered = lower_ir_v2_to_tla(ir)
+        assert lowered.status == "lowered"
+        assert lowered.translator == "nlreq.formal_lowering.bounded_temporal"
+        return check_solver_backed_system_consistency(
+            requirement=ir,
+            lowered=lowered,
+            registry=_reviewed_s_registry(
+                tmp_path,
+                spec_text=_bounded_temporal_s_spec(emit_by=emit_by),
+                invariants=("SystemLive",),
+                init_op="SInit",
+                next_op="SNext",
+            ),
+            impact=_bounded_temporal_impact(),
+            project_root=tmp_path,
+            budget=FormalBackendBudget(timeout_seconds=60),
+            execution=FormalBackendExecution(
+                checker_id="apalache",
+                command=_APALACHE_COMMAND,
+                artifact_dir=(tmp_path / sub).as_posix(),
+            ),
+        )
+
+    within = run(2, "within")
+    late = run(9, "late")
+
+    assert within.result.status == "valid", within.result.details
+    assert within.result.evidence_level.value == "BOUNDED_CHECKED"
+    # The bound (6 steps) raises the searched depth to k + 1 so a late emission would be reachable.
+    assert within.result.details["bounds"]["max_depth"] == 7
+    assert late.result.status == "counterexample", late.result.details
+    assert late.counterexamples
+    assert late.result.details["bounds"]["max_depth"] == 7
 
 
 def test_compose_s_and_r_narrowing_bounded_temporal_is_byte_stable() -> None:
@@ -3371,6 +3441,20 @@ def _post_state_ir(value: str = "accepted", requirement_id: str = "REQ-STATEPOST
     )
 
 
+def _post_state_stateful_s_registry(tmp_path: Path) -> SystemSpecRegistry:
+    """Registry with the reviewed post-state stateful S (Case B): SInit/SNext over operation_status
+    and a distinct approved_flag, coupled so approval is granted only in the step that accepts. The
+    post_state obligation binds against this real S, so the narrowing checks a genuine fact about S's
+    transition relation, not a tautology."""
+    return _reviewed_s_registry(
+        tmp_path,
+        spec_text=_POST_STATE_STATEFUL_SPEC,
+        invariants=("OperationStatusClosed",),
+        init_op="SInit",
+        next_op="SNext",
+    )
+
+
 # Byte-stable standalone lowering of the state_postcondition. The premise predicate is an abstract
 # CONSTANT a reviewed S interprets; the obligation is an abstract reached/unmet boundary over the
 # harness variable — the concrete post-state value is checked by the narrowing, not this module.
@@ -3640,6 +3724,59 @@ def test_compose_s_and_r_module_refuses_post_state_on_stateless_spec() -> None:
 
     assert composed.status == "refused"
     assert composed.refusal_kind == "state_postcondition_requires_stateful_spec"
+
+
+@pytest.mark.skipif(APALACHE is None, reason="apalache-mc binary not installed")
+def test_state_postcondition_requirement_and_negation_apalache_discriminate(
+    tmp_path: Path,
+) -> None:
+    """PA-1 post_state discrimination: a post-state obligation and a contradictory sibling lower to
+    composed modules a real Apalache run distinguishes — one valid, one counterexample — against the
+    SAME reviewed stateful S.
+
+    The reviewed S grants approval (approved_flag') only in the step that accepts
+    (operation_status' = "accepted"). `then state operation_status must be "accepted"` holds out of
+    every premise-state of S (valid); the contradictory sibling `must be "rejected"` — a value S
+    provably never reaches, since it reaches "accepted" instead — is violated by that same real S
+    step, so Apalache returns a counterexample. The two requirements differ ONLY in the required
+    post-state value, so the discrimination is the post_state value carried value-exactly to a real
+    model-checker verdict: the post_state analog of the numeric_invariant negation pair, not a value
+    coincidence.
+
+    post_state is Apalache-discriminable precisely BECAUSE it is the OBLIGATION here: the required
+    value is checked as a next-step transition obligation over S's OWN operation_status via the ghost
+    history bit nlr_prev_premise (the premise in the pre-state). A comparison/membership PREMISE in a
+    state_postcondition, by contrast, is an R-side constant projected out of S ∧ R and discharged by
+    the theory-aware SMT backend instead (see validate_state_postcondition_shape /
+    _PROJECTED_PREMISE_KINDS in formal_lowering)."""
+    registry = _post_state_stateful_s_registry(tmp_path)
+
+    def run(value: str, sub: str):
+        ir = _post_state_ir(value, requirement_id="REQ-STATEPOST-DISC")
+        lowered = lower_ir_v2_to_tla(ir)
+        assert lowered.status == "lowered"
+        return check_solver_backed_system_consistency(
+            requirement=ir,
+            lowered=lowered,
+            registry=registry,
+            impact=_authz_impact(),
+            project_root=tmp_path,
+            budget=FormalBackendBudget(timeout_seconds=60, max_depth=10),
+            execution=FormalBackendExecution(
+                checker_id="apalache",
+                command=_APALACHE_COMMAND,
+                artifact_dir=(tmp_path / sub).as_posix(),
+            ),
+        )
+
+    requirement = run("accepted", "requirement")
+    negation = run("rejected", "negation")
+
+    assert requirement.result.status == "valid", requirement.result.details
+    # The composed module checks the post-state over S's OWN variable via the ghost history bit.
+    assert requirement.result.details["bound_post_state_value"] == '"accepted"'
+    assert negation.result.status == "counterexample", negation.result.details
+    assert negation.counterexamples
 
 
 def test_solver_result_labels_valid_run_bounded_only_with_full_backing() -> None:
