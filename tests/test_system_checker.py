@@ -18,7 +18,9 @@ from nlreq.formal_lowering import (
     PostStateObligation,
     build_system_spec_contribution,
     compose_s_and_r_module,
+    derive_bounded_temporal_obligation,
     derive_post_state_obligation,
+    lower_bounded_temporal_tla,
     lower_state_postcondition_tla,
     validate_state_postcondition_shape,
 )
@@ -1215,6 +1217,57 @@ def test_solver_backed_bounded_temporal_late_response_is_counterexample(tmp_path
     assert result.result.status == "counterexample", result.result.details
     assert result.counterexamples
     assert result.result.details["bounds"]["max_depth"] == 7
+
+
+def test_compose_s_and_r_narrowing_bounded_temporal_is_byte_stable() -> None:
+    """A bounded_temporal narrows a reviewed stateful S into a deterministic composed module: R adds
+    the ghost step-counter nlr_clock, Next CONJOINS its update (so S's stutter cannot pause it), and
+    Inv conjoins the SAME-STATE deadline invariant Premise => (Pred_<event> \\/ nlr_clock <= k). Both
+    the trigger predicate and the response predicate are bound, and the deadline is recorded as a
+    bound_state_invariant. Tool-free — composition only, no checker run."""
+    ir = _bounded_temporal_ir("REQ-BT-STABLE")
+    lowered = lower_bounded_temporal_tla(ir)
+    contribution = build_system_spec_contribution(
+        "spec:redemption",
+        _bounded_temporal_s_spec(emit_by=2),
+        ["SystemLive"],
+        init_op="SInit",
+        next_op="SNext",
+    )
+    obligation = derive_bounded_temporal_obligation(ir.semantic_ir)
+
+    first = compose_s_and_r_module(
+        "REQ_BT_S_AND_R", lowered, [contribution], bounded_temporal_obligation=obligation
+    )
+    second = compose_s_and_r_module(
+        "REQ_BT_S_AND_R", lowered, [contribution], bounded_temporal_obligation=obligation
+    )
+
+    assert first.status == "composed"
+    assert first.module_text == second.module_text  # byte-stable
+    # The ghost step-counter is declared, ticks via a CONJOINED Next update (not a disjunct), and
+    # the obligation is a same-state deadline invariant.
+    assert "VARIABLE\n  \\* @type: Int;\n  nlr_clock" in first.module_text
+    assert (
+        "Next == SNext /\\ nlr_clock' = (IF Pred_redemption_finalized' THEN 0 ELSE nlr_clock + 1)"
+        in first.module_text
+    )
+    assert "Init == SInit /\\ nlr_clock = 0" in first.module_text
+    assert (
+        "R_Requirement == Pred_authorized(wallet) => (Pred_redemption_finalized \\/ nlr_clock <= 6)"
+        in first.module_text
+    )
+    # A same-state ghost invariant, never a primed-variable action invariant (Apalache 0.58 trap).
+    assert "Pred_redemption_finalized' = " not in first.module_text
+    assert first.bound_predicates == ["Pred_authorized", "Pred_redemption_finalized"]
+    assert first.bound_state_invariants == [
+        {
+            "kind": "bounded_temporal",
+            "premise_expr": "Pred_authorized(wallet)",
+            "response_predicate": "Pred_redemption_finalized",
+            "bound": 6,
+        }
+    ]
 
 
 def test_solver_backed_bounded_temporal_refuses_stateless_spec(tmp_path: Path) -> None:

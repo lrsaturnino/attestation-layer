@@ -2482,8 +2482,12 @@ def _compose_system_narrowing(
         f"{const_init}\n"
         f"====\n"
     )
-    bound_state_invariants = (
-        [
+    # Record the state invariant R contributed so the BackendResult describes the OBLIGATION the run
+    # checked — for bounded_temporal, the deadline `k` and the response predicate, not just the
+    # searched depth (max_depth = k + 1). A downstream consumer must be able to read the bound itself,
+    # never infer it from the search length.
+    if numeric_invariant_obligation is not None:
+        bound_state_invariants = [
             {
                 "kind": "numeric_invariant",
                 "premise_expr": numeric_invariant_obligation.premise_expr,
@@ -2491,9 +2495,17 @@ def _compose_system_narrowing(
                 "variables": list(numeric_invariant_obligation.variables),
             }
         ]
-        if numeric_invariant_obligation is not None
-        else []
-    )
+    elif bounded_temporal_obligation is not None:
+        bound_state_invariants = [
+            {
+                "kind": "bounded_temporal",
+                "premise_expr": premise_expr,
+                "response_predicate": bounded_temporal_obligation.response_predicate_name,
+                "bound": bounded_temporal_obligation.bound,
+            }
+        ]
+    else:
+        bound_state_invariants = []
 
     return ComposedSandRModule(
         status="composed",
