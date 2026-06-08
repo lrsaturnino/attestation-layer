@@ -28,7 +28,8 @@
             "NLR-UNAPPROVED-CONTROLLED-TEXT",
             "NLR-REFUSED-AMBIGUOUS",
             "NLR-UNAUDITED-DECOMPOSITION",
-            "NLR-TRANSLATION-AGREEMENT-BLOCKED"
+            "NLR-TRANSLATION-AGREEMENT-BLOCKED",
+            "NLR-CROSS-LANGUAGE-UNCERTAIN"
           ],
           "title": "Code",
           "type": "string"

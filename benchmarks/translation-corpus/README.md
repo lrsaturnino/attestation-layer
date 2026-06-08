@@ -45,14 +45,41 @@ The tests also plant a wrong-but-parseable output (→ false-acceptance) and a g
 output (→ false-refusal) to prove the instrument actually discriminates, so the zeros on
 the release corpus are a real signal rather than a constant.
 
+## Multilingual slice (PA-11)
+
+`multilingual.corpus.json` is the EN/PT spike: 20 requirements authored in **both**
+English and Portuguese, each pair sharing one language-neutral controlled rewrite, plus a
+few low-confidence Portuguese cases. The report breaks both rates down **per language**
+(`languages`) as well as per domain.
+
+- **EN↔PT signature equivalence** — because the controlled DSL normalises to snake_case
+  symbols, an English requirement and its Portuguese twin lower to `FormalClaim`s with
+  identical alpha-/commutative-normalised signatures. Merchant names and identifiers stay
+  **verbatim** in the original language (preserved in the intake provenance and inside
+  quoted DSL string literals).
+- **Low-confidence refuses, never guesses** — a Portuguese fragment the drafter cannot
+  confidently map to the grammar produces `NLR-CROSS-LANGUAGE-UNCERTAIN` with a
+  clarification and the offending fragment localized, instead of a guessed rewrite.
+- **NL-agnostic claim is scoped to the data** — "NL-agnostic" is asserted for a language
+  only when its recorded false-acceptance/false-refusal match the English budget. On this
+  spike Portuguese matches English (both zero), so the claim holds for Portuguese.
+
+Source language is recorded as `source_language` in the proposal's producer provenance
+(threaded from the intake's `language`).
+
 ## Reproducing
 
 ```bash
-# Regenerate corpus.json from source (kept in sync by a round-trip test):
+# Regenerate corpus.json + multilingual.corpus.json from source (round-trip tested):
 uv run python benchmarks/translation-corpus/build_corpus.py
 
 # Per-domain report + release-bar gate, computed offline from the corpus:
 uv run nlreq benchmark-translation \
   --corpus benchmarks/translation-corpus/corpus.json \
+  --run --release-bar --per-domain-false-acceptance-budget 0
+
+# Per-language EN/PT spike:
+uv run nlreq benchmark-translation \
+  --corpus benchmarks/translation-corpus/multilingual.corpus.json \
   --run --release-bar --per-domain-false-acceptance-budget 0
 ```

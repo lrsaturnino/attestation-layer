@@ -110,6 +110,51 @@
       ],
       "title": "TranslationDomainMetrics",
       "type": "object"
+    },
+    "TranslationLanguageMetrics": {
+      "additionalProperties": false,
+      "description": "Per-language false-acceptance / false-refusal breakdown (PA-11).\n\n\"NL-agnostic\" may be claimed for a language only when its recorded rates are within\nthe English budget on the spike; otherwise the claim is scoped to the languages that\npass. Both rates are reported, never collapsed into one accuracy.",
+      "properties": {
+        "false_acceptance_count": {
+          "title": "False Acceptance Count",
+          "type": "integer"
+        },
+        "false_acceptance_rate": {
+          "title": "False Acceptance Rate",
+          "type": "number"
+        },
+        "false_refusal_count": {
+          "title": "False Refusal Count",
+          "type": "integer"
+        },
+        "false_refusal_rate": {
+          "title": "False Refusal Rate",
+          "type": "number"
+        },
+        "language": {
+          "title": "Language",
+          "type": "string"
+        },
+        "semantic_match_rate": {
+          "title": "Semantic Match Rate",
+          "type": "number"
+        },
+        "total_cases": {
+          "title": "Total Cases",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "language",
+        "total_cases",
+        "semantic_match_rate",
+        "false_acceptance_count",
+        "false_acceptance_rate",
+        "false_refusal_count",
+        "false_refusal_rate"
+      ],
+      "title": "TranslationLanguageMetrics",
+      "type": "object"
     }
   },
   "additionalProperties": false,
@@ -159,6 +204,13 @@
       "default": 0.0,
       "title": "False Refusal Rate",
       "type": "number"
+    },
+    "languages": {
+      "items": {
+        "$ref": "#/$defs/TranslationLanguageMetrics"
+      },
+      "title": "Languages",
+      "type": "array"
     },
     "matched_cases": {
       "title": "Matched Cases",

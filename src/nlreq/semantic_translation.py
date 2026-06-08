@@ -391,6 +391,78 @@ def refuse_ambiguous_ensemble(
     )
 
 
+def refuse_low_confidence_cross_language(
+    *,
+    requirement_id: str,
+    language: str,
+    fragment: str,
+    translation_id: str | None = None,
+    prose: str | None = None,
+) -> SemanticTranslationReport:
+    """Refuse a non-English draft the model could not confidently translate (PA-11).
+
+    When drafting from non-English prose, the model emits a clarify sentinel rather than
+    guess at a fragment it cannot map to the controlled grammar. This turns that signal
+    into a clarification refusal — never a guessed controlled rewrite reaching the parser.
+    The offending fragment is localized to a span over the original prose where possible,
+    so the PA-10 product refusal surface renders it inline with next_actions.
+    """
+    effective_id = translation_id or f"semantic-translation-{requirement_id}"
+    clarification = (
+        f"The drafter could not confidently translate a fragment of the '{language}' "
+        f"requirement: '{fragment}'. Clarify the fragment or supply an approved controlled rewrite."
+    )
+    finding = SemanticAmbiguityFinding(
+        finding_id="cross-language-uncertain",
+        reason=f"low-confidence cross-language fragment in '{language}' prose: {fragment}",
+        source_spans=_spans_for_fragment(prose, fragment),
+        clarification_question=clarification,
+    )
+    return SemanticTranslationReport(
+        translation_id=effective_id,
+        requirement_id=requirement_id,
+        result="refused",
+        syntactically_valid=False,
+        refusal_code="NLR-CROSS-LANGUAGE-UNCERTAIN",
+        ambiguity_findings=[finding],
+        clarification_questions=[clarification],
+        stages=[
+            SemanticTranslationStage(
+                stage="canonicalize",
+                status="failed",
+                message=(
+                    f"low-confidence cross-language draft in '{language}'; "
+                    "refusing rather than guessing the controlled rewrite"
+                ),
+            )
+        ],
+        input_hashes={"source_prose": sha256_text(prose)} if prose is not None else {},
+    )
+
+
+def _spans_for_fragment(prose: str | None, fragment: str) -> list[SourceSpan]:
+    if prose is not None:
+        index = prose.find(fragment)
+        if index >= 0:
+            return [
+                SourceSpan(
+                    document="source_prose",
+                    start_char=index,
+                    end_char=index + len(fragment),
+                    text=fragment,
+                )
+            ]
+    # No prose context (or fragment not found verbatim): localize to the fragment itself.
+    return [
+        SourceSpan(
+            document="source_prose",
+            start_char=0,
+            end_char=len(fragment),
+            text=fragment,
+        )
+    ]
+
+
 def _is_trusted_candidate(result: "DecompositionResult") -> bool:
     """Whether a decomposition candidate may drive a formal-claim comparison.
 

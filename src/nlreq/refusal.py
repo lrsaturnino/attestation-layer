@@ -31,6 +31,9 @@ RefusalCode = Literal[
     "NLR-REFUSED-AMBIGUOUS",
     "NLR-UNAUDITED-DECOMPOSITION",
     "NLR-TRANSLATION-AGREEMENT-BLOCKED",
+    # Multilingual intake (PA-11): a non-English fragment the drafter could not confidently
+    # map to the controlled grammar; refuse with a clarification rather than guess.
+    "NLR-CROSS-LANGUAGE-UNCERTAIN",
 ]
 
 _KNOWN_REFUSAL_CODES = frozenset(get_args(RefusalCode))
@@ -200,6 +203,7 @@ def _semantic_refusal_owner(code: RefusalCode) -> str:
         "NLR-UNAUDITED-DECOMPOSITION": "requirement reviewer",
         "NLR-TRANSLATION-AGREEMENT-BLOCKED": "requirement reviewer",
         "NLR-SEMANTIC-UNSUPPORTED": "formal reviewer",
+        "NLR-CROSS-LANGUAGE-UNCERTAIN": "requirement author",
     }
     return owners.get(code, "release owner")
 
@@ -223,6 +227,9 @@ def _semantic_refusal_next_actions(code: RefusalCode) -> list[str]:
         ],
         "NLR-SEMANTIC-UNSUPPORTED": [
             "Express the requirement with a supported claim class and supported fragments."
+        ],
+        "NLR-CROSS-LANGUAGE-UNCERTAIN": [
+            "Clarify the flagged non-English fragment or supply an approved controlled rewrite."
         ],
     }
     return actions.get(code, ["Address the refusal before the downstream action."])

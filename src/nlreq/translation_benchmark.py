@@ -152,6 +152,25 @@ class TranslationDomainMetrics(BaseModel):
     false_refusal_rate: float
 
 
+class TranslationLanguageMetrics(BaseModel):
+    """Per-language false-acceptance / false-refusal breakdown (PA-11).
+
+    "NL-agnostic" may be claimed for a language only when its recorded rates are within
+    the English budget on the spike; otherwise the claim is scoped to the languages that
+    pass. Both rates are reported, never collapsed into one accuracy.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    language: str
+    total_cases: int
+    semantic_match_rate: float
+    false_acceptance_count: int
+    false_acceptance_rate: float
+    false_refusal_count: int
+    false_refusal_rate: float
+
+
 class RequirementTranslationBenchmarkReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -174,6 +193,8 @@ class RequirementTranslationBenchmarkReport(BaseModel):
     runtime_ms_total: int
     # Per-domain breakdown of both rates (PA-9). Empty for domain-less corpora.
     domains: list[TranslationDomainMetrics] = Field(default_factory=list)
+    # Per-language breakdown of both rates (PA-11). Single "en" entry for monolingual corpora.
+    languages: list[TranslationLanguageMetrics] = Field(default_factory=list)
     observations: list[RequirementTranslationObservation] = Field(default_factory=list)
 
 
@@ -245,7 +266,24 @@ def build_translation_benchmark_report(
         refusal_correctness=_refusal_correctness(refusal_cases, result_by_id),
         runtime_ms_total=runtime,
         domains=_domain_metrics(corpus, result_by_id),
+        languages=_language_metrics(corpus, result_by_id),
         observations=observations,
+    )
+
+
+def _group_rate_counts(
+    cases: list[RequirementTranslationCase],
+    result_by_id: dict[str, RequirementTranslationCaseResult],
+) -> tuple[int, int, int, int]:
+    """Return (total, semantic_match, false_acceptance, false_refusal) over a case group."""
+    results = [
+        result for case in cases if (result := result_by_id.get(case.case_id)) is not None
+    ]
+    return (
+        len(cases),
+        sum(1 for result in results if result.semantic_match),
+        sum(1 for result in results if result.false_acceptance),
+        sum(1 for result in results if result.false_refusal),
     )
 
 
@@ -261,18 +299,37 @@ def _domain_metrics(
     metrics: list[TranslationDomainMetrics] = []
     for domain in domains:
         cases = [case for case in corpus.cases if case.domain == domain]
-        results = [
-            result
-            for case in cases
-            if (result := result_by_id.get(case.case_id)) is not None
-        ]
-        total = len(cases)
-        false_acceptance = sum(1 for result in results if result.false_acceptance)
-        false_refusal = sum(1 for result in results if result.false_refusal)
-        semantic = sum(1 for result in results if result.semantic_match)
+        total, semantic, false_acceptance, false_refusal = _group_rate_counts(cases, result_by_id)
         metrics.append(
             TranslationDomainMetrics(
                 domain=domain,
+                total_cases=total,
+                semantic_match_rate=_ratio(semantic, total),
+                false_acceptance_count=false_acceptance,
+                false_acceptance_rate=_ratio(false_acceptance, total),
+                false_refusal_count=false_refusal,
+                false_refusal_rate=_ratio(false_refusal, total),
+            )
+        )
+    return metrics
+
+
+def _language_metrics(
+    corpus: RequirementTranslationCorpus,
+    result_by_id: dict[str, RequirementTranslationCaseResult],
+) -> list[TranslationLanguageMetrics]:
+    """Group both rates by case.language (PA-11), in first-seen order."""
+    languages: list[str] = []
+    for case in corpus.cases:
+        if case.language not in languages:
+            languages.append(case.language)
+    metrics: list[TranslationLanguageMetrics] = []
+    for language in languages:
+        cases = [case for case in corpus.cases if case.language == language]
+        total, semantic, false_acceptance, false_refusal = _group_rate_counts(cases, result_by_id)
+        metrics.append(
+            TranslationLanguageMetrics(
+                language=language,
                 total_cases=total,
                 semantic_match_rate=_ratio(semantic, total),
                 false_acceptance_count=false_acceptance,
@@ -452,15 +509,23 @@ def evaluate_translation_case(
     intake_timestamp: str = _DEFAULT_INTAKE_TIMESTAMP,
 ) -> RequirementTranslationCaseResult:
     from .formal_claim import formal_claim_signature
-    from .intake import create_free_form_intake, draft_controlled_rewrite_with_llm
+    from .intake import (
+        create_free_form_intake,
+        cross_language_clarification,
+        draft_controlled_rewrite_with_llm,
+    )
     from .llm_client import RecordedLlmClient
-    from .semantic_translation import translate_controlled_requirement_to_formal_claim
+    from .semantic_translation import (
+        refuse_low_confidence_cross_language,
+        translate_controlled_requirement_to_formal_claim,
+    )
 
     recorded = case.recorded_output()
     gold_signature = _gold_claim_signature(case)
 
     # Route through the PA-4 drafting path so the prose -> controlled inference is exercised
-    # exactly as production would, with the recorded model output replayed offline.
+    # exactly as production would, with the recorded model output replayed offline. The
+    # intake records the source language (PA-11) which steers the (here recorded) drafter.
     intake = create_free_form_intake(
         intake_id=f"intake-{case.case_id}",
         original_text=case.input_text,
@@ -473,12 +538,24 @@ def evaluate_translation_case(
         proposal_id=f"proposal-{case.case_id}",
         timestamp=intake_timestamp,
         model="recorded",
+        language=case.language,
     )
-    translation = translate_controlled_requirement_to_formal_claim(
-        controlled_text=proposal.proposed_controlled_text,
-        requirement_id=f"REQ-{case.case_id}",
-        title=case.title,
-    )
+    # PA-11: a low-confidence cross-language draft refuses with a clarification rather than
+    # letting a guessed rewrite reach the parser.
+    clarify_fragment = cross_language_clarification(proposal.proposed_controlled_text)
+    if clarify_fragment is not None:
+        translation = refuse_low_confidence_cross_language(
+            requirement_id=f"REQ-{case.case_id}",
+            language=case.language,
+            fragment=clarify_fragment,
+            prose=case.input_text,
+        )
+    else:
+        translation = translate_controlled_requirement_to_formal_claim(
+            controlled_text=proposal.proposed_controlled_text,
+            requirement_id=f"REQ-{case.case_id}",
+            title=case.title,
+        )
 
     accepted = translation.result == "accepted"
     claim = (

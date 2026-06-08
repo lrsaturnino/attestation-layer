@@ -11,6 +11,32 @@ NLREQ_API_KEY_ENV = "NLREQ_ANTHROPIC_API_KEY"
 # reproducibility; callers must still treat output as untrusted.
 _DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 
+# Sentinel a drafting model emits in place of controlled text when it is NOT confident
+# it can faithfully translate a (typically non-English) fragment. The intake layer turns
+# this into a clarification refusal instead of letting a guessed rewrite reach the parser
+# (PA-11: low-confidence cross-language fragments refuse rather than guess). The text after
+# the sentinel is the model's stated reason / the fragment it could not map.
+CROSS_LANGUAGE_CLARIFY_SENTINEL = "[[NLR-CLARIFY]]"
+
+
+def language_prompt_addendum(language: str) -> str:
+    """Extra prompt guidance for non-English prose; empty for English.
+
+    The IR and controlled DSL are language-neutral (symbols normalise to snake_case), so
+    the model is asked to translate MEANING while keeping merchant names, identifiers, and
+    quoted string literals VERBATIM in the original language. Returns "" for ``en`` so the
+    English prompt — and therefore its pinned prompt_hash — is unchanged.
+    """
+    if language == "en":
+        return ""
+    return (
+        f"\nThe PROSE is written in the language with code '{language}'. Translate its MEANING "
+        "into the controlled DSL, not its words. Keep merchant names, identifiers, and quoted "
+        "string literals VERBATIM in their original language — do not translate or transliterate "
+        "them. If you cannot confidently map a fragment to the controlled grammar, reply with "
+        f"'{CROSS_LANGUAGE_CLARIFY_SENTINEL} <the untranslatable fragment>' and nothing else.\n"
+    )
+
 
 def _find_dot_claude_env(start_dir: Path | None = None) -> Path | None:
     """Walk up from start_dir (default: cwd) looking for a .claude/.env file.
@@ -80,12 +106,18 @@ class LlmClient(Protocol):
     best-effort reproducibility but are not guaranteed to be deterministic.
     """
 
-    def propose_controlled_rewrite(self, prose: str, grammar_summary: str) -> str:
+    def propose_controlled_rewrite(
+        self, prose: str, grammar_summary: str, *, language: str = "en"
+    ) -> str:
         """Return proposed DSL v3 controlled text for the given prose.
 
         Args:
             prose: The free-form natural-language requirement text.
             grammar_summary: A compact description of the target DSL grammar.
+            language: BCP-47-ish source-language code of ``prose`` (e.g. "en", "pt").
+                The IR is language-neutral; this only steers the drafting prompt and is
+                recorded in provenance. Keyword-only with an "en" default so existing
+                English call sites and their pinned prompt hashes are unchanged.
 
         Returns:
             The proposed controlled text.  Not yet verified or approved.
@@ -104,7 +136,12 @@ class RecordedLlmClient:
     def __init__(self, fixture: str) -> None:
         self._fixture = fixture
 
-    def propose_controlled_rewrite(self, prose: str, grammar_summary: str) -> str:
+    def propose_controlled_rewrite(
+        self, prose: str, grammar_summary: str, *, language: str = "en"
+    ) -> str:
+        # Deterministic replay: the recorded fixture already encodes the model's output for
+        # this prose in this language (including any cross-language clarify sentinel), so
+        # language only steers a live model — here it is accepted and ignored.
         return self._fixture
 
 
@@ -155,7 +192,9 @@ class AnthropicLlmClient:
     def __init__(self, model: str = _DEFAULT_MODEL) -> None:
         self._model = model
 
-    def propose_controlled_rewrite(self, prose: str, grammar_summary: str) -> str:
+    def propose_controlled_rewrite(
+        self, prose: str, grammar_summary: str, *, language: str = "en"
+    ) -> str:
         # Credential check first so a missing key surfaces as EnvironmentError
         # even when the 'anthropic' package is not installed.
         api_key = load_api_key()
@@ -180,6 +219,7 @@ class AnthropicLlmClient:
                         "into a controlled DSL v3 requirement.\n\n"
                         "GRAMMAR:\n"
                         + grammar_summary
+                        + language_prompt_addendum(language)
                         + "\nPROSE:\n"
                         + prose.strip()
                         + "\n\nProduce ONLY the controlled DSL v3 text, no explanation or commentary."
@@ -199,7 +239,9 @@ class UnavailableLlmClient:
     absent.  Surfaces a helpful error rather than an import-time failure.
     """
 
-    def propose_controlled_rewrite(self, prose: str, grammar_summary: str) -> str:
+    def propose_controlled_rewrite(
+        self, prose: str, grammar_summary: str, *, language: str = "en"
+    ) -> str:
         raise NotImplementedError(
             "Real LLM drafting requires the 'anthropic' package. "
             "Install it or supply --fixture for offline use."

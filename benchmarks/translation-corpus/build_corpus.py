@@ -27,6 +27,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+from nlreq.llm_client import CROSS_LANGUAGE_CLARIFY_SENTINEL
 from nlreq.translation_benchmark import (
     RequirementTranslationCase,
     RequirementTranslationCorpus,
@@ -741,13 +742,302 @@ def build_corpus() -> RequirementTranslationCorpus:
     )
 
 
+# --- PA-11 multilingual spike --------------------------------------------------------------
+#
+# The SAME requirement authored in English and Portuguese, each paired to the SAME
+# language-neutral controlled rewrite. Because the controlled DSL normalises to snake_case
+# symbols, EN and PT prose converge on identical FormalClaim signatures (the equivalence the
+# spike checks) while merchant/identifier strings stay verbatim in the intake provenance.
+# A handful of low-confidence PT cases exercise the cross-language clarification refusal.
+_MULTILINGUAL_DOMAIN = "multilingual-spike"
+
+
+def _pair(
+    num: int,
+    title: str,
+    en_prose: str,
+    pt_prose: str,
+    controlled: str,
+) -> list[RequirementTranslationCase]:
+    base = f"ml-{num:02d}"
+    return [
+        RequirementTranslationCase(
+            case_id=f"{base}-en",
+            title=title,
+            input_text=en_prose,
+            input_kind="messy_prose",
+            tags=["multilingual", "en"],
+            domain=_MULTILINGUAL_DOMAIN,
+            language="en",
+            gold_controlled_text=controlled,
+            recorded_controlled_text=controlled,
+            expected=RequirementTranslationExpected(outcome="accepted"),
+        ),
+        RequirementTranslationCase(
+            case_id=f"{base}-pt",
+            title=title,
+            input_text=pt_prose,
+            input_kind="multilingual",
+            tags=["multilingual", "pt"],
+            domain=_MULTILINGUAL_DOMAIN,
+            language="pt",
+            gold_controlled_text=controlled,
+            recorded_controlled_text=controlled,
+            expected=RequirementTranslationExpected(outcome="accepted"),
+        ),
+    ]
+
+
+def _low_confidence_pt(num: int, prose: str, fragment: str) -> RequirementTranslationCase:
+    return RequirementTranslationCase(
+        case_id=f"ml-lc-{num:02d}-pt",
+        title="Low-confidence Portuguese fragment",
+        input_text=prose,
+        input_kind="multilingual",
+        tags=["multilingual", "pt", "low_confidence"],
+        domain=_MULTILINGUAL_DOMAIN,
+        language="pt",
+        gold_controlled_text=None,
+        recorded_controlled_text=f"{CROSS_LANGUAGE_CLARIFY_SENTINEL} {fragment}",
+        expected=RequirementTranslationExpected(
+            outcome="refused", expected_refusal_code="NLR-CROSS-LANGUAGE-UNCERTAIN"
+        ),
+    )
+
+
+_PAIRS: list[tuple[str, str, str, str]] = [
+    (
+        "Unauthorized withdrawal rejected",
+        "An unauthorized account must have its withdrawal rejected before settlement.",
+        "Uma conta não autorizada deve ter o saque rejeitado antes da liquidação.",
+        "requirement authorization_precondition:\n"
+        "scope withdrawal\n"
+        "when account is not authorized\n"
+        "then withdraw must reject before settled\n",
+    ),
+    (
+        "Approved buyer order succeeds",
+        "When a buyer is approved, placing the order should succeed.",
+        "Quando um comprador é aprovado, registrar o pedido deve ser bem-sucedido.",
+        "requirement state_precondition:\n"
+        "scope purchase_order\n"
+        "when buyer is approved\n"
+        "then place_order must succeed\n",
+    ),
+    (
+        "Approved requisition ends accepted",
+        "When the requester is approved, the requisition status must end up accepted.",
+        "Quando o solicitante é aprovado, o status da requisição deve terminar como aceito.",
+        "requirement state_postcondition:\n"
+        "scope requisition\n"
+        "when requester is approved\n"
+        'then state requisition_status must be "accepted"\n',
+    ),
+    (
+        "Approved deposit credited within a minute",
+        "When a deposit is confirmed, a deposit_credited event must be emitted within 1 minute.",
+        "Quando um depósito é confirmado, um evento deposit_credited deve ser emitido em 1 minuto.",
+        "requirement event_state_correspondence:\n"
+        "scope vault\n"
+        "when deposit is confirmed\n"
+        "then emit deposit_credited within 1 minute\n",
+    ),
+    (
+        "Collateral ratio invariant",
+        "While the collateral ratio is between one hundred and three hundred, keep it at least one hundred.",
+        "Enquanto a razão de garantia estiver entre cem e trezentos, mantenha-a em pelo menos cem.",
+        "requirement numeric_invariant:\n"
+        "scope lending_pool\n"
+        "when collateral_ratio >= 100 and collateral_ratio <= 300\n"
+        "then keep collateral_ratio >= 100\n",
+    ),
+    (
+        "Authorized redemption finalized in time",
+        "When the wallet is authorized, a redemption_finalized event must be emitted within 6 hours.",
+        "Quando a carteira está autorizada, um evento redemption_finalized deve ser emitido em 6 horas.",
+        "requirement bounded_temporal:\n"
+        "scope redemption\n"
+        "when wallet is authorized\n"
+        "then emit redemption_finalized within 6 hours\n",
+    ),
+    (
+        "Authorized withdrawal settles on ledger",
+        "When the account is authorized, the vault module causes the ledger module to settle within 3 blocks.",
+        "Quando a conta está autorizada, o módulo vault faz o módulo ledger liquidar em 3 blocos.",
+        "requirement cross_module_causal_obligation:\n"
+        "scope withdrawal\n"
+        "when account is authorized\n"
+        "then module vault causes module ledger to settle within 3 blocks\n",
+    ),
+    (
+        "Unapproved buyer cannot order",
+        "A buyer who has not been approved must have the order rejected before it is ordered.",
+        "Um comprador que não foi aprovado deve ter o pedido rejeitado antes de ser efetivado.",
+        "requirement authorization_precondition:\n"
+        "scope purchase_order\n"
+        "when buyer is not authorized\n"
+        "then place_order must reject before ordered\n",
+    ),
+    (
+        "Confirmed receipt allows close-out",
+        "Once goods receipt is confirmed, closing the purchase order must succeed.",
+        "Assim que o recebimento das mercadorias é confirmado, encerrar o pedido deve ser bem-sucedido.",
+        "requirement state_precondition:\n"
+        "scope purchase_order\n"
+        "when goods_receipt is confirmed\n"
+        "then close_order must succeed\n",
+    ),
+    (
+        "Small orders auto-approved",
+        "When the order amount is at most one thousand, the approval status must be auto.",
+        "Quando o valor do pedido é no máximo mil, o status de aprovação deve ser automático.",
+        "requirement state_postcondition:\n"
+        "scope purchase_order\n"
+        "when amount <= 1000\n"
+        'then state approval_status must be "auto"\n',
+    ),
+    (
+        "Spend within department limit",
+        "While committed spend is between ten and fifty thousand, keep it at most fifty thousand.",
+        "Enquanto o gasto comprometido estiver entre dez e cinquenta mil, mantenha-o em no máximo cinquenta mil.",
+        "requirement numeric_invariant:\n"
+        "scope department_budget\n"
+        "when committed_spend >= 10000 and committed_spend <= 50000\n"
+        "then keep committed_spend <= 50000\n",
+    ),
+    (
+        "Approval SLA within three days",
+        "When the requester is approved, a requisition_approved event must be emitted within 3 days.",
+        "Quando o solicitante é aprovado, um evento requisition_approved deve ser emitido em 3 dias.",
+        "requirement bounded_temporal:\n"
+        "scope requisition\n"
+        "when requester is approved\n"
+        "then emit requisition_approved within 3 days\n",
+    ),
+    (
+        "Approved staker can stake",
+        "When a staker is approved, staking must succeed.",
+        "Quando um validador de stake é aprovado, fazer o stake deve ser bem-sucedido.",
+        "requirement state_precondition:\n"
+        "scope staking\n"
+        "when staker is approved\n"
+        "then stake must succeed\n",
+    ),
+    (
+        "Undercollateralized position liquidatable",
+        "When the health factor is below one, the position status must be liquidatable.",
+        "Quando o fator de saúde está abaixo de um, o status da posição deve ser liquidável.",
+        "requirement state_postcondition:\n"
+        "scope lending_pool\n"
+        "when health_factor < 1\n"
+        'then state position_status must be "liquidatable"\n',
+    ),
+    (
+        "Unauthorized mint rejected",
+        "If a minter is not authorized, minting new units must be rejected before they are issued.",
+        "Se um emissor não está autorizado, a emissão de novas unidades deve ser rejeitada antes de emitida.",
+        "requirement authorization_precondition:\n"
+        "scope token_supply\n"
+        "when minter is not authorized\n"
+        "then mint must reject before issued\n",
+    ),
+    (
+        "Total supply capped",
+        "While the total supply is between zero and one million, keep it at most one million.",
+        "Enquanto o fornecimento total estiver entre zero e um milhão, mantenha-o em no máximo um milhão.",
+        "requirement numeric_invariant:\n"
+        "scope token_supply\n"
+        "when total_supply >= 0 and total_supply <= 1000000\n"
+        "then keep total_supply <= 1000000\n",
+    ),
+    (
+        "Confirmed oracle price allows settlement",
+        "Once the oracle price is confirmed, settling the position must succeed.",
+        "Assim que o preço do oráculo é confirmado, liquidar a posição deve ser bem-sucedido.",
+        "requirement state_precondition:\n"
+        "scope settlement\n"
+        "when oracle_price is confirmed\n"
+        "then settle_position must succeed\n",
+    ),
+    (
+        "Approved order acknowledged within a day",
+        "When a buyer is approved, an order_acknowledged event must be emitted within 1 day.",
+        "Quando um comprador é aprovado, um evento order_acknowledged deve ser emitido em 1 dia.",
+        "requirement event_state_correspondence:\n"
+        "scope purchase_order\n"
+        "when buyer is approved\n"
+        "then emit order_acknowledged within 1 day\n",
+    ),
+    (
+        "Authorized exit waits the challenge window",
+        "When the exiter is authorized, an exit_finalized event must be emitted within 7 days.",
+        "Quando o solicitante de saída está autorizado, um evento exit_finalized deve ser emitido em 7 dias.",
+        "requirement bounded_temporal:\n"
+        "scope rollup_exit\n"
+        "when exiter is authorized\n"
+        "then emit exit_finalized within 7 days\n",
+    ),
+    (
+        "Sanctioned account frozen",
+        "When the risk score is at least ninety, the account status must be frozen.",
+        "Quando a pontuação de risco é de pelo menos noventa, o status da conta deve ser congelado.",
+        "requirement state_postcondition:\n"
+        "scope compliance\n"
+        "when risk_score >= 90\n"
+        'then state account_status must be "frozen"\n',
+    ),
+]
+
+
+_LOW_CONFIDENCE: list[RequirementTranslationCase] = [
+    _low_confidence_pt(
+        1,
+        "O saque deve respeitar a carência contratual de resgate antecipado.",
+        "carência contratual de resgate antecipado",
+    ),
+    _low_confidence_pt(
+        2,
+        "A aprovação fica sujeita ao trânsito em julgado da diligência fiscal.",
+        "trânsito em julgado da diligência fiscal",
+    ),
+    _low_confidence_pt(
+        3,
+        "O pedido entra em conta-corrente garantida com cláusula de pro soluto.",
+        "conta-corrente garantida com cláusula de pro soluto",
+    ),
+]
+
+
+def build_multilingual_corpus() -> RequirementTranslationCorpus:
+    cases: list[RequirementTranslationCase] = []
+    for num, (title, en_prose, pt_prose, controlled) in enumerate(_PAIRS, start=1):
+        cases.extend(_pair(num, title, en_prose, pt_prose, controlled))
+    cases.extend(_LOW_CONFIDENCE)
+    return RequirementTranslationCorpus(
+        corpus_id="translation-corpus-pa11-multilingual",
+        version="0.1",
+        cases=cases,
+    )
+
+
+def _write(corpus: RequirementTranslationCorpus, filename: str) -> Path:
+    out = Path(__file__).resolve().with_name(filename)
+    out.write_text(json.dumps(corpus.model_dump(mode="json"), indent=2, sort_keys=True) + "\n")
+    return out
+
+
 def main() -> int:
     corpus = build_corpus()
-    out = Path(__file__).resolve().with_name("corpus.json")
-    out.write_text(json.dumps(corpus.model_dump(mode="json"), indent=2, sort_keys=True) + "\n")
+    out = _write(corpus, "corpus.json")
     procurement = sum(1 for case in corpus.cases if case.domain == "procurement-approval")
     protocol = sum(1 for case in corpus.cases if case.domain == "protocol-safety")
     print(f"wrote {out} — {len(corpus.cases)} cases (procurement={procurement}, protocol={protocol})")
+
+    multilingual = build_multilingual_corpus()
+    ml_out = _write(multilingual, "multilingual.corpus.json")
+    en = sum(1 for case in multilingual.cases if case.language == "en")
+    pt = sum(1 for case in multilingual.cases if case.language == "pt")
+    print(f"wrote {ml_out} — {len(multilingual.cases)} cases (en={en}, pt={pt})")
     return 0
 
 
