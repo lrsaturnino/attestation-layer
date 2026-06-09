@@ -11,6 +11,7 @@ from .impact import ImpactAnalysisArtifact
 from .jsonutil import sha256_json, sha256_text
 from .llm_client import LlmClient
 from .models import NormalizedTraceArtifact, RequirementIRV2
+from .slither_client import SlitherClientResult
 from .source_adapter import CodePresentation
 from .system_spec import (
     SpecTraceContract,
@@ -128,6 +129,7 @@ def build_spec_extraction_workbench_report(
     trace_replay: TraceReplayReport | None = None,
     traces: NormalizedTraceArtifact | None = None,
     llm: LlmClient | None = None,
+    slither: SlitherClientResult | None = None,
 ) -> SpecExtractionWorkbenchReport:
     registry_report = build_system_spec_registry_report(
         registry,
@@ -150,7 +152,10 @@ def build_spec_extraction_workbench_report(
     # draft placeholder, which carries `trace_grounding_status="missing"` and so is blocked, never
     # falsely promoted. The extracted candidate's `trace_grounding_status` is set by the trace replay
     # inside extract_{go,solidity}_candidate_spec, so the SAME integration gate blocks a paper-only
-    # candidate.
+    # candidate. `slither` is deliberately NOT a run/don't-run input: the Solidity extraction runs
+    # without it (the trace gate still produces an inspectable report), but the candidate records the
+    # missing/failed Slither context as a blocking fallback reason and cannot be promoted (PC-5 is
+    # "Slither + LLM + trace validation", not "LLM + trace validation").
     is_go = impact.language == "go"
     is_solidity = impact.language == "solidity"
     have_extraction_inputs = (
@@ -171,6 +176,7 @@ def build_spec_extraction_workbench_report(
                     code_presentation=code_presentation,
                     traces=traces,
                     llm=llm,
+                    slither=slither,
                 ).candidate
             )
         elif is_solidity:
@@ -233,6 +239,7 @@ def build_specula_extraction_integration_report(
     trace_replay: TraceReplayReport | None = None,
     traces: NormalizedTraceArtifact | None = None,
     llm: LlmClient | None = None,
+    slither: SlitherClientResult | None = None,
 ) -> SpeculaExtractionIntegrationReport:
     workbench = build_spec_extraction_workbench_report(
         requirement=requirement,
@@ -243,6 +250,7 @@ def build_specula_extraction_integration_report(
         trace_replay=trace_replay,
         traces=traces,
         llm=llm,
+        slither=slither,
     )
     validations = [
         validate_candidate_spec_structure(candidate) for candidate in workbench.candidates
@@ -329,6 +337,23 @@ def validate_candidate_spec_structure(
             issues.append("candidate TLA content is missing module header")
         if "====" not in candidate.content:
             issues.append("candidate TLA content is missing module terminator")
+    # A Solidity Specula candidate must record Slither-backed source context (PC-5 is "Slither +
+    # LLM + trace validation"): the recorded analysis must have run AND cover the presented source.
+    # Checked here — on the candidate itself, not only in the extraction report — so the
+    # promote_candidate_spec_with_review gate refuses a candidate extracted from an unverified
+    # regex/static presentation even if its trace obligations reproduce.
+    if candidate.provenance.metadata.get("extraction") == "specula_solidity":
+        checked.append("Solidity source context is Slither-backed")
+        status = candidate.provenance.metadata.get("slither_status")
+        binding = candidate.provenance.metadata.get("slither_source_binding")
+        if status != "analyzed" or binding != "bound":
+            recorded = candidate.provenance.metadata.get("slither_reason")
+            detail = f"slither_status={status or 'absent'}, source_binding={binding or 'absent'}"
+            if recorded:
+                detail += f"; recorded reason: {recorded}"
+            issues.append(
+                f"Solidity candidate source context is not Slither-backed ({detail})"
+            )
     return CandidateSpecStructuralValidation(
         candidate_id=candidate.candidate_id,
         status="invalid" if issues else "valid",
@@ -806,6 +831,7 @@ def extract_solidity_candidate_spec(
     code_presentation: CodePresentation,
     traces: NormalizedTraceArtifact,
     llm: LlmClient,
+    slither: SlitherClientResult | None = None,
 ) -> SolidityCandidateExtractionReport:
     """Extract a candidate Solidity ``S`` from source (LLM) and validate it against real traces (PC-5).
 
@@ -821,6 +847,16 @@ def extract_solidity_candidate_spec(
     check it. The returned candidate carries ``trace_grounding_status`` so the existing
     :func:`promote_candidate_spec_with_review` gate promotes a reproduced candidate and blocks a
     paper-only one.
+
+    PC-5 is "Slither + LLM + trace validation", so the SOURCE side of the evidence is gated too:
+    ``slither`` is the PC-3 analysis of the presented contract source. A candidate is promotable only
+    when that analysis ran (``status="analyzed"``) AND covers the presented source files — proving the
+    LLM read tool-analyzed source, not an unverified regex/static presentation. Slither absent,
+    failed, or covering other files does NOT abort the extraction (the trace gate still runs and the
+    report stays inspectable); it records a blocking fallback reason, and the Slither
+    status/version/analysis hash are carried into the candidate's provenance metadata either way, so
+    promotion (via :func:`validate_candidate_spec_structure`) refuses a candidate whose source
+    context is not Slither-backed.
     """
     raw = llm.extract_spec_invariants(
         module_id=module_id,
@@ -849,18 +885,21 @@ def extract_solidity_candidate_spec(
         provenance="specula_extracted",
     )
     replay = replay_spec_against_traces(contract=contract, traces=traces)
-    # Promotability has two independent requirements, exactly as for Go: the code's real traces must
-    # reproduce the declared obligations (trace_reasons), AND the candidate must declare at least one
-    # invariant. A candidate that reproduces its traces but asserts no invariant would promote to a
-    # reviewed S the S ∧ R gate refuses (no system invariant to preserve), so it is rejected here as a
-    # dead spec rather than promoted. The trace_grounding gaps stay keyed on trace_reasons alone so a
-    # missing invariant never mislabels grounding the traces actually passed as "not reproduced".
+    slither_reasons, slither_metadata = _slither_context_evidence(slither, code_presentation)
+    # Promotability has three independent requirements: the code's real traces must reproduce the
+    # declared obligations (trace_reasons), the candidate must declare at least one invariant, AND the
+    # source context must be Slither-backed (slither_reasons). A candidate that reproduces its traces
+    # but asserts no invariant would promote to a reviewed S the S ∧ R gate refuses (no system
+    # invariant to preserve), so it is rejected here as a dead spec rather than promoted. The
+    # trace_grounding gaps stay keyed on trace_reasons alone so a missing invariant or a missing
+    # Slither analysis never mislabels grounding the traces actually passed as "not reproduced".
     trace_reasons = _spec_trace_rejection_reasons(replay)
     rejection_reasons = list(trace_reasons)
     if not invariant_names:
         rejection_reasons.append(
             "candidate declares no invariant; a spec with no safety property cannot be promoted"
         )
+    rejection_reasons.extend(slither_reasons)
     promotable = not rejection_reasons
     trace_status: Literal["passed", "blocked", "missing"] = "passed" if promotable else "blocked"
     candidate = CandidateSpec(
@@ -871,14 +910,20 @@ def extract_solidity_candidate_spec(
         content_hash=sha256_text(content),
         trace_grounding_status=trace_status,
         invariant_names=invariant_names,
-        gaps=_solidity_candidate_gaps(extracted, trace_reasons=trace_reasons),
+        gaps=_solidity_candidate_gaps(
+            extracted, trace_reasons=trace_reasons, slither_reasons=slither_reasons
+        ),
         provenance=CandidateSpecProvenance(
             requirement_id=requirement.requirement_id,
             impact_hash=sha256_json(impact),
             code_presentation_hash=sha256_json(code_presentation),
             trace_replay_hash=sha256_json(replay),
             llm_draft_used=True,
-            metadata={"module_id": module_id, "extraction": "specula_solidity"},
+            metadata={
+                "module_id": module_id,
+                "extraction": "specula_solidity",
+                **slither_metadata,
+            },
         ),
     )
     return SolidityCandidateExtractionReport(
@@ -890,6 +935,62 @@ def extract_solidity_candidate_spec(
         promotable=promotable,
         rejection_reasons=rejection_reasons,
     )
+
+
+def _slither_context_evidence(
+    slither: SlitherClientResult | None, code_presentation: CodePresentation
+) -> tuple[list[str], dict[str, str]]:
+    """Why the Solidity source context is NOT Slither-backed, plus the provenance to record.
+
+    The returned metadata always carries ``slither_status`` (``analyzed`` / ``unavailable`` /
+    ``tool_error`` / ``not_run``) and, when the analysis ran, ``slither_source_binding`` — whether
+    the analyzed files cover the files the presentation showed the LLM (suffix-matched, since the
+    analyzer reports resolved paths while presentations carry project-relative ones). Only
+    ``analyzed`` + ``bound`` yields no reasons: a real Slither run over OTHER files is not evidence
+    about the presented source. The recorded reason strings double as the "blocking fallback
+    reason" the candidate carries when Slither is absent or failed.
+    """
+    if slither is None:
+        return (
+            [
+                "Solidity source context is not Slither-backed: no Slither analysis was supplied "
+                "for the presented source"
+            ],
+            {"slither_status": "not_run"},
+        )
+    metadata: dict[str, str] = {"slither_status": slither.status}
+    if slither.slither_version:
+        metadata["slither_version"] = slither.slither_version
+    if slither.status != "analyzed" or slither.analysis is None:
+        reason = slither.reason or "slither did not produce an analysis"
+        metadata["slither_reason"] = reason
+        return (
+            [f"Solidity source context is not Slither-backed: {reason}"],
+            metadata,
+        )
+    metadata["slither_analysis_hash"] = sha256_json(slither.analysis)
+    presented = [
+        snippet.get("path", "")
+        for snippet in code_presentation.snippets
+        if snippet.get("path")
+    ]
+    analyzed = list(slither.analysis.files)
+    bound = any(
+        analyzed_file == presented_path or analyzed_file.endswith("/" + presented_path)
+        for presented_path in presented
+        for analyzed_file in analyzed
+    )
+    metadata["slither_source_binding"] = "bound" if bound else "unbound"
+    if not bound:
+        return (
+            [
+                "Slither analysis does not cover the presented source files "
+                f"(analyzed: {', '.join(sorted(analyzed)) or 'none'}; "
+                f"presented: {', '.join(sorted(presented)) or 'none'})"
+            ],
+            metadata,
+        )
+    return ([], metadata)
 
 
 def _solidity_candidate_tla_content(
@@ -925,20 +1026,24 @@ def _solidity_candidate_tla_content(
     return "\n".join(lines) + "\n"
 
 
-def _solidity_candidate_gaps(extracted: ExtractedSpec, *, trace_reasons: list[str]) -> list[str]:
+def _solidity_candidate_gaps(
+    extracted: ExtractedSpec, *, trace_reasons: list[str], slither_reasons: list[str]
+) -> list[str]:
     """Human-readable gaps, faithful to why (if at all) the candidate is not promotable.
 
     Mirrors :func:`_go_candidate_gaps`: ``trace_reasons`` are the trace-grounding rejections only (an
     unreproduced obligation, or an absence-only contract with no positively-witnessed event). The
     "not reproduced" gap is emitted only when one of those is present, so a candidate whose traces DID
-    reproduce but which simply declares no invariant reports the missing invariant — never a false
-    "not reproduced".
+    reproduce but which simply declares no invariant — or lacks Slither-backed source context —
+    reports that specific gap, never a false "not reproduced". ``slither_reasons`` carry the recorded
+    fallback reason verbatim so the gap names WHY the source context is unverified.
     """
     gaps = ["candidate spec is draft and cannot satisfy coverage until reviewed"]
     if not extracted.invariants:
         gaps.append("no invariants were extracted from the source")
     if trace_reasons:
         gaps.append("trace obligations are not reproduced by the code's real traces")
+    gaps.extend(slither_reasons)
     return gaps
 
 

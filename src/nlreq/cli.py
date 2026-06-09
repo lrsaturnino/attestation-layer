@@ -954,6 +954,10 @@ def main(argv: list[str] | None = None) -> int:
     # path activates only when BOTH are supplied (with --code-presentation and a Go impact).
     specula_extract_cmd.add_argument("--traces", type=Path)
     specula_extract_cmd.add_argument("--spec-fixture", type=Path)
+    # The Solidity path (PC-5) additionally gates on Slither-backed source context: a RECORDED
+    # SlitherClientResult JSON for the presented contract source. Without it the Solidity extraction
+    # still runs but the candidate is blocked with the recorded fallback reason.
+    specula_extract_cmd.add_argument("--slither-analysis", type=Path)
     specula_extract_cmd.add_argument("--out", type=Path)
 
     candidate_review_cmd = subcommands.add_parser(
@@ -3039,6 +3043,7 @@ def main(argv: list[str] | None = None) -> int:
             from .jsonutil import write_json
             from .llm_client import RecordedLlmClient
             from .models import NormalizedTraceArtifact, RequirementIRV2
+            from .slither_client import SlitherClientResult
             from .source_adapter import CodePresentation
             from .trace_replay import TraceReplayReport
 
@@ -3067,6 +3072,11 @@ def main(argv: list[str] | None = None) -> int:
                 else None,
                 llm=RecordedLlmClient("", spec_fixture=args.spec_fixture.read_text())
                 if args.spec_fixture
+                else None,
+                slither=SlitherClientResult.model_validate_json(
+                    args.slither_analysis.read_text()
+                )
+                if args.slither_analysis
                 else None,
             )
             if args.out:

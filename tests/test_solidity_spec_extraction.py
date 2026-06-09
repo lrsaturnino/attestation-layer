@@ -6,9 +6,14 @@ module's real Foundry traces. The Solidity obligations are EVM-shaped — beyond
 forbidden action, a Foundry trace witnesses a view read reaching a value (``state_value_reached``) and
 a call that reverts (``action_reverts``) — so a candidate is promotable only if those obligations are
 REPRODUCED by the real traces, and a paper-only candidate (a value a read never reaches, a revert that
-never happens, an event never emitted) is rejected. The gate-logic tests run fully offline against a
-constructed real-shaped Foundry trace; one end-to-end test extracts the trace from a real ``forge``
-run.
+never happens, an event never emitted) is rejected.
+
+PC-5 is "Slither + LLM + trace validation", so the SOURCE side is gated too: a candidate is
+promotable only when a Slither analysis (PC-3) ran over — and covers — the presented contract source;
+extraction from a bare regex/static presentation records the blocking fallback reason and cannot be
+promoted. The gate-logic tests run fully offline against a constructed real-shaped Foundry trace and
+a constructed analyzed Slither result; one end-to-end test extracts the trace from a real ``forge``
+run and the source context from a real ``slither`` run.
 """
 
 import json
@@ -16,7 +21,7 @@ from pathlib import Path
 
 import pytest
 
-from nlreq import foundry_client
+from nlreq import foundry_client, slither_client
 from nlreq.cli import main
 from nlreq.dsl_v2 import DslV2Parser
 from nlreq.impact import ImpactAnalysisArtifact
@@ -30,6 +35,7 @@ from nlreq.models import (
     TraceEvent,
 )
 from nlreq.production_source_adapters import SoliditySourceAdapter
+from nlreq.slither_client import SlitherAnalysis, SlitherClientResult
 from nlreq.source_adapter import CodePresentation, SourceManifest
 from nlreq.spec_extraction import (
     SOLIDITY_TRACE_KINDS,
@@ -38,6 +44,7 @@ from nlreq.spec_extraction import (
     extract_solidity_candidate_spec,
     parse_spec_extraction,
     promote_candidate_spec_with_review,
+    validate_candidate_spec_structure,
 )
 from nlreq.system_spec import SystemSpecRegistry
 
@@ -48,6 +55,11 @@ REQUIREMENTS = Path(__file__).parent / "fixtures" / "requirements"
 requires_forge = pytest.mark.skipif(
     not foundry_client.foundry_available(),
     reason="forge (Foundry) is not installed; run with forge on PATH to extract a real trace",
+)
+
+requires_slither = pytest.mark.skipif(
+    not slither_client.slither_available(),
+    reason="slither is not installed; run with slither on PATH to analyze the contract source",
 )
 
 
@@ -117,6 +129,21 @@ def _presentation() -> CodePresentation:
                 "content": "function requestRedemption(uint256 amount) external { ... emit Redeemed(...); }",
             }
         ],
+    )
+
+
+def _slither() -> SlitherClientResult:
+    """An analyzed-shaped PC-3 Slither result covering the presented source, for the offline
+    gate-logic tests (the end-to-end test produces the equivalent from a real ``slither`` run)."""
+    return SlitherClientResult(
+        status="analyzed",
+        analysis=SlitherAnalysis(
+            slither_version="0.10.4",
+            files=["src/Vault.sol"],
+            symbols=[],
+            edges=[],
+        ),
+        slither_version="0.10.4",
     )
 
 
@@ -195,6 +222,7 @@ def test_real_candidate_is_trace_validated_and_promotable() -> None:
         code_presentation=_presentation(),
         traces=_solidity_traces(),
         llm=RecordedLlmClient("", spec_fixture=_REAL_EXTRACTION),
+        slither=_slither(),
     )
 
     assert report.promotable is True
@@ -233,6 +261,7 @@ def test_paper_only_value_candidate_is_rejected_by_the_trace_guard() -> None:
         code_presentation=_presentation(),
         traces=_solidity_traces(),
         llm=RecordedLlmClient("", spec_fixture=_PAPER_ONLY_VALUE_EXTRACTION),
+        slither=_slither(),
     )
 
     assert report.promotable is False
@@ -273,6 +302,7 @@ def test_paper_only_event_candidate_is_rejected() -> None:
         code_presentation=_presentation(),
         traces=_solidity_traces(),
         llm=RecordedLlmClient("", spec_fixture=extraction),
+        slither=_slither(),
     )
 
     assert report.promotable is False
@@ -307,6 +337,7 @@ def test_action_reverts_candidate_is_promotable() -> None:
         code_presentation=_presentation(),
         traces=_solidity_traces(),
         llm=RecordedLlmClient("", spec_fixture=extraction),
+        slither=_slither(),
     )
 
     assert report.promotable is True
@@ -341,6 +372,7 @@ def test_action_reverts_violated_when_call_never_reverts() -> None:
         code_presentation=_presentation(),
         traces=_solidity_traces(),
         llm=RecordedLlmClient("", spec_fixture=extraction),
+        slither=_slither(),
     )
 
     assert report.promotable is False
@@ -364,6 +396,7 @@ def test_candidate_with_no_trace_obligation_is_not_promotable() -> None:
         code_presentation=_presentation(),
         traces=_solidity_traces(),
         llm=RecordedLlmClient("", spec_fixture=extraction),
+        slither=_slither(),
     )
 
     assert report.promotable is False
@@ -390,6 +423,7 @@ def test_solidity_candidate_without_invariant_is_not_promotable() -> None:
         code_presentation=_presentation(),
         traces=_solidity_traces(),
         llm=RecordedLlmClient("", spec_fixture=extraction),
+        slither=_slither(),
     )
 
     assert report.promotable is False
@@ -425,6 +459,7 @@ def test_absence_only_solidity_candidate_is_not_promotable() -> None:
         code_presentation=_presentation(),
         traces=_solidity_traces(),
         llm=RecordedLlmClient("", spec_fixture=extraction),
+        slither=_slither(),
     )
 
     assert report.promotable is False
@@ -449,6 +484,7 @@ def test_promoted_solidity_candidate_carries_extracted_invariant_names() -> None
         code_presentation=_presentation(),
         traces=_solidity_traces(),
         llm=RecordedLlmClient("", spec_fixture=_REAL_EXTRACTION),
+        slither=_slither(),
     )
 
     assert report.candidate.invariant_names == ["RedeemedWithinTotal", "TotalNonNegative"]
@@ -468,6 +504,135 @@ def test_promoted_solidity_candidate_carries_extracted_invariant_names() -> None
     assert [spec for spec in [promotion.promoted_spec] if spec.invariants]
 
 
+def test_extraction_without_slither_cannot_promote_even_with_reproducing_traces() -> None:
+    """The HELPER-named bypass: a candidate extracted from a bare (regex/static) presentation whose
+    trace obligations DO reproduce must still not be promotable — PC-5's source context is Slither.
+    The block holds at extraction (promotable False, recorded reason) AND at promotion (the
+    structural validation reads the candidate's recorded provenance), so a reviewer holding only the
+    candidate cannot promote it either."""
+    report = extract_solidity_candidate_spec(
+        requirement=_requirement(),
+        module_id="vault",
+        impact=_impact(),
+        code_presentation=_presentation(),
+        traces=_solidity_traces(),
+        llm=RecordedLlmClient("", spec_fixture=_REAL_EXTRACTION),
+        # slither deliberately omitted: the presentation is unverified static text.
+    )
+
+    assert report.promotable is False
+    assert any("not Slither-backed" in reason for reason in report.rejection_reasons)
+    # The traces themselves DID reproduce — the block is the source context, never a false
+    # "not reproduced".
+    assert {observation.outcome for observation in report.spec_trace_replay.observations} == {
+        "satisfied"
+    }
+    assert not any("not reproduced" in gap for gap in report.candidate.gaps)
+    assert report.candidate.provenance.metadata["slither_status"] == "not_run"
+
+    validation = validate_candidate_spec_structure(report.candidate)
+    assert validation.status == "invalid"
+    assert any("not Slither-backed" in issue for issue in validation.issues)
+
+    promotion = promote_candidate_spec_with_review(
+        report.candidate,
+        approved_hash=report.candidate.content_hash,
+        version="1",
+        reviewer_id="reviewer",
+        reviewed_at="2026-06-09T00:00:00Z",
+    )
+    assert promotion.decision == "blocked"
+    assert promotion.promoted_spec is None
+    assert any("not Slither-backed" in blocker for blocker in promotion.blockers)
+
+
+def test_failed_slither_records_blocking_fallback_reason() -> None:
+    """When Slither is present but did not analyze (unavailable / tool_error), the extraction still
+    runs and the candidate records the tool's own reason as the blocking fallback — an honest
+    degradation, never a fabricated 'analyzed'."""
+    unavailable = SlitherClientResult(
+        status="unavailable",
+        reason="slither is not installed or its CLI/interpreter could not be resolved",
+    )
+    report = extract_solidity_candidate_spec(
+        requirement=_requirement(),
+        module_id="vault",
+        impact=_impact(),
+        code_presentation=_presentation(),
+        traces=_solidity_traces(),
+        llm=RecordedLlmClient("", spec_fixture=_REAL_EXTRACTION),
+        slither=unavailable,
+    )
+
+    assert report.promotable is False
+    assert any(
+        "not Slither-backed" in reason and "not installed" in reason
+        for reason in report.rejection_reasons
+    )
+    metadata = report.candidate.provenance.metadata
+    assert metadata["slither_status"] == "unavailable"
+    assert "not installed" in metadata["slither_reason"]
+    # The recorded fallback reason also surfaces on the candidate's gaps for the reviewer.
+    assert any("not Slither-backed" in gap for gap in report.candidate.gaps)
+
+
+def test_slither_analysis_over_other_files_does_not_bind_the_presented_source() -> None:
+    """A genuine Slither run over DIFFERENT files is not evidence about the presented source: the
+    binding check refuses it, so one real analysis cannot unlock arbitrary modules."""
+    elsewhere = SlitherClientResult(
+        status="analyzed",
+        analysis=SlitherAnalysis(files=["src/Other.sol"], symbols=[], edges=[]),
+        slither_version="0.10.4",
+    )
+    report = extract_solidity_candidate_spec(
+        requirement=_requirement(),
+        module_id="vault",
+        impact=_impact(),
+        code_presentation=_presentation(),
+        traces=_solidity_traces(),
+        llm=RecordedLlmClient("", spec_fixture=_REAL_EXTRACTION),
+        slither=elsewhere,
+    )
+
+    assert report.promotable is False
+    assert any(
+        "does not cover the presented source files" in reason
+        for reason in report.rejection_reasons
+    )
+    assert report.candidate.provenance.metadata["slither_source_binding"] == "unbound"
+
+    promotion = promote_candidate_spec_with_review(
+        report.candidate,
+        approved_hash=report.candidate.content_hash,
+        version="1",
+        reviewer_id="reviewer",
+        reviewed_at="2026-06-09T00:00:00Z",
+    )
+    assert promotion.decision == "blocked"
+
+
+def test_slither_backed_candidate_records_tool_provenance() -> None:
+    """A promotable candidate carries the Slither evidence in its provenance metadata: status,
+    version, the analysis hash, and the source binding — so the promoted spec's lineage names the
+    real tool run that backed its source context."""
+    report = extract_solidity_candidate_spec(
+        requirement=_requirement(),
+        module_id="vault",
+        impact=_impact(),
+        code_presentation=_presentation(),
+        traces=_solidity_traces(),
+        llm=RecordedLlmClient("", spec_fixture=_REAL_EXTRACTION),
+        slither=_slither(),
+    )
+
+    assert report.promotable is True
+    metadata = report.candidate.provenance.metadata
+    assert metadata["slither_status"] == "analyzed"
+    assert metadata["slither_source_binding"] == "bound"
+    assert metadata["slither_version"] == "0.10.4"
+    assert metadata["slither_analysis_hash"].startswith("sha256:")
+
+
 def _empty_registry() -> SystemSpecRegistry:
     return SystemSpecRegistry.model_validate({"schema_version": "0.1", "specs": []})
 
@@ -484,6 +649,7 @@ def test_integration_report_routes_solidity_module_through_real_extraction() -> 
         code_presentation=_presentation(),
         traces=_solidity_traces(),
         llm=RecordedLlmClient("", spec_fixture=_REAL_EXTRACTION),
+        slither=_slither(),
     )
 
     assert report.result == "candidates"
@@ -508,6 +674,7 @@ def test_integration_report_blocks_paper_only_solidity_candidate_with_reason() -
         code_presentation=_presentation(),
         traces=_solidity_traces(),
         llm=RecordedLlmClient("", spec_fixture=_PAPER_ONLY_VALUE_EXTRACTION),
+        slither=_slither(),
     )
 
     assert report.result == "blocked"
@@ -539,20 +706,27 @@ def test_integration_report_blocks_solidity_module_with_missing_inputs() -> None
     assert "Solidity Specula extraction did not run" in report.blockers[0]
 
 
-def test_specula_extract_cli_routes_solidity_module_offline(tmp_path: Path, capsys) -> None:
-    """The specula-extract CLI drives the Solidity path fully offline: a recorded proposal + a
-    real-shaped trace yield a REAL trace-grounded candidate, and the exit code gates on the
-    integration result."""
-    paths = {
-        name: tmp_path / name
-        for name in ("ir.json", "impact.json", "registry.json", "pres.json", "traces.json", "fixture.json", "out.json")
-    }
+def _cli_paths(tmp_path: Path, fixture: str) -> dict[str, Path]:
+    names = (
+        "ir.json", "impact.json", "registry.json", "pres.json", "traces.json",
+        "fixture.json", "slither.json", "out.json",
+    )
+    paths = {name: tmp_path / name for name in names}
     paths["ir.json"].write_text(_requirement().model_dump_json())
     paths["impact.json"].write_text(_impact().model_dump_json())
     paths["registry.json"].write_text(_empty_registry().model_dump_json())
     paths["pres.json"].write_text(_presentation().model_dump_json())
     paths["traces.json"].write_text(_solidity_traces().model_dump_json())
-    paths["fixture.json"].write_text(_REAL_EXTRACTION)
+    paths["fixture.json"].write_text(fixture)
+    paths["slither.json"].write_text(_slither().model_dump_json())
+    return paths
+
+
+def test_specula_extract_cli_routes_solidity_module_offline(tmp_path: Path, capsys) -> None:
+    """The specula-extract CLI drives the Solidity path fully offline: a recorded proposal + a
+    real-shaped trace + a recorded Slither analysis yield a REAL trace-grounded candidate, and the
+    exit code gates on the integration result."""
+    paths = _cli_paths(tmp_path, _REAL_EXTRACTION)
 
     exit_code = main(
         [
@@ -563,6 +737,7 @@ def test_specula_extract_cli_routes_solidity_module_offline(tmp_path: Path, caps
             "--code-presentation", str(paths["pres.json"]),
             "--traces", str(paths["traces.json"]),
             "--spec-fixture", str(paths["fixture.json"]),
+            "--slither-analysis", str(paths["slither.json"]),
             "--out", str(paths["out.json"]),
         ]
     )
@@ -577,16 +752,31 @@ def test_specula_extract_cli_routes_solidity_module_offline(tmp_path: Path, caps
 
 def test_specula_extract_cli_blocks_paper_only_solidity_candidate(tmp_path: Path) -> None:
     """A paper-only proposal makes the offline CLI exit non-zero — the integration gate blocks it."""
-    paths = {
-        name: tmp_path / name
-        for name in ("ir.json", "impact.json", "registry.json", "pres.json", "traces.json", "fixture.json", "out.json")
-    }
-    paths["ir.json"].write_text(_requirement().model_dump_json())
-    paths["impact.json"].write_text(_impact().model_dump_json())
-    paths["registry.json"].write_text(_empty_registry().model_dump_json())
-    paths["pres.json"].write_text(_presentation().model_dump_json())
-    paths["traces.json"].write_text(_solidity_traces().model_dump_json())
-    paths["fixture.json"].write_text(_PAPER_ONLY_VALUE_EXTRACTION)
+    paths = _cli_paths(tmp_path, _PAPER_ONLY_VALUE_EXTRACTION)
+
+    exit_code = main(
+        [
+            "specula-extract",
+            "--requirement-ir", str(paths["ir.json"]),
+            "--impact", str(paths["impact.json"]),
+            "--registry", str(paths["registry.json"]),
+            "--code-presentation", str(paths["pres.json"]),
+            "--traces", str(paths["traces.json"]),
+            "--spec-fixture", str(paths["fixture.json"]),
+            "--slither-analysis", str(paths["slither.json"]),
+            "--out", str(paths["out.json"]),
+        ]
+    )
+
+    assert exit_code == 1
+    assert read_json(paths["out.json"])["result"] == "blocked"
+
+
+def test_specula_extract_cli_blocks_solidity_candidate_without_slither(tmp_path: Path) -> None:
+    """The CLI without --slither-analysis still runs the Solidity extraction but the candidate is
+    blocked with the recorded fallback reason — the public surface cannot promote from a bare
+    presentation either."""
+    paths = _cli_paths(tmp_path, _REAL_EXTRACTION)
 
     exit_code = main(
         [
@@ -602,7 +792,9 @@ def test_specula_extract_cli_blocks_paper_only_solidity_candidate(tmp_path: Path
     )
 
     assert exit_code == 1
-    assert read_json(paths["out.json"])["result"] == "blocked"
+    report = read_json(paths["out.json"])
+    assert report["result"] == "blocked"
+    assert any("not Slither-backed" in blocker for blocker in report["blockers"])
 
 
 def test_parse_spec_extraction_allows_evm_kinds_for_solidity() -> None:
@@ -646,14 +838,21 @@ def _foundry_manifest() -> SourceManifest:
 
 
 @requires_forge
+@requires_slither
 def test_end_to_end_real_foundry_trace_promotes_extracted_candidate() -> None:
-    """The full chain: the adapter extracts a REAL Foundry trace and presents real contract source,
-    and the source-extracted candidate S is promotable because its EVM obligations (the Redeemed event
-    and the total() read reaching 5) are reproduced by that real trace."""
+    """The full PC-5 chain over real tools: Slither analyzes the real contract source, the adapter
+    extracts a REAL Foundry trace and presents real contract source, and the source-extracted
+    candidate S is promotable because its EVM obligations (the Redeemed event and the total() read
+    reaching 5) are reproduced by that real trace AND its source context is the real Slither run —
+    whose version + analysis hash land in the candidate's provenance."""
     adapter = SoliditySourceAdapter(project_root=FOUNDRY_ROOT)
     manifest = _foundry_manifest()
     traces = adapter.extract_traces(manifest)
     presentation = adapter.present_to_llm([SymbolRef(name="requestRedemption")], manifest)
+    slither = slither_client.analyze_with_slither(
+        [FOUNDRY_ROOT / "src" / "Vault.sol"], project_root=FOUNDRY_ROOT
+    )
+    assert slither.status == "analyzed"
 
     report = extract_solidity_candidate_spec(
         requirement=_requirement(),
@@ -662,6 +861,7 @@ def test_end_to_end_real_foundry_trace_promotes_extracted_candidate() -> None:
         code_presentation=presentation,
         traces=traces,
         llm=RecordedLlmClient("", spec_fixture=_REAL_EXTRACTION),
+        slither=slither,
     )
 
     assert report.promotable is True
@@ -669,3 +869,8 @@ def test_end_to_end_real_foundry_trace_promotes_extracted_candidate() -> None:
     assert {observation.outcome for observation in report.spec_trace_replay.observations} == {
         "satisfied"
     }
+    metadata = report.candidate.provenance.metadata
+    assert metadata["slither_status"] == "analyzed"
+    assert metadata["slither_source_binding"] == "bound"
+    assert metadata["slither_analysis_hash"].startswith("sha256:")
+    assert metadata.get("slither_version")
