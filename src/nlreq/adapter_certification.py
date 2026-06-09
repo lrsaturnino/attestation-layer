@@ -1,20 +1,96 @@
 from __future__ import annotations
 
-from typing import Literal
+import re
+from typing import Iterable, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from .jsonutil import sha256_json
-from .models import EvidenceLevel, SymbolRef
+from .models import EvidenceLevel, NormalizedTrace, SymbolRef
 from .source_adapter import (
     AdapterCapabilityClaim,
     AdapterCapabilityContract,
     AdapterCapabilityKind,
+    AdapterCapabilityLevel,
     AdapterLimitation,
     SourceBinding,
     SourceLanguageAdapter,
     SourceManifest,
 )
+
+
+# A real artifact hash is a genuine sha256 digest: the literal prefix plus 64 lowercase hex chars,
+# as ``hashlib.sha256(...).hexdigest()`` produces. The trace-evidence gate requires this exact shape
+# so a placeholder like ``sha256:ingested`` cannot masquerade as a real tool artifact hash.
+_REAL_ARTIFACT_HASH = re.compile(r"^sha256:[0-9a-f]{64}$")
+
+_TRACE_LEVELS: frozenset[AdapterCapabilityLevel] = frozenset(
+    {"trace_capable", "production_candidate"}
+)
+
+
+def trace_has_real_tool_provenance(trace: NormalizedTrace) -> bool:
+    """Whether a trace carries the recorded real-tool provenance the capability gate accepts.
+
+    Real-tool evidence is a recorded producer (the tool that ran plus its captured version string)
+    over a *real artifact hash* — a genuine sha256 digest (``sha256:`` + 64 lowercase hex) of the
+    tool's actual output, which is what the Foundry client records from the raw ``forge`` output. A
+    producer stamped onto ingested JSON with a placeholder hash (e.g. ``sha256:ingested``) fails the
+    digest-shape check, so arbitrary producer metadata cannot fake the gate (PC-1).
+    """
+    producer = trace.producer
+    if producer is None:
+        return False
+    if not producer.tool.strip() or not producer.tool_version.strip():
+        return False
+    return bool(_REAL_ARTIFACT_HASH.match(trace.source_hash.strip()))
+
+
+def count_provenanced_traces(traces: Iterable[NormalizedTrace]) -> int:
+    """How many traces carry real-tool provenance — the evidence count the gate scores against."""
+    return sum(1 for trace in traces if trace_has_real_tool_provenance(trace))
+
+
+def trace_evidence_violations(
+    contract: AdapterCapabilityContract,
+    provenanced_trace_count: int,
+) -> list[tuple[str, str]]:
+    """The shared trace-evidence honesty rule, as ``(subject, message)`` over-claim pairs.
+
+    A ``trace_capable``/``production_candidate`` claim requires a recorded trace producer plus a
+    captured tool version over a real artifact hash. When extraction yields no provenanced traces,
+    every trace-level declaration — the whole-contract ``capability_level`` and each individual
+    capability claim — is an over-claim. Both the certification suite and the conformance suite call
+    this, so a regex/static adapter cannot pass *either* by declaring a trace level it cannot
+    evidence (PC-1.T2).
+    """
+    if provenanced_trace_count > 0:
+        return []
+    violations: list[tuple[str, str]] = []
+    if contract.capability_level in _TRACE_LEVELS:
+        violations.append(
+            (
+                contract.capability_level,
+                (
+                    f"capability contract declares level {contract.capability_level} but trace "
+                    "extraction produced no traces with recorded real-tool provenance (a captured "
+                    "tool version and a real artifact hash)"
+                ),
+            )
+        )
+    for claim in contract.capabilities:
+        if claim.level in _TRACE_LEVELS:
+            violations.append(
+                (
+                    str(claim.capability_id),
+                    (
+                        f"capability {claim.capability_id} claims {claim.level} without a recorded "
+                        "trace producer + tool-version evidence; trace extraction produced no "
+                        "provenanced traces"
+                    ),
+                )
+            )
+    return violations
 
 
 ADAPTER_CERTIFICATION_SCHEMA_VERSION = "0.2"
@@ -252,16 +328,11 @@ def certify_adapter(
         traces = adapter.extract_traces(manifest)
         trace_count = len(traces.root)
         # A trace counts as real-tool evidence only when it carries recorded producer provenance
-        # (a captured tool + tool version) over a real artifact hash (source_hash). Traces ingested
-        # from manifest-declared JSON have no producer, so they never lift the adapter above
+        # (a captured tool + tool version) over a *real* artifact hash — a genuine sha256 digest, not
+        # a placeholder. Traces ingested from manifest-declared JSON have no producer (and any stamped
+        # placeholder hash fails the digest-shape check), so they never lift the adapter above
         # static_resolution — the honesty gate the regex adapters must observe (PC-1).
-        provenanced_trace_count = sum(
-            1
-            for trace in traces.root
-            if trace.producer is not None
-            and trace.producer.tool_version.strip()
-            and trace.source_hash.strip()
-        )
+        provenanced_trace_count = count_provenanced_traces(traces.root)
     except Exception as exc:  # pragma: no cover - defensive certification boundary
         findings.append(
             AdapterCertificationFinding(
@@ -459,11 +530,6 @@ def _method_findings(
     return findings
 
 
-_TRACE_LEVELS: frozenset[AdapterCapabilityLevel] = frozenset(
-    {"trace_capable", "production_candidate"}
-)
-
-
 def _trace_evidence_findings(
     contract: AdapterCapabilityContract,
     provenanced_trace_count: int,
@@ -471,43 +537,19 @@ def _trace_evidence_findings(
     """Block a contract that claims a trace level it did not evidence with real-tool provenance.
 
     PC-1.T2: a ``trace_capable``/``production_candidate`` capability requires a recorded trace
-    producer plus tool-version evidence. We honour that empirically — the claim is only evidenced
-    when ``extract_traces`` actually yields traces carrying producer provenance over a real artifact
-    hash. A purely lexical adapter that declares such a level (whether on the contract as a whole or
-    on a single capability claim) but produces no provenanced traces is over-claiming, so it fails
-    certification.
+    producer plus tool-version evidence over a real artifact hash. The empirical check lives in the
+    shared :func:`trace_evidence_violations` so the conformance suite enforces the same honesty rule;
+    here we wrap each over-claim as a blocking certification finding.
     """
-    if provenanced_trace_count > 0:
-        return []
-    findings: list[AdapterCertificationFinding] = []
-    if contract.capability_level in _TRACE_LEVELS:
-        findings.append(
-            AdapterCertificationFinding(
-                category="capability_contract",
-                severity="blocking",
-                subject=contract.capability_level,
-                message=(
-                    f"capability contract declares level {contract.capability_level} but trace "
-                    "extraction produced no traces with recorded real-tool provenance (a captured "
-                    "tool version and a real artifact hash)"
-                ),
-            )
+    return [
+        AdapterCertificationFinding(
+            category="capability_contract",
+            severity="blocking",
+            subject=subject,
+            message=message,
         )
-    for claim in contract.capabilities:
-        if claim.level in _TRACE_LEVELS:
-            findings.append(
-                AdapterCertificationFinding(
-                    category="capability_contract",
-                    severity="blocking",
-                    subject=str(claim.capability_id),
-                    message=(
-                        f"capability {claim.capability_id} claims {claim.level} without a recorded "
-                        "trace producer + tool-version evidence; trace extraction produced no "
-                        "provenanced traces"
-                    ),
-                )
-            )
-    return findings
+        for subject, message in trace_evidence_violations(contract, provenanced_trace_count)
+    ]
 
 
 def _level(

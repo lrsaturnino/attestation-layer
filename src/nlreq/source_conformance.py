@@ -2,9 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from .adapter_certification import count_provenanced_traces, trace_evidence_violations
 from .jsonutil import canonical_json
 from .models import NormalizedTraceArtifact, SymbolRef
 from .source_adapter import (
+    AdapterCapabilityContract,
     CodePresentation,
     SourceBinding,
     SourceCallGraph,
@@ -52,6 +54,7 @@ def assert_source_adapter_conforms(
             "binding_validation",
             "code_presentation",
             "trace_extraction",
+            "trace_capability_honesty",
         ),
     )
 
@@ -107,6 +110,23 @@ def run_source_adapter_conformance(
     traces = adapter.extract_traces(fixture.manifest)
     if not isinstance(traces, NormalizedTraceArtifact):
         failures.append("extract_traces must return a NormalizedTraceArtifact")
+    else:
+        # PC-1: the conformance suite enforces the same trace-evidence honesty rule certification
+        # does — an adapter may not advertise a trace_capable/production_candidate level it did not
+        # back by producing traces with recorded real-tool provenance. Routing through the shared
+        # check means a static adapter that over-claims fails conformance, not only certification.
+        # Adapters that expose no v2 capability contract (e.g. the manifest-only baselines) declare
+        # no trace level, so there is nothing to over-claim and the gate simply does not apply.
+        try:
+            contract = adapter.capability_contract()
+        except Exception:  # an adapter that cannot describe a contract declares no trace level
+            contract = None
+        if isinstance(contract, AdapterCapabilityContract):
+            provenanced = count_provenanced_traces(traces.root)
+            for _subject, message in trace_evidence_violations(contract, provenanced):
+                failures.append(
+                    f"trace capability over-claimed without real-tool evidence: {message}"
+                )
 
     return failures
 

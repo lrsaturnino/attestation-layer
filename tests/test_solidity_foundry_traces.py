@@ -92,6 +92,39 @@ def test_trace_answers_event_emitted_before_state_change() -> None:
 
 
 @requires_forge
+def test_trace_preserves_nested_external_call_path_and_revert() -> None:
+    """The projection keeps call-path/parent linkage and a reverted sub-call's success=False + reason.
+
+    (Events and decoded params are covered by the VaultTest trace above; this nested-revert path has
+    no events, so the two tests together cover all four normalized facets.)"""
+    adapter = SoliditySourceAdapter(project_root=FIXTURE_ROOT)
+
+    artifact = adapter.extract_traces(_manifest())
+    trace = next(t for t in artifact.root if "RevertPathTest" in t.trace_id)
+
+    # The reverting leaf is observable as a failed sub-call carrying its decoded Error(string) reason.
+    reverts = [
+        event
+        for event in trace.events
+        if event.action == "willRevert()" and event.metadata.get("reverted") is True
+    ]
+    assert reverts, "the reverting willRevert() call must appear in the trace"
+    revert = reverts[0]
+    assert revert.metadata["success"] is False
+    assert revert.metadata["revert_reason"] == "child reverted"
+
+    # Call-path / parent linkage is preserved: willRevert() is nested under attempt(), which itself
+    # succeeded — a real nested external call path, not a flat ordered list.
+    assert revert.metadata["call_path"][-2:] == ["attempt()", "willRevert()"]
+    parent = next(
+        event for event in trace.events if event.timestamp == revert.metadata["parent_ordinal"]
+    )
+    assert parent.action == "attempt()"
+    assert parent.metadata["success"] is True
+    assert revert.causal_predecessor == f"call-{revert.metadata['parent_ordinal']}"
+
+
+@requires_forge
 def test_real_foundry_trace_lifts_certification_above_static_resolution() -> None:
     """A real, provenanced Foundry trace is the evidence PC-1's gate requires, so certification
     reaches a trace level rather than capping at static_resolution like ingested JSON."""

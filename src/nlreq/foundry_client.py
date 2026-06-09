@@ -43,6 +43,13 @@ class FoundryTraceEvent(BaseModel):
     output: str | None = None
     decoded_output: str | None = None
     params: dict[str, str] = Field(default_factory=dict)
+    # Call-path / parent linkage so a nested call is locatable in the tree, not just an ordered list.
+    # parent_ordinal is the enclosing call frame's ordinal (None at a root); call_path is the chain of
+    # decoded actions from the root down to and including this event. revert_reason carries the decoded
+    # Error(string) message when a call frame reverts (success is False).
+    parent_ordinal: int | None = None
+    call_path: list[str] = Field(default_factory=list)
+    revert_reason: str | None = None
 
 
 class FoundryTestTrace(BaseModel):
@@ -216,6 +223,37 @@ def _decode_word(word: str, abi_type: str) -> str | None:
     return None
 
 
+_ERROR_STRING_SELECTOR = "08c379a0"  # keccak256("Error(string)")[:4]
+
+
+def _decode_revert_reason(output: str | None) -> str | None:
+    """Decode a standard ``Error(string)`` revert payload into its message, or None.
+
+    A reverting call returns ``0x08c379a0`` (the ``Error(string)`` selector) followed by an
+    ABI-encoded string (offset, length, bytes). Custom errors and bare reverts do not match this
+    shape and return None — the raw output is always retained on the event regardless.
+    """
+    if not output or not output.startswith("0x"):
+        return None
+    body = output[2:]
+    if not body.lower().startswith(_ERROR_STRING_SELECTOR):
+        return None
+    payload = body[8:]
+    if len(payload) < 128:
+        return None
+    try:
+        length = int(payload[64:128], 16)
+    except ValueError:
+        return None
+    data = payload[128 : 128 + length * 2]
+    if len(data) < length * 2:
+        return None
+    try:
+        return bytes.fromhex(data).decode("utf-8", errors="replace")
+    except ValueError:
+        return None
+
+
 def _walk_arena(
     arena: list[dict],
     *,
@@ -231,7 +269,7 @@ def _walk_arena(
         counter["n"] += 1
         return value
 
-    def emit_call(node: dict) -> None:
+    def emit_call(node: dict, parent_ordinal: int | None, ancestors: list[str]) -> tuple[int, str]:
         trace = node.get("trace", {})
         data = trace.get("data")
         selector = None
@@ -239,23 +277,29 @@ def _walk_arena(
             selector = data[2:10].lower()
         action = selector_map.get(selector or "", selector or trace.get("kind", "call"))
         output = trace.get("output")
+        success = trace.get("success")
+        ordinal = next_ordinal()
         events.append(
             FoundryTraceEvent(
-                ordinal=next_ordinal(),
+                ordinal=ordinal,
                 kind="call",
                 depth=trace.get("depth", 0),
                 action=action,
-                success=trace.get("success"),
+                success=success,
                 caller=trace.get("caller"),
                 address=trace.get("address"),
                 selector=selector,
                 data=data,
                 output=output,
                 decoded_output=_decode_uint(output),
+                parent_ordinal=parent_ordinal,
+                call_path=[*ancestors, action],
+                revert_reason=_decode_revert_reason(output) if success is False else None,
             )
         )
+        return ordinal, action
 
-    def emit_log(log: dict, depth: int) -> None:
+    def emit_log(log: dict, depth: int, parent_ordinal: int | None, path: list[str]) -> None:
         raw = log.get("raw_log", {})
         topics = raw.get("topics", []) or []
         topic0 = topics[0].lower() if topics else None
@@ -276,30 +320,33 @@ def _walk_arena(
                 topics=topics,
                 data=raw.get("data"),
                 params=params,
+                parent_ordinal=parent_ordinal,
+                call_path=[*path, action],
             )
         )
 
-    def visit(idx: int) -> None:
+    def visit(idx: int, parent_ordinal: int | None, ancestors: list[str]) -> None:
         node = nodes.get(idx)
         if node is None:
             return
-        emit_call(node)
+        node_ordinal, action = emit_call(node, parent_ordinal, ancestors)
         children = node.get("children", []) or []
         trace = node.get("trace", {})
+        child_path = [*ancestors, action]
         for item in node.get("ordering", []) or []:
             if "Call" in item:
                 child_position = item["Call"]
                 if 0 <= child_position < len(children):
-                    visit(children[child_position])
+                    visit(children[child_position], node_ordinal, child_path)
             elif "Log" in item:
                 log_position = item["Log"]
                 logs = node.get("logs", []) or []
                 if 0 <= log_position < len(logs):
-                    emit_log(logs[log_position], trace.get("depth", 0))
+                    emit_log(logs[log_position], trace.get("depth", 0), node_ordinal, child_path)
 
     roots = [node["idx"] for node in arena if node.get("parent") is None]
     for root in roots:
-        visit(root)
+        visit(root, None, [])
     return events
 
 

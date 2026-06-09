@@ -401,11 +401,51 @@ class SoliditySourceAdapter(RegexProductionSourceAdapter):
     def _slither_symbol_type(kind: str) -> str:
         return kind if kind in {"contract", "library", "interface", "function", "event", "modifier"} else "function"
 
+    def _annotate_fallback_resolution(
+        self,
+        resolution: SourceSymbolResolution,
+        *,
+        slither_status: str,
+        skip_reason: str | None,
+    ) -> SourceSymbolResolution:
+        """Stamp the Slither skip reason onto a lexical fallback resolution so it is never silent.
+
+        Every resolved/ambiguous symbol carries ``slither_status`` + ``slither_skip_reason`` in its
+        metadata (mirroring ``call_graph``). When nothing resolved there is no symbol to stamp, so
+        the skip reason is appended to the resolution ``reason`` instead — the honest "Slither did
+        not run, this is the regex fallback" signal stays visible on resolution itself.
+        """
+        annotated = [
+            symbol.model_copy(
+                update={
+                    "metadata": {
+                        **symbol.metadata,
+                        "slither_status": slither_status,
+                        **({"slither_skip_reason": skip_reason} if skip_reason else {}),
+                    }
+                }
+            )
+            for symbol in resolution.symbols
+        ]
+        reason = resolution.reason
+        if not resolution.symbols:
+            note = f"slither {slither_status}" + (f": {skip_reason}" if skip_reason else "")
+            reason = f"{reason}; {note}" if reason else note
+        return resolution.model_copy(update={"symbols": annotated, "reason": reason})
+
     def resolve_symbol(self, ref: SymbolRef, manifest: SourceManifest) -> SourceSymbolResolution:
         result = self._slither_result(manifest)
         analysis = getattr(result, "analysis", None)
         if getattr(result, "status", None) != "analyzed" or analysis is None:
-            return super().resolve_symbol(ref, manifest)
+            # Slither could not be driven: degrade to lexical resolution, but record the skip reason
+            # so the fallback is visible on resolution itself (not only on call_graph), matching the
+            # honesty the regex adapters must observe.
+            fallback = super().resolve_symbol(ref, manifest)
+            return self._annotate_fallback_resolution(
+                fallback,
+                slither_status=getattr(result, "status", "unavailable"),
+                skip_reason=getattr(result, "reason", None),
+            )
 
         seen: set[tuple[str, str | None, str]] = set()
         matches: list[SourceSymbol] = []
@@ -576,18 +616,34 @@ class SoliditySourceAdapter(RegexProductionSourceAdapter):
             metadata["decoded_output"] = event.decoded_output
         if event.params:
             metadata["params"] = event.params
+        # Call-path / parent linkage survives the projection so a nested call is locatable in the
+        # tree, and a reverted sub-call is observable as success=False with its decoded reason.
+        if event.parent_ordinal is not None:
+            metadata["parent_ordinal"] = event.parent_ordinal
+        if event.call_path:
+            metadata["call_path"] = event.call_path
+        if event.success is False:
+            metadata["reverted"] = True
+        if event.revert_reason is not None:
+            metadata["revert_reason"] = event.revert_reason
         post_state: dict[str, object] | None = None
         if event.kind == "call" and event.decoded_output is not None:
             # A view read's decoded return makes the post-call state observable in the trace.
             post_state = {"return": event.decoded_output}
         elif event.kind == "log" and event.params:
             post_state = {"event_params": event.params}
+        # A call frame's enclosing call is its causal predecessor; parents are always calls, so the
+        # predecessor id is deterministic from the parent ordinal.
+        causal_predecessor = (
+            f"call-{event.parent_ordinal}" if event.parent_ordinal is not None else None
+        )
         return TraceEvent(
             event_id=f"{event.kind}-{event.ordinal}",
             timestamp=event.ordinal,
             actor=event.caller,
             action=event.action,
             post_state=post_state,
+            causal_predecessor=causal_predecessor,
             language="solidity",
             runtime="evm",
             metadata=metadata,

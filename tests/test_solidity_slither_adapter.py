@@ -6,6 +6,8 @@ absent and asserts the adapter drops to lexical static resolution with a recorde
 never claims a Slither-backed answer it did not produce.
 """
 
+import json
+import types
 from pathlib import Path
 
 import pytest
@@ -133,7 +135,113 @@ def test_slither_absent_falls_back_to_static_resolution_with_recorded_reason(
     assert graph.metadata["slither_status"] == "unavailable"
     assert graph.metadata["slither_skip_reason"]
 
-    # Resolution still works lexically, and is honestly labelled as the regex fallback.
+    # Resolution still works lexically, and is honestly labelled as the regex fallback — with the
+    # Slither skip reason recorded on the resolved symbol itself, not only on call_graph().
     resolution = adapter.resolve_symbol(SymbolRef(name="_audit"), _manifest())
     assert resolution.status == "resolved"
     assert resolution.symbols[0].metadata["analysis"] == "regex-static"
+    assert resolution.symbols[0].metadata["slither_status"] == "unavailable"
+    assert resolution.symbols[0].metadata["slither_skip_reason"]
+
+
+def test_slither_absent_unresolved_symbol_surfaces_skip_reason_on_reason(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """When Slither is absent and nothing resolves, there is no symbol metadata to carry the skip
+    reason — so it must surface on the resolution ``reason`` instead of being silently lost."""
+    monkeypatch.setattr(slither_client, "slither_interpreter", lambda: None)
+    adapter = SoliditySourceAdapter(project_root=FIXTURE_ROOT)
+
+    resolution = adapter.resolve_symbol(SymbolRef(name="doesNotExist"), _manifest())
+
+    assert resolution.status == "unresolved"
+    assert resolution.symbols == []
+    assert "slither" in (resolution.reason or "")
+    assert "unavailable" in (resolution.reason or "")
+
+
+def test_slither_cli_success_field_drives_verdict_not_exit_code() -> None:
+    """The CLI gate reads only the JSON ``success`` field. ``slither --json -`` exits non-zero when
+    detectors fire, so a ``success: true`` payload must be ``ok`` regardless of the exit code; a
+    ``success: false`` payload is ``failed``; non-JSON is ``unparseable``."""
+    ok = slither_client.interpret_slither_cli(
+        '{"success": true, "error": null, "results": {"detectors": [{"check": "pragma"}]}}'
+    )
+    assert ok.outcome == "ok"
+
+    failed = slither_client.interpret_slither_cli('{"success": false, "error": "compile boom"}')
+    assert failed.outcome == "failed"
+    assert failed.error == "compile boom"
+
+    assert slither_client.interpret_slither_cli("not json at all").outcome == "unparseable"
+    assert slither_client.interpret_slither_cli("").outcome == "unparseable"
+
+
+def _stub_slither_subprocess(
+    monkeypatch: pytest.MonkeyPatch, *, cli_stdout: str, cli_returncode: int
+) -> None:
+    """Stub Slither's CLI + driver subprocesses so the client path is exercised without the tool."""
+    monkeypatch.setattr(slither_client, "slither_interpreter", lambda: "/fake/python")
+    monkeypatch.setattr(slither_client, "slither_console", lambda: "/fake/slither")
+
+    def fake_run(cmd, **kwargs):
+        if "--version" in cmd:
+            return types.SimpleNamespace(returncode=0, stdout="0.9.6-test\n", stderr="")
+        if "--json" in cmd:  # the `slither <target> --json -` success gate
+            return types.SimpleNamespace(returncode=cli_returncode, stdout=cli_stdout, stderr="")
+        # the driver invocation: a minimal but valid analysis payload between the sentinels
+        payload = {
+            "slither_version": "0.9.6-test",
+            "files": ["src/Base.sol"],
+            "symbols": [
+                {"name": "Base", "kind": "contract", "signature": "Base", "declarer": "Base"}
+            ],
+            "edges": [],
+        }
+        out = f"{slither_client.JSON_BEGIN}\n{json.dumps(payload)}\n{slither_client.JSON_END}\n"
+        return types.SimpleNamespace(returncode=0, stdout=out, stderr="")
+
+    monkeypatch.setattr(slither_client.subprocess, "run", fake_run)
+
+
+def test_analyze_with_slither_treats_nonzero_exit_with_success_true_as_analyzed(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: the documented non-zero-exit-with-``success:true`` behavior. Slither exits 255 on
+    detector findings; the client must still analyze because the JSON ``success`` field is true.
+    Stubbed subprocesses make this deterministic and tool-independent."""
+    _stub_slither_subprocess(
+        monkeypatch,
+        cli_stdout='{"success": true, "error": null, "results": {"detectors": [{"x": 1}]}}',
+        cli_returncode=255,
+    )
+
+    result = slither_client.analyze_with_slither(
+        [FIXTURE_ROOT / "src" / "Base.sol"], project_root=FIXTURE_ROOT
+    )
+
+    assert result.status == "analyzed"
+    assert result.slither_version == "0.9.6-test"
+    assert result.analysis is not None
+    assert any(symbol.name == "Base" for symbol in result.analysis.symbols)
+
+
+def test_analyze_with_slither_rejects_cli_success_false(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The success gate fails closed: a ``success: false`` CLI verdict (a real compile/analysis
+    failure) yields a tool_error and never reaches the driver, so no Slither-backed answer is
+    fabricated from a failed compile."""
+    _stub_slither_subprocess(
+        monkeypatch,
+        cli_stdout='{"success": false, "error": "compilation failed"}',
+        cli_returncode=255,
+    )
+
+    result = slither_client.analyze_with_slither(
+        [FIXTURE_ROOT / "src" / "Base.sol"], project_root=FIXTURE_ROOT
+    )
+
+    assert result.status == "tool_error"
+    assert result.analysis is None
+    assert "compilation failed" in (result.reason or "")
