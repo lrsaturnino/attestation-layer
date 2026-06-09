@@ -29,8 +29,14 @@ from nlreq.cross_language import (
     close_cross_language_proof,
 )
 from nlreq.dsl_v3 import DslV3Parser
-from nlreq.impact import ImpactAnalysisArtifact
-from nlreq.models import BackendResult, EvidenceLevel, NormalizedTraceArtifact, RequirementIRV2
+from nlreq.impact import ImpactAnalysisArtifact, analyze_source_impact
+from nlreq.models import (
+    BackendResult,
+    EvidenceLevel,
+    NormalizedTraceArtifact,
+    RequirementIRV2,
+    SymbolRef,
+)
 from nlreq.proof_closure import build_cross_language_dispatch_plan, build_proof_object
 from nlreq.coverage_alignment import SpecCoverageReport, TraceAlignmentReport
 from nlreq.production_source_adapters import GoSourceAdapter, SoliditySourceAdapter
@@ -39,8 +45,11 @@ from nlreq.system_spec import SpecTraceContract, SpecTraceExpectation, SystemSpe
 
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "cross_language"
-FOUNDRY_ROOT = Path(__file__).parent / "fixtures" / "foundry"
-GO_ROOT = Path(__file__).parent / "fixtures" / "go"
+# Dedicated cross-language source fixtures that REALIZE the requirement's named actions: the Solidity
+# vault's finalize_redemption require()s authorization, and the Go coordinator's execute_sweep refuses
+# an unauthorized sweep. Symbol resolution + call-graph impact + traces all come from these (PC-13).
+SOL_ROOT = FIXTURE_ROOT / "solidity"
+GO_ROOT = FIXTURE_ROOT / "go"
 
 REQUIREMENT = RequirementIRV2.model_validate(
     json.loads((FIXTURE_ROOT / "requirement.json").read_text())
@@ -86,7 +95,79 @@ def _registry(project_root: Path, *, module_id, spec_id, spec_file, invariant) -
     )
 
 
-def _impact(adapter_id, language, module_id, symbol) -> ImpactAnalysisArtifact:
+def _solidity_manifest() -> SourceManifest:
+    return SourceManifest.model_validate(
+        {
+            "schema_version": "0.1",
+            "adapter": "solidity-source",
+            "language": "solidity",
+            "runtime": "evm",
+            "modules": [
+                {
+                    "module_id": "vault",
+                    "path": "src/RedemptionVault.sol",
+                    "symbols": [
+                        "RedemptionVault",
+                        "authorize",
+                        "finalize_redemption",
+                        "RedemptionAuthorized",
+                        "RedemptionFinalized",
+                        "finalizedTotal",
+                    ],
+                }
+            ],
+        }
+    )
+
+
+def _go_manifest() -> SourceManifest:
+    return SourceManifest.model_validate(
+        {
+            "schema_version": "0.1",
+            "adapter": "go-source",
+            "language": "go",
+            "runtime": "go",
+            "modules": [
+                {
+                    "module_id": "coordinator",
+                    "path": "coordinator/coordinator.go",
+                    "symbols": ["execute_sweep", "Authorizer", "Sweeper", "Guard", "Total"],
+                }
+            ],
+        }
+    )
+
+
+def _solidity_real_impact() -> ImpactAnalysisArtifact:
+    """Resolve finalize_redemption and build impact from the REAL Slither call graph (PC-3/PC-9).
+
+    Asserts the requirement's named action resolves to a real source symbol first, so the impact is
+    tied to source (a resolved symbol + call-graph-reachable modules), not a hand-written stand-in.
+    Real-tool only: Slither must be drivable (guarded by ``requires_capstone_tools`` at the call site).
+    """
+    adapter = SoliditySourceAdapter(project_root=SOL_ROOT)
+    manifest = _solidity_manifest()
+    resolution = adapter.resolve_symbol(SymbolRef(name="finalize_redemption"), manifest)
+    assert resolution.status == "resolved", resolution.reason
+    return analyze_source_impact(adapter, manifest, symbols=["finalize_redemption"])
+
+
+def _go_real_impact() -> ImpactAnalysisArtifact:
+    """Resolve execute_sweep and build impact from the REAL CHA call graph (PC-6/PC-9)."""
+    adapter = GoSourceAdapter(project_root=GO_ROOT)
+    manifest = _go_manifest()
+    resolution = adapter.resolve_symbol(SymbolRef(name="execute_sweep"), manifest)
+    assert resolution.status == "resolved", resolution.reason
+    return analyze_source_impact(adapter, manifest, symbols=["execute_sweep"])
+
+
+def _placeholder_impact(adapter_id, language, module_id, symbol) -> ImpactAnalysisArtifact:
+    """A minimal impact for the TOOL-FREE binding tests only.
+
+    Binding validation refuses a misconfigured vertical BEFORE any S ∧ R or coverage step ever reads
+    the impact, so those tests need a well-formed artifact, not a real Slither/CHA analysis (which
+    would require the tools). The real-tool tests use :func:`_solidity_real_impact` / :func:`_go_real_impact`.
+    """
     return ImpactAnalysisArtifact.model_validate(
         {
             "schema_version": "0.1",
@@ -100,7 +181,13 @@ def _impact(adapter_id, language, module_id, symbol) -> ImpactAnalysisArtifact:
     )
 
 
-def _solidity_vertical(project_root: Path, traces: NormalizedTraceArtifact, *, safe: bool):
+def _solidity_vertical(
+    project_root: Path,
+    traces: NormalizedTraceArtifact,
+    impact: ImpactAnalysisArtifact,
+    *,
+    safe: bool,
+):
     # The sub-claim is ALWAYS the parent's unauthorized-rejection slice: when NOT authorized, the
     # action must be rejected (the guard the requirement declares). ``safe`` selects the reviewed S,
     # NOT the requirement — the SAFE S discharges it (forbidden outcome unreachable, premise still
@@ -123,28 +210,51 @@ def _solidity_vertical(project_root: Path, traces: NormalizedTraceArtifact, *, s
             spec_file="RedemptionVault.tla" if safe else "RedemptionVaultUnsafe.tla",
             invariant="VaultFinalizeAuthorized" if safe else "VaultAuthorizationClosed",
         ),
-        impact=_impact("solidity-source", "solidity", "vault", "finalize_redemption"),
+        impact=impact,
         project_root=project_root,
         traces=traces,
+        # The reviewed S's trace-observable projection over the vault's REAL Foundry traces: the
+        # authorize + finalize events, the finalizedTotal read reaching 5, AND the unauthorized
+        # finalize reverting with the contract's reason — so S is validated against the contract's
+        # real authorization behavior, not just incidental events.
         spec_trace_contract=SpecTraceContract(
             spec_id="spec:vault",
             module_ids=["vault"],
             expectations=[
                 SpecTraceExpectation(
-                    expectation_id="vault-redeemed", kind="event_emitted", target="Redeemed"
+                    expectation_id="vault-authorized",
+                    kind="event_emitted",
+                    target="RedemptionAuthorized",
+                ),
+                SpecTraceExpectation(
+                    expectation_id="vault-finalized",
+                    kind="event_emitted",
+                    target="RedemptionFinalized",
                 ),
                 SpecTraceExpectation(
                     expectation_id="vault-total",
                     kind="state_value_reached",
-                    target="total()",
+                    target="finalizedTotal",
                     value="5",
+                ),
+                SpecTraceExpectation(
+                    expectation_id="vault-unauthorized-reverts",
+                    kind="action_reverts",
+                    target="finalize_redemption",
+                    value="redemption not authorized",
                 ),
             ],
         ),
     )
 
 
-def _go_vertical(project_root: Path, traces: NormalizedTraceArtifact, *, safe: bool):
+def _go_vertical(
+    project_root: Path,
+    traces: NormalizedTraceArtifact,
+    impact: ImpactAnalysisArtifact,
+    *,
+    safe: bool,
+):
     # As in _solidity_vertical: the sub-claim is ALWAYS the parent's "when NOT authorized, reject"
     # slice; ``safe`` selects the reviewed S (SAFE discharges it, UNSAFE counterexamples).
     sub_claim = DslV3Parser().parse_ir(
@@ -165,18 +275,22 @@ def _go_vertical(project_root: Path, traces: NormalizedTraceArtifact, *, safe: b
             spec_file="RedemptionCoordinator.tla" if safe else "RedemptionCoordinatorUnsafe.tla",
             invariant="CoordinatorSweepAuthorized" if safe else "CoordinatorAuthorizationClosed",
         ),
-        impact=_impact("go-source", "go", "coordinator", "execute_sweep"),
+        impact=impact,
         project_root=project_root,
         traces=traces,
+        # The reviewed S's trace-observable projection over the coordinator's REAL `go test -trace`
+        # runtime trace: the authorize stage then the guarded sweep stage. Go has no revert, so the
+        # off-chain rejection is a return value, not a trace event — the guard is carried by S and
+        # checked by S ∧ R; the trace grounds the happy-path stages the spec models.
         spec_trace_contract=SpecTraceContract(
             spec_id="spec:coordinator",
             module_ids=["coordinator"],
             expectations=[
                 SpecTraceExpectation(
-                    expectation_id="coord-validate", kind="event_emitted", target="validate"
+                    expectation_id="coord-authorize", kind="event_emitted", target="authorize"
                 ),
                 SpecTraceExpectation(
-                    expectation_id="coord-record", kind="event_emitted", target="record"
+                    expectation_id="coord-sweep", kind="event_emitted", target="sweep"
                 ),
             ],
         ),
@@ -184,41 +298,11 @@ def _go_vertical(project_root: Path, traces: NormalizedTraceArtifact, *, safe: b
 
 
 def _solidity_traces() -> NormalizedTraceArtifact:
-    manifest = SourceManifest.model_validate(
-        {
-            "schema_version": "0.1",
-            "adapter": "solidity-source",
-            "language": "solidity",
-            "runtime": "evm",
-            "modules": [
-                {
-                    "module_id": "vault",
-                    "path": "src/Vault.sol",
-                    "symbols": ["Vault", "requestRedemption", "Redeemed", "total"],
-                }
-            ],
-        }
-    )
-    return SoliditySourceAdapter(project_root=FOUNDRY_ROOT).extract_traces(manifest)
+    return SoliditySourceAdapter(project_root=SOL_ROOT).extract_traces(_solidity_manifest())
 
 
 def _go_traces() -> NormalizedTraceArtifact:
-    manifest = SourceManifest.model_validate(
-        {
-            "schema_version": "0.1",
-            "adapter": "go-source",
-            "language": "go",
-            "runtime": "go",
-            "modules": [
-                {
-                    "module_id": "coordinator",
-                    "path": "coordinator/coordinator.go",
-                    "symbols": ["Coordinate", "Run", "Total"],
-                }
-            ],
-        }
-    )
-    return GoSourceAdapter(project_root=GO_ROOT).extract_traces(manifest)
+    return GoSourceAdapter(project_root=GO_ROOT).extract_traces(_go_manifest())
 
 
 # --- Tool-free structure + non-interchangeability -------------------------------------------------
@@ -324,8 +408,18 @@ def test_close_refuses_a_misconfigured_vertical_binding(tmp_path) -> None:
     before any Apalache run — so a wrong-language S ∧ R can never be tagged onto a guard it does not
     belong to. Validation is tool-free; these cases run without apalache/forge/go.
     """
-    sol = _solidity_vertical(tmp_path / "sol", _empty_traces(), safe=True)
-    go = _go_vertical(tmp_path / "go", _empty_traces(), safe=True)
+    sol = _solidity_vertical(
+        tmp_path / "sol",
+        _empty_traces(),
+        _placeholder_impact("solidity-source", "solidity", "vault", "finalize_redemption"),
+        safe=True,
+    )
+    go = _go_vertical(
+        tmp_path / "go",
+        _empty_traces(),
+        _placeholder_impact("go-source", "go", "coordinator", "execute_sweep"),
+        safe=True,
+    )
 
     # (1) Unknown guard: a vertical bound to a node that is not a per-language guard of the requirement.
     with pytest.raises(ValueError, match="not a per-language guard"):
@@ -408,12 +502,19 @@ def test_cross_language_requirement_closes_one_proof_and_gates_the_action(tmp_pa
     """
     sol_traces = _solidity_traces()
     go_traces = _go_traces()
+    # Impact for each vertical is built from REAL symbol resolution + the REAL call graph of the
+    # source that realizes the action (Slither for finalize_redemption, CHA for execute_sweep) — not a
+    # hand-written stand-in. Each carries call-graph edges out of the named action.
+    sol_impact = _solidity_real_impact()
+    go_impact = _go_real_impact()
+    assert any("finalize_redemption" in edge["caller"] for edge in sol_impact.call_graph_edges)
+    assert any("execute_sweep" in edge["caller"] for edge in go_impact.call_graph_edges)
 
     result = close_cross_language_proof(
         requirement=REQUIREMENT,
         verticals=[
-            _solidity_vertical(tmp_path_factory.mktemp("xlang_sol"), sol_traces, safe=True),
-            _go_vertical(tmp_path_factory.mktemp("xlang_go"), go_traces, safe=True),
+            _solidity_vertical(tmp_path_factory.mktemp("xlang_sol"), sol_traces, sol_impact, safe=True),
+            _go_vertical(tmp_path_factory.mktemp("xlang_go"), go_traces, go_impact, safe=True),
         ],
         downstream_action="merge",
     )
@@ -472,8 +573,12 @@ def test_counterexample_in_one_language_blocks_the_action(tmp_path_factory) -> N
     result = close_cross_language_proof(
         requirement=REQUIREMENT,
         verticals=[
-            _solidity_vertical(tmp_path_factory.mktemp("xlang_sol"), sol_traces, safe=False),
-            _go_vertical(tmp_path_factory.mktemp("xlang_go"), go_traces, safe=True),
+            _solidity_vertical(
+                tmp_path_factory.mktemp("xlang_sol"), sol_traces, _solidity_real_impact(), safe=False
+            ),
+            _go_vertical(
+                tmp_path_factory.mktemp("xlang_go"), go_traces, _go_real_impact(), safe=True
+            ),
         ],
         downstream_action="merge",
     )
@@ -511,8 +616,12 @@ def test_counterexample_in_the_go_vertical_blocks_the_action(tmp_path_factory) -
     result = close_cross_language_proof(
         requirement=REQUIREMENT,
         verticals=[
-            _solidity_vertical(tmp_path_factory.mktemp("xlang_sol"), sol_traces, safe=True),
-            _go_vertical(tmp_path_factory.mktemp("xlang_go"), go_traces, safe=False),
+            _solidity_vertical(
+                tmp_path_factory.mktemp("xlang_sol"), sol_traces, _solidity_real_impact(), safe=True
+            ),
+            _go_vertical(
+                tmp_path_factory.mktemp("xlang_go"), go_traces, _go_real_impact(), safe=False
+            ),
         ],
         downstream_action="merge",
     )

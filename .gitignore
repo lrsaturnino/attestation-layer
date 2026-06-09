@@ -19,5 +19,9 @@ build/
 tests/fixtures/foundry/out/
 tests/fixtures/foundry/cache/
 tests/fixtures/foundry/broadcast/
+# Foundry build artifacts for the PC-13 cross-language Solidity vertical fixture
+tests/fixtures/cross_language/solidity/out/
+tests/fixtures/cross_language/solidity/cache/
+tests/fixtures/cross_language/solidity/broadcast/
 # Slither may emit a compilation export when analyzing the Solidity fixture
 crytic-export/
