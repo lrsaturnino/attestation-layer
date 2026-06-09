@@ -307,6 +307,51 @@ def test_go_candidate_without_invariant_is_not_promotable() -> None:
     assert not any("not reproduced" in gap for gap in report.candidate.gaps)
 
 
+def test_absence_only_go_candidate_is_not_promotable() -> None:
+    """A candidate whose ONLY obligation is an `action_never` against a target the code never runs is
+    "satisfied" by ABSENCE alone — it witnesses no real Go behavior. PC-8 requires at least one
+    positively-witnessed obligation, so it is rejected rather than promoted on negative evidence."""
+    extraction = json.dumps(
+        {
+            "module": "coordinator",
+            "invariants": [{"name": "NeverSettles", "tla": "~settle_done"}],
+            "trace_expectations": [
+                {"expectation_id": "exp-never-settle", "kind": "action_never", "target": "settle"}
+            ],
+        }
+    )
+    report = extract_go_candidate_spec(
+        requirement=_requirement(),
+        module_id="coordinator",
+        impact=_impact(),
+        code_presentation=_presentation(),
+        traces=_go_traces(),
+        llm=RecordedLlmClient("", spec_fixture=extraction),
+    )
+
+    assert report.promotable is False
+    assert report.candidate.trace_grounding_status == "blocked"
+    # The forbidden action is absent, so the obligation is 'satisfied' — but by ABSENCE, with no
+    # matched event ids. The old all-satisfied check would have promoted this; the positive-witness
+    # rule rejects it. (The candidate DOES declare an invariant, so this isolates the witness rule.)
+    assert [observation.outcome for observation in report.spec_trace_replay.observations] == [
+        "satisfied"
+    ]
+    assert report.spec_trace_replay.observations[0].matched_event_ids == []
+    assert any("positively witnessed" in reason for reason in report.rejection_reasons)
+
+    # The existing trace-gated promotion blocks it too — no reviewed spec from absence alone.
+    promotion = promote_candidate_spec_with_review(
+        report.candidate,
+        approved_hash=report.candidate.content_hash,
+        version="1",
+        reviewer_id="reviewer",
+        reviewed_at="2026-06-09T00:00:00Z",
+    )
+    assert promotion.decision == "blocked"
+    assert promotion.promoted_spec is None
+
+
 def _empty_registry() -> SystemSpecRegistry:
     return SystemSpecRegistry.model_validate({"schema_version": "0.1", "specs": []})
 

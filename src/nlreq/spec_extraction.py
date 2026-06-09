@@ -565,10 +565,16 @@ def extract_go_candidate_spec(
 
 
 def _spec_trace_rejection_reasons(replay: SpecTraceReplayReport) -> list[str]:
-    """Reasons a candidate is NOT promotable: any obligation the traces do not reproduce, or none.
+    """Reasons a candidate's trace grounding is NOT promotable.
 
-    A candidate with no trace-observable obligation cannot be validated against the code's traces at
-    all, so it is rejected as ungrounded rather than promoted on an empty contract.
+    A candidate is trace-grounded only when (a) every declared obligation is satisfied by the code's
+    real traces AND (b) at least one obligation is POSITIVELY witnessed — an event the traces
+    actually emitted (a non-empty ``matched_event_ids``). An ``action_never`` obligation against a
+    target the code never runs is "satisfied" by ABSENCE, with no matched events; a candidate whose
+    obligations are ALL absence-only reproduces no real Go behavior, so it would be promoted on
+    negative evidence alone. Requiring a positive witness rejects that paper-only-by-omission shape.
+    A candidate with no trace-observable obligation at all cannot be validated and is likewise
+    rejected as ungrounded rather than promoted on an empty contract.
     """
     if not replay.observations:
         return ["candidate declares no trace-observable obligation to validate against the code"]
@@ -578,6 +584,13 @@ def _spec_trace_rejection_reasons(replay: SpecTraceReplayReport) -> list[str]:
             reasons.append(
                 f"{observation.expectation_id}: {observation.outcome} — {observation.reason}"
             )
+    if reasons:
+        return reasons
+    if not any(observation.matched_event_ids for observation in replay.observations):
+        return [
+            "no obligation is positively witnessed by the real traces "
+            "(all obligations are satisfied only by the absence of a forbidden action)"
+        ]
     return reasons
 
 
