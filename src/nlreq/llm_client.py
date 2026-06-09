@@ -151,6 +151,32 @@ class LlmClient(Protocol):
         """
         ...
 
+    def extract_spec_invariants(
+        self, *, module_id: str, code_presentation: str, language: str = "en"
+    ) -> str:
+        """Return a JSON Specula-style spec-extraction proposal read from a module's SOURCE (PC-8).
+
+        The model reads the module's presented source and proposes candidate ``S`` invariants
+        (formal safety properties) plus the trace-observable obligations those invariants imply —
+        operations the spec asserts the code performs. The proposal is derived from the CODE, never
+        from the trace: the trace is the independent validator.
+
+        The returned text is UNTRUSTED and never promotable on its own. A candidate ``S`` is
+        promotable to ``reviewed`` only if its trace-observable obligations are REPRODUCED by the
+        module's real traces (PC-7) — a paper-only candidate, asserting an operation the code never
+        runs, is rejected by that guard. Parse the returned text with
+        :func:`nlreq.spec_extraction.parse_spec_extraction`, which tolerates malformed output.
+
+        Args:
+            module_id: The source module the spec is extracted for.
+            code_presentation: The presented source the model reads (the adapter's code presentation).
+            language: The source language (e.g. "go"); steers a live model and is recorded.
+
+        Returns:
+            A JSON object with ``invariants`` and ``trace_expectations``. Not yet verified.
+        """
+        ...
+
 
 def parse_impact_estimate(text: str) -> list[str]:
     """Parse an UNTRUSTED LLM impact estimate into a sorted, de-duplicated list of module ids.
@@ -191,13 +217,24 @@ class RecordedLlmClient:
     golden tests pin the rewrite, not the translation path.
     """
 
-    def __init__(self, fixture: str, *, impact_fixture: str | None = None) -> None:
+    def __init__(
+        self,
+        fixture: str,
+        *,
+        impact_fixture: str | None = None,
+        spec_fixture: str | None = None,
+    ) -> None:
         self._fixture = fixture
         # The recorded semantic-impact estimate (a JSON array of module ids). Optional and separate
         # from the controlled-rewrite fixture so one client can replay BOTH the rewrite and the
         # PC-9 impact estimate; when omitted, estimate_impacted_modules replays the main fixture
         # (so a client constructed solely with the JSON list still serves an impact estimate).
         self._impact_fixture = impact_fixture
+        # The recorded Specula spec-extraction proposal (a JSON object of invariants +
+        # trace_expectations). Optional and separate so one client can replay the rewrite, the impact
+        # estimate, AND the PC-8 spec extraction; when omitted, extract_spec_invariants replays the
+        # main fixture.
+        self._spec_fixture = spec_fixture
 
     def propose_controlled_rewrite(
         self, prose: str, grammar_summary: str, *, language: str = "en"
@@ -214,6 +251,15 @@ class RecordedLlmClient:
         # so prose/symbols/candidate_modules only steer a live model — here they are accepted and
         # ignored. Falls back to the rewrite fixture when no dedicated impact fixture was recorded.
         return self._impact_fixture if self._impact_fixture is not None else self._fixture
+
+    def extract_spec_invariants(
+        self, *, module_id: str, code_presentation: str, language: str = "en"
+    ) -> str:
+        # Deterministic replay: the recorded proposal already encodes the model's extracted
+        # invariants + trace expectations, so module_id/code_presentation/language only steer a live
+        # model — here they are accepted and ignored. Falls back to the rewrite fixture when no
+        # dedicated spec fixture was recorded.
+        return self._spec_fixture if self._spec_fixture is not None else self._fixture
 
 
 def _extract_text(message: object) -> str:
@@ -338,6 +384,45 @@ class AnthropicLlmClient:
         )
         return _extract_text(message)
 
+    def extract_spec_invariants(
+        self, *, module_id: str, code_presentation: str, language: str = "en"
+    ) -> str:
+        # Credential check first so a missing key surfaces as EnvironmentError even when the
+        # 'anthropic' package is not installed (mirrors propose_controlled_rewrite).
+        api_key = load_api_key()
+
+        try:
+            import anthropic
+        except ImportError as exc:
+            raise ImportError(
+                "Real LLM spec extraction requires the 'anthropic' package. "
+                "Install it via: pip install anthropic  (or uv add anthropic)"
+            ) from exc
+        client = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model=self._model,
+            max_tokens=1024,
+            temperature=0,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        "You extract candidate formal invariants from source code. Read the "
+                        f"presented {language} source of module '{module_id}' and propose candidate "
+                        "safety invariants AND the trace-observable operations those invariants imply "
+                        "(operations the code performs at runtime). Derive everything from the CODE, "
+                        "not from any external description. Reply with ONLY a JSON object of the form "
+                        '{"invariants": [{"name": "...", "tla": "..."}], "trace_expectations": '
+                        '[{"expectation_id": "...", "kind": "event_emitted", "target": "...", '
+                        '"description": "..."}]} where kind is "event_emitted" (the operation runs) '
+                        'or "action_never" (the operation must never run). No prose.\n\n'
+                        "SOURCE:\n" + code_presentation.strip()
+                    ),
+                }
+            ],
+        )
+        return _extract_text(message)
+
 
 class UnavailableLlmClient:
     """Raises a clear error when the real SDK is not installed.
@@ -359,5 +444,13 @@ class UnavailableLlmClient:
     ) -> str:
         raise NotImplementedError(
             "Real LLM impact estimation requires the 'anthropic' package. "
+            "Install it or supply a RecordedLlmClient for offline use."
+        )
+
+    def extract_spec_invariants(
+        self, *, module_id: str, code_presentation: str, language: str = "en"
+    ) -> str:
+        raise NotImplementedError(
+            "Real LLM spec extraction requires the 'anthropic' package. "
             "Install it or supply a RecordedLlmClient for offline use."
         )

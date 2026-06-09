@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 from pathlib import Path, PurePosixPath
 from typing import Literal
 
@@ -7,18 +9,22 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .impact import ImpactAnalysisArtifact
 from .jsonutil import sha256_json, sha256_text
-from .models import RequirementIRV2
+from .llm_client import LlmClient
+from .models import NormalizedTraceArtifact, RequirementIRV2
 from .source_adapter import CodePresentation
 from .system_spec import (
+    SpecTraceContract,
+    SpecTraceExpectation,
     SystemSpecEntry,
     SystemSpecRegistry,
     build_system_spec_registry_report,
 )
-from .trace_replay import TraceReplayReport
+from .trace_replay import SpecTraceReplayReport, TraceReplayReport, replay_spec_against_traces
 
 
 SPEC_EXTRACTION_SCHEMA_VERSION = "0.1"
 SPEC_EXTRACTION_V2_SCHEMA_VERSION = "0.2"
+SPEC_EXTRACTION_GO_SCHEMA_VERSION = "0.1"
 
 
 class CandidateSpecProvenance(BaseModel):
@@ -315,6 +321,244 @@ def reject_candidate_spec(
         rejection_reasons=rejection_reasons,
         checklist=checklist or [],
     )
+
+
+# --- PC-8: Specula-style candidate S extraction for Go, gated by trace validation ----------------
+# The shared `_candidate_for_module` below emits a vacuous draft placeholder for languages without a
+# Specula extractor. The Go path here instead extracts a REAL candidate S: an LLM reads the module's
+# SOURCE and proposes candidate invariants plus the trace-observable obligations those invariants
+# imply — derived from the code, NEVER from the trace. The trace is the independent validator: the
+# candidate is promotable only if its obligations are REPRODUCED by the module's real Go traces
+# (PC-7), reusing the PC-11 spec↔trace replay. A paper-only candidate, asserting an operation the
+# code never runs, is rejected by that guard. This is the discipline that keeps Specula from
+# specifying "the paper, not the code".
+
+
+class ExtractedInvariant(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str
+    tla: str
+
+
+class ExtractedTraceExpectation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    # Only the obligation kinds a runtime/trace can witness are honest for Go: an operation that runs
+    # (``event_emitted``) or one that must never run (``action_never``). State-value and revert kinds
+    # are EVM-shaped and out of scope for the runtime/trace projection.
+    expectation_id: str
+    kind: Literal["event_emitted", "action_never"]
+    target: str
+    description: str = ""
+
+
+class ExtractedSpec(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    module: str = ""
+    invariants: list[ExtractedInvariant] = Field(default_factory=list)
+    trace_expectations: list[ExtractedTraceExpectation] = Field(default_factory=list)
+
+
+def parse_spec_extraction(text: str) -> ExtractedSpec:
+    """Parse an UNTRUSTED LLM spec-extraction proposal into a structured :class:`ExtractedSpec`.
+
+    Defensive because the output is untrusted (mirrors :func:`nlreq.llm_client.parse_impact_estimate`):
+    it strips a surrounding markdown code fence, tolerates malformed JSON by yielding an empty
+    extraction (no invariants, no obligations — which the trace gate rejects rather than promotes),
+    and drops individual malformed entries and any trace obligation whose kind a runtime/trace cannot
+    witness. It NEVER raises on malformed output.
+    """
+    stripped = text.strip()
+    fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", stripped, re.DOTALL)
+    if fence:
+        stripped = fence.group(1).strip()
+    try:
+        payload = json.loads(stripped)
+    except (ValueError, TypeError):
+        return ExtractedSpec()
+    if not isinstance(payload, dict):
+        return ExtractedSpec()
+    invariants: list[ExtractedInvariant] = []
+    for entry in payload.get("invariants", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("name")
+        tla = entry.get("tla")
+        if isinstance(name, str) and name.strip() and isinstance(tla, str) and tla.strip():
+            invariants.append(ExtractedInvariant(name=name.strip(), tla=tla.strip()))
+    expectations: list[ExtractedTraceExpectation] = []
+    for entry in payload.get("trace_expectations", []) or []:
+        if not isinstance(entry, dict):
+            continue
+        kind = entry.get("kind")
+        target = entry.get("target")
+        if kind not in {"event_emitted", "action_never"}:
+            continue
+        if not isinstance(target, str) or not target.strip():
+            continue
+        expectation_id = entry.get("expectation_id")
+        if not isinstance(expectation_id, str) or not expectation_id.strip():
+            expectation_id = f"{kind}:{target.strip()}"
+        description = entry.get("description")
+        expectations.append(
+            ExtractedTraceExpectation(
+                expectation_id=expectation_id.strip(),
+                kind=kind,
+                target=target.strip(),
+                description=description.strip() if isinstance(description, str) else "",
+            )
+        )
+    module = payload.get("module")
+    return ExtractedSpec(
+        module=module.strip() if isinstance(module, str) else "",
+        invariants=invariants,
+        trace_expectations=expectations,
+    )
+
+
+class GoCandidateExtractionReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1"] = SPEC_EXTRACTION_GO_SCHEMA_VERSION
+    requirement_id: str
+    module_id: str
+    candidate: CandidateSpec
+    trace_contract: SpecTraceContract
+    spec_trace_replay: SpecTraceReplayReport
+    promotable: bool
+    rejection_reasons: list[str] = Field(default_factory=list)
+
+
+def extract_go_candidate_spec(
+    *,
+    requirement: RequirementIRV2,
+    module_id: str,
+    impact: ImpactAnalysisArtifact,
+    code_presentation: CodePresentation,
+    traces: NormalizedTraceArtifact,
+    llm: LlmClient,
+) -> GoCandidateExtractionReport:
+    """Extract a candidate Go ``S`` from source (LLM) and validate it against the real traces (PC-8).
+
+    The candidate's invariants and trace-observable obligations are proposed by the LLM reading the
+    module's SOURCE; the obligations are then replayed against the module's real Go traces (PC-7) with
+    the PC-11 spec↔trace validator. ``promotable`` is true only when every obligation is REPRODUCED by
+    the traces — so a paper-only candidate (asserting an operation the code never runs) is not
+    promotable, and a candidate that declares no trace-observable obligation cannot be validated and is
+    rejected. The returned candidate carries ``trace_grounding_status`` so the existing
+    :func:`promote_candidate_spec_with_review` gate promotes a reproduced candidate and blocks a
+    paper-only one.
+    """
+    raw = llm.extract_spec_invariants(
+        module_id=module_id,
+        code_presentation=_serialize_presentation(code_presentation),
+        language="go",
+    )
+    extracted = parse_spec_extraction(raw)
+    content = _go_candidate_tla_content(module_id, requirement, extracted)
+    contract = SpecTraceContract(
+        spec_id=f"candidate:{requirement.requirement_id}:{module_id}",
+        module_ids=[module_id],
+        expectations=[
+            SpecTraceExpectation(
+                expectation_id=expectation.expectation_id,
+                kind=expectation.kind,
+                target=expectation.target,
+                description=expectation.description,
+            )
+            for expectation in extracted.trace_expectations
+        ],
+        provenance="specula_extracted",
+    )
+    replay = replay_spec_against_traces(contract=contract, traces=traces)
+    rejection_reasons = _spec_trace_rejection_reasons(replay)
+    promotable = not rejection_reasons
+    trace_status: Literal["passed", "blocked", "missing"] = "passed" if promotable else "blocked"
+    candidate = CandidateSpec(
+        candidate_id=f"{requirement.requirement_id}:{module_id}",
+        module_id=module_id,
+        path=f"specs/candidates/{_safe_path_part(module_id)}.tla",
+        content=content,
+        content_hash=sha256_text(content),
+        trace_grounding_status=trace_status,
+        gaps=_go_candidate_gaps(extracted, promotable),
+        provenance=CandidateSpecProvenance(
+            requirement_id=requirement.requirement_id,
+            impact_hash=sha256_json(impact),
+            code_presentation_hash=sha256_json(code_presentation),
+            trace_replay_hash=sha256_json(replay),
+            llm_draft_used=True,
+            metadata={"module_id": module_id, "extraction": "specula_go"},
+        ),
+    )
+    return GoCandidateExtractionReport(
+        requirement_id=requirement.requirement_id,
+        module_id=module_id,
+        candidate=candidate,
+        trace_contract=contract,
+        spec_trace_replay=replay,
+        promotable=promotable,
+        rejection_reasons=rejection_reasons,
+    )
+
+
+def _spec_trace_rejection_reasons(replay: SpecTraceReplayReport) -> list[str]:
+    """Reasons a candidate is NOT promotable: any obligation the traces do not reproduce, or none.
+
+    A candidate with no trace-observable obligation cannot be validated against the code's traces at
+    all, so it is rejected as ungrounded rather than promoted on an empty contract.
+    """
+    if not replay.observations:
+        return ["candidate declares no trace-observable obligation to validate against the code"]
+    reasons: list[str] = []
+    for observation in replay.observations:
+        if observation.outcome != "satisfied":
+            reasons.append(
+                f"{observation.expectation_id}: {observation.outcome} — {observation.reason}"
+            )
+    return reasons
+
+
+def _go_candidate_tla_content(
+    module_id: str, requirement: RequirementIRV2, extracted: ExtractedSpec
+) -> str:
+    module_name = "Candidate_" + _safe_tla_name(module_id)
+    lines = [
+        f"---- MODULE {module_name} ----",
+        f"\\* Specula-extracted candidate S for Go module {module_id} (untrusted; trace-gated).",
+        f"\\* Requirement: {requirement.requirement_id}",
+    ]
+    for expectation in extracted.trace_expectations:
+        lines.append(f"\\* trace obligation [{expectation.kind}]: {expectation.target}")
+    for invariant in extracted.invariants:
+        lines.append(f"{_safe_tla_name(invariant.name)} == {invariant.tla}")
+    if extracted.invariants:
+        conjuncts = " /\\ ".join(_safe_tla_name(inv.name) for inv in extracted.invariants)
+        lines.append(f"CandidateInvariant == {conjuncts}")
+    else:
+        lines.append("\\* no invariants were extracted from the source")
+    lines.append("====")
+    return "\n".join(lines) + "\n"
+
+
+def _go_candidate_gaps(extracted: ExtractedSpec, promotable: bool) -> list[str]:
+    gaps = ["candidate spec is draft and cannot satisfy coverage until reviewed"]
+    if not extracted.invariants:
+        gaps.append("no invariants were extracted from the source")
+    if not promotable:
+        gaps.append("trace obligations are not reproduced by the code's real traces")
+    return gaps
+
+
+def _serialize_presentation(code_presentation: CodePresentation) -> str:
+    parts: list[str] = []
+    for snippet in code_presentation.snippets:
+        path = snippet.get("path", "")
+        content = snippet.get("content", "")
+        parts.append(f"// {path}\n{content}" if path else content)
+    return "\n\n".join(parts)
 
 
 def _candidate_for_module(
