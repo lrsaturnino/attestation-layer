@@ -15,12 +15,19 @@ from .coverage_alignment import (
 from .formal_backend import FormalBackendBudget, FormalBackendExecution
 from .impact import ImpactAnalysisArtifact
 from .jsonutil import sha256_json
-from .models import BackendResult, EvidenceLevel, NormalizedTraceArtifact, RequirementIRV2
+from .models import (
+    BackendResult,
+    EvidenceLevel,
+    NormalizedTraceArtifact,
+    RequirementIRV2,
+    SemanticNode,
+)
 from .proof_closure import (
     ClosureGateReport,
     ProofObject,
     build_cross_language_dispatch_plan,
     build_proof_object,
+    cross_language_guard_nodes,
     evaluate_closure_gate,
 )
 from .source_adapter import SourceManifest
@@ -511,7 +518,10 @@ def close_cross_language_proof(
     """
     plan = build_cross_language_dispatch_plan(requirement)
     route_by_node = {route.node_id: route for route in plan.routes}
-    _validate_vertical_bindings(verticals, route_by_node)
+    guard_by_node = {
+        node.node_id: node for _role, node in cross_language_guard_nodes(requirement.semantic_ir)
+    }
+    _validate_vertical_bindings(verticals, route_by_node, guard_by_node)
 
     backend_results: list[BackendResult] = []
     composition_slices: list[CrossLanguageSandRSlice] = []
@@ -604,6 +614,7 @@ def close_cross_language_proof(
 def _validate_vertical_bindings(
     verticals: list[CrossLanguageVertical],
     route_by_node: dict[str, object],
+    guard_by_node: dict[str, SemanticNode],
 ) -> None:
     """Fail fast on a misconfigured cross-language closure.
 
@@ -611,6 +622,17 @@ def _validate_vertical_bindings(
     the same guard — otherwise a guard would be discharged by the wrong language's ``S ∧ R`` (or by
     two). A guard with NO vertical is left to proof closure: its premise stays undischarged and the
     proof does not close, which is the honest outcome (it is surfaced as an open premise, not hidden).
+
+    A vertical must ALSO match the language its guard declares. ``close_cross_language_proof`` tags
+    each ``S ∧ R`` result with ``route_by_node[vertical.guard_node_id].premise_id`` — the binding is
+    the ONLY caller-controlled lever deciding which guard a run discharges, and the formal_claim tag is
+    derived from it, not supplied independently. So a Go vertical bound to the Solidity guard would tag
+    its Go run with the Solidity premise_id and discharge the Solidity guard with off-chain evidence.
+    When a guard node carries ``vertical_language`` / ``vertical_adapter`` metadata (the A-side
+    declaration of which language realizes that conjunct), enforce that the vertical's ``language`` /
+    ``adapter_id`` match it — making the non-interchangeability guarantee structural at the binding, not
+    just at the result tag. Guards without that metadata (e.g. a degenerate single-language fallback
+    from :func:`cross_language_guard_nodes`) are unconstrained here, as before.
     """
     seen: set[str] = set()
     for vertical in verticals:
@@ -626,6 +648,24 @@ def _validate_vertical_bindings(
                 "vertical; each guard is discharged by exactly one language's S ∧ R"
             )
         seen.add(vertical.guard_node_id)
+
+        guard = guard_by_node.get(vertical.guard_node_id)
+        if guard is None:
+            continue
+        expected_language = guard.metadata.get("vertical_language")
+        if expected_language is not None and expected_language != vertical.language:
+            raise ValueError(
+                f"cross-language vertical {vertical.language!r} binds guard node "
+                f"{vertical.guard_node_id!r}, which declares vertical_language "
+                f"{expected_language!r}; a guard must be discharged by its OWN language's S ∧ R"
+            )
+        expected_adapter = guard.metadata.get("vertical_adapter")
+        if expected_adapter is not None and expected_adapter != vertical.adapter_id:
+            raise ValueError(
+                f"cross-language vertical adapter {vertical.adapter_id!r} binds guard node "
+                f"{vertical.guard_node_id!r}, which declares vertical_adapter "
+                f"{expected_adapter!r}; a guard must be discharged by its declared adapter"
+            )
 
 
 def _tag_premise(result: BackendResult, premise_id: str) -> BackendResult:

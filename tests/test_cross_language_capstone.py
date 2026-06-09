@@ -16,6 +16,7 @@ above the adapter line; the agnostic core stays domain-free.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import shutil
 from pathlib import Path
@@ -304,6 +305,48 @@ def test_each_guard_is_discharged_only_by_its_own_language_result() -> None:
         p for p in mistagged.premises if p.node_id == "obligation.solidity_authorization_guard"
     )
     assert sol_premise.status == "open"
+
+
+def _empty_traces() -> NormalizedTraceArtifact:
+    """A trace artifact with no traces. Binding validation runs before any S ∧ R or trace use, so a
+    tool-free binding test needs only a well-formed (empty) artifact, never a real extraction."""
+    return NormalizedTraceArtifact.model_validate([])
+
+
+def test_close_refuses_a_misconfigured_vertical_binding(tmp_path) -> None:
+    """``close_cross_language_proof`` derives each S ∧ R result's discharge tag from the vertical's
+    ``guard_node_id`` (``route_by_node[guard_node_id].premise_id``), so the binding is the ONLY
+    caller-controlled lever deciding which guard a run discharges. A misbinding is refused UP FRONT —
+    before any Apalache run — so a wrong-language S ∧ R can never be tagged onto a guard it does not
+    belong to. Validation is tool-free; these cases run without apalache/forge/go.
+    """
+    sol = _solidity_vertical(tmp_path / "sol", _empty_traces(), authorized=True)
+    go = _go_vertical(tmp_path / "go", _empty_traces(), authorized=True)
+
+    # (1) Unknown guard: a vertical bound to a node that is not a per-language guard of the requirement.
+    with pytest.raises(ValueError, match="not a per-language guard"):
+        close_cross_language_proof(
+            requirement=REQUIREMENT,
+            verticals=[dataclasses.replace(sol, guard_node_id="obligation.does_not_exist")],
+        )
+
+    # (2) Duplicate guard: two verticals claim the same guard, so one guard would carry two S ∧ R runs.
+    with pytest.raises(ValueError, match="claimed by more than one"):
+        close_cross_language_proof(
+            requirement=REQUIREMENT,
+            verticals=[sol, dataclasses.replace(sol, project_root=tmp_path / "sol_dup")],
+        )
+
+    # (3) Wrong language: a Go vertical bound to the Solidity guard. The guard declares
+    # vertical_language="solidity"; a Go S ∧ R cannot stand in for the on-chain guard, so the binding
+    # is refused rather than silently tagging a Go run onto the Solidity premise_id.
+    with pytest.raises(ValueError, match="vertical_language"):
+        close_cross_language_proof(
+            requirement=REQUIREMENT,
+            verticals=[
+                dataclasses.replace(go, guard_node_id="obligation.solidity_authorization_guard")
+            ],
+        )
 
 
 # --- Real per-language S ∧ R end-to-end (the SP3 loop) --------------------------------------------
