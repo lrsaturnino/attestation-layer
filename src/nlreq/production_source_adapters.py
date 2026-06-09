@@ -895,6 +895,11 @@ class GoSourceAdapter(RegexProductionSourceAdapter):
             metadata["go_version"] = analysis.go_version
         if analysis.gopls_version:
             metadata["gopls_version"] = analysis.gopls_version
+        # The callgraph binary's own version is what proves a real callgraph (not the regex fallback)
+        # produced this graph — the certifier's tool-backed gate keys on callgraph_version, not on the
+        # Go toolchain version, so record it whenever the build info could be read.
+        if analysis.callgraph_version:
+            metadata["callgraph_version"] = analysis.callgraph_version
         return SourceCallGraph(
             adapter_id=self.adapter_id,
             language=self.language,

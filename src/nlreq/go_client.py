@@ -83,6 +83,11 @@ class GoAnalysis(BaseModel):
 
     go_version: str | None = None
     gopls_version: str | None = None
+    # The callgraph binary's own build provenance (the module that built it, e.g.
+    # "golang.org/x/tools v0.45.0 (go1.26.0)"), read from `go version -m`. It identifies WHICH
+    # callgraph produced the graph — the call-graph tool-backed gate keys on this, not on go_version
+    # (the Go toolchain alone does not prove a callgraph binary ran).
+    callgraph_version: str | None = None
     module_path: str | None = None
     files: list[str] = Field(default_factory=list)
     symbols: list[GoSymbol] = Field(default_factory=list)
@@ -147,6 +152,48 @@ def _gopls_version(gopls: str, cwd: Path) -> str | None:
     # gopls version prints the build info; the first line carries the version (e.g.
     # "golang.org/x/tools/gopls v0.22.0").
     return _first_line(completed.stdout or completed.stderr or "")
+
+
+def _callgraph_version(go: str, callgraph: str, cwd: Path) -> str | None:
+    """Capture the callgraph binary's build provenance via ``go version -m`` (PC-6).
+
+    ``callgraph`` (golang.org/x/tools/cmd/callgraph) has no ``-version`` flag, so its identity is read
+    from the Go build info embedded in the binary: a ``mod`` record carries the module that built it
+    (``golang.org/x/tools vX.Y.Z``) and the first line carries the building Go toolchain
+    (``go1.26.0``). The module version is the meaningful callgraph version; the toolchain is appended
+    for reproducibility. Returns ``None`` only when the command cannot run — when build info is present
+    but lacks a parseable ``mod`` record it falls back to the toolchain line, so an analyzed graph is
+    never misclassified as non-tool-backed for want of a version.
+
+    Like the call-graph backing signal it feeds, this is adapter-asserted, not preimage-bound: it
+    proves a *callgraph* binary (not the regex fallback) produced the graph, not that its output is
+    cryptographically tied to this version. Binding it to the tool's captured output is a future
+    tightening, the same asymmetry documented on the certifier's call-graph gate.
+    """
+    try:
+        completed = subprocess.run(
+            [go, "version", "-m", callgraph],
+            cwd=str(cwd),
+            capture_output=True,
+            text=True,
+            check=False,
+            timeout=30,
+        )
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    if completed.returncode != 0 or not completed.stdout.strip():
+        return None
+    lines = completed.stdout.splitlines()
+    # The first line is "<path>: go1.26.0"; keep the toolchain token after the colon.
+    _, _, after_colon = lines[0].partition(": ")
+    toolchain = after_colon.strip()
+    for line in lines:
+        fields = [field for field in line.split("\t") if field]
+        # A module record is ("mod", "<module path>", "<version>", "<hash>") (the leading tab drops).
+        if len(fields) >= 3 and fields[0] == "mod":
+            module = f"{fields[1]} {fields[2]}"
+            return f"{module} ({toolchain})" if toolchain else module
+    return toolchain or None
 
 
 def _go_module_path(go: str, cwd: Path) -> str | None:
@@ -340,6 +387,7 @@ def analyze_go_source(
         )
     go_version = _go_version(go, project_root)
     gopls_version = _gopls_version(gopls, project_root)
+    callgraph_version = _callgraph_version(go, callgraph, project_root)
     module_path = _go_module_path(go, project_root)
 
     symbols: list[GoSymbol] = []
@@ -366,6 +414,7 @@ def analyze_go_source(
     analysis = GoAnalysis(
         go_version=go_version,
         gopls_version=gopls_version,
+        callgraph_version=callgraph_version,
         module_path=module_path,
         files=[_relative_to(file, project_root) for file in existing],
         symbols=symbols,

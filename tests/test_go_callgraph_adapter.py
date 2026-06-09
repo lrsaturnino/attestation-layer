@@ -107,6 +107,10 @@ def test_call_graph_is_a_real_cha_graph_with_interface_dispatch() -> None:
     assert graph.metadata["analysis"] == "callgraph"
     assert graph.metadata["callgraph_status"] == "analyzed"
     assert graph.metadata.get("go_version")
+    # The callgraph binary's OWN version is recorded (read from `go version -m`), not just the Go
+    # toolchain — this is the signal the certifier keys on to prove a callgraph binary built the graph.
+    assert graph.metadata.get("callgraph_version")
+    assert "golang.org/x/tools" in graph.metadata["callgraph_version"]
     edge_pairs = {(edge.caller, edge.callee) for edge in graph.edges}
     # Coordinate dispatches through the Stage interface; CHA resolves the call to EVERY implementation
     # of Stage. Those edges (to the concrete receivers Validator and *Recorder) are ones a lexical

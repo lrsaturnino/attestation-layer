@@ -767,12 +767,14 @@ def _capability_evidence_findings(
 
 
 # Each entry is a (status_key, version_key) pair a tool-backed call-graph path records: an
-# ``analyzed`` status AND a captured tool version. Slither (Solidity, PC-3) and callgraph (Go, PC-6)
-# register their own signal; the regex fallback records neither, so it cannot reach
-# production_candidate. New verticals add their pair here.
+# ``analyzed`` status AND a captured version of the TOOL THAT BUILT THE GRAPH. Slither (Solidity,
+# PC-3) records slither_version; callgraph (Go, PC-6) records callgraph_version — the callgraph
+# binary's own build provenance, NOT the Go toolchain version (go_version alone does not prove a
+# callgraph binary ran). The regex fallback records neither, so it cannot reach production_candidate.
+# New verticals add their pair here.
 _TOOL_BACKED_CALL_GRAPH_SIGNALS: tuple[tuple[str, str], ...] = (
     ("slither_status", "slither_version"),
-    ("callgraph_status", "go_version"),
+    ("callgraph_status", "callgraph_version"),
 )
 
 
@@ -781,12 +783,14 @@ def call_graph_is_tool_backed(call_graph: SourceCallGraph) -> bool:
 
     production_candidate requires a tool-backed call graph (Slither for Solidity, callgraph for Go),
     not the regex fallback. The signal is the metadata the tool-backed path records: an ``analyzed``
-    status AND a captured tool version (the regex fallback records neither). Unlike trace evidence —
-    which is preimage-bound above — this call-graph signal is adapter-asserted: a malicious adapter
-    could stamp ``<tool>_status=analyzed`` with a fabricated version. That asymmetry is deliberate and
-    documented; tying the call-graph evidence to the tool client's captured output is a future
-    tightening. What this gate guarantees now is that a *regex* fallback cannot reach
-    production_candidate, which is the honesty boundary the HELPER flagged.
+    status AND a captured version OF THE TOOL THAT BUILT THE GRAPH — slither_version, or the callgraph
+    binary's own callgraph_version (the Go toolchain's go_version is NOT accepted: it does not prove a
+    callgraph binary ran). The regex fallback records neither. Unlike trace evidence — which is
+    preimage-bound above — this call-graph signal is adapter-asserted: a malicious adapter could stamp
+    ``<tool>_status=analyzed`` with a fabricated version. That asymmetry is deliberate and documented;
+    tying the call-graph evidence to the tool client's captured output is a future tightening. What
+    this gate guarantees now is that a *regex* fallback cannot reach production_candidate, which is the
+    honesty boundary the HELPER flagged.
     """
     metadata = call_graph.metadata or {}
     return any(

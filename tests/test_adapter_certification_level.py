@@ -155,6 +155,25 @@ def test_slither_analyzed_without_recorded_version_is_not_tool_backed() -> None:
     assert not _call_graph_is_tool_backed(_call_graph({"slither_status": "analyzed"}))
 
 
+def test_callgraph_analyzed_with_callgraph_version_is_tool_backed() -> None:
+    assert _call_graph_is_tool_backed(
+        _call_graph(
+            {
+                "analysis": "callgraph",
+                "callgraph_status": "analyzed",
+                "callgraph_version": "golang.org/x/tools v0.45.0 (go1.26.0)",
+            }
+        )
+    )
+
+
+def test_callgraph_analyzed_with_only_go_version_is_not_tool_backed() -> None:
+    """The Go toolchain version does NOT prove a callgraph binary ran — only callgraph_version does."""
+    assert not _call_graph_is_tool_backed(
+        _call_graph({"callgraph_status": "analyzed", "go_version": "go version go1.26.0 darwin/arm64"})
+    )
+
+
 # --- source-bound trace-provenance gate (PC-1 Action 1/2) ---------------------------------------
 
 
