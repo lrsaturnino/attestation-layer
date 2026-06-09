@@ -788,6 +788,39 @@ class NormalizedTraceProducer(BaseModel):
 
 
 class NormalizedTrace(BaseModel):
+    """The frozen, ecosystem-agnostic trace contract Pillar B consumes (a B↔C SP1 contract).
+
+    A NormalizedTrace projects a real execution recording from one ecosystem onto a common,
+    call-and-event-level shape. The projection is intentionally LOSSY — it keeps only what a
+    requirement's claim can be checked against (ordered call/return/event observations and their
+    pre/post state), discarding lower-level detail. The discarded detail differs by ecosystem, so
+    the lossy-normalization rules are pinned here as part of the frozen contract:
+
+    EVM (Solidity / Foundry — PC-4):
+      - Opcode-level steps (SSTORE/SLOAD/stack/memory) are dropped; a state change is observed at
+        call granularity via a read call's decoded return, not by tracing the SSTORE. The fixtures
+        order a read → mutating call → read so "event before state change" is answerable from the
+        ordered events alone (no opcode replay).
+      - Each EVM call frame becomes one TraceEvent (action = decoded selector signature, or the raw
+        4-byte selector when no ABI maps it); revert/success is carried in metadata; gas is dropped.
+      - Each LOG/event becomes one TraceEvent ordered by its in-call position; topics/data are kept
+        raw and the decoded name/params are added when the ABI resolves them, never fabricated.
+      - Internal (non-CALL) calls inlined by the compiler are not separate frames; they surface in
+        the call graph (PC-3 Slither), not the trace.
+
+    Go (PC-7, future):
+      - Goroutine scheduling/interleaving is linearized to the observed event order; concurrency
+        detail beyond that order is dropped.
+      - Spans/log lines from a runtime or OpenTelemetry producer become TraceEvents; unexported
+        internal frames without instrumentation are not reconstructed.
+
+    `producer` records real-tool provenance and is set ONLY when a real tool extracted the trace;
+    ingested JSON leaves it None (see NormalizedTraceProducer). `source_hash` is the hash of the
+    real tool artifact the trace was projected from — the "real artifact hash" the capability gate
+    requires. A vertical fails its DoD if the normalized trace cannot answer the requirement's claim
+    — that is the contract these rules exist to keep.
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     trace_id: str
