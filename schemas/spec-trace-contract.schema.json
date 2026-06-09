@@ -1,0 +1,94 @@
+{
+  "$defs": {
+    "SpecTraceExpectation": {
+      "additionalProperties": false,
+      "description": "One trace-observable obligation the spec S asserts about the code's behavior (PC-11).\n\nEach kind is evaluable against a real normalized trace's events:\n\n- ``event_emitted``: an event whose action matches ``target`` must appear (e.g. ``Redeemed``).\n- ``state_value_reached``: a read call whose action matches ``target`` (e.g. ``total()``) must\n  observe the decoded value ``value`` at some point. If the read appears but never returns\n  ``value``, the spec is contradicted (a populated delta); if the read never appears, the trace\n  cannot witness the obligation (no-coverage).\n- ``action_reverts``: a call whose action matches ``target`` must revert (optionally with revert\n  reason ``value``). If it appears but never reverts \u2014 or reverts with a different reason \u2014 the\n  spec is contradicted.\n- ``action_never``: no event whose action matches ``target`` may appear; observing one\n  contradicts the spec (a forbidden-action delta).\n\n``target`` matches an event action either exactly or as a signature head (``total`` matches\n``total()``, ``Redeemed`` matches ``Redeemed(uint256)``).",
+      "properties": {
+        "description": {
+          "default": "",
+          "title": "Description",
+          "type": "string"
+        },
+        "expectation_id": {
+          "title": "Expectation Id",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "event_emitted",
+            "state_value_reached",
+            "action_reverts",
+            "action_never"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Value"
+        }
+      },
+      "required": [
+        "expectation_id",
+        "kind",
+        "target"
+      ],
+      "title": "SpecTraceExpectation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The trace-observable projection of a registered spec S, for PC-11 code\u2194spec validation.\n\nPROVENANCE (read this before trusting the evidence): the expectations are S's declared\ntrace-observable obligations, SPECIFIED here for PC-11 (``provenance=\"declared\"`` \u2014 curated\nalongside the reviewed spec). Auto-deriving the contract from S itself is Specula's job \u2014\nPC-5 (Solidity) / PC-8 (Go) \u2014 and is OUT OF SCOPE here. This module validates only that\nwhatever obligations the contract declares are REPRODUCED by the code's real traces: a spec\nthat cannot reproduce the code's traces is not a spec of the code. The validator therefore\ntests the declared contract against real traces; it does not assert the contract was machine-\nextracted from S. When PC-5/PC-8 land they set ``provenance=\"specula_extracted\"``.",
+  "properties": {
+    "expectations": {
+      "items": {
+        "$ref": "#/$defs/SpecTraceExpectation"
+      },
+      "title": "Expectations",
+      "type": "array"
+    },
+    "module_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Module Ids",
+      "type": "array"
+    },
+    "provenance": {
+      "default": "declared",
+      "enum": [
+        "declared",
+        "specula_extracted"
+      ],
+      "title": "Provenance",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "spec_id": {
+      "title": "Spec Id",
+      "type": "string"
+    }
+  },
+  "required": [
+    "spec_id"
+  ],
+  "title": "SpecTraceContract",
+  "type": "object"
+}

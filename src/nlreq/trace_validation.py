@@ -18,12 +18,19 @@ from .models import (
     TraceEvent,
 )
 from .spec_freshness import SpecFreshnessDriftCiReport
-from .trace_replay import TraceReplayReport, build_trace_replay_report
+from .system_spec import SpecTraceContract
+from .trace_replay import (
+    SpecTraceObservation,
+    TraceReplayReport,
+    build_trace_replay_report,
+    replay_spec_against_traces,
+)
 
 
 TRACE_VALIDATION_VERSION = "0.1"
 TRACE_VALIDATOR_VERSION = "0.1"
 TRACE_VALIDATION_GATE_VERSION = "0.2"
+SPEC_CODE_ALIGNMENT_SCHEMA_VERSION = "0.1"
 ACCEPTABLE_REDACTION_STATUSES = {"redacted", "not_required"}
 
 
@@ -847,3 +854,101 @@ def _trace_gate_closure(
     if any(outcome.closure_effect == "review" for outcome in outcomes):
         return "review"
     return "allow"
+
+
+# --- PC-11: code↔spec trace validation (does S reproduce the code's real traces?) ----------------
+
+
+class SpecCodeDelta(BaseModel):
+    """One way the registered spec S fails to reproduce the code's real traces (PC-11).
+
+    A delta is recorded per VIOLATED obligation: the trace actively contradicts what S claims (e.g.
+    a state read never reaches S's claimed value, or a forbidden action is observed). The
+    expected/actual pair localizes the contradiction so a "paper system" spec — one written about a
+    system the code does not implement — is caught with concrete evidence, not a bare verdict.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    expectation_id: str
+    kind: str
+    target: str
+    expected: dict[str, Any] = Field(default_factory=dict)
+    actual: dict[str, Any] = Field(default_factory=dict)
+    reason: str
+
+
+class SpecCodeAlignmentReport(BaseModel):
+    """Three-way classification of whether the registered spec S reproduces the code's real traces.
+
+    - ``satisfies``: the traces witness at least one of S's obligations and contradict none — S
+      reproduces the code's real traces (closure ``allow``).
+    - ``violates_with_delta``: at least one obligation is contradicted by the real traces; each
+      contradiction is reported as a :class:`SpecCodeDelta` (closure ``block``). This is the
+      "paper system" catch — a spec that cannot reproduce the code's traces is not a spec of the code.
+    - ``no_coverage``: the real traces witness none of S's obligations, so alignment is undetermined
+      (closure ``review``) — neither confirmed nor contradicted.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1"] = SPEC_CODE_ALIGNMENT_SCHEMA_VERSION
+    spec_id: str
+    trace_ids: list[str] = Field(default_factory=list)
+    classification: Literal["satisfies", "violates_with_delta", "no_coverage"]
+    closure_effect: Literal["allow", "block", "review"]
+    observations: list[SpecTraceObservation] = Field(default_factory=list)
+    deltas: list[SpecCodeDelta] = Field(default_factory=list)
+    reason: str
+
+
+def classify_spec_code_alignment(
+    *,
+    contract: SpecTraceContract,
+    traces: NormalizedTraceArtifact,
+) -> SpecCodeAlignmentReport:
+    """Classify whether spec S reproduces the code's real traces, with a delta report (PC-11).
+
+    Replays S's declared trace-observable obligations (``contract``) against the real traces and
+    folds the per-obligation outcomes into the three-way classification. Any violated obligation
+    yields ``violates_with_delta`` with a populated delta per contradiction; otherwise at least one
+    satisfied obligation yields ``satisfies``; if the traces witness none, ``no_coverage``.
+    """
+    replay = replay_spec_against_traces(contract=contract, traces=traces)
+    violated = [obs for obs in replay.observations if obs.outcome == "violated"]
+    satisfied = [obs for obs in replay.observations if obs.outcome == "satisfied"]
+    deltas = [
+        SpecCodeDelta(
+            expectation_id=obs.expectation_id,
+            kind=obs.kind,
+            target=obs.target,
+            expected=obs.expected,
+            actual=obs.actual,
+            reason=obs.reason,
+        )
+        for obs in violated
+    ]
+    if violated:
+        classification: Literal["satisfies", "violates_with_delta", "no_coverage"] = "violates_with_delta"
+        closure_effect: Literal["allow", "block", "review"] = "block"
+        reason = (
+            f"spec contradicts the code's real traces in {len(violated)} obligation(s); "
+            "it is not a spec of the code"
+        )
+    elif satisfied:
+        classification = "satisfies"
+        closure_effect = "allow"
+        reason = "spec reproduces the code's real traces"
+    else:
+        classification = "no_coverage"
+        closure_effect = "review"
+        reason = "the real traces witness none of the spec's obligations; alignment is undetermined"
+    return SpecCodeAlignmentReport(
+        spec_id=contract.spec_id,
+        trace_ids=replay.trace_ids,
+        classification=classification,
+        closure_effect=closure_effect,
+        observations=replay.observations,
+        deltas=deltas,
+        reason=reason,
+    )

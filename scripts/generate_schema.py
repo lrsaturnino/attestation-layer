@@ -183,12 +183,16 @@ from nlreq.spec_freshness import (
     SpecFreshnessLockfileV2,
 )
 from nlreq.system_composition import SandRCompositionReport
-from nlreq.system_spec import SystemSpecRegistry, SystemSpecRegistryReport
+from nlreq.system_spec import SpecTraceContract, SystemSpecRegistry, SystemSpecRegistryReport
 from nlreq.system_checker import SystemConsistencyResult, RequirementSetConsistencyReport
 from nlreq.threat_model import ExtendedTcbReviewReport, ThreatModelReport
 from nlreq.tla_projection import TlaProjectionReport
 from nlreq.trace_normalization import RawTraceArtifact, TraceNormalizationReport
-from nlreq.trace_validation import TraceValidationGateReport, TraceValidationResultsArtifact
+from nlreq.trace_validation import (
+    SpecCodeAlignmentReport,
+    TraceValidationGateReport,
+    TraceValidationResultsArtifact,
+)
 from nlreq.trace_replay import TraceReplayReport
 from nlreq.tla_adapter import TlaModelConfigArtifact, TlaResultsArtifact
 from nlreq.translator_agreement import TranslationAgreementInput, TranslationAgreementReport
@@ -362,6 +366,8 @@ SCHEMAS = {
     "trace-validation-results.schema.json": TraceValidationResultsArtifact,
     "trace-validation-gate-report.schema.json": TraceValidationGateReport,
     "trace-replay-report.schema.json": TraceReplayReport,
+    "spec-trace-contract.schema.json": SpecTraceContract,
+    "spec-code-alignment-report.schema.json": SpecCodeAlignmentReport,
     "tla-projection-report.schema.json": TlaProjectionReport,
     "tla-model-config.schema.json": TlaModelConfigArtifact,
     "tla-results.schema.json": TlaResultsArtifact,

@@ -1,0 +1,165 @@
+{
+  "$defs": {
+    "SpecCodeDelta": {
+      "additionalProperties": false,
+      "description": "One way the registered spec S fails to reproduce the code's real traces (PC-11).\n\nA delta is recorded per VIOLATED obligation: the trace actively contradicts what S claims (e.g.\na state read never reaches S's claimed value, or a forbidden action is observed). The\nexpected/actual pair localizes the contradiction so a \"paper system\" spec \u2014 one written about a\nsystem the code does not implement \u2014 is caught with concrete evidence, not a bare verdict.",
+      "properties": {
+        "actual": {
+          "additionalProperties": true,
+          "title": "Actual",
+          "type": "object"
+        },
+        "expectation_id": {
+          "title": "Expectation Id",
+          "type": "string"
+        },
+        "expected": {
+          "additionalProperties": true,
+          "title": "Expected",
+          "type": "object"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expectation_id",
+        "kind",
+        "target",
+        "reason"
+      ],
+      "title": "SpecCodeDelta",
+      "type": "object"
+    },
+    "SpecTraceObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "actual": {
+          "additionalProperties": true,
+          "title": "Actual",
+          "type": "object"
+        },
+        "expectation_id": {
+          "title": "Expectation Id",
+          "type": "string"
+        },
+        "expected": {
+          "additionalProperties": true,
+          "title": "Expected",
+          "type": "object"
+        },
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "matched_event_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Matched Event Ids",
+          "type": "array"
+        },
+        "outcome": {
+          "enum": [
+            "satisfied",
+            "violated",
+            "no_coverage"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "target": {
+          "title": "Target",
+          "type": "string"
+        }
+      },
+      "required": [
+        "expectation_id",
+        "kind",
+        "target",
+        "outcome",
+        "reason"
+      ],
+      "title": "SpecTraceObservation",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Three-way classification of whether the registered spec S reproduces the code's real traces.\n\n- ``satisfies``: the traces witness at least one of S's obligations and contradict none \u2014 S\n  reproduces the code's real traces (closure ``allow``).\n- ``violates_with_delta``: at least one obligation is contradicted by the real traces; each\n  contradiction is reported as a :class:`SpecCodeDelta` (closure ``block``). This is the\n  \"paper system\" catch \u2014 a spec that cannot reproduce the code's traces is not a spec of the code.\n- ``no_coverage``: the real traces witness none of S's obligations, so alignment is undetermined\n  (closure ``review``) \u2014 neither confirmed nor contradicted.",
+  "properties": {
+    "classification": {
+      "enum": [
+        "satisfies",
+        "violates_with_delta",
+        "no_coverage"
+      ],
+      "title": "Classification",
+      "type": "string"
+    },
+    "closure_effect": {
+      "enum": [
+        "allow",
+        "block",
+        "review"
+      ],
+      "title": "Closure Effect",
+      "type": "string"
+    },
+    "deltas": {
+      "items": {
+        "$ref": "#/$defs/SpecCodeDelta"
+      },
+      "title": "Deltas",
+      "type": "array"
+    },
+    "observations": {
+      "items": {
+        "$ref": "#/$defs/SpecTraceObservation"
+      },
+      "title": "Observations",
+      "type": "array"
+    },
+    "reason": {
+      "title": "Reason",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "spec_id": {
+      "title": "Spec Id",
+      "type": "string"
+    },
+    "trace_ids": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Trace Ids",
+      "type": "array"
+    }
+  },
+  "required": [
+    "spec_id",
+    "classification",
+    "closure_effect",
+    "reason"
+  ],
+  "title": "SpecCodeAlignmentReport",
+  "type": "object"
+}

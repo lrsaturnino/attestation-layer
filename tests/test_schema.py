@@ -71,6 +71,8 @@ def test_auxiliary_artifact_schemas_are_committed() -> None:
     assert (schema_dir / "spec-extraction-workbench.schema.json").exists()
     assert (schema_dir / "spec-coverage-report.schema.json").exists()
     assert (schema_dir / "spec-coverage-gate-report.schema.json").exists()
+    assert (schema_dir / "spec-trace-contract.schema.json").exists()
+    assert (schema_dir / "spec-code-alignment-report.schema.json").exists()
     assert (schema_dir / "system-spec-registry.schema.json").exists()
     assert (schema_dir / "system-spec-registry-report.schema.json").exists()
     assert (schema_dir / "system-consistency-result.schema.json").exists()

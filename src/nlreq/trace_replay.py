@@ -6,9 +6,11 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from .coverage_alignment import SpecCoverageReport
 from .models import Counterexample, NormalizedTraceArtifact, RequirementIRV2, SemanticNode, TraceEvent
+from .system_spec import SpecTraceContract, SpecTraceExpectation
 
 
 TRACE_REPLAY_SCHEMA_VERSION = "0.1"
+SPEC_TRACE_REPLAY_SCHEMA_VERSION = "0.1"
 
 
 class TraceReplayObservation(BaseModel):
@@ -253,3 +255,175 @@ def _state_fragments(events: list[TraceEvent]) -> list[dict[str, Any]]:
         for event in events
         if event.post_state
     ]
+
+
+# --- PC-11: does the registered spec S reproduce the module's real traces? -----------------------
+# trace_replay above replays the REQUIREMENT against a trace (claim-vs-trace). The functions below
+# answer a different question — Specula's discipline — does the registered spec S reproduce the
+# CODE's real traces? S's declared trace-observable obligations (a SpecTraceContract) are replayed
+# against the real (e.g. Foundry-extracted) trace events; an obligation the trace actively
+# contradicts is a delta, an obligation the trace cannot witness is no-coverage. A spec that cannot
+# reproduce the code's traces is not a spec of the code.
+
+
+class SpecTraceObservation(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expectation_id: str
+    kind: str
+    target: str
+    outcome: Literal["satisfied", "violated", "no_coverage"]
+    expected: dict[str, Any] = Field(default_factory=dict)
+    actual: dict[str, Any] = Field(default_factory=dict)
+    matched_event_ids: list[str] = Field(default_factory=list)
+    reason: str
+
+
+class SpecTraceReplayReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1"] = SPEC_TRACE_REPLAY_SCHEMA_VERSION
+    spec_id: str
+    trace_ids: list[str] = Field(default_factory=list)
+    observations: list[SpecTraceObservation] = Field(default_factory=list)
+
+
+def replay_spec_against_traces(
+    *,
+    contract: SpecTraceContract,
+    traces: NormalizedTraceArtifact,
+) -> SpecTraceReplayReport:
+    """Replay a spec's declared trace-observable obligations against the code's real traces (PC-11).
+
+    Events are pooled across all traces in the artifact (each test execution is one trace); an
+    obligation is satisfied if any trace witnesses it, violated if the traces actively contradict it,
+    and no-coverage if the traces never exercise the relevant context. Returns one observation per
+    expectation so the three-way classification and the delta report (``trace_validation``) are
+    derived from a transparent, per-obligation record.
+    """
+    events: list[TraceEvent] = [event for trace in traces.root for event in trace.events]
+    observations = [_replay_expectation(expectation, events) for expectation in contract.expectations]
+    return SpecTraceReplayReport(
+        spec_id=contract.spec_id,
+        trace_ids=[trace.trace_id for trace in traces.root],
+        observations=observations,
+    )
+
+
+def _matches_target(action: str, target: str) -> bool:
+    """An event action matches a target either exactly or as a signature head.
+
+    So ``target='total'`` matches ``total()`` and ``target='Redeemed'`` matches ``Redeemed(uint256)``
+    while a fully-qualified ``target='total()'`` still matches ``total()`` exactly.
+    """
+    return action == target or action.startswith(target + "(")
+
+
+def _replay_expectation(
+    expectation: SpecTraceExpectation, events: list[TraceEvent]
+) -> SpecTraceObservation:
+    matched = [event for event in events if _matches_target(event.action, expectation.target)]
+    matched_ids = [event.event_id for event in matched]
+    if expectation.kind == "event_emitted":
+        if matched:
+            return _observation(expectation, "satisfied", matched_ids, reason="event was emitted in the real traces")
+        # A single observed trace not emitting the event does not prove the code never emits it, so
+        # absence is no-coverage (not a contradiction) — the trace did not witness the obligation.
+        return _observation(
+            expectation, "no_coverage", [], reason="event was not observed in the real traces"
+        )
+    if expectation.kind == "state_value_reached":
+        reads = [event for event in matched if event.metadata.get("decoded_output") is not None]
+        observed_values = [str(event.metadata.get("decoded_output")) for event in reads]
+        if not reads:
+            return _observation(
+                expectation,
+                "no_coverage",
+                [],
+                reason="state read was never observed in the real traces",
+                actual={"observed_values": observed_values},
+            )
+        if expectation.value in observed_values:
+            witness = [event.event_id for event in reads if str(event.metadata.get("decoded_output")) == expectation.value]
+            return _observation(
+                expectation,
+                "satisfied",
+                witness,
+                reason="state read reached the spec's claimed value",
+                expected={"value": expectation.value},
+                actual={"observed_values": observed_values},
+            )
+        return _observation(
+            expectation,
+            "violated",
+            [event.event_id for event in reads],
+            reason="state read never reached the spec's claimed value",
+            expected={"value": expectation.value},
+            actual={"observed_values": observed_values},
+        )
+    if expectation.kind == "action_reverts":
+        reverts = [event for event in matched if event.metadata.get("reverted") is True]
+        if not matched:
+            return _observation(
+                expectation, "no_coverage", [], reason="action was never observed in the real traces"
+            )
+        if not reverts:
+            return _observation(
+                expectation,
+                "violated",
+                matched_ids,
+                reason="action was observed but never reverted",
+                expected={"reverts": True},
+                actual={"reverted": False},
+            )
+        revert_reasons = [str(event.metadata.get("revert_reason")) for event in reverts]
+        if expectation.value is not None and expectation.value not in revert_reasons:
+            return _observation(
+                expectation,
+                "violated",
+                [event.event_id for event in reverts],
+                reason="action reverted with a different reason than the spec claims",
+                expected={"revert_reason": expectation.value},
+                actual={"revert_reasons": revert_reasons},
+            )
+        return _observation(
+            expectation,
+            "satisfied",
+            [event.event_id for event in reverts],
+            reason="action reverted as the spec claims",
+            actual={"revert_reasons": revert_reasons},
+        )
+    # action_never: a forbidden action; observing it contradicts the spec.
+    if matched:
+        return _observation(
+            expectation,
+            "violated",
+            matched_ids,
+            reason="forbidden action was observed in the real traces",
+            expected={"forbidden": expectation.target},
+            actual={"observed_event_ids": matched_ids},
+        )
+    return _observation(
+        expectation, "satisfied", [], reason="forbidden action was absent from the real traces"
+    )
+
+
+def _observation(
+    expectation: SpecTraceExpectation,
+    outcome: Literal["satisfied", "violated", "no_coverage"],
+    matched_event_ids: list[str],
+    *,
+    reason: str,
+    expected: dict[str, Any] | None = None,
+    actual: dict[str, Any] | None = None,
+) -> SpecTraceObservation:
+    return SpecTraceObservation(
+        expectation_id=expectation.expectation_id,
+        kind=expectation.kind,
+        target=expectation.target,
+        outcome=outcome,
+        expected=expected or {},
+        actual=actual or {},
+        matched_event_ids=matched_event_ids,
+        reason=reason,
+    )

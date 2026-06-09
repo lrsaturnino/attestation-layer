@@ -10,6 +10,7 @@ from .impact import ImpactAnalysisArtifact
 
 
 SYSTEM_SPEC_REGISTRY_VERSION = "0.1"
+SPEC_TRACE_CONTRACT_SCHEMA_VERSION = "0.1"
 
 
 class SystemSpecEntry(BaseModel):
@@ -168,3 +169,54 @@ def _status_for_entry(entry: SystemSpecEntry, *, project_root: Path) -> SystemSp
 
 def _sha256_file(path: Path) -> str:
     return "sha256:" + hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+class SpecTraceExpectation(BaseModel):
+    """One trace-observable obligation the spec S asserts about the code's behavior (PC-11).
+
+    Each kind is evaluable against a real normalized trace's events:
+
+    - ``event_emitted``: an event whose action matches ``target`` must appear (e.g. ``Redeemed``).
+    - ``state_value_reached``: a read call whose action matches ``target`` (e.g. ``total()``) must
+      observe the decoded value ``value`` at some point. If the read appears but never returns
+      ``value``, the spec is contradicted (a populated delta); if the read never appears, the trace
+      cannot witness the obligation (no-coverage).
+    - ``action_reverts``: a call whose action matches ``target`` must revert (optionally with revert
+      reason ``value``). If it appears but never reverts — or reverts with a different reason — the
+      spec is contradicted.
+    - ``action_never``: no event whose action matches ``target`` may appear; observing one
+      contradicts the spec (a forbidden-action delta).
+
+    ``target`` matches an event action either exactly or as a signature head (``total`` matches
+    ``total()``, ``Redeemed`` matches ``Redeemed(uint256)``).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    expectation_id: str
+    kind: Literal["event_emitted", "state_value_reached", "action_reverts", "action_never"]
+    target: str
+    value: str | None = None
+    description: str = ""
+
+
+class SpecTraceContract(BaseModel):
+    """The trace-observable projection of a registered spec S, for PC-11 code↔spec validation.
+
+    PROVENANCE (read this before trusting the evidence): the expectations are S's declared
+    trace-observable obligations, SPECIFIED here for PC-11 (``provenance="declared"`` — curated
+    alongside the reviewed spec). Auto-deriving the contract from S itself is Specula's job —
+    PC-5 (Solidity) / PC-8 (Go) — and is OUT OF SCOPE here. This module validates only that
+    whatever obligations the contract declares are REPRODUCED by the code's real traces: a spec
+    that cannot reproduce the code's traces is not a spec of the code. The validator therefore
+    tests the declared contract against real traces; it does not assert the contract was machine-
+    extracted from S. When PC-5/PC-8 land they set ``provenance="specula_extracted"``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1"] = SPEC_TRACE_CONTRACT_SCHEMA_VERSION
+    spec_id: str
+    module_ids: list[str] = Field(default_factory=list)
+    expectations: list[SpecTraceExpectation] = Field(default_factory=list)
+    provenance: Literal["declared", "specula_extracted"] = "declared"
