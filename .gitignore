@@ -14,3 +14,10 @@ target/
 dist/
 build/
 .DS_Store
+
+# Foundry build artifacts generated when the trace-extraction fixture runs
+tests/fixtures/foundry/out/
+tests/fixtures/foundry/cache/
+tests/fixtures/foundry/broadcast/
+# Slither may emit a compilation export when analyzing the Solidity fixture
+crytic-export/

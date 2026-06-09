@@ -4,8 +4,16 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import slither_client
-from .models import EvidenceLevel, NormalizedTraceArtifact, SourceSpan, SymbolRef
+from . import foundry_client, slither_client
+from .models import (
+    EvidenceLevel,
+    NormalizedTrace,
+    NormalizedTraceArtifact,
+    NormalizedTraceProducer,
+    SourceSpan,
+    SymbolRef,
+    TraceEvent,
+)
 from .source_adapter import (
     AdapterCapabilityClaim,
     AdapterCapabilityContract,
@@ -492,6 +500,96 @@ class SoliditySourceAdapter(RegexProductionSourceAdapter):
             language=self.language,
             modules=[module.module_id for module in manifest.modules],
             edges=edges,
+            metadata=metadata,
+        )
+
+    # --- Foundry-backed trace extraction (PC-4) -------------------------------------------------
+    # When the project root is a Foundry project, the adapter PRODUCES traces by running the test
+    # suite and projecting the real EVM call/log arena onto the NormalizedTrace contract — call
+    # paths, success/revert, emitted events, decoded params, and the values returned by view reads
+    # so a state change is observable at call granularity. The produced traces carry forge producer
+    # provenance, so they are real-tool evidence the certification gate accepts. Without a Foundry
+    # project (or with forge absent) it falls back to ingesting manifest-declared trace JSON, which
+    # carries no provenance and so never lifts the adapter above static_resolution.
+
+    def _foundry_result(self):
+        project_root = self.project_root.resolve(strict=False)
+        cache = self.__dict__.setdefault("_foundry_results", {})
+        key = str(project_root)
+        if key not in cache:
+            cache[key] = foundry_client.extract_foundry_traces(project_root)
+        return cache[key]
+
+    def extract_traces(self, manifest: SourceManifest) -> NormalizedTraceArtifact:
+        result = self._foundry_result()
+        if result.status != "extracted":
+            return super().extract_traces(manifest)
+        producer = NormalizedTraceProducer(
+            tool="forge", tool_version=result.forge_version or "forge"
+        )
+        source_hash = result.raw_output_hash or "sha256:unknown"
+        traces: list[NormalizedTrace] = []
+        for test_trace in result.test_traces:
+            events = [self._normalize_foundry_event(event) for event in test_trace.events]
+            traces.append(
+                NormalizedTrace(
+                    trace_id=f"{test_trace.suite}::{test_trace.test}",
+                    adapter_id=self.adapter_id,
+                    source_hash=source_hash,
+                    language=self.language,
+                    runtime=self.runtime,
+                    events=events,
+                    producer=producer,
+                    metadata={
+                        "producer": "foundry",
+                        "forge_version": result.forge_version or "",
+                        "test_status": test_trace.status,
+                        "suite": test_trace.suite,
+                        "test": test_trace.test,
+                    },
+                )
+            )
+        return NormalizedTraceArtifact.model_validate(traces)
+
+    @staticmethod
+    def _normalize_foundry_event(event) -> TraceEvent:
+        metadata: dict[str, object] = {
+            "kind": event.kind,
+            "depth": event.depth,
+            "evm_runtime": "foundry",
+        }
+        if event.success is not None:
+            metadata["success"] = event.success
+        if event.address:
+            metadata["address"] = event.address
+        if event.selector:
+            metadata["selector"] = event.selector
+        if event.topic0:
+            metadata["topic0"] = event.topic0
+        if event.topics:
+            metadata["topics"] = event.topics
+        if event.data:
+            metadata["data"] = event.data
+        if event.output:
+            metadata["output"] = event.output
+        if event.decoded_output is not None:
+            metadata["decoded_output"] = event.decoded_output
+        if event.params:
+            metadata["params"] = event.params
+        post_state: dict[str, object] | None = None
+        if event.kind == "call" and event.decoded_output is not None:
+            # A view read's decoded return makes the post-call state observable in the trace.
+            post_state = {"return": event.decoded_output}
+        elif event.kind == "log" and event.params:
+            post_state = {"event_params": event.params}
+        return TraceEvent(
+            event_id=f"{event.kind}-{event.ordinal}",
+            timestamp=event.ordinal,
+            actor=event.caller,
+            action=event.action,
+            post_state=post_state,
+            language="solidity",
+            runtime="evm",
             metadata=metadata,
         )
 

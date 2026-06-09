@@ -38,6 +38,22 @@ jobs:
           scripts/install_formal_backends.sh --apalache-only
           echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
 
+      # The Solidity vertical (PC-3/PC-4) drives the real Slither analyzer and the real Foundry
+      # toolchain. Install both so CI exercises genuine tool-backed symbol resolution, call graphs,
+      # and Foundry-extracted traces instead of the honest skips the tests fall back to when the
+      # tools are absent. Standalone Slither compiles via solc (Foundry brings its own), so a pinned
+      # solc must be on PATH for the Slither tests to run.
+      - name: Install Foundry (forge/cast)
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install Slither and solc
+        run: |
+          pipx install slither-analyzer
+          pipx install solc-select
+          solc-select install 0.8.17
+          solc-select use 0.8.17
+          echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
+
       - name: Check schema drift
         run: uv run python scripts/check_schema_drift.py
 
