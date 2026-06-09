@@ -143,6 +143,7 @@
             "unresolved_symbol",
             "ambiguous_symbol",
             "semantic_suggestion",
+            "semantic_omission",
             "trace_disagreement",
             "low_confidence"
           ],
@@ -431,8 +432,8 @@
       "type": "array"
     },
     "schema_version": {
-      "const": "0.2",
-      "default": "0.2",
+      "const": "0.3",
+      "default": "0.3",
       "title": "Schema Version",
       "type": "string"
     },

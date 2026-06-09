@@ -4819,7 +4819,19 @@ def _requirement_gate_execution_from_args(
     )
 
 
-def _semantic_suggestions_from_args(entries: list[str]) -> list[SemanticImpactSuggestion]:
+def _semantic_suggestions_from_args(
+    entries: list[str],
+) -> list[SemanticImpactSuggestion] | None:
+    """Parse ``--semantic-suggestion`` entries into suggestions, or ``None`` when none were supplied.
+
+    The CLI flag IS the (manual) semantic estimate, so absent entries (argparse default ``[]``) mean
+    no estimate was provided — return ``None``, NOT an empty list. The impact analysis treats an empty
+    estimate as "the estimate ran and named nothing", which correctly flags every deterministic
+    call-graph module as an omission; that is not what "the user passed no ``--semantic-suggestion``"
+    means, so the distinction is preserved here.
+    """
+    if not entries:
+        return None
     suggestions: list[SemanticImpactSuggestion] = []
     for entry in entries:
         parts = entry.split(":", 2)

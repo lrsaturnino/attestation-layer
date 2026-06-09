@@ -95,7 +95,7 @@ FROZEN_C_CONTRACTS: tuple[FrozenCContract, ...] = (
     ),
     FrozenCContract(
         contract_id="production-source-impact-report",
-        version="0.2",
+        version="0.3",
         model=ProductionSourceImpactReport,
         schema_file="production-source-impact-report.schema.json",
         description="Confidence-scored, gateable source-impact report over resolved symbols + traces.",

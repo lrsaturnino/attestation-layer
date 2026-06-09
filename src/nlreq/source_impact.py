@@ -10,7 +10,7 @@ from .source_adapter import SourceLanguageAdapter, SourceManifest, SourceSymbolR
 
 
 SOURCE_IMPACT_SCHEMA_VERSION = "0.1"
-PRODUCTION_SOURCE_IMPACT_SCHEMA_VERSION = "0.2"
+PRODUCTION_SOURCE_IMPACT_SCHEMA_VERSION = "0.3"
 
 
 class SemanticImpactSuggestion(BaseModel):
@@ -64,6 +64,7 @@ class SourceImpactFinding(BaseModel):
         "unresolved_symbol",
         "ambiguous_symbol",
         "semantic_suggestion",
+        "semantic_omission",
         "trace_disagreement",
         "low_confidence",
     ]
@@ -85,7 +86,7 @@ class ProductionImpactedModule(BaseModel):
 class ProductionSourceImpactReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    schema_version: Literal["0.2"] = PRODUCTION_SOURCE_IMPACT_SCHEMA_VERSION
+    schema_version: Literal["0.3"] = PRODUCTION_SOURCE_IMPACT_SCHEMA_VERSION
     adapter_id: str
     language: str
     input_symbols: list[str]
@@ -152,7 +153,12 @@ def analyze_source_impact_with_context(
     suggestions = semantic_suggestions or []
     suggested_modules = {suggestion.module_id for suggestion in suggestions}
     affected = deterministic | trace_modules
-    disagreements = _disagreements(deterministic, trace_modules, suggested_modules)
+    disagreements = _disagreements(
+        deterministic,
+        trace_modules,
+        suggested_modules,
+        semantic_estimate_provided=semantic_suggestions is not None,
+    )
     return SourceImpactAnalysisArtifact(
         adapter_id=adapter.adapter_id,
         language=adapter.language,
@@ -194,7 +200,12 @@ def analyze_production_source_impact(
     suggestions = semantic_suggestions or []
     suggested_modules = {suggestion.module_id for suggestion in suggestions}
     affected = deterministic | trace_modules
-    disagreements = _disagreements(deterministic, trace_modules, suggested_modules)
+    disagreements = _disagreements(
+        deterministic,
+        trace_modules,
+        suggested_modules,
+        semantic_estimate_provided=semantic_suggestions is not None,
+    )
     findings.extend(_disagreement_findings(disagreements, policy))
     modules = _production_modules(
         deterministic=deterministic,
@@ -264,6 +275,8 @@ def _disagreements(
     deterministic: set[str],
     trace_modules: set[str],
     suggested_modules: set[str],
+    *,
+    semantic_estimate_provided: bool,
 ) -> list[ImpactDisagreement]:
     disagreements: list[ImpactDisagreement] = []
     for module_id in sorted(suggested_modules - deterministic):
@@ -286,6 +299,23 @@ def _disagreements(
                 reason="runtime trace touched module outside deterministic impact",
             )
         )
+    # call_graph_only: the (untrusted) semantic estimate OMITTED a deterministic call-graph module.
+    # The call graph is authoritative, so the module stays in the gateable affected set; the omission
+    # is surfaced as a review disagreement (mirroring impact.cross_validate_impact's call_graph_only
+    # direction) so the estimate's disagreement is reconciled by a human, never silently dropped.
+    # Only emitted when an estimate was actually provided — an estimate-free analysis has nothing to
+    # disagree with, so every deterministic module would otherwise be spuriously flagged.
+    if semantic_estimate_provided:
+        for module_id in sorted(deterministic - suggested_modules):
+            disagreements.append(
+                ImpactDisagreement(
+                    module_id=module_id,
+                    deterministic=True,
+                    semantic_suggestion=False,
+                    trace_touched=module_id in trace_modules,
+                    reason="deterministic call-graph module omitted by the semantic estimate",
+                )
+            )
     return disagreements
 
 
@@ -324,6 +354,21 @@ def _disagreement_findings(
 ) -> list[SourceImpactFinding]:
     findings: list[SourceImpactFinding] = []
     for disagreement in disagreements:
+        # call_graph_only: a deterministic module the semantic estimate omitted. The authoritative
+        # set still includes it, so the review finding asks a human to reconcile the estimate's view
+        # rather than gate the module out — parity with the semantic_only/trace directions, which
+        # also flip closure to review. (Uniquely identified: only call_graph_only disagreements are
+        # deterministic with no semantic suggestion.)
+        if disagreement.deterministic and not disagreement.semantic_suggestion:
+            findings.append(
+                SourceImpactFinding(
+                    severity="review",
+                    category="semantic_omission",
+                    module_id=disagreement.module_id,
+                    message=disagreement.reason,
+                )
+            )
+            continue
         if disagreement.trace_touched and policy.trace_only_impact_requires_review:
             findings.append(
                 SourceImpactFinding(
