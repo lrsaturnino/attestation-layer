@@ -2506,6 +2506,102 @@ def test_z3_fixture_solver_result_cannot_discharge_formal_premises(tmp_path: Pat
     assert report.decision != "accepted"
 
 
+def _run_gate_with_registry(tmp_path: Path, registry: SystemSpecRegistry):
+    """Run the end-to-end gate over the redemption fixture against a caller-supplied registry.
+
+    Reuses the reviewed-S controlled text/IR but lets the test choose the registry, so a non-covering
+    registry exercises the PC-10 NEEDS_SPEC_COVERAGE path and a covering one exercises the normal flow.
+    """
+    manifest, _ = _project(tmp_path, reviewed_invariant=True)
+    controlled_text = (
+        "requirement authorization_precondition: scope redemption "
+        "when wallet is authorized then finalize_redemption must reject before rejected."
+    )
+    requirement_ir = DslV3Parser().parse_ir(
+        controlled_text, requirement_id="REQ-COVGATE-001", title="Coverage gate"
+    )
+    agreement = TranslationAgreementInput(
+        candidates=[
+            TranslationCandidate(translator_id="primary", method="deterministic",
+                                 requirement=requirement_ir, provenance={"source": "test"}),
+            TranslationCandidate(translator_id="replica", method="deterministic",
+                                 requirement=requirement_ir, provenance={"source": "test"}),
+        ]
+    )
+    return run_end_to_end_requirement_gate(
+        controlled_text=controlled_text,
+        requirement_id="REQ-COVGATE-001",
+        title="Coverage gate",
+        source_adapter=PythonSourceLanguageAdapter(project_root=tmp_path),
+        source_manifest=manifest,
+        symbols=["finalize_redemption"],
+        registry=registry,
+        project_root=tmp_path,
+        artifact_dir=tmp_path / "gate-artifacts",
+        execution=_execution(tmp_path),
+        requirement_ir=requirement_ir,
+        translation_agreement=agreement,
+    )
+
+
+def test_end_to_end_gate_blocks_unspecified_module_with_needs_spec_coverage(tmp_path: Path) -> None:
+    """PC-10: a requirement whose affected module has no registered spec blocks with
+    NEEDS_SPEC_COVERAGE, queues a Specula extraction, and runs NO S ∧ R."""
+    empty_registry = SystemSpecRegistry.model_validate({"schema_version": "0.1", "specs": []})
+
+    report = _run_gate_with_registry(tmp_path, empty_registry)
+
+    assert report.statuses["spec_coverage_gate"] == "needs_spec_coverage"
+    assert report.decision == "unknown"
+    assert report.downstream_action_allowed is False
+    assert [b.status for b in report.blockers] == ["needs_spec_coverage"]
+    assert "redemption" in report.blockers[0].message
+
+    # The queued extraction request is persisted in the recorded gate artifact.
+    gate_artifact = read_json(
+        Path(next(a.path for a in report.artifacts if a.name == "spec_coverage_gate"))
+    )
+    assert gate_artifact["result"] == "needs_spec_coverage"
+    assert gate_artifact["unspecified_modules"] == ["redemption"]
+    assert [r["module_id"] for r in gate_artifact["extraction_requests"]] == ["redemption"]
+    assert gate_artifact["extraction_requests"][0]["status"] == "queued"
+
+    # No S ∧ R ran against the unspec'd module: the gate returned before system-consistency.
+    assert "system_consistency" not in {a.name for a in report.artifacts}
+
+
+def test_end_to_end_gate_proceeds_past_coverage_gate_once_module_is_specified(tmp_path: Path) -> None:
+    """Once the affected module has a registered spec, the coverage gate is 'covered' and the gate
+    proceeds past it to run S ∧ R — NEEDS_SPEC_COVERAGE blocks only until coverage is provided.
+
+    The covering spec declares no invariant, so S ∧ R resolves as 'unsupported' (no real Apalache
+    run needed); the point is only that the flow continues past the coverage gate and records the
+    system-consistency stage, which the unspec'd early-return skips."""
+    covering_registry = SystemSpecRegistry.model_validate(
+        {
+            "schema_version": "0.1",
+            "specs": [
+                {
+                    "spec_id": "spec:redemption",
+                    "module_ids": ["redemption"],
+                    "formalism": "tla",
+                    "path": "specs/Redemption.tla",
+                    "version": "1",
+                    "review_status": "reviewed",
+                    "freshness": "fresh",
+                }
+            ],
+        }
+    )
+
+    report = _run_gate_with_registry(tmp_path, covering_registry)
+
+    assert report.statuses["spec_coverage_gate"] == "covered"
+    # The flow continued past the coverage gate: S ∧ R was reached and recorded.
+    assert "system_consistency" in {a.name for a in report.artifacts}
+    assert report.statuses["system_consistency"] == "unsupported"
+
+
 def _project(
     tmp_path: Path,
     *,

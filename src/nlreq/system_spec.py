@@ -108,6 +108,21 @@ def specs_for_impact(
     return [entry for entry in registry.specs if affected.intersection(entry.module_ids)]
 
 
+def unspecified_modules(registry: SystemSpecRegistry, module_ids: list[str]) -> list[str]:
+    """Modules with no system spec entry covering them — genuinely unspec'd (PC-10).
+
+    A module is unspecified when NO registry entry lists it in ``module_ids``: there is no S to
+    conjoin, reproduce traces against, or run S ∧ R over. This is deliberately distinct from a
+    module whose spec is draft/rejected/stale or whose spec file is missing — those are
+    UNREVIEWED/STALE/MISSING coverage failures the coverage report already surfaces. PC-10 returns
+    NEEDS_SPEC_COVERAGE and queues a Specula extraction only for modules that have no spec at all,
+    so the gate never confuses "no spec exists" with "a spec exists but is not yet usable". Returns
+    the unspecified modules sorted.
+    """
+    covered = {module_id for entry in registry.specs for module_id in entry.module_ids}
+    return sorted(set(module_ids) - covered)
+
+
 def _status_for_entry(entry: SystemSpecEntry, *, project_root: Path) -> SystemSpecStatus:
     path = (project_root / entry.path).resolve(strict=False)
     if not path.is_file():

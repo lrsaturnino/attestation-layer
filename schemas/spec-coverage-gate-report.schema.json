@@ -1,0 +1,93 @@
+{
+  "$defs": {
+    "SpeculaExtractionRequest": {
+      "additionalProperties": false,
+      "description": "A queued (placeholder) request to extract a candidate spec S for an unspec'd module (PC-10).\n\nQueuing only RECORDS the need for coverage; the actual Specula extraction is PC-5 (Solidity) /\nPC-8 (Go) and is out of scope here. ``status`` stays ``queued`` until that extraction runs,\nis trace-validated, reviewed, and promoted into the ``SystemSpecRegistry``.",
+      "properties": {
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "requested_formalism": {
+          "default": "tla",
+          "enum": [
+            "tla",
+            "smt"
+          ],
+          "title": "Requested Formalism",
+          "type": "string"
+        },
+        "status": {
+          "const": "queued",
+          "default": "queued",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "module_id",
+        "reason"
+      ],
+      "title": "SpeculaExtractionRequest",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Per-module spec-coverage gate over the affected set (PC-10).\n\n``needs_spec_coverage`` iff at least one affected module has NO registered system spec S. Such a\nrequirement cannot be verified \u2014 there is no S to conjoin or run S \u2227 R over \u2014 so the gate blocks\nwith ``NEEDS_SPEC_COVERAGE`` and queues a (placeholder) Specula extraction per unspec'd module,\nand no S \u2227 R runs. This is narrower than ``SpecCoverageReport`` (which also blocks on\nstale/unreviewed/missing-file specs); it isolates the genuinely-unspecified case so the gate can\ndistinguish \"no spec exists yet\" from \"a spec exists but is not yet usable\".",
+  "properties": {
+    "affected_modules": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Affected Modules",
+      "type": "array"
+    },
+    "covered_modules": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Covered Modules",
+      "type": "array"
+    },
+    "extraction_requests": {
+      "items": {
+        "$ref": "#/$defs/SpeculaExtractionRequest"
+      },
+      "title": "Extraction Requests",
+      "type": "array"
+    },
+    "result": {
+      "enum": [
+        "covered",
+        "needs_spec_coverage"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "unspecified_modules": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Unspecified Modules",
+      "type": "array"
+    }
+  },
+  "required": [
+    "result",
+    "affected_modules",
+    "covered_modules",
+    "unspecified_modules"
+  ],
+  "title": "SpecCoverageGateReport",
+  "type": "object"
+}

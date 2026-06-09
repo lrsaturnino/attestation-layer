@@ -5,7 +5,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .coverage_alignment import build_spec_coverage_report, build_trace_alignment_report
+from .coverage_alignment import (
+    build_spec_coverage_gate,
+    build_spec_coverage_report,
+    build_trace_alignment_report,
+)
 from .cvc5_backend import cvc5_check_formal_claim_premises
 from .delta_extractor import build_delta_report
 from .dsl_v2 import DslV2Parser
@@ -492,6 +496,46 @@ def run_end_to_end_requirement_gate(
     impact = analyze_source_impact(source_adapter, source_manifest, symbols=symbols)
     record("source_impact", "source-impact.json", impact)
 
+    # PC-10: gate the affected set on per-module spec coverage BEFORE any S ∧ R runs. A requirement
+    # touching an unspec'd module (no registered S) cannot be verified — there is no S to conjoin —
+    # so it blocks with NEEDS_SPEC_COVERAGE and queues a (placeholder) Specula extraction per
+    # unspec'd module, and S ∧ R is never run against it. This mirrors the disagreed-translation
+    # hard stop above: downstream stages (coverage, traces, S ∧ R, proof, closure) must not run
+    # against a requirement whose impacted code is unspecified. A module with a draft/stale/missing
+    # spec is NOT caught here — that is a separate coverage failure handled downstream.
+    spec_coverage_gate = build_spec_coverage_gate(impact=impact, registry=registry)
+    record("spec_coverage_gate", "spec-coverage-gate.json", spec_coverage_gate)
+    if spec_coverage_gate.result == "needs_spec_coverage":
+        return EndToEndRequirementGateReport(
+            requirement_id=requirement_id,
+            # NEEDS_SPEC_COVERAGE is inconclusive, not a refusal of the requirement itself: we
+            # cannot determine consistency until a trace-validated S exists. Map it to "unknown"
+            # (downstream_action stays disallowed) and carry the distinct signal in statuses +
+            # the blocker + the queued-extraction artifact.
+            decision="unknown",
+            downstream_action=downstream_action,
+            downstream_action_allowed=False,
+            proof_status="blocked",
+            closure_result="blocked",
+            artifacts=artifacts,
+            statuses={
+                "translation_agreement": translation.status,
+                "requirement_self_consistency": self_consistency.status,
+                "spec_coverage_gate": spec_coverage_gate.result,
+            },
+            blockers=[
+                EndToEndGateBlocker(
+                    stage="spec_coverage_gate",
+                    status="needs_spec_coverage",
+                    message=(
+                        "requirement touches unspec'd modules "
+                        f"{spec_coverage_gate.unspecified_modules}; queued Specula extraction "
+                        "for each — no S ∧ R runs until a trace-validated S is reviewed and promoted"
+                    ),
+                )
+            ],
+        )
+
     impact_context = analyze_source_impact_with_context(
         source_adapter,
         source_manifest,
@@ -662,6 +706,7 @@ def run_end_to_end_requirement_gate(
         "requirement_self_consistency": self_consistency.status,
         "source_impact": "completed",
         "source_impact_context": "completed",
+        "spec_coverage_gate": spec_coverage_gate.result,
         "spec_coverage": coverage.result,
         "trace_alignment": trace_alignment.result,
         "trace_replay": trace_replay.result,

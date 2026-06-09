@@ -8,11 +8,16 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 from .impact import ImpactAnalysisArtifact
 from .models import NormalizedTraceArtifact, RequirementIRV2, SemanticNode
 from .spec_drift import CodeSpecManifest
-from .system_spec import SystemSpecRegistry, build_system_spec_registry_report
+from .system_spec import (
+    SystemSpecRegistry,
+    build_system_spec_registry_report,
+    unspecified_modules,
+)
 
 
 COVERAGE_ALIGNMENT_SCHEMA_VERSION = "0.1"
 CODE_SPEC_COVERAGE_V2_SCHEMA_VERSION = "0.2"
+SPEC_COVERAGE_GATE_SCHEMA_VERSION = "0.1"
 
 
 class ModuleCoverageStatus(BaseModel):
@@ -121,6 +126,78 @@ class CodeSpecCoverageGateReportV2(BaseModel):
     total_modules: int
     coverage_ratio: float
     modules: list[CoverageGateModuleStatusV2] = Field(default_factory=list)
+
+
+class SpeculaExtractionRequest(BaseModel):
+    """A queued (placeholder) request to extract a candidate spec S for an unspec'd module (PC-10).
+
+    Queuing only RECORDS the need for coverage; the actual Specula extraction is PC-5 (Solidity) /
+    PC-8 (Go) and is out of scope here. ``status`` stays ``queued`` until that extraction runs,
+    is trace-validated, reviewed, and promoted into the ``SystemSpecRegistry``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    module_id: str
+    status: Literal["queued"] = "queued"
+    requested_formalism: Literal["tla", "smt"] = "tla"
+    reason: str
+
+
+class SpecCoverageGateReport(BaseModel):
+    """Per-module spec-coverage gate over the affected set (PC-10).
+
+    ``needs_spec_coverage`` iff at least one affected module has NO registered system spec S. Such a
+    requirement cannot be verified — there is no S to conjoin or run S ∧ R over — so the gate blocks
+    with ``NEEDS_SPEC_COVERAGE`` and queues a (placeholder) Specula extraction per unspec'd module,
+    and no S ∧ R runs. This is narrower than ``SpecCoverageReport`` (which also blocks on
+    stale/unreviewed/missing-file specs); it isolates the genuinely-unspecified case so the gate can
+    distinguish "no spec exists yet" from "a spec exists but is not yet usable".
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1"] = SPEC_COVERAGE_GATE_SCHEMA_VERSION
+    result: Literal["covered", "needs_spec_coverage"]
+    affected_modules: list[str]
+    covered_modules: list[str]
+    unspecified_modules: list[str]
+    extraction_requests: list[SpeculaExtractionRequest] = Field(default_factory=list)
+
+
+def build_spec_coverage_gate(
+    *,
+    impact: ImpactAnalysisArtifact,
+    registry: SystemSpecRegistry,
+) -> SpecCoverageGateReport:
+    """Gate the affected set on per-module spec coverage, queuing extraction for unspec'd modules.
+
+    A module is "unspec'd" when no registry entry lists it (see
+    :func:`system_spec.unspecified_modules`) — distinct from a stale/unreviewed spec. Each unspec'd
+    module gets one queued :class:`SpeculaExtractionRequest`; the gate result is
+    ``needs_spec_coverage`` when any exists, else ``covered``.
+    """
+    affected = list(getattr(impact, "affected_modules"))
+    unspecified = unspecified_modules(registry, affected)
+    unspecified_set = set(unspecified)
+    covered = [module_id for module_id in affected if module_id not in unspecified_set]
+    extraction_requests = [
+        SpeculaExtractionRequest(
+            module_id=module_id,
+            reason=(
+                "affected module has no registered system spec S; queued for Specula extraction "
+                "(PC-5 Solidity / PC-8 Go) — review and promote before S ∧ R can run"
+            ),
+        )
+        for module_id in unspecified
+    ]
+    return SpecCoverageGateReport(
+        result="needs_spec_coverage" if unspecified else "covered",
+        affected_modules=sorted(affected),
+        covered_modules=sorted(covered),
+        unspecified_modules=unspecified,
+        extraction_requests=extraction_requests,
+    )
 
 
 def build_spec_coverage_report(

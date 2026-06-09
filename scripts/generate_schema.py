@@ -110,6 +110,7 @@ from nlreq.formal_claim import (
 from nlreq.coverage_alignment import (
     CodeSpecCoverageGateReportV2,
     CodeSpecCoverageManifestV2,
+    SpecCoverageGateReport,
     SpecCoverageReport,
     TraceAlignmentReport,
 )
@@ -252,6 +253,7 @@ SCHEMAS = {
     "cross-language-proof-object.schema.json": CrossLanguageProofObject,
     "cross-language-proof-object-v2.schema.json": CrossLanguageProofObjectV2,
     "spec-coverage-report.schema.json": SpecCoverageReport,
+    "spec-coverage-gate-report.schema.json": SpecCoverageGateReport,
     "code-spec-coverage-manifest-v2.schema.json": CodeSpecCoverageManifestV2,
     "code-spec-coverage-gate-report-v2.schema.json": CodeSpecCoverageGateReportV2,
     "trace-alignment-report.schema.json": TraceAlignmentReport,

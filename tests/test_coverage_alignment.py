@@ -2,11 +2,15 @@ import json
 from pathlib import Path
 
 from nlreq.cli import main
-from nlreq.coverage_alignment import build_spec_coverage_report, build_trace_alignment_report
+from nlreq.coverage_alignment import (
+    build_spec_coverage_gate,
+    build_spec_coverage_report,
+    build_trace_alignment_report,
+)
 from nlreq.dsl_v2 import DslV2Parser
 from nlreq.impact import ImpactAnalysisArtifact
 from nlreq.models import NormalizedTraceArtifact
-from nlreq.system_spec import SystemSpecRegistry
+from nlreq.system_spec import SystemSpecRegistry, unspecified_modules
 
 
 DSL = (
@@ -39,6 +43,41 @@ def test_spec_coverage_blocks_missing_and_stale_modules(tmp_path: Path) -> None:
 
     assert report.result == "blocked"
     assert [module.status for module in report.modules] == ["stale", "missing"]
+
+
+def test_spec_coverage_gate_blocks_unspecified_module_and_queues_extraction(tmp_path: Path) -> None:
+    """PC-10: an affected module with no registered spec returns NEEDS_SPEC_COVERAGE and queues a
+    placeholder Specula extraction for exactly that module."""
+    registry = _registry(tmp_path)  # covers "redemption" only
+    gate = build_spec_coverage_gate(
+        impact=_impact(["redemption", "wallet"]),
+        registry=registry,
+    )
+
+    assert gate.result == "needs_spec_coverage"
+    assert gate.unspecified_modules == ["wallet"]
+    assert gate.covered_modules == ["redemption"]
+    assert [request.module_id for request in gate.extraction_requests] == ["wallet"]
+    assert gate.extraction_requests[0].status == "queued"
+
+
+def test_spec_coverage_gate_is_covered_when_every_module_has_a_spec(tmp_path: Path) -> None:
+    gate = build_spec_coverage_gate(
+        impact=_impact(["redemption"]),
+        registry=_registry(tmp_path),
+    )
+
+    assert gate.result == "covered"
+    assert gate.unspecified_modules == []
+    assert gate.extraction_requests == []
+
+
+def test_unspecified_modules_ignores_draft_or_stale_specs(tmp_path: Path) -> None:
+    """A module with ANY registry entry (even draft/stale) is not 'unspec'd' — that is a separate
+    coverage failure. NEEDS_SPEC_COVERAGE is reserved for modules with no spec at all."""
+    registry = _registry(tmp_path, freshness="stale")  # a stale but present spec for "redemption"
+    assert unspecified_modules(registry, ["redemption"]) == []
+    assert unspecified_modules(registry, ["redemption", "wallet"]) == ["wallet"]
 
 
 def test_trace_alignment_classifies_aligned_violating_uncovered_and_unsupported(
