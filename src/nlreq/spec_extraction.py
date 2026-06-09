@@ -52,6 +52,11 @@ class CandidateSpec(BaseModel):
     content: str
     content_hash: str
     trace_grounding_status: Literal["passed", "blocked", "missing"]
+    # The spec's declared safety-invariant operator names, normalized to match the operators defined
+    # in `content`. Carried onto the draft/promoted SystemSpecEntry so the S ∧ R composition has a
+    # system invariant to conjoin — a promoted entry with an empty list is refused by the gate's
+    # "no declared invariant" guard, so dropping these names here would make a promoted spec unusable.
+    invariant_names: list[str] = Field(default_factory=list)
     gaps: list[str] = Field(default_factory=list)
     provenance: CandidateSpecProvenance
 
@@ -240,6 +245,7 @@ def candidate_to_draft_spec_entry(candidate: CandidateSpec) -> SystemSpecEntry:
         review_status="draft",
         freshness="unknown",
         recorded_hash=candidate.content_hash,
+        invariants=list(candidate.invariant_names),
         metadata={"source": "spec_extraction_workbench"},
     )
 
@@ -261,6 +267,7 @@ def promote_candidate_spec(
         review_status="reviewed",
         freshness="fresh",
         recorded_hash=approved_hash,
+        invariants=list(candidate.invariant_names),
         metadata={"source": "spec_extraction_workbench", "candidate_id": candidate.candidate_id},
     )
 
@@ -494,6 +501,10 @@ def extract_go_candidate_spec(
         language="go",
     )
     extracted = parse_spec_extraction(raw)
+    # The operator names the candidate TLA actually defines — normalized identically to the operators
+    # _go_candidate_tla_content emits — so a promoted entry's declared invariants resolve to real
+    # definitions in the spec text and the S ∧ R composition has a system invariant to conjoin.
+    invariant_names = [_safe_tla_name(invariant.name) for invariant in extracted.invariants]
     content = _go_candidate_tla_content(module_id, requirement, extracted)
     contract = SpecTraceContract(
         spec_id=f"candidate:{requirement.requirement_id}:{module_id}",
@@ -510,7 +521,18 @@ def extract_go_candidate_spec(
         provenance="specula_extracted",
     )
     replay = replay_spec_against_traces(contract=contract, traces=traces)
-    rejection_reasons = _spec_trace_rejection_reasons(replay)
+    # Promotability has two independent requirements: the code's real traces must reproduce the
+    # declared obligations (trace_reasons), AND the candidate must declare at least one invariant. A
+    # candidate that reproduces its traces but asserts no invariant would promote to a reviewed S the
+    # S ∧ R gate refuses (no system invariant to preserve), so it is rejected here as a dead spec
+    # rather than promoted. The trace_grounding gaps stay keyed on trace_reasons alone so a missing
+    # invariant never mislabels grounding the traces actually passed as "not reproduced".
+    trace_reasons = _spec_trace_rejection_reasons(replay)
+    rejection_reasons = list(trace_reasons)
+    if not invariant_names:
+        rejection_reasons.append(
+            "candidate declares no invariant; a spec with no safety property cannot be promoted"
+        )
     promotable = not rejection_reasons
     trace_status: Literal["passed", "blocked", "missing"] = "passed" if promotable else "blocked"
     candidate = CandidateSpec(
@@ -520,7 +542,8 @@ def extract_go_candidate_spec(
         content=content,
         content_hash=sha256_text(content),
         trace_grounding_status=trace_status,
-        gaps=_go_candidate_gaps(extracted, promotable),
+        invariant_names=invariant_names,
+        gaps=_go_candidate_gaps(extracted, trace_reasons=trace_reasons),
         provenance=CandidateSpecProvenance(
             requirement_id=requirement.requirement_id,
             impact_hash=sha256_json(impact),
@@ -580,11 +603,18 @@ def _go_candidate_tla_content(
     return "\n".join(lines) + "\n"
 
 
-def _go_candidate_gaps(extracted: ExtractedSpec, promotable: bool) -> list[str]:
+def _go_candidate_gaps(extracted: ExtractedSpec, *, trace_reasons: list[str]) -> list[str]:
+    """Human-readable gaps, faithful to why (if at all) the candidate is not promotable.
+
+    ``trace_reasons`` are the trace-grounding rejections only (an unreproduced obligation, or an
+    absence-only contract with no positively-witnessed event). The "not reproduced" gap is emitted
+    only when one of those is present, so a candidate whose traces DID reproduce but which simply
+    declares no invariant reports the missing invariant — never a false "not reproduced".
+    """
     gaps = ["candidate spec is draft and cannot satisfy coverage until reviewed"]
     if not extracted.invariants:
         gaps.append("no invariants were extracted from the source")
-    if not promotable:
+    if trace_reasons:
         gaps.append("trace obligations are not reproduced by the code's real traces")
     return gaps
 

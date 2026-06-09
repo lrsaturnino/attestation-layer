@@ -237,6 +237,76 @@ def test_candidate_with_no_trace_obligation_is_not_promotable() -> None:
     assert report.rejection_reasons
 
 
+def test_promoted_go_candidate_carries_extracted_invariant_names() -> None:
+    """PC-8 draft→reviewed promotion must yield a USABLE reviewed S: the extracted invariant operator
+    names are carried onto both the draft and the promoted SystemSpecEntry, so the promoted spec is
+    not refused by the S ∧ R "no declared invariant" guard (end_to_end_gate.py `if spec.invariants`)."""
+    report = extract_go_candidate_spec(
+        requirement=_requirement(),
+        module_id="coordinator",
+        impact=_impact(),
+        code_presentation=_presentation(),
+        traces=_go_traces(),
+        llm=RecordedLlmClient("", spec_fixture=_REAL_EXTRACTION),
+    )
+
+    # The candidate records the operator names its TLA actually defines.
+    assert report.candidate.invariant_names == ["ValidateBeforeRecord", "TotalNonNegative"]
+
+    # The draft entry carries them so registry consumers see the declared invariants.
+    draft = candidate_to_draft_spec_entry(report.candidate)
+    assert draft.invariants == ["ValidateBeforeRecord", "TotalNonNegative"]
+
+    # The promoted reviewed entry carries them and is therefore checkable by the S ∧ R gate.
+    promotion = promote_candidate_spec_with_review(
+        report.candidate,
+        approved_hash=report.candidate.content_hash,
+        version="1",
+        reviewer_id="reviewer",
+        reviewed_at="2026-06-09T00:00:00Z",
+    )
+    assert promotion.promoted_spec is not None
+    assert promotion.promoted_spec.invariants == ["ValidateBeforeRecord", "TotalNonNegative"]
+    # Mirrors the gate guard at end_to_end_gate.py:590 — a reviewed spec WITH a declared invariant is
+    # checkable, not refused with refusal_kind "no_system_invariant".
+    assert [spec for spec in [promotion.promoted_spec] if spec.invariants]
+
+
+def test_go_candidate_without_invariant_is_not_promotable() -> None:
+    """A candidate whose trace obligations the code reproduces but which declares NO invariant would
+    promote to a reviewed S with an empty invariant list — which the S ∧ R gate refuses. So it is
+    rejected at extraction: the block is the absent safety property, NOT trace grounding."""
+    extraction = json.dumps(
+        {
+            "module": "coordinator",
+            "invariants": [],
+            "trace_expectations": [
+                {"expectation_id": "exp-validate", "kind": "event_emitted", "target": "validate"}
+            ],
+        }
+    )
+    report = extract_go_candidate_spec(
+        requirement=_requirement(),
+        module_id="coordinator",
+        impact=_impact(),
+        code_presentation=_presentation(),
+        traces=_go_traces(),
+        llm=RecordedLlmClient("", spec_fixture=extraction),
+    )
+
+    assert report.promotable is False
+    assert report.candidate.invariant_names == []
+    # The trace obligation IS positively reproduced — so the rejection is the missing invariant.
+    assert [observation.outcome for observation in report.spec_trace_replay.observations] == [
+        "satisfied"
+    ]
+    assert report.spec_trace_replay.observations[0].matched_event_ids
+    assert any("no invariant" in reason for reason in report.rejection_reasons)
+    # The faithful gap names the missing invariant, never a false "not reproduced".
+    assert any("no invariants were extracted" in gap for gap in report.candidate.gaps)
+    assert not any("not reproduced" in gap for gap in report.candidate.gaps)
+
+
 def _empty_registry() -> SystemSpecRegistry:
     return SystemSpecRegistry.model_validate({"schema_version": "0.1", "specs": []})
 

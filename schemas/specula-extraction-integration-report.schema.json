@@ -41,6 +41,13 @@
           "title": "Gaps",
           "type": "array"
         },
+        "invariant_names": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Invariant Names",
+          "type": "array"
+        },
         "module_id": {
           "title": "Module Id",
           "type": "string"
