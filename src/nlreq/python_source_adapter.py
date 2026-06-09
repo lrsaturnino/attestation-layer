@@ -1,10 +1,14 @@
 from __future__ import annotations
 
 import ast
+import platform
 from pathlib import Path
 
-from .models import NormalizedTraceArtifact, SourceSpan, SymbolRef
+from .models import EvidenceLevel, NormalizedTraceArtifact, SourceSpan, SymbolRef
 from .source_adapter import (
+    AdapterCapabilityClaim,
+    AdapterCapabilityContract,
+    AdapterLimitation,
     CodePresentation,
     SourceBinding,
     SourceBindingValidation,
@@ -17,10 +21,57 @@ from .source_adapter import (
 )
 
 
+# The CPython version whose built-in ``ast`` performed the parse — recorded as the analysis producer
+# on every symbol and call graph (PC-14). This is what makes the Python adapter HONESTLY tool-backed
+# rather than regex: a real parser ran, and its version is captured. ``ast`` is a static analyzer with
+# no runtime trace producer, so this never lifts the adapter above static_resolution — the capability
+# contract and the certification gate both keep it there.
+_PYTHON_AST_VERSION = platform.python_version()
+
+
 class PythonSourceLanguageAdapter(SourceLanguageAdapter):
     adapter_id = "python-source"
     language = "python"
     runtime = "cpython"
+    ecosystem = "dynamic_scripting"
+    # ast is a REAL static analyzer (not regex), but it produces no runtime traces, so the only level
+    # it can honestly evidence is static_resolution. trace_capable/production_candidate are reserved
+    # for adapters that PRODUCE provenanced traces (Solidity/Foundry, Go/runtime-trace); the
+    # certification suite blocks any contract that claims a trace level it cannot evidence.
+    capability_level = "static_resolution"
+    supported_symbol_types = ("function", "async_function", "class")
+    limitations = (
+        AdapterLimitation(
+            limitation_id="python-ast-nested-scope",
+            category="analysis_depth",
+            description=(
+                "Definitions are indexed by name across the module's AST; a name defined more than "
+                "once (a method shared by two classes, or a redefinition) is resolved by name without "
+                "full scope qualification."
+            ),
+            closure_effect="review",
+        ),
+        AdapterLimitation(
+            limitation_id="python-ast-dynamic-dispatch",
+            category="dynamic_behavior",
+            description=(
+                "Dynamic dispatch (getattr, monkeypatching, decorators that rebind, runtime-built "
+                "call targets) is not resolved by the static ast pass and needs explicit external "
+                "evidence."
+            ),
+            closure_effect="review",
+        ),
+        AdapterLimitation(
+            limitation_id="python-external-trace-producer",
+            category="runtime_trace",
+            description=(
+                "Runtime traces must be supplied by a normalized cpython/OpenTelemetry producer; the "
+                "ast adapter records no trace provenance of its own, so it cannot evidence "
+                "TRACE_VALIDATED — it stays static_resolution."
+            ),
+            closure_effect="block",
+        ),
+    )
 
     def __init__(self, *, project_root: Path | None = None) -> None:
         self.project_root = Path(project_root) if project_root else Path.cwd()
@@ -40,6 +91,10 @@ class PythonSourceLanguageAdapter(SourceLanguageAdapter):
                             path=module.path,
                             symbol_type=_symbol_type(node),
                             source_span=_span_for_node(path, node),
+                            metadata={
+                                "analysis": "ast",
+                                "python_version": _PYTHON_AST_VERSION,
+                            },
                         )
                     )
         if len(matches) == 1:
@@ -76,6 +131,7 @@ class PythonSourceLanguageAdapter(SourceLanguageAdapter):
             language=self.language,
             modules=[module.module_id for module in manifest.modules],
             edges=edges,
+            metadata={"analysis": "ast", "python_version": _PYTHON_AST_VERSION},
         )
 
     def validate_binding(self, binding: SourceBinding) -> SourceBindingValidation:
@@ -106,6 +162,7 @@ class PythonSourceLanguageAdapter(SourceLanguageAdapter):
             adapter_id=self.adapter_id,
             language=self.language,
             snippets=snippets,
+            metadata={"analysis": "ast"},
         )
 
     def extract_traces(self, manifest: SourceManifest) -> NormalizedTraceArtifact:
@@ -129,6 +186,107 @@ class PythonSourceLanguageAdapter(SourceLanguageAdapter):
 
     def parse_manifest(self, path: Path) -> SourceManifest:
         return SourceManifest.model_validate_json(path.read_text())
+
+    def capability_contract(self) -> AdapterCapabilityContract:
+        """The honest v2 capability contract for the ast-backed Python adapter (PC-14).
+
+        Symbol resolution, the call graph, and code presentation are backed by CPython's built-in
+        ``ast`` — a real parser, recorded as the ``analysis: "ast"`` producer with its version on every
+        symbol and call graph — so they evidence STATICALLY_RESOLVED rather than the regex floor.
+        ``ast`` runs no program, so the trace capabilities declare static_resolution with no trace
+        evidence; the certification gate therefore certifies this adapter at static_resolution, never
+        trace_capable. Mirrors the RegexProductionSourceAdapter contract shape so the conformance and
+        certification suites read it identically.
+        """
+        limitation_ids = [limitation.limitation_id for limitation in self.limitations]
+        runtime_limitation_ids = [
+            limitation.limitation_id
+            for limitation in self.limitations
+            if limitation.category == "runtime_trace"
+        ]
+        return AdapterCapabilityContract(
+            adapter_id=self.adapter_id,
+            language=self.language,
+            runtime=self.runtime,
+            ecosystem=self.ecosystem,
+            capability_level=self.capability_level,
+            capabilities=[
+                AdapterCapabilityClaim(
+                    capability_id="manifest",
+                    level="manifest_only",
+                    notes="Consumes the common source manifest contract.",
+                ),
+                AdapterCapabilityClaim(
+                    capability_id="binding_validation",
+                    level="static_resolution",
+                    evidence_labels=[EvidenceLevel.STATICALLY_RESOLVED],
+                    notes="Validates adapter identity and source path reachability.",
+                ),
+                AdapterCapabilityClaim(
+                    capability_id="static_symbol_resolution",
+                    level="static_resolution",
+                    evidence_labels=[EvidenceLevel.STATICALLY_RESOLVED],
+                    limitation_ids=limitation_ids,
+                    notes="Resolves functions and classes from the module's real ast, not a regex scan.",
+                ),
+                AdapterCapabilityClaim(
+                    capability_id="call_graph",
+                    level="static_resolution",
+                    evidence_labels=[EvidenceLevel.STATICALLY_RESOLVED],
+                    limitation_ids=limitation_ids,
+                    notes="Builds caller->callee edges from ast Call nodes, not a regex scan.",
+                ),
+                AdapterCapabilityClaim(
+                    capability_id="code_presentation",
+                    level="static_resolution",
+                    evidence_labels=[EvidenceLevel.REVIEWED],
+                    notes="Presents ast-located source spans for human and model review.",
+                ),
+                AdapterCapabilityClaim(
+                    capability_id="source_impact",
+                    level="static_resolution",
+                    evidence_labels=[EvidenceLevel.STATICALLY_RESOLVED],
+                    notes="Provides ast symbols and the call graph as source-impact inputs.",
+                ),
+                AdapterCapabilityClaim(
+                    capability_id="coverage_mapping",
+                    level="static_resolution",
+                    evidence_labels=[EvidenceLevel.REVIEWED],
+                    notes="Maps source modules to reviewed specs through manifest module ids and spec refs.",
+                ),
+                AdapterCapabilityClaim(
+                    capability_id="normalized_trace",
+                    level="static_resolution",
+                    evidence_labels=[],
+                    requires_external_tool=True,
+                    limitation_ids=runtime_limitation_ids,
+                    notes=(
+                        "Ingests externally-produced normalized trace artifacts declared by the "
+                        "source manifest. It records no trace provenance of its own, so it cannot "
+                        "evidence TRACE_VALIDATED — a real cpython trace producer would be required."
+                    ),
+                ),
+                AdapterCapabilityClaim(
+                    capability_id="runtime_trace_extraction",
+                    level="static_resolution",
+                    evidence_labels=[],
+                    requires_external_tool=True,
+                    limitation_ids=runtime_limitation_ids,
+                    notes=(
+                        "ast does not run the program, so the adapter extracts no traces of its own "
+                        "and claims no trace evidence. Promoting this to trace_capable would require "
+                        "recorded real-tool provenance (a captured runtime trace + producer version)."
+                    ),
+                ),
+            ],
+            limitations=list(self.limitations),
+            supported_evidence=[
+                EvidenceLevel.STATICALLY_RESOLVED,
+                EvidenceLevel.REVIEWED,
+            ],
+            supported_symbol_types=list(self.supported_symbol_types),
+            supported_trace_runtimes=[self.runtime] if self.runtime else [],
+        )
 
     def _path(self, path_text: str) -> Path:
         path = (self.project_root / path_text).resolve(strict=False)
