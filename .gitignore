@@ -23,5 +23,9 @@ tests/fixtures/foundry/broadcast/
 tests/fixtures/cross_language/solidity/out/
 tests/fixtures/cross_language/solidity/cache/
 tests/fixtures/cross_language/solidity/broadcast/
+# Foundry build artifacts for the PC-12 spec-freshness demo's covered module
+requirements/spec-freshness/foundry/out/
+requirements/spec-freshness/foundry/cache/
+requirements/spec-freshness/foundry/broadcast/
 # Slither may emit a compilation export when analyzing the Solidity fixture
 crytic-export/

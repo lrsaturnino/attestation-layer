@@ -92,15 +92,20 @@ jobs:
       - name: Check schema drift
         run: uv run python scripts/check_schema_drift.py
 
-      # PC-12: the commit-triggered spec-freshness gate (Cargo.lock-style staleness). It recomputes
-      # the covered module's source + reviewed-spec hashes and FAILS when they drift from the committed
-      # lockfile without it being re-baselined — i.e. a covered module changed but its reviewed spec S
-      # was not re-validated, the state that blocks S ∧ R. requirements/spec-freshness/ is a
-      # self-contained demo config (one source module + one reviewed spec) so the gate runs on every
-      # push: it passes in a clean tree and blocks an un-revalidated edit.
-      - name: Check spec freshness
+      # PC-12: the commit-triggered spec-freshness gate, VALIDATION-AWARE (not hash-only). Beyond the
+      # Cargo.lock-style hash invariant (a covered module's source/spec hash drifting from the
+      # committed lockfile blocks), every hash-fresh module must carry verifiable revalidation
+      # evidence: a hash-bound revalidation record binding the locked source/spec hashes, a hash-bound
+      # real-Foundry traces artifact with source-bound tool provenance, and a spec-trace contract
+      # whose replay against those traces is RE-RUN here and must reproduce ("satisfies"). A blind
+      # lockfile rebaseline (spec-freshness-lock-v2 over an edited tree) therefore FAILS this step —
+      # only the real release flow (nlreq spec-revalidate, which re-runs the PC-11 replay over the
+      # module's current traces) can clear staleness. requirements/spec-freshness/ is the
+      # self-contained demo config (one covered Solidity module + one reviewed spec + recorded real
+      # evidence); see its README.md for the honest re-baseline flow after editing the module.
+      - name: Verify spec freshness (validation-aware)
         run: |
-          uv run nlreq spec-freshness-check \
+          uv run nlreq spec-freshness-verify \
             --manifest requirements/spec-freshness/manifest.json \
             --registry requirements/spec-freshness/registry.json \
             --lockfile requirements/spec-freshness/lockfile.json \

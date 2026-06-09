@@ -1,0 +1,30 @@
+{
+  "lock_id": "spec-freshness-demo",
+  "results": [
+    {
+      "module_id": "vault",
+      "outcome": "revalidated",
+      "reasons": [],
+      "source_hashes": {
+        "requirements/spec-freshness/foundry/src/Reverting.sol": "sha256:626f33fc07b352ec2d308aa61e4e477c09b4250fc74363100a0143ebaa1dfd50",
+        "requirements/spec-freshness/foundry/src/Vault.sol": "sha256:3d23f16d47e45d64b36230c99d4ad5c1a7265e0cb19df82a75322840c70f2861"
+      },
+      "spec_results": [
+        {
+          "classification": "satisfies",
+          "contract_hash": "sha256:e6b32071ef6bfb63d4546b458626cd74ac8cbf12e89e2ac493d0fd5b3f649610",
+          "contract_path": "requirements/spec-freshness/contract.json",
+          "reasons": [],
+          "spec_hash": "sha256:afabec8bda8c8f9774e5f0838816dfe213768ddf2ad40bb312fc4c0c78adc7e8",
+          "spec_id": "spec:vault"
+        }
+      ]
+    }
+  ],
+  "schema_version": "0.1",
+  "tool": "nlreq.spec_freshness",
+  "tool_version": "0.1",
+  "traces_hash": "sha256:ff5a60a22be5273f6ffd92d535810bef09943bc308ffbf93027eeb3037937482",
+  "traces_path": "requirements/spec-freshness/traces.json",
+  "validated_at": "2026-06-09T20:26:32Z"
+}

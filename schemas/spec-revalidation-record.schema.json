@@ -1,0 +1,173 @@
+{
+  "$defs": {
+    "SpecRevalidationModuleResult": {
+      "additionalProperties": false,
+      "properties": {
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "revalidated",
+            "rejected"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "source_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Source Hashes",
+          "type": "object"
+        },
+        "spec_results": {
+          "items": {
+            "$ref": "#/$defs/SpecRevalidationSpecResult"
+          },
+          "title": "Spec Results",
+          "type": "array"
+        }
+      },
+      "required": [
+        "module_id",
+        "outcome"
+      ],
+      "title": "SpecRevalidationModuleResult",
+      "type": "object"
+    },
+    "SpecRevalidationSpecResult": {
+      "additionalProperties": false,
+      "properties": {
+        "classification": {
+          "anyOf": [
+            {
+              "enum": [
+                "satisfies",
+                "violates_with_delta",
+                "no_coverage"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Classification"
+        },
+        "contract_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contract Hash"
+        },
+        "contract_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contract Path"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "spec_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spec Hash"
+        },
+        "spec_id": {
+          "title": "Spec Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spec_id"
+      ],
+      "title": "SpecRevalidationSpecResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The recorded evidence of one spec-revalidate run \u2014 the artifact the lockfile hash-binds.\n\n``traces_path``/``contract_path`` are project-root-relative so the validation-aware checker can\nre-load the exact artifacts the run replayed and re-run the replay itself.",
+  "properties": {
+    "lock_id": {
+      "title": "Lock Id",
+      "type": "string"
+    },
+    "results": {
+      "items": {
+        "$ref": "#/$defs/SpecRevalidationModuleResult"
+      },
+      "title": "Results",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "tool": {
+      "default": "nlreq.spec_freshness",
+      "title": "Tool",
+      "type": "string"
+    },
+    "tool_version": {
+      "default": "0.1",
+      "title": "Tool Version",
+      "type": "string"
+    },
+    "traces_hash": {
+      "title": "Traces Hash",
+      "type": "string"
+    },
+    "traces_path": {
+      "title": "Traces Path",
+      "type": "string"
+    },
+    "validated_at": {
+      "title": "Validated At",
+      "type": "string"
+    }
+  },
+  "required": [
+    "lock_id",
+    "validated_at",
+    "traces_path",
+    "traces_hash"
+  ],
+  "title": "SpecRevalidationRecord",
+  "type": "object"
+}

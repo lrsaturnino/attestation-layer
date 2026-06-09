@@ -1,0 +1,30 @@
+{
+  "expectations": [
+    {
+      "description": "the redemption emits the Redeemed event",
+      "expectation_id": "vault-redeemed",
+      "kind": "event_emitted",
+      "target": "Redeemed"
+    },
+    {
+      "description": "the total() read observes the redeemed amount",
+      "expectation_id": "vault-total",
+      "kind": "state_value_reached",
+      "target": "total",
+      "value": "5"
+    },
+    {
+      "description": "the guarded child call reverts with its declared reason",
+      "expectation_id": "vault-child-reverts",
+      "kind": "action_reverts",
+      "target": "willRevert",
+      "value": "child reverted"
+    }
+  ],
+  "module_ids": [
+    "vault"
+  ],
+  "provenance": "declared",
+  "schema_version": "0.1",
+  "spec_id": "spec:vault"
+}

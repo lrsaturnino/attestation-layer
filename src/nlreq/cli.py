@@ -242,8 +242,10 @@ from .spec_freshness import (
     build_spec_drift_ci_report,
     build_spec_freshness_lockfile,
     build_spec_freshness_lockfile_v2,
+    revalidate_spec_freshness,
     validate_spec_freshness_lockfile,
     validate_spec_freshness_lockfile_v2,
+    verify_spec_freshness_validation,
 )
 from .trace_validation import (
     build_trace_validation_gate_report,
@@ -1014,6 +1016,56 @@ def main(argv: list[str] | None = None) -> int:
     spec_freshness_ci_cmd.add_argument("--now")
     spec_freshness_ci_cmd.add_argument("--max-validation-age-hours", type=float)
     spec_freshness_ci_cmd.add_argument("--out", type=Path)
+
+    # PC-12 release path: re-validate covered modules against their CURRENT real traces and, only
+    # when every targeted spec reproduces them, rebuild the freshness baseline (manifest hashes,
+    # registry freshness, lockfile + hash-bound revalidation record). All artifact paths are
+    # project-root-relative so the verification gate can re-load and re-run the evidence.
+    spec_revalidate_cmd = subcommands.add_parser(
+        "spec-revalidate",
+        help="Re-validate covered modules against current traces and rebuild the freshness baseline.",
+    )
+    spec_revalidate_cmd.add_argument("--manifest", type=Path, required=True)
+    spec_revalidate_cmd.add_argument("--registry", type=Path, required=True)
+    spec_revalidate_cmd.add_argument("--lockfile", type=Path, required=True)
+    spec_revalidate_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    spec_revalidate_cmd.add_argument(
+        "--contract",
+        type=Path,
+        action="append",
+        default=[],
+        help="A SpecTraceContract JSON under the project root (repeatable, one per spec).",
+    )
+    spec_revalidate_cmd.add_argument(
+        "--traces",
+        type=Path,
+        required=True,
+        help="The module's CURRENT NormalizedTraceArtifact JSON under the project root.",
+    )
+    spec_revalidate_cmd.add_argument(
+        "--record-out",
+        type=Path,
+        required=True,
+        help="Where to write the revalidation record (under the project root; lockfile-bound).",
+    )
+    spec_revalidate_cmd.add_argument("--module", action="append", default=[])
+    spec_revalidate_cmd.add_argument("--validated-at")
+    spec_revalidate_cmd.add_argument("--manifest-out", type=Path)
+    spec_revalidate_cmd.add_argument("--registry-out", type=Path)
+    spec_revalidate_cmd.add_argument("--lockfile-out", type=Path)
+    spec_revalidate_cmd.add_argument("--out", type=Path)
+
+    spec_freshness_verify_cmd = subcommands.add_parser(
+        "spec-freshness-verify",
+        help="Validation-aware freshness gate: hash freshness plus re-run revalidation evidence.",
+    )
+    spec_freshness_verify_cmd.add_argument("--manifest", type=Path, required=True)
+    spec_freshness_verify_cmd.add_argument("--registry", type=Path, required=True)
+    spec_freshness_verify_cmd.add_argument("--lockfile", type=Path, required=True)
+    spec_freshness_verify_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
+    spec_freshness_verify_cmd.add_argument("--now")
+    spec_freshness_verify_cmd.add_argument("--max-validation-age-hours", type=float)
+    spec_freshness_verify_cmd.add_argument("--out", type=Path)
 
     delta_extract_cmd = subcommands.add_parser(
         "delta-extract", help="Extract actionable deltas from failed verification reports."
@@ -3137,6 +3189,69 @@ def main(argv: list[str] | None = None) -> int:
             else:
                 print(canonical_json(report), end="")
             return 0 if report.result == "passed" else 1
+        if args.command == "spec-revalidate":
+            from .jsonutil import write_json
+            from .models import NormalizedTraceArtifact
+            from .system_spec import SpecTraceContract
+
+            project_root = args.project_root.resolve()
+            contracts: list[SpecTraceContract] = []
+            contract_paths: dict[str, str] = {}
+            for contract_file in args.contract:
+                contract = SpecTraceContract.model_validate_json(contract_file.read_text())
+                contracts.append(contract)
+                contract_paths[contract.spec_id] = _project_relative(contract_file, project_root)
+            report = revalidate_spec_freshness(
+                manifest=CodeSpecManifest.model_validate_json(args.manifest.read_text()),
+                registry=load_system_spec_registry(args.registry),
+                lockfile=SpecFreshnessLockfileV2.model_validate_json(args.lockfile.read_text()),
+                project_root=project_root,
+                contracts=contracts,
+                contract_paths=contract_paths,
+                traces=NormalizedTraceArtifact.model_validate_json(args.traces.read_text()),
+                traces_path=_project_relative(args.traces, project_root),
+                record_path=_project_relative(args.record_out, project_root),
+                validated_at=args.validated_at,
+                module_ids=args.module or None,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Spec revalidation report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            if report.result != "revalidated":
+                # The baseline is rebuilt ONLY on a full revalidation: a rejected run writes no
+                # record/lockfile/manifest/registry, so a failed replay can never re-baseline.
+                return 1
+            write_json(args.record_out, report.record)
+            print(f"Spec revalidation record: {args.record_out}")
+            if args.manifest_out and report.updated_manifest is not None:
+                write_json(args.manifest_out, report.updated_manifest)
+                print(f"Updated code-spec manifest: {args.manifest_out}")
+            if args.registry_out and report.updated_registry is not None:
+                write_json(args.registry_out, report.updated_registry)
+                print(f"Updated system spec registry: {args.registry_out}")
+            if args.lockfile_out and report.updated_lockfile is not None:
+                write_json(args.lockfile_out, report.updated_lockfile)
+                print(f"Updated spec freshness lockfile: {args.lockfile_out}")
+            return 0
+        if args.command == "spec-freshness-verify":
+            from .jsonutil import write_json
+
+            report = verify_spec_freshness_validation(
+                manifest=CodeSpecManifest.model_validate_json(args.manifest.read_text()),
+                registry=load_system_spec_registry(args.registry),
+                lockfile=SpecFreshnessLockfileV2.model_validate_json(args.lockfile.read_text()),
+                project_root=args.project_root,
+                now=args.now,
+                max_validation_age_hours=args.max_validation_age_hours,
+            )
+            if args.out:
+                write_json(args.out, report)
+                print(f"Spec freshness verification report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "passed" else 1
         if args.command == "delta-extract":
             from .coverage_alignment import SpecCoverageReport
             from .jsonutil import write_json
@@ -4641,6 +4756,20 @@ def main(argv: list[str] | None = None) -> int:
         print(f"error: {exc}", file=sys.stderr)
         return 1
     return 1
+
+
+def _project_relative(path: Path, project_root: Path) -> str:
+    """A freshness artifact's project-root-relative POSIX path (what lockfile/record entries bind).
+
+    Fails fast when the artifact lives outside the project root — a recorded artifact the
+    verification gate could never re-load by relative path would silently un-verify the baseline.
+    """
+    try:
+        return path.resolve().relative_to(project_root.resolve()).as_posix()
+    except ValueError as exc:
+        raise ValueError(
+            f"freshness artifact {path} is not under the project root {project_root}"
+        ) from exc
 
 
 def _add_adapter_validation_options(parser: argparse.ArgumentParser) -> None:

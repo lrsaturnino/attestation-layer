@@ -11,7 +11,7 @@ in the continuous run and enforced by the spec-freshness CI step; the committed
 drift", not "gate misconfigured".
 
 The honest RELEASE path — re-validating S against the CHANGED source clears staleness while a blind
-hash rebuild does not — is owned by the spec-revalidate flow and is proven with that gate, not here:
+hash rebuild does not — is the spec-revalidate flow, proven in test_spec_revalidate_release.py:
 these tests prove the block and that it does not lift on a bare re-check.
 """
 
@@ -23,7 +23,7 @@ from nlreq.dsl_v2 import DslV2Parser
 from nlreq.impact import ImpactAnalysisArtifact
 from nlreq.package import build_package
 from nlreq.spec_drift import CodeSpecManifest, build_spec_drift_report, mark_stale_specs
-from nlreq.spec_freshness import SpecFreshnessLockfile, validate_spec_freshness_lockfile
+from nlreq.spec_freshness import SpecFreshnessLockfileV2, verify_spec_freshness_validation
 from nlreq.system_checker import check_system_consistency_fixture
 from nlreq.system_spec import SystemSpecRegistry
 from nlreq.translator import lower_ir_v2_to_tla
@@ -260,19 +260,24 @@ def test_continuous_attestation_cli_surfaces_stale_module(tmp_path: Path) -> Non
 COMMITTED_DEMO = Path(__file__).resolve().parents[1] / "requirements" / "spec-freshness"
 
 
-def test_committed_spec_freshness_demo_is_fresh_in_clean_tree() -> None:
-    """The committed CI demo config (requirements/spec-freshness/) must be consistent + fresh in a clean
-    tree, so a green spec-freshness CI step means 'no drift', not 'gate misconfigured'. This also guards
-    the demo against silent drift: editing its source without re-baselining the lockfile fails here AND
-    in the CI step — the same Cargo.lock-style invariant the gate enforces for any covered module."""
+def test_committed_spec_freshness_demo_verifies_in_clean_tree() -> None:
+    """The committed CI demo config (requirements/spec-freshness/) must pass the VALIDATION-AWARE
+    gate in a clean tree, so a green spec-freshness CI step means 'no drift AND the recorded
+    revalidation evidence verifies' — hash-bound record, real-tool trace provenance, and the
+    contract-vs-traces replay re-run here — not 'gate misconfigured'. This also guards the demo
+    against silent drift: editing its covered source without running the spec-revalidate release
+    flow fails here AND in the CI step."""
     repo_root = COMMITTED_DEMO.parents[1]
     manifest = CodeSpecManifest.model_validate_json((COMMITTED_DEMO / "manifest.json").read_text())
     registry = SystemSpecRegistry.model_validate_json((COMMITTED_DEMO / "registry.json").read_text())
-    lockfile = SpecFreshnessLockfile.model_validate_json((COMMITTED_DEMO / "lockfile.json").read_text())
+    lockfile = SpecFreshnessLockfileV2.model_validate_json(
+        (COMMITTED_DEMO / "lockfile.json").read_text()
+    )
 
-    report = validate_spec_freshness_lockfile(
+    report = verify_spec_freshness_validation(
         manifest=manifest, registry=registry, lockfile=lockfile, project_root=repo_root
     )
 
     assert report.result == "passed"
     assert all(status.status == "fresh" for status in report.statuses)
+    assert all(status.validation_artifacts for status in report.statuses)

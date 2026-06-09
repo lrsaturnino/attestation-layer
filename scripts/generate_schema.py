@@ -181,6 +181,9 @@ from nlreq.spec_freshness import (
     SpecFreshnessLockReport,
     SpecFreshnessLockfile,
     SpecFreshnessLockfileV2,
+    SpecFreshnessVerificationReport,
+    SpecRevalidationRecord,
+    SpecRevalidationReport,
 )
 from nlreq.system_composition import SandRCompositionReport
 from nlreq.system_spec import SpecTraceContract, SystemSpecRegistry, SystemSpecRegistryReport
@@ -343,6 +346,9 @@ SCHEMAS = {
     "spec-freshness-lock-report.schema.json": SpecFreshnessLockReport,
     "spec-freshness-lockfile-v2.schema.json": SpecFreshnessLockfileV2,
     "spec-freshness-drift-ci-report.schema.json": SpecFreshnessDriftCiReport,
+    "spec-revalidation-record.schema.json": SpecRevalidationRecord,
+    "spec-revalidation-report.schema.json": SpecRevalidationReport,
+    "spec-freshness-verification-report.schema.json": SpecFreshnessVerificationReport,
     "signed-evidence-envelope.schema.json": SignedEvidenceEnvelope,
     "signature-verification-report.schema.json": SignatureVerificationReport,
     "s-and-r-composition-report.schema.json": SandRCompositionReport,

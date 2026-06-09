@@ -1,0 +1,535 @@
+{
+  "$defs": {
+    "CodeSpecManifest": {
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/CodeSpecManifestEntry"
+          },
+          "title": "Entries",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "title": "CodeSpecManifest",
+      "type": "object"
+    },
+    "CodeSpecManifestEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "dependency_module_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dependency Module Ids",
+          "type": "array"
+        },
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "recorded_source_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Recorded Source Hashes",
+          "type": "object"
+        },
+        "source_paths": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Source Paths",
+          "type": "array"
+        },
+        "spec_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Spec Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "module_id",
+        "source_paths",
+        "spec_ids"
+      ],
+      "title": "CodeSpecManifestEntry",
+      "type": "object"
+    },
+    "SpecFreshnessLockEntryV2": {
+      "additionalProperties": false,
+      "properties": {
+        "dependency_module_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Dependency Module Ids",
+          "type": "array"
+        },
+        "manifest_entry_hash": {
+          "title": "Manifest Entry Hash",
+          "type": "string"
+        },
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "source_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Source Hashes",
+          "type": "object"
+        },
+        "spec_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Spec Hashes",
+          "type": "object"
+        },
+        "validated_at": {
+          "title": "Validated At",
+          "type": "string"
+        },
+        "validation_artifact_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Validation Artifact Hashes",
+          "type": "object"
+        }
+      },
+      "required": [
+        "module_id",
+        "manifest_entry_hash",
+        "validated_at"
+      ],
+      "title": "SpecFreshnessLockEntryV2",
+      "type": "object"
+    },
+    "SpecFreshnessLockfileV2": {
+      "additionalProperties": false,
+      "properties": {
+        "entries": {
+          "items": {
+            "$ref": "#/$defs/SpecFreshnessLockEntryV2"
+          },
+          "title": "Entries",
+          "type": "array"
+        },
+        "lock_id": {
+          "title": "Lock Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.2",
+          "default": "0.2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "tool": {
+          "default": "nlreq.spec_freshness",
+          "title": "Tool",
+          "type": "string"
+        },
+        "tool_version": {
+          "default": "0.1",
+          "title": "Tool Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "lock_id"
+      ],
+      "title": "SpecFreshnessLockfileV2",
+      "type": "object"
+    },
+    "SpecRevalidationModuleResult": {
+      "additionalProperties": false,
+      "properties": {
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "outcome": {
+          "enum": [
+            "revalidated",
+            "rejected"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "source_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Source Hashes",
+          "type": "object"
+        },
+        "spec_results": {
+          "items": {
+            "$ref": "#/$defs/SpecRevalidationSpecResult"
+          },
+          "title": "Spec Results",
+          "type": "array"
+        }
+      },
+      "required": [
+        "module_id",
+        "outcome"
+      ],
+      "title": "SpecRevalidationModuleResult",
+      "type": "object"
+    },
+    "SpecRevalidationRecord": {
+      "additionalProperties": false,
+      "description": "The recorded evidence of one spec-revalidate run \u2014 the artifact the lockfile hash-binds.\n\n``traces_path``/``contract_path`` are project-root-relative so the validation-aware checker can\nre-load the exact artifacts the run replayed and re-run the replay itself.",
+      "properties": {
+        "lock_id": {
+          "title": "Lock Id",
+          "type": "string"
+        },
+        "results": {
+          "items": {
+            "$ref": "#/$defs/SpecRevalidationModuleResult"
+          },
+          "title": "Results",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "tool": {
+          "default": "nlreq.spec_freshness",
+          "title": "Tool",
+          "type": "string"
+        },
+        "tool_version": {
+          "default": "0.1",
+          "title": "Tool Version",
+          "type": "string"
+        },
+        "traces_hash": {
+          "title": "Traces Hash",
+          "type": "string"
+        },
+        "traces_path": {
+          "title": "Traces Path",
+          "type": "string"
+        },
+        "validated_at": {
+          "title": "Validated At",
+          "type": "string"
+        }
+      },
+      "required": [
+        "lock_id",
+        "validated_at",
+        "traces_path",
+        "traces_hash"
+      ],
+      "title": "SpecRevalidationRecord",
+      "type": "object"
+    },
+    "SpecRevalidationSpecResult": {
+      "additionalProperties": false,
+      "properties": {
+        "classification": {
+          "anyOf": [
+            {
+              "enum": [
+                "satisfies",
+                "violates_with_delta",
+                "no_coverage"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Classification"
+        },
+        "contract_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contract Hash"
+        },
+        "contract_path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Contract Path"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "spec_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Spec Hash"
+        },
+        "spec_id": {
+          "title": "Spec Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spec_id"
+      ],
+      "title": "SpecRevalidationSpecResult",
+      "type": "object"
+    },
+    "SystemSpecEntry": {
+      "additionalProperties": false,
+      "properties": {
+        "formalism": {
+          "enum": [
+            "tla",
+            "smt",
+            "ltl",
+            "alloy",
+            "lean",
+            "other"
+          ],
+          "title": "Formalism",
+          "type": "string"
+        },
+        "freshness": {
+          "default": "unknown",
+          "enum": [
+            "fresh",
+            "stale",
+            "unknown"
+          ],
+          "title": "Freshness",
+          "type": "string"
+        },
+        "init_op": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Init Op"
+        },
+        "invariants": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Invariants",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "module_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Module Ids",
+          "type": "array"
+        },
+        "next_op": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Next Op"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "recorded_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recorded Hash"
+        },
+        "review_status": {
+          "enum": [
+            "draft",
+            "reviewed",
+            "rejected"
+          ],
+          "title": "Review Status",
+          "type": "string"
+        },
+        "spec_id": {
+          "title": "Spec Id",
+          "type": "string"
+        },
+        "version": {
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spec_id",
+        "module_ids",
+        "formalism",
+        "path",
+        "version",
+        "review_status"
+      ],
+      "title": "SystemSpecEntry",
+      "type": "object"
+    },
+    "SystemSpecRegistry": {
+      "additionalProperties": false,
+      "properties": {
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "specs": {
+          "items": {
+            "$ref": "#/$defs/SystemSpecEntry"
+          },
+          "title": "Specs",
+          "type": "array"
+        }
+      },
+      "title": "SystemSpecRegistry",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "record": {
+      "$ref": "#/$defs/SpecRevalidationRecord"
+    },
+    "record_hash": {
+      "title": "Record Hash",
+      "type": "string"
+    },
+    "record_path": {
+      "title": "Record Path",
+      "type": "string"
+    },
+    "result": {
+      "enum": [
+        "revalidated",
+        "rejected"
+      ],
+      "title": "Result",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "updated_lockfile": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SpecFreshnessLockfileV2"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "updated_manifest": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CodeSpecManifest"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "updated_registry": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SystemSpecRegistry"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    }
+  },
+  "required": [
+    "result",
+    "record",
+    "record_hash",
+    "record_path"
+  ],
+  "title": "SpecRevalidationReport",
+  "type": "object"
+}

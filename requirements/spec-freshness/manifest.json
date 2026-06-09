@@ -1,18 +1,20 @@
 {
-  "schema_version": "0.1",
   "entries": [
     {
-      "module_id": "authorization",
+      "dependency_module_ids": [],
+      "module_id": "vault",
+      "recorded_source_hashes": {
+        "requirements/spec-freshness/foundry/src/Reverting.sol": "sha256:626f33fc07b352ec2d308aa61e4e477c09b4250fc74363100a0143ebaa1dfd50",
+        "requirements/spec-freshness/foundry/src/Vault.sol": "sha256:3d23f16d47e45d64b36230c99d4ad5c1a7265e0cb19df82a75322840c70f2861"
+      },
       "source_paths": [
-        "requirements/spec-freshness/src/authorization.py"
+        "requirements/spec-freshness/foundry/src/Vault.sol",
+        "requirements/spec-freshness/foundry/src/Reverting.sol"
       ],
       "spec_ids": [
-        "spec:authorization"
-      ],
-      "dependency_module_ids": [],
-      "recorded_source_hashes": {
-        "requirements/spec-freshness/src/authorization.py": "sha256:c0b24961ca4d1c7b5bc4ecfb69ffcabe538189f4075c270325032cd1cd175551"
-      }
+        "spec:vault"
+      ]
     }
-  ]
+  ],
+  "schema_version": "0.1"
 }
