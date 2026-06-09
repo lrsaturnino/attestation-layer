@@ -1,0 +1,92 @@
+{
+  "ir_version": "0.2",
+  "requirement_id": "REQ-XLANG-REDEMPTION-001",
+  "title": "Cross-language redemption authorization is enforced on-chain and off-chain",
+  "source": {
+    "controlled_text": "For every redemption request, the on-chain redemption vault must reject an unauthorized finalize_redemption, and the off-chain redemption coordinator must reject an unauthorized execute_sweep.\n"
+  },
+  "assumptions": [],
+  "bindings": {},
+  "required_evidence": [],
+  "semantic_ir": {
+    "node_id": "rule.root",
+    "kind": "rule",
+    "confidence": "reviewed",
+    "metadata": {
+      "requirement_class": "cross_language_composite"
+    },
+    "provenance": {
+      "method": "manual_review",
+      "source_document": "controlled_requirement",
+      "derived_from": ["cross-language redemption authorization requirement"]
+    },
+    "scope": [
+      {
+        "node_id": "scope.redemption",
+        "kind": "forall",
+        "name": "redemption",
+        "target": "Redemption",
+        "confidence": "reviewed",
+        "provenance": {
+          "method": "manual_review",
+          "source_document": "controlled_requirement",
+          "derived_from": ["For every redemption request"]
+        }
+      }
+    ],
+    "premise": {
+      "node_id": "premise.redemption_requested",
+      "kind": "predicate",
+      "name": "redemption_requested",
+      "confidence": "reviewed",
+      "args": [{"kind": "identifier", "value": "redemption"}],
+      "provenance": {
+        "method": "manual_review",
+        "source_document": "controlled_requirement",
+        "derived_from": ["a redemption request"]
+      }
+    },
+    "obligation": {
+      "node_id": "obligation.cross_language_guards",
+      "kind": "and",
+      "confidence": "reviewed",
+      "provenance": {
+        "method": "manual_review",
+        "source_document": "controlled_requirement",
+        "derived_from": ["the on-chain and off-chain authorization guards must both hold"]
+      },
+      "children": [
+        {
+          "node_id": "obligation.solidity_authorization_guard",
+          "kind": "invariant",
+          "name": "solidity_finalize_redemption_authorization_guarded",
+          "confidence": "reviewed",
+          "metadata": {
+            "vertical_language": "solidity",
+            "vertical_adapter": "solidity-source"
+          },
+          "provenance": {
+            "method": "manual_review",
+            "source_document": "controlled_requirement",
+            "derived_from": ["the on-chain redemption vault must reject an unauthorized finalize_redemption"]
+          }
+        },
+        {
+          "node_id": "obligation.go_authorization_guard",
+          "kind": "invariant",
+          "name": "go_execute_sweep_authorization_guarded",
+          "confidence": "reviewed",
+          "metadata": {
+            "vertical_language": "go",
+            "vertical_adapter": "go-source"
+          },
+          "provenance": {
+            "method": "manual_review",
+            "source_document": "controlled_requirement",
+            "derived_from": ["the off-chain redemption coordinator must reject an unauthorized execute_sweep"]
+          }
+        }
+      ]
+    }
+  }
+}

@@ -463,6 +463,67 @@ def build_single_backend_dispatch_plan(
     return ProofDispatchPlan(policy_id=policy_id, routes=routes)
 
 
+def build_cross_language_dispatch_plan(
+    requirement: RequirementIRV2,
+    *,
+    backend_id: str = "solver_system_checker",
+    required_evidence: EvidenceLevel = EvidenceLevel.BOUNDED_CHECKED,
+    policy_id: str = "cross-language-s-and-r",
+) -> ProofDispatchPlan:
+    """Route one proof premise per language to the per-language ``S ∧ R`` model check (PC-13).
+
+    A cross-language requirement's obligation is an ``and`` of one *guard* per language (each a real
+    :class:`SemanticNode` with its own ``node_id`` and a ``vertical_*`` metadata binding —
+    see :func:`cross_language_guard_nodes`). This plan emits one route per guard, each routed to the
+    solver-backed ``S ∧ R`` producer (``solver_system_checker``) at ``BOUNDED_CHECKED`` — the level a
+    real Apalache ``S ∧ R`` run discharges. Each premise_id follows the same
+    ``f"{req_id}:{role}:{node_id}"`` convention :func:`build_proof_dispatch_plan` uses, pointing at the
+    parent requirement's REAL nodes, so the aggregated :class:`ProofObject`'s premises ARE the
+    requirement's per-language guards — not invented labels.
+
+    Routing mode is ``formal_claim`` (not ``semantic_node``) so the plan FAILS CLOSED: a guard is
+    discharged only by a result that explicitly declares the guard's premise_id in its
+    ``covered_fragment_ids``. Both per-language runs share the same backend id
+    (``solver_system_checker``); under ``semantic_node`` matching an untagged Go result could silently
+    discharge the Solidity guard. ``formal_claim`` makes that non-interchangeability structural — each
+    guard is discharged ONLY by its own language's ``S ∧ R`` result, tagged with that guard's
+    premise_id (see :mod:`nlreq.cross_language`).
+    """
+    routes = [
+        ProofPremiseRoute(
+            premise_id=f"{requirement.requirement_id}:{role}:{node.node_id}",
+            node_id=node.node_id,
+            node_kind=node.kind,
+            role=role,
+            backend_id=backend_id,
+            required_evidence=required_evidence,
+            reason=f"per-language S ∧ R premise for guard '{node.name or node.node_id}'",
+            routing_mode="formal_claim",
+        )
+        for role, node in cross_language_guard_nodes(requirement.semantic_ir)
+    ]
+    return ProofDispatchPlan(policy_id=policy_id, routes=routes)
+
+
+def cross_language_guard_nodes(
+    root: SemanticNode,
+) -> list[tuple[Literal["premise", "obligation"], SemanticNode]]:
+    """The per-language guard nodes of a cross-language requirement's obligation.
+
+    A cross-language requirement conjoins one guard per language under an ``and`` obligation; each
+    conjunct is one proof premise discharged by ITS language's ``S ∧ R``. Returns one
+    ``("obligation", guard)`` per conjunct. Falls back to the obligation as a single node when it is
+    not an ``and`` (a degenerate single-language requirement), and to :func:`_proof_nodes` when there
+    is no obligation at all — so the function is total over any rule node.
+    """
+    obligation = root.obligation
+    if obligation is None:
+        return _proof_nodes(root)
+    if obligation.kind == "and" and obligation.children:
+        return [("obligation", child) for child in obligation.children]
+    return [("obligation", obligation)]
+
+
 def build_proof_object(
     *,
     requirement: RequirementIRV2,

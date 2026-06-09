@@ -103,6 +103,67 @@ def build_s_and_r_composition_report(
     )
 
 
+class CrossLanguageSandRSlice(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    language: str
+    adapter_id: str
+    composition: SandRCompositionReport
+
+
+class CrossLanguageCompositionReport(BaseModel):
+    """Aggregate of the PER-LANGUAGE ``S ∧ R`` composition reports a cross-language requirement
+    discharges (PC-13). One :class:`SandRCompositionReport` per vertical (Solidity, Go), each the
+    real Apalache narrowing of THAT language's reviewed ``S`` against its slice of the requirement —
+    never one combined module. ``result`` is ``valid`` only when every per-language ``S ∧ R`` is
+    ``valid``; a single ``counterexample``/``timeout``/``unsupported`` makes the aggregate
+    ``blocked`` and surfaces that language's blocker, so the cross-language composition cannot read as
+    closed while either vertical's system check failed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1"] = SYSTEM_COMPOSITION_SCHEMA_VERSION
+    requirement_id: str
+    result: Literal["valid", "blocked"]
+    languages: list[str] = Field(default_factory=list)
+    slices: list[CrossLanguageSandRSlice] = Field(default_factory=list)
+    blockers: list[str] = Field(default_factory=list)
+    tool: str = "nlreq.system_composition"
+    tool_version: str = SYSTEM_COMPOSITION_TOOL_VERSION
+
+
+def build_cross_language_composition_report(
+    *,
+    requirement_id: str,
+    slices: list[CrossLanguageSandRSlice],
+) -> CrossLanguageCompositionReport:
+    """Fold per-language ``S ∧ R`` composition reports into one cross-language composition report.
+
+    The aggregate is ``valid`` only when every vertical's ``S ∧ R`` result is ``valid``. Each
+    non-valid vertical contributes a blocker (its own composition blockers, or a status note), so a
+    counterexample in either language blocks the whole cross-language composition. The per-language
+    slices are retained verbatim for replay/audit.
+    """
+    blockers: list[str] = []
+    for item in slices:
+        status = item.composition.result
+        if status != "valid":
+            if item.composition.blockers:
+                blockers.extend(
+                    f"{item.language}: {blocker}" for blocker in item.composition.blockers
+                )
+            else:
+                blockers.append(f"{item.language}: S ∧ R result is {status}")
+    return CrossLanguageCompositionReport(
+        requirement_id=requirement_id,
+        result="blocked" if blockers else "valid",
+        languages=[item.language for item in slices],
+        slices=slices,
+        blockers=blockers,
+    )
+
+
 def _spec_ref(spec, *, project_root: Path) -> ComposedSystemSpecRef:
     path = project_root / spec.path
     current_hash = _sha256_file(path) if path.is_file() else None
