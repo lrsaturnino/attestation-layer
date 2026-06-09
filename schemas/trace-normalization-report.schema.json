@@ -82,8 +82,20 @@
     },
     "NormalizedTraceProducer": {
       "additionalProperties": false,
-      "description": "Recorded real-tool provenance for a trace the adapter *produced* (not ingested).\n\nA trace carries a producer iff a real external tool ran to extract it \u2014 Foundry for the\nSolidity vertical (PC-4), a real OpenTelemetry/runtime producer for others. ``tool`` is the\nbinary that ran and ``tool_version`` is its captured version string; together with the\nenclosing trace's ``source_hash`` (the hash of the real tool artifact the trace was projected\nfrom) they are the \"captured tool version + real artifact hash\" the capability gate requires\nbefore an adapter may certify a ``trace_capable``/``production_candidate`` capability. A trace\ningested from manifest-declared JSON has ``producer == None`` on its enclosing trace and so can\nnever lift a regex/static adapter above ``static_resolution``.",
+      "description": "Recorded real-tool provenance for a trace the adapter *produced* (not ingested).\n\nA trace carries a producer iff a real external tool ran to extract it \u2014 Foundry for the\nSolidity vertical (PC-4), a real OpenTelemetry/runtime producer for others. ``tool`` is the\nbinary that ran and ``tool_version`` is its captured version string; together with the\nenclosing trace's ``source_hash`` (the hash of the real tool artifact the trace was projected\nfrom) they are the \"captured tool version + real artifact hash\" the capability gate requires\nbefore an adapter may certify a ``trace_capable``/``production_candidate`` capability. A trace\ningested from manifest-declared JSON has ``producer == None`` on its enclosing trace and so can\nnever lift a regex/static adapter above ``static_resolution``.\n\n``raw_output`` carries the captured raw output of the tool run (the agnostic, opaque artifact\nthe trace was projected from) so the capability gate is SOURCE-BOUND rather than shape-bound:\ncertification recomputes ``sha256(raw_output)`` and requires it to equal the enclosing trace's\n``source_hash`` AND that the bytes are a genuine tool artifact (a tool-specific shape check),\nso a producer stamped over ingested JSON \u2014 which has no real tool output to carry \u2014 cannot fake\nthe gate. It stays optional and agnostic; the tool-specific validation lives in the certifier.\nSee adapter_certification.trace_has_real_tool_provenance.",
       "properties": {
+        "raw_output": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Raw Output"
+        },
         "tool": {
           "title": "Tool",
           "type": "string"

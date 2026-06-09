@@ -68,6 +68,12 @@ class FoundryClientResult(BaseModel):
     status: Literal["extracted", "unavailable", "tool_error"]
     forge_version: str | None = None
     raw_output_hash: str | None = None
+    # The captured raw ``forge test --json`` stdout the traces were projected from. It is retained
+    # (not just hashed) so the capability gate can SOURCE-BIND the trace evidence: certification
+    # recomputes ``sha256(raw_output)`` and confirms it equals ``raw_output_hash`` AND that the bytes
+    # are a genuine forge report, so producer provenance stamped over ingested JSON cannot fake it
+    # (PC-1). See adapter_certification.trace_has_real_tool_provenance.
+    raw_output: str | None = None
     test_traces: list[FoundryTestTrace] = Field(default_factory=list)
     reason: str | None = None
 
@@ -434,5 +440,6 @@ def extract_foundry_traces(
         status="extracted",
         forge_version=forge_version,
         raw_output_hash=raw_output_hash,
+        raw_output=completed.stdout,
         test_traces=test_traces,
     )

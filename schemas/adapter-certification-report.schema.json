@@ -311,6 +311,11 @@
       "title": "Call Graph Edges",
       "type": "integer"
     },
+    "call_graph_tool_backed": {
+      "default": false,
+      "title": "Call Graph Tool Backed",
+      "type": "boolean"
+    },
     "capability_contract": {
       "$ref": "#/$defs/AdapterCapabilityContract"
     },

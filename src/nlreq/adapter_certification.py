@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import json
 import re
 from typing import Iterable, Literal
 
@@ -14,6 +16,7 @@ from .source_adapter import (
     AdapterCapabilityLevel,
     AdapterLimitation,
     SourceBinding,
+    SourceCallGraph,
     SourceLanguageAdapter,
     SourceManifest,
 )
@@ -29,21 +32,95 @@ _TRACE_LEVELS: frozenset[AdapterCapabilityLevel] = frozenset(
 )
 
 
+def _recomputed_artifact_hash(raw_output: str) -> str:
+    """The sha256 digest of a captured raw tool artifact, in the ``sha256:<hex>`` form the tool
+    clients record (byte-for-byte identical to ``foundry_client``'s ``raw_output_hash``)."""
+    return "sha256:" + hashlib.sha256(raw_output.encode("utf-8")).hexdigest()
+
+
+def _forge_report_is_well_formed(raw_output: str, trace: NormalizedTrace) -> bool:
+    """Whether ``raw_output`` is a genuine ``forge test --json`` report (not normalized-trace JSON).
+
+    A real forge report is a JSON *object* keyed by suite id, each suite carrying a ``test_results``
+    object whose per-test values carry a ``traces`` field — the nesting forge emits. A normalized
+    trace artifact serializes as a JSON *array* and a single ``NormalizedTrace`` as an object with
+    ``events``/``producer`` (no ``test_results``), so neither passes. When the trace records its own
+    ``suite``/``test`` in metadata (the Foundry path does), those names must appear in the report,
+    binding this specific trace to the forge run.
+    """
+    try:
+        report = json.loads(raw_output)
+    except (json.JSONDecodeError, ValueError):
+        return False
+    if not isinstance(report, dict) or not report:
+        return False
+    forge_shaped = False
+    for suite in report.values():
+        if not isinstance(suite, dict):
+            return False
+        test_results = suite.get("test_results")
+        if not isinstance(test_results, dict):
+            return False
+        for test in test_results.values():
+            if isinstance(test, dict) and "traces" in test:
+                forge_shaped = True
+    if not forge_shaped:
+        return False
+    suite_name = trace.metadata.get("suite")
+    if isinstance(suite_name, str) and suite_name and suite_name not in report:
+        return False
+    test_name = trace.metadata.get("test")
+    if isinstance(test_name, str) and test_name and not any(
+        test_name in suite.get("test_results", {}) for suite in report.values()
+    ):
+        return False
+    return True
+
+
+# Per-tool validators that confirm a producer's carried ``raw_output`` is a genuine artifact of that
+# tool (not ingested JSON dressed up as provenance). Extended per vertical — Go/OTel producers (PC-7)
+# register their own. A producer whose ``tool`` has no registered validator is not accepted as
+# source-bound evidence, so the gate never over-trusts a tool it cannot verify.
+_RAW_OUTPUT_VALIDATORS = {
+    "forge": _forge_report_is_well_formed,
+}
+
+
 def trace_has_real_tool_provenance(trace: NormalizedTrace) -> bool:
-    """Whether a trace carries the recorded real-tool provenance the capability gate accepts.
+    """Whether a trace carries SOURCE-BOUND real-tool provenance the capability gate accepts.
 
     Real-tool evidence is a recorded producer (the tool that ran plus its captured version string)
     over a *real artifact hash* — a genuine sha256 digest (``sha256:`` + 64 lowercase hex) of the
-    tool's actual output, which is what the Foundry client records from the raw ``forge`` output. A
-    producer stamped onto ingested JSON with a placeholder hash (e.g. ``sha256:ingested``) fails the
-    digest-shape check, so arbitrary producer metadata cannot fake the gate (PC-1).
+    tool's actual output. The gate is source-bound, not merely shape-bound: the producer must carry
+    the captured ``raw_output`` it was projected from, ``sha256(raw_output)`` must equal the trace's
+    ``source_hash``, AND ``raw_output`` must be a genuine artifact of ``producer.tool`` (a per-tool
+    shape check). Stamping a producer + a self-consistent hash over ingested JSON cannot satisfy this
+    — ingested JSON is not a forge report — which is the loophole PC-1 closes.
+
+    Residual in-process ceiling (documented, not closeable here): an adapter that hand-builds a
+    minimal forge-shaped artifact, or runs forge once and reuses its real output over unrelated
+    traces, would also pass — there is no data-only way to distinguish that from a genuine run
+    without re-executing the tool inside certification. The gate defeats the realistic, flagged
+    attack (the lazy stamp-over-ingested-JSON path); the honest production path goes through the
+    tool client, which is the trust anchor.
     """
     producer = trace.producer
     if producer is None:
         return False
     if not producer.tool.strip() or not producer.tool_version.strip():
         return False
-    return bool(_REAL_ARTIFACT_HASH.match(trace.source_hash.strip()))
+    source_hash = trace.source_hash.strip()
+    if not _REAL_ARTIFACT_HASH.match(source_hash):
+        return False
+    raw_output = producer.raw_output
+    if raw_output is None:
+        return False
+    if _recomputed_artifact_hash(raw_output) != source_hash:
+        return False
+    validator = _RAW_OUTPUT_VALIDATORS.get(producer.tool.strip().lower())
+    if validator is None:
+        return False
+    return validator(raw_output, trace)
 
 
 def count_provenanced_traces(traces: Iterable[NormalizedTrace]) -> int:
@@ -177,6 +254,10 @@ class AdapterCertificationReport(BaseModel):
     resolved_symbols: int = 0
     unresolved_symbols: int = 0
     call_graph_edges: int = 0
+    # Whether the call graph came from a real static-analysis tool (Slither) with a recorded version,
+    # rather than the regex fallback. production_candidate requires this: a regex/static call graph
+    # caps the achieved level below production_candidate even when provenanced traces are present.
+    call_graph_tool_backed: bool = False
     source_presentation_snippets: int = 0
     trace_count: int = 0
     plugin_sdk_compatible: bool = False
@@ -293,8 +374,10 @@ def certify_adapter(
     try:
         call_graph = adapter.call_graph(manifest)
         call_graph_edges = len(call_graph.edges)
+        call_graph_tool_backed = _call_graph_is_tool_backed(call_graph)
     except Exception as exc:  # pragma: no cover - defensive certification boundary
         call_graph_edges = 0
+        call_graph_tool_backed = False
         findings.append(
             AdapterCertificationFinding(
                 category="call_graph",
@@ -360,6 +443,7 @@ def certify_adapter(
         unresolved=unresolved,
         edges=call_graph_edges,
         provenanced_traces=provenanced_trace_count,
+        tool_backed_call_graph=call_graph_tool_backed,
     )
     blocked = any(finding.severity == "blocking" for finding in findings)
     return AdapterCertificationReport(
@@ -376,6 +460,7 @@ def certify_adapter(
         resolved_symbols=resolved,
         unresolved_symbols=unresolved,
         call_graph_edges=call_graph_edges,
+        call_graph_tool_backed=call_graph_tool_backed,
         source_presentation_snippets=source_presentation_snippets,
         trace_count=trace_count,
         plugin_sdk_compatible=not blocked and not missing_capabilities,
@@ -552,22 +637,41 @@ def _trace_evidence_findings(
     ]
 
 
+def _call_graph_is_tool_backed(call_graph: SourceCallGraph) -> bool:
+    """Whether the call graph came from a real static-analysis tool with a recorded version.
+
+    production_candidate requires a tool-backed call graph (Slither for Solidity), not the regex
+    fallback. The signal is the metadata the Slither-backed path records: an ``analyzed`` status AND
+    a captured tool version (the regex fallback records neither). Unlike trace evidence — which is
+    preimage-bound above — this call-graph signal is adapter-asserted: a malicious adapter could
+    stamp ``slither_status=analyzed`` with a fabricated version. That asymmetry is deliberate and
+    documented; tying the call-graph evidence to the tool client's captured output is a future
+    tightening. What this gate guarantees now is that a *regex* fallback cannot reach
+    production_candidate, which is the honesty boundary the HELPER flagged.
+    """
+    metadata = call_graph.metadata or {}
+    return metadata.get("slither_status") == "analyzed" and bool(metadata.get("slither_version"))
+
+
 def _level(
     *,
     resolved: int,
     unresolved: int,
     edges: int,
     provenanced_traces: int,
+    tool_backed_call_graph: bool,
 ) -> AdapterCertificationLevel:
     """The capability level the adapter empirically *achieved* on this run.
 
     A trace level is reachable only with real-tool provenance: ingested JSON (``provenanced_traces``
     == 0) never lifts the adapter past static_resolution. production_candidate is the complete,
-    tool-backed vertical — symbol resolution, a call graph, and provenanced traces all present.
+    tool-backed vertical — symbol resolution, a *tool-backed* call graph, and provenanced traces all
+    present. A regex/static call graph (``tool_backed_call_graph`` False) caps the run at
+    trace_capable even with provenanced traces: regex edges do not evidence production_candidate.
     """
     if resolved == 0 or unresolved > 0:
         return "manifest_only"
-    if provenanced_traces > 0 and edges > 0:
+    if provenanced_traces > 0 and edges > 0 and tool_backed_call_graph:
         return "production_candidate"
     if provenanced_traces > 0:
         return "trace_capable"

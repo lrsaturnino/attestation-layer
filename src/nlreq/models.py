@@ -779,12 +779,21 @@ class NormalizedTraceProducer(BaseModel):
     before an adapter may certify a ``trace_capable``/``production_candidate`` capability. A trace
     ingested from manifest-declared JSON has ``producer == None`` on its enclosing trace and so can
     never lift a regex/static adapter above ``static_resolution``.
+
+    ``raw_output`` carries the captured raw output of the tool run (the agnostic, opaque artifact
+    the trace was projected from) so the capability gate is SOURCE-BOUND rather than shape-bound:
+    certification recomputes ``sha256(raw_output)`` and requires it to equal the enclosing trace's
+    ``source_hash`` AND that the bytes are a genuine tool artifact (a tool-specific shape check),
+    so a producer stamped over ingested JSON — which has no real tool output to carry — cannot fake
+    the gate. It stays optional and agnostic; the tool-specific validation lives in the certifier.
+    See adapter_certification.trace_has_real_tool_provenance.
     """
 
     model_config = ConfigDict(extra="forbid")
 
     tool: str
     tool_version: str
+    raw_output: str | None = None
 
 
 class NormalizedTrace(BaseModel):

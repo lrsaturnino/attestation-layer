@@ -565,7 +565,11 @@ class SoliditySourceAdapter(RegexProductionSourceAdapter):
         if result.status != "extracted":
             return super().extract_traces(manifest)
         producer = NormalizedTraceProducer(
-            tool="forge", tool_version=result.forge_version or "forge"
+            tool="forge",
+            tool_version=result.forge_version or "forge",
+            # Carry the captured forge stdout so the capability gate is source-bound: certification
+            # recomputes its sha256 against source_hash and confirms it is a real forge report.
+            raw_output=result.raw_output,
         )
         source_hash = result.raw_output_hash or "sha256:unknown"
         traces: list[NormalizedTrace] = []

@@ -177,26 +177,33 @@ class _OverclaimingSolidityAdapter(SoliditySourceAdapter):
         return contract.model_copy(update={"capabilities": bumped})
 
 
-class _ToolBackedSolidityAdapter(SoliditySourceAdapter):
-    """A Solidity adapter that simulates a real trace producer.
+class _StampedDigestSolidityAdapter(SoliditySourceAdapter):
+    """Stamps valid-looking producer metadata over ingested JSON — the loophole PC-1 closes.
 
-    It stamps producer provenance onto each extracted trace and declares the matching
-    trace_capable claim — the shape PC-4's Foundry-backed extraction takes, exercised here without
-    requiring Foundry so the gate's positive branch is always covered.
+    This is the strongest form of the "stamp producer + a self-consistent hash over ingested JSON"
+    attack: it carries a genuine sha256 digest AND a non-empty ``raw_output`` whose hash matches
+    ``source_hash`` (so the gate's hash recompute passes), and declares the matching trace_capable
+    claim. But the carried ``raw_output`` is the ingested NormalizedTrace JSON, not a forge report,
+    so the source-bound gate rejects it — shape-only provenance can no longer certify. The honest
+    positive branch is exercised end-to-end against a real ``forge`` run in
+    tests/test_solidity_foundry_traces.py (skip-when-absent).
     """
 
     def extract_traces(self, manifest: SourceManifest) -> NormalizedTraceArtifact:
         ingested = super().extract_traces(manifest)
         stamped = []
         for trace in ingested.root:
-            # Mirror a real tool's artifact hash: a genuine sha256 of the produced output, not a
-            # placeholder, so the tightened provenance gate accepts it as real-tool evidence.
-            digest = hashlib.sha256(trace.model_dump_json().encode("utf-8")).hexdigest()
+            # Carry the ingested trace JSON as a fake "tool output" and bind source_hash to it, so the
+            # hash recompute passes — only the forge-report shape check stands between this and a pass.
+            fake_output = trace.model_dump_json()
+            digest = hashlib.sha256(fake_output.encode("utf-8")).hexdigest()
             stamped.append(
                 trace.model_copy(
                     update={
                         "producer": NormalizedTraceProducer(
-                            tool="forge", tool_version="forge 1.5.0-stable"
+                            tool="forge",
+                            tool_version="forge 1.5.0-stable",
+                            raw_output=fake_output,
                         ),
                         "source_hash": f"sha256:{digest}",
                     }
@@ -339,9 +346,12 @@ def test_trace_capable_claim_without_real_tool_evidence_fails_certification(
     assert "without a recorded trace producer" in blocking[0].message
 
 
-def test_trace_capable_claim_with_recorded_producer_evidence_certifies(tmp_path: Path) -> None:
-    """PC-1 gate, positive branch: when extraction yields traces carrying recorded producer
-    provenance over a real artifact hash, the trace_capable claim is evidenced and certifies."""
+def test_stamped_producer_over_ingested_json_fails_certification(tmp_path: Path) -> None:
+    """PC-1 gate is source-bound, not shape-bound: a producer + a self-consistent sha256 stamped over
+    ingested JSON is rejected, because the carried ``raw_output`` is a NormalizedTrace blob, not a
+    real forge report. The honest positive branch runs against a real ``forge`` in
+    tests/test_solidity_foundry_traces.py (skip-when-absent), not over fakeable in-process stamping.
+    """
     manifest = _solidity_manifest(tmp_path)
     trace_source = _write_ingested_trace(tmp_path)
     manifest = manifest.model_copy(
@@ -351,7 +361,7 @@ def test_trace_capable_claim_with_recorded_producer_evidence_certifies(tmp_path:
             ]
         }
     )
-    adapter = _ToolBackedSolidityAdapter(project_root=tmp_path)
+    adapter = _StampedDigestSolidityAdapter(project_root=tmp_path)
 
     report = certify_adapter(
         adapter,
@@ -360,9 +370,18 @@ def test_trace_capable_claim_with_recorded_producer_evidence_certifies(tmp_path:
         required_capabilities=["runtime_trace_extraction"],
     )
 
-    assert report.result == "certified"
-    assert report.trace_count == 1
-    assert report.level in {"trace_capable", "production_candidate"}
+    assert report.result == "blocked"
+    assert report.trace_count == 1  # a producer-stamped trace was produced, but it is not forge-bound
+    assert report.level == "static_resolution"
+    blocking = [
+        finding
+        for finding in report.findings
+        if finding.severity == "blocking"
+        and finding.category == "capability_contract"
+        and finding.subject == "runtime_trace_extraction"
+    ]
+    assert blocking, report.findings
+    assert "without a recorded trace producer" in blocking[0].message
 
 
 def test_trace_capable_claim_with_placeholder_artifact_hash_fails_certification(

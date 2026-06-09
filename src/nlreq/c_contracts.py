@@ -38,7 +38,9 @@ from .system_spec import SystemSpecEntry, SystemSpecRegistry
 # The frozen B↔C / A↔C contract surface version. Bump this (and the affected per-contract version
 # below) only with a reviewed schema change; PC-2's freeze test pins the shapes against the
 # committed JSON Schemas so an unreviewed field change fails CI.
-C_SIDE_CONTRACT_INTERFACE_VERSION = "1.0"
+# 1.1 adds the agnostic, optional ``NormalizedTraceProducer.raw_output`` (a backward-compatible
+# field B/A consumers ignore) so the capability gate is source-bound, not shape-bound (PC-1).
+C_SIDE_CONTRACT_INTERFACE_VERSION = "1.1"
 
 
 @dataclass(frozen=True)
@@ -58,12 +60,13 @@ class FrozenCContract:
 FROZEN_C_CONTRACTS: tuple[FrozenCContract, ...] = (
     FrozenCContract(
         contract_id="normalized-trace",
-        version="0.1",
+        version="0.2",
         model=NormalizedTraceArtifact,
         schema_file="normalized-traces.schema.json",
         description=(
             "Ecosystem-agnostic, call-and-event-level execution trace with optional recorded "
-            "real-tool producer provenance; populated by PC-4 (Foundry) and PC-7 (Go)."
+            "real-tool producer provenance; populated by PC-4 (Foundry) and PC-7 (Go). 0.2 adds "
+            "the producer's captured raw_output so the capability gate can source-bind the evidence."
         ),
     ),
     FrozenCContract(

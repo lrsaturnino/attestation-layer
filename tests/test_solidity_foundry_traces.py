@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 from nlreq import foundry_client
-from nlreq.adapter_certification import certify_adapter
+from nlreq.adapter_certification import certify_adapter, trace_has_real_tool_provenance
 from nlreq.models import NormalizedTraceProducer, SymbolRef
 from nlreq.production_source_adapters import SoliditySourceAdapter
 from nlreq.source_adapter import SourceManifest
@@ -59,6 +59,11 @@ def test_adapter_produces_a_foundry_trace_with_recorded_provenance() -> None:
     assert trace.source_hash.startswith("sha256:")
     assert trace.metadata["producer"] == "foundry"
     assert trace.metadata["test_status"] == "Success"
+    # The provenance is SOURCE-BOUND, not just shape-bound: the producer carries the captured forge
+    # report, sha256(raw_output) == source_hash, and the gate confirms it is a genuine forge artifact
+    # (a stamped-over-ingested trace cannot satisfy this — see the conformance negative test).
+    assert trace.producer.raw_output and '"test_results"' in trace.producer.raw_output
+    assert trace_has_real_tool_provenance(trace)
 
 
 @requires_forge
@@ -125,9 +130,15 @@ def test_trace_preserves_nested_external_call_path_and_revert() -> None:
 
 
 @requires_forge
-def test_real_foundry_trace_lifts_certification_above_static_resolution() -> None:
+def test_real_foundry_trace_lifts_certification_to_trace_capable() -> None:
     """A real, provenanced Foundry trace is the evidence PC-1's gate requires, so certification
-    reaches a trace level rather than capping at static_resolution like ingested JSON."""
+    reaches trace_capable rather than capping at static_resolution like ingested JSON.
+
+    It does NOT reach production_candidate on this fixture: the level is per-capability now, and the
+    fixture's Vault.sol has no Slither call-graph edges (``call_graph_edges == 0``), which
+    production_candidate requires alongside provenanced traces. The production_candidate boundary is
+    pinned directly in tests/test_adapter_certification_level.py.
+    """
     adapter = SoliditySourceAdapter(project_root=FIXTURE_ROOT)
 
     report = certify_adapter(
@@ -139,7 +150,8 @@ def test_real_foundry_trace_lifts_certification_above_static_resolution() -> Non
 
     assert report.result == "certified"
     assert report.trace_count >= 1
-    assert report.level in {"trace_capable", "production_candidate"}
+    assert report.level == "trace_capable"
+    assert report.call_graph_edges == 0
 
 
 def test_forge_absent_falls_back_to_ingestion_without_provenance(

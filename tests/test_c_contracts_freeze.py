@@ -40,7 +40,7 @@ def test_frozen_c_contract_schemas_match_committed_files() -> None:
 
 
 def test_each_frozen_contract_is_version_stamped() -> None:
-    assert C_SIDE_CONTRACT_INTERFACE_VERSION == "1.0"
+    assert C_SIDE_CONTRACT_INTERFACE_VERSION == "1.1"
     for contract in FROZEN_C_CONTRACTS:
         assert contract.version, f"{contract.contract_id} must pin a frozen version"
 
