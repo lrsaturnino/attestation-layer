@@ -23,13 +23,18 @@ from nlreq.models import (
     SymbolRef,
     TraceEvent,
 )
+from nlreq.cli import main
+from nlreq.jsonutil import read_json
 from nlreq.production_source_adapters import GoSourceAdapter
 from nlreq.source_adapter import CodePresentation, SourceManifest
 from nlreq.spec_extraction import (
+    build_specula_extraction_integration_report,
+    candidate_to_draft_spec_entry,
     extract_go_candidate_spec,
     parse_spec_extraction,
     promote_candidate_spec_with_review,
 )
+from nlreq.system_spec import SystemSpecRegistry
 
 
 FIXTURE_ROOT = Path(__file__).parent / "fixtures" / "go"
@@ -230,6 +235,128 @@ def test_candidate_with_no_trace_obligation_is_not_promotable() -> None:
 
     assert report.promotable is False
     assert report.rejection_reasons
+
+
+def _empty_registry() -> SystemSpecRegistry:
+    return SystemSpecRegistry.model_validate({"schema_version": "0.1", "specs": []})
+
+
+def test_integration_report_routes_go_module_through_real_extraction() -> None:
+    """PC-8 wiring: the public integration entry point produces a REAL trace-grounded Go candidate (not
+    the vacuous `CandidateInvariant == TRUE` placeholder) and clears when its obligations reproduce."""
+    report = build_specula_extraction_integration_report(
+        requirement=_requirement(),
+        impact=_impact(),
+        registry=_empty_registry(),
+        project_root=Path("."),
+        code_presentation=_presentation(),
+        traces=_go_traces(),
+        llm=RecordedLlmClient("", spec_fixture=_REAL_EXTRACTION),
+    )
+
+    assert report.result == "candidates"
+    assert report.blockers == []
+    candidate = report.candidates[0]
+    assert "== TRUE" not in candidate.content
+    assert "ValidateBeforeRecord" in candidate.content
+    assert candidate.trace_grounding_status == "passed"
+    # The candidate is a draft entry suitable for the SystemSpecRegistry.
+    draft = candidate_to_draft_spec_entry(candidate)
+    assert draft.review_status == "draft"
+    assert draft.module_ids == ["coordinator"]
+
+
+def test_integration_report_blocks_paper_only_go_candidate_with_reason() -> None:
+    """A paper-only Go candidate is blocked by the SAME integration gate, and the blocker surfaces WHY:
+    its obligations are not reproduced by the code's real traces."""
+    report = build_specula_extraction_integration_report(
+        requirement=_requirement(),
+        impact=_impact(),
+        registry=_empty_registry(),
+        project_root=Path("."),
+        code_presentation=_presentation(),
+        traces=_go_traces(),
+        llm=RecordedLlmClient("", spec_fixture=_PAPER_ONLY_EXTRACTION),
+    )
+
+    assert report.result == "blocked"
+    assert report.candidates[0].trace_grounding_status == "blocked"
+    assert "trace validation has not passed" in report.blockers[0]
+    assert "not reproduced" in report.blockers[0]
+
+
+def test_integration_report_without_go_inputs_keeps_generic_placeholder() -> None:
+    """Without the offline LLM client + real traces the Go path does NOT activate: the generic draft
+    placeholder is produced (and blocked as missing trace grounding), never a fabricated candidate."""
+    report = build_specula_extraction_integration_report(
+        requirement=_requirement(),
+        impact=_impact(),
+        registry=_empty_registry(),
+        project_root=Path("."),
+        code_presentation=_presentation(),
+    )
+
+    assert report.result == "blocked"
+    assert "== TRUE" in report.candidates[0].content
+
+
+def test_specula_extract_cli_routes_go_module_offline(tmp_path: Path, capsys) -> None:
+    """The specula-extract CLI drives the Go path fully offline: a recorded proposal + a real-shaped
+    trace yield a REAL trace-grounded candidate, and the exit code gates on the integration result."""
+    paths = {name: tmp_path / name for name in ("ir.json", "impact.json", "registry.json", "pres.json", "traces.json", "fixture.json", "out.json")}
+    paths["ir.json"].write_text(_requirement().model_dump_json())
+    paths["impact.json"].write_text(_impact().model_dump_json())
+    paths["registry.json"].write_text(_empty_registry().model_dump_json())
+    paths["pres.json"].write_text(_presentation().model_dump_json())
+    paths["traces.json"].write_text(_go_traces().model_dump_json())
+    paths["fixture.json"].write_text(_REAL_EXTRACTION)
+
+    exit_code = main(
+        [
+            "specula-extract",
+            "--requirement-ir", str(paths["ir.json"]),
+            "--impact", str(paths["impact.json"]),
+            "--registry", str(paths["registry.json"]),
+            "--code-presentation", str(paths["pres.json"]),
+            "--traces", str(paths["traces.json"]),
+            "--spec-fixture", str(paths["fixture.json"]),
+            "--out", str(paths["out.json"]),
+        ]
+    )
+
+    assert exit_code == 0
+    assert "Specula extraction integration report:" in capsys.readouterr().out
+    report = read_json(paths["out.json"])
+    assert report["result"] == "candidates"
+    assert "== TRUE" not in report["candidates"][0]["content"]
+    assert "ValidateBeforeRecord" in report["candidates"][0]["content"]
+
+
+def test_specula_extract_cli_blocks_paper_only_go_candidate(tmp_path: Path, capsys) -> None:
+    """A paper-only proposal makes the offline CLI exit non-zero — the integration gate blocks it."""
+    paths = {name: tmp_path / name for name in ("ir.json", "impact.json", "registry.json", "pres.json", "traces.json", "fixture.json", "out.json")}
+    paths["ir.json"].write_text(_requirement().model_dump_json())
+    paths["impact.json"].write_text(_impact().model_dump_json())
+    paths["registry.json"].write_text(_empty_registry().model_dump_json())
+    paths["pres.json"].write_text(_presentation().model_dump_json())
+    paths["traces.json"].write_text(_go_traces().model_dump_json())
+    paths["fixture.json"].write_text(_PAPER_ONLY_EXTRACTION)
+
+    exit_code = main(
+        [
+            "specula-extract",
+            "--requirement-ir", str(paths["ir.json"]),
+            "--impact", str(paths["impact.json"]),
+            "--registry", str(paths["registry.json"]),
+            "--code-presentation", str(paths["pres.json"]),
+            "--traces", str(paths["traces.json"]),
+            "--spec-fixture", str(paths["fixture.json"]),
+            "--out", str(paths["out.json"]),
+        ]
+    )
+
+    assert exit_code == 1
+    assert read_json(paths["out.json"])["result"] == "blocked"
 
 
 def test_parse_spec_extraction_is_defensive() -> None:

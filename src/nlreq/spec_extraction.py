@@ -120,6 +120,8 @@ def build_spec_extraction_workbench_report(
     project_root: Path,
     code_presentation: CodePresentation | None = None,
     trace_replay: TraceReplayReport | None = None,
+    traces: NormalizedTraceArtifact | None = None,
+    llm: LlmClient | None = None,
 ) -> SpecExtractionWorkbenchReport:
     registry_report = build_system_spec_registry_report(
         registry,
@@ -132,17 +134,44 @@ def build_spec_extraction_workbench_report(
         if status.status == "fresh"
         for module_id in status.module_ids
     }
-    candidates = [
-        _candidate_for_module(
-            module_id,
-            requirement=requirement,
-            impact=impact,
-            code_presentation=code_presentation,
-            trace_replay=trace_replay,
-        )
-        for module_id in impact.affected_modules
-        if module_id not in fresh_modules
-    ]
+    # A Go module gets a REAL Specula candidate S read from its source (LLM) and trace-validated
+    # against its real Go traces (PC-8), not the vacuous `CandidateInvariant == TRUE` placeholder —
+    # but only when the caller supplies the offline LLM client + the real traces the extraction needs.
+    # Without them (or for any other language) the generic draft placeholder is produced, which carries
+    # `trace_grounding_status="missing"` and so is blocked, never falsely promoted, by the integration
+    # gate. The Go candidate's `trace_grounding_status` is set by the trace replay inside
+    # extract_go_candidate_spec, so the SAME integration gate blocks a paper-only candidate.
+    go_extraction = (
+        impact.language == "go"
+        and traces is not None
+        and llm is not None
+        and code_presentation is not None
+    )
+    candidates: list[CandidateSpec] = []
+    for module_id in impact.affected_modules:
+        if module_id in fresh_modules:
+            continue
+        if go_extraction:
+            candidates.append(
+                extract_go_candidate_spec(
+                    requirement=requirement,
+                    module_id=module_id,
+                    impact=impact,
+                    code_presentation=code_presentation,
+                    traces=traces,
+                    llm=llm,
+                ).candidate
+            )
+        else:
+            candidates.append(
+                _candidate_for_module(
+                    module_id,
+                    requirement=requirement,
+                    impact=impact,
+                    code_presentation=code_presentation,
+                    trace_replay=trace_replay,
+                )
+            )
     return SpecExtractionWorkbenchReport(
         requirement_id=requirement.requirement_id,
         result="candidates" if candidates else "none",
@@ -158,6 +187,8 @@ def build_specula_extraction_integration_report(
     project_root: Path,
     code_presentation: CodePresentation | None = None,
     trace_replay: TraceReplayReport | None = None,
+    traces: NormalizedTraceArtifact | None = None,
+    llm: LlmClient | None = None,
 ) -> SpeculaExtractionIntegrationReport:
     workbench = build_spec_extraction_workbench_report(
         requirement=requirement,
@@ -166,6 +197,8 @@ def build_specula_extraction_integration_report(
         project_root=project_root,
         code_presentation=code_presentation,
         trace_replay=trace_replay,
+        traces=traces,
+        llm=llm,
     )
     validations = [
         validate_candidate_spec_structure(candidate) for candidate in workbench.candidates
@@ -177,8 +210,12 @@ def build_specula_extraction_integration_report(
         )
     for candidate in workbench.candidates:
         if candidate.trace_grounding_status != "passed":
+            # Surface WHY trace validation did not pass — the candidate's own gaps name it (e.g. for a
+            # paper-only Go candidate, "trace obligations are not reproduced by the code's real
+            # traces") — while keeping the stable "trace validation has not passed" lead phrase.
+            why = "; ".join(candidate.gaps) if candidate.gaps else candidate.trace_grounding_status
             blockers.append(
-                f"{candidate.candidate_id}: trace validation has not passed"
+                f"{candidate.candidate_id}: trace validation has not passed ({why})"
             )
     if not workbench.candidates:
         result: Literal["candidates", "blocked", "none"] = "none"

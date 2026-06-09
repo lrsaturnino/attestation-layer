@@ -947,6 +947,11 @@ def main(argv: list[str] | None = None) -> int:
     specula_extract_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     specula_extract_cmd.add_argument("--code-presentation", type=Path)
     specula_extract_cmd.add_argument("--trace-replay", type=Path)
+    # The Go Specula path (PC-8): a real NormalizedTraceArtifact to validate against, plus a RECORDED
+    # spec-extraction proposal that drives an offline RecordedLlmClient (never a live model). The Go
+    # path activates only when BOTH are supplied (with --code-presentation and a Go impact).
+    specula_extract_cmd.add_argument("--traces", type=Path)
+    specula_extract_cmd.add_argument("--spec-fixture", type=Path)
     specula_extract_cmd.add_argument("--out", type=Path)
 
     candidate_review_cmd = subcommands.add_parser(
@@ -2974,13 +2979,17 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "specula-extract":
             from .impact import ImpactAnalysisArtifact
             from .jsonutil import write_json
-            from .models import RequirementIRV2
+            from .llm_client import RecordedLlmClient
+            from .models import NormalizedTraceArtifact, RequirementIRV2
             from .source_adapter import CodePresentation
             from .trace_replay import TraceReplayReport
 
             ir = validate_requirement_ir_json(args.requirement_ir.read_text())
             if not isinstance(ir, RequirementIRV2):
                 raise ValueError("specula-extract requires ir_version 0.2")
+            # Offline-only: a recorded spec proposal drives a RecordedLlmClient, never a live model.
+            # The Go path activates only when the recorded proposal AND the real traces are both given
+            # (the integration report's language/inputs guard falls back to the generic draft else).
             report = build_specula_extraction_integration_report(
                 requirement=ir,
                 impact=ImpactAnalysisArtifact.model_validate_json(args.impact.read_text()),
@@ -2993,6 +3002,12 @@ def main(argv: list[str] | None = None) -> int:
                 else None,
                 trace_replay=TraceReplayReport.model_validate_json(args.trace_replay.read_text())
                 if args.trace_replay
+                else None,
+                traces=NormalizedTraceArtifact.model_validate_json(args.traces.read_text())
+                if args.traces
+                else None,
+                llm=RecordedLlmClient("", spec_fixture=args.spec_fixture.read_text())
+                if args.spec_fixture
                 else None,
             )
             if args.out:
