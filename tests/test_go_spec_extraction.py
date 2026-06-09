@@ -400,19 +400,29 @@ def test_integration_report_blocks_paper_only_go_candidate_with_reason() -> None
     assert "not reproduced" in report.blockers[0]
 
 
-def test_integration_report_without_go_inputs_keeps_generic_placeholder() -> None:
-    """Without the offline LLM client + real traces the Go path does NOT activate: the generic draft
-    placeholder is produced (and blocked as missing trace grounding), never a fabricated candidate."""
+def test_integration_report_blocks_go_module_with_missing_inputs() -> None:
+    """Without the offline LLM client + real traces, the Go path does NOT fall back to the vacuous
+    `CandidateInvariant == TRUE` placeholder: it emits an explicit missing-input block naming which
+    inputs are absent, and the integration gate blocks it. (`_impact` is a Go impact, so the Go
+    missing-input path — not the generic placeholder — is exercised.)"""
     report = build_specula_extraction_integration_report(
         requirement=_requirement(),
         impact=_impact(),
         registry=_empty_registry(),
         project_root=Path("."),
         code_presentation=_presentation(),
+        # traces and llm intentionally omitted — extraction cannot run.
     )
 
     assert report.result == "blocked"
-    assert "== TRUE" in report.candidates[0].content
+    candidate = report.candidates[0]
+    # The vacuous placeholder is gone; the block names exactly why it could not run.
+    assert "== TRUE" not in candidate.content
+    assert candidate.trace_grounding_status == "missing"
+    assert candidate.invariant_names == []
+    assert any("real Go traces" in gap for gap in candidate.gaps)
+    assert any("recorded LLM client" in gap for gap in candidate.gaps)
+    assert "Go Specula extraction did not run" in report.blockers[0]
 
 
 def test_specula_extract_cli_routes_go_module_offline(tmp_path: Path, capsys) -> None:

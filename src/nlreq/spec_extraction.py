@@ -141,16 +141,17 @@ def build_spec_extraction_workbench_report(
     }
     # A Go module gets a REAL Specula candidate S read from its source (LLM) and trace-validated
     # against its real Go traces (PC-8), not the vacuous `CandidateInvariant == TRUE` placeholder —
-    # but only when the caller supplies the offline LLM client + the real traces the extraction needs.
-    # Without them (or for any other language) the generic draft placeholder is produced, which carries
-    # `trace_grounding_status="missing"` and so is blocked, never falsely promoted, by the integration
-    # gate. The Go candidate's `trace_grounding_status` is set by the trace replay inside
-    # extract_go_candidate_spec, so the SAME integration gate blocks a paper-only candidate.
+    # but only when the caller supplies the offline LLM client, the real traces, AND the code
+    # presentation the extraction needs. When a Go module is missing one of those, it does NOT fall
+    # back to the generic `CandidateInvariant == TRUE` draft (that would masquerade an un-run
+    # extraction as a candidate); it gets an explicit missing-input block naming the absent inputs,
+    # blocked by the integration gate. Non-Go modules still get the generic draft placeholder, which
+    # carries `trace_grounding_status="missing"` and so is blocked, never falsely promoted. The Go
+    # candidate's `trace_grounding_status` is set by the trace replay inside extract_go_candidate_spec,
+    # so the SAME integration gate blocks a paper-only candidate.
+    is_go = impact.language == "go"
     go_extraction = (
-        impact.language == "go"
-        and traces is not None
-        and llm is not None
-        and code_presentation is not None
+        is_go and traces is not None and llm is not None and code_presentation is not None
     )
     candidates: list[CandidateSpec] = []
     for module_id in impact.affected_modules:
@@ -166,6 +167,17 @@ def build_spec_extraction_workbench_report(
                     traces=traces,
                     llm=llm,
                 ).candidate
+            )
+        elif is_go:
+            candidates.append(
+                _go_missing_input_candidate(
+                    module_id,
+                    requirement=requirement,
+                    impact=impact,
+                    code_presentation=code_presentation,
+                    traces=traces,
+                    llm=llm,
+                )
             )
         else:
             candidates.append(
@@ -630,6 +642,73 @@ def _go_candidate_gaps(extracted: ExtractedSpec, *, trace_reasons: list[str]) ->
     if trace_reasons:
         gaps.append("trace obligations are not reproduced by the code's real traces")
     return gaps
+
+
+def _go_missing_input_candidate(
+    module_id: str,
+    *,
+    requirement: RequirementIRV2,
+    impact: ImpactAnalysisArtifact,
+    code_presentation: CodePresentation | None,
+    traces: NormalizedTraceArtifact | None,
+    llm: LlmClient | None,
+) -> CandidateSpec:
+    """A Go module whose Specula extraction could NOT run because a required input is missing.
+
+    PC-8 extraction reads the module SOURCE with the offline LLM client and validates the proposal
+    against the module's real Go traces, so it needs the recorded LLM client, those traces, and the
+    code presentation. When any is absent we do NOT fall back to the vacuous `CandidateInvariant ==
+    TRUE` placeholder — that would present an extraction that never ran as if it were a candidate S.
+    Instead we emit an explicit missing-input block: a module declaring no invariant,
+    ``trace_grounding_status="missing"``, and gaps naming exactly which inputs are absent, so the
+    integration gate blocks it for an honest reason. Its empty ``invariant_names`` also keep it
+    un-promotable on the S ∧ R side.
+    """
+    missing: list[str] = []
+    if llm is None:
+        missing.append("recorded LLM client (to read the module source)")
+    if traces is None:
+        missing.append("real Go traces (to validate the candidate against the code)")
+    if code_presentation is None:
+        missing.append("code presentation (the source the extractor reads)")
+    content = _go_missing_input_tla_content(module_id, requirement, missing)
+    gaps = ["Go Specula extraction did not run: required inputs are missing"]
+    gaps.extend(f"missing input: {item}" for item in missing)
+    return CandidateSpec(
+        candidate_id=f"{requirement.requirement_id}:{module_id}",
+        module_id=module_id,
+        path=f"specs/candidates/{_safe_path_part(module_id)}.tla",
+        content=content,
+        content_hash=sha256_text(content),
+        trace_grounding_status="missing",
+        gaps=gaps,
+        provenance=CandidateSpecProvenance(
+            requirement_id=requirement.requirement_id,
+            impact_hash=sha256_json(impact),
+            code_presentation_hash=sha256_json(code_presentation)
+            if code_presentation is not None
+            else None,
+            metadata={"module_id": module_id, "extraction": "specula_go_missing_inputs"},
+        ),
+    )
+
+
+def _go_missing_input_tla_content(
+    module_id: str, requirement: RequirementIRV2, missing: list[str]
+) -> str:
+    module_name = "Candidate_" + _safe_tla_name(module_id)
+    lines = [
+        f"---- MODULE {module_name} ----",
+        f"\\* Go Specula extraction did not run for module {module_id}: required inputs are missing.",
+        f"\\* Requirement: {requirement.requirement_id}",
+    ]
+    for item in missing:
+        lines.append(f"\\* missing input: {item}")
+    lines.append(
+        "\\* No candidate S was extracted; this module declares no invariant and is not promotable."
+    )
+    lines.append("====")
+    return "\n".join(lines) + "\n"
 
 
 def _serialize_presentation(code_presentation: CodePresentation) -> str:
