@@ -119,6 +119,17 @@ def test_real_forge_report_is_source_bound_evidence() -> None:
     assert trace_has_real_tool_provenance(trace)
 
 
+def test_forge_report_with_extra_non_suite_top_level_keys_still_validates() -> None:
+    """Drift tolerance: forge --json may carry non-suite top-level keys (warnings/metadata). The gate
+    requires one forge-shaped suite, not that every top-level value is one, so a real trace is not
+    false-negatived (which would silently cap certification at static_resolution)."""
+    report = json.loads(_forge_report())
+    report["__warning"] = "compiler note"  # a non-dict, non-suite top-level key forge could emit
+    raw = json.dumps(report)
+    trace = _trace(raw_output=raw, metadata={"suite": "VaultTest", "test": "testRedeem()"})
+    assert trace_has_real_tool_provenance(trace)
+
+
 def test_normalized_trace_blob_stamped_with_self_hash_is_rejected() -> None:
     """The exact loophole: stamp a producer + a self-consistent sha256 over a NormalizedTrace blob.
     The hash recompute passes, but the carried bytes are not a forge report, so the gate rejects it."""

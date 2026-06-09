@@ -54,16 +54,24 @@ def _forge_report_is_well_formed(raw_output: str, trace: NormalizedTrace) -> boo
         return False
     if not isinstance(report, dict) or not report:
         return False
+    # Require AT LEAST ONE forge-shaped suite (suite -> test_results -> test -> traces) rather than
+    # demanding every top-level value be a suite: forge's --json may carry non-suite top-level keys
+    # (warnings/metadata), and rejecting on those would false-negative a REAL forge trace and cap
+    # certification at static_resolution. A normalized-trace blob still has no forge-shaped suite (its
+    # producer/metadata sub-objects carry no ``test_results``), so it is still rejected.
     forge_shaped = False
     for suite in report.values():
         if not isinstance(suite, dict):
-            return False
+            continue
         test_results = suite.get("test_results")
         if not isinstance(test_results, dict):
-            return False
+            continue
         for test in test_results.values():
             if isinstance(test, dict) and "traces" in test:
                 forge_shaped = True
+                break
+        if forge_shaped:
+            break
     if not forge_shaped:
         return False
     suite_name = trace.metadata.get("suite")
@@ -71,7 +79,8 @@ def _forge_report_is_well_formed(raw_output: str, trace: NormalizedTrace) -> boo
         return False
     test_name = trace.metadata.get("test")
     if isinstance(test_name, str) and test_name and not any(
-        test_name in suite.get("test_results", {}) for suite in report.values()
+        isinstance(suite, dict) and test_name in suite.get("test_results", {})
+        for suite in report.values()
     ):
         return False
     return True
