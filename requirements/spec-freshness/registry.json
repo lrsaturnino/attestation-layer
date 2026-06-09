@@ -1,0 +1,23 @@
+{
+  "schema_version": "0.1",
+  "specs": [
+    {
+      "spec_id": "spec:authorization",
+      "module_ids": [
+        "authorization"
+      ],
+      "formalism": "tla",
+      "path": "requirements/spec-freshness/specs/Authorization.tla",
+      "version": "1",
+      "review_status": "reviewed",
+      "freshness": "fresh",
+      "recorded_hash": "sha256:b7b4f4ac0ad12252b1c7a6a58ea940d8c3db81882c8c7fee2186e5decbaf535b",
+      "init_op": null,
+      "next_op": null,
+      "invariants": [
+        "AuthorizedOnlyWhenGranted"
+      ],
+      "metadata": {}
+    }
+  ]
+}

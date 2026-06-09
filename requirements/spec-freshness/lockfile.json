@@ -1,0 +1,19 @@
+{
+  "schema_version": "0.1",
+  "lock_id": "spec-freshness-demo",
+  "entries": [
+    {
+      "module_id": "authorization",
+      "source_hashes": {
+        "requirements/spec-freshness/src/authorization.py": "sha256:c0b24961ca4d1c7b5bc4ecfb69ffcabe538189f4075c270325032cd1cd175551"
+      },
+      "spec_hashes": {
+        "spec:authorization": "sha256:b7b4f4ac0ad12252b1c7a6a58ea940d8c3db81882c8c7fee2186e5decbaf535b"
+      },
+      "dependency_module_ids": [],
+      "manifest_entry_hash": "sha256:e89a33f24b1e482a4a9fc7a16f8f6049dc57cf6618b158da9add5affcf4aee20"
+    }
+  ],
+  "tool": "nlreq.spec_freshness",
+  "tool_version": "0.1"
+}

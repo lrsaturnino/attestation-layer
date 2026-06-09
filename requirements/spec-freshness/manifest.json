@@ -1,0 +1,18 @@
+{
+  "schema_version": "0.1",
+  "entries": [
+    {
+      "module_id": "authorization",
+      "source_paths": [
+        "requirements/spec-freshness/src/authorization.py"
+      ],
+      "spec_ids": [
+        "spec:authorization"
+      ],
+      "dependency_module_ids": [],
+      "recorded_source_hashes": {
+        "requirements/spec-freshness/src/authorization.py": "sha256:c0b24961ca4d1c7b5bc4ecfb69ffcabe538189f4075c270325032cd1cd175551"
+      }
+    }
+  ]
+}

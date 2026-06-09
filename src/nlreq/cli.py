@@ -1573,6 +1573,12 @@ def main(argv: list[str] | None = None) -> int:
         action="store_true",
         help="Validate normalized trace artifacts against supported requirement claims.",
     )
+    # PC-12: surface covered-module spec staleness in the run. The code↔spec manifest's
+    # recorded_source_hashes are recomputed against --code-spec-project-root; a drifted module is
+    # surfaced as a report-only finding (the block lives at the S ∧ R refusal and the spec-freshness
+    # gate). Defaults the project root to the packages dir's parent (the repo root in the usual layout).
+    continuous_cmd.add_argument("--code-spec-manifest", type=Path)
+    continuous_cmd.add_argument("--code-spec-project-root", type=Path)
     continuous_cmd.add_argument("--out", type=Path)
     continuous_cmd.add_argument("--markdown-out", type=Path)
     _add_adapter_validation_options(continuous_cmd)
@@ -4149,6 +4155,13 @@ def main(argv: list[str] | None = None) -> int:
                 previous_run=load_attestation_run(args.previous_run)
                 if args.previous_run
                 else None,
+                code_spec_manifest=CodeSpecManifest.model_validate_json(
+                    args.code_spec_manifest.read_text()
+                )
+                if args.code_spec_manifest
+                else None,
+                code_spec_project_root=args.code_spec_project_root
+                or (args.packages_dir.parent if args.code_spec_manifest else None),
             )
             wrote_output = False
             if args.out:

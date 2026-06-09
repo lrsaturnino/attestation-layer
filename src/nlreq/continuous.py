@@ -17,6 +17,7 @@ from .models import NormalizedTraceArtifact
 from .openapi_adapter import OpenApiAdapter
 from .protobuf_adapter import ProtobufAdapter
 from .python_adapter import PythonPackageAdapter
+from .spec_drift import CodeSpecManifest, SpecDriftReport, build_spec_drift_report
 from .trace_validation import build_trace_validation_report
 from .tla_adapter import TlaAdapter
 
@@ -43,6 +44,8 @@ def build_attestation_run(
     trace_artifact_paths: Iterable[Path] = (),
     trace_validation: bool = False,
     previous_run: dict[str, Any] | None = None,
+    code_spec_manifest: CodeSpecManifest | None = None,
+    code_spec_project_root: Path | None = None,
 ) -> dict[str, Any]:
     if trigger not in TRIGGER_TYPES:
         raise ValueError(f"unsupported continuous attestation trigger: {trigger}")
@@ -78,11 +81,26 @@ def build_attestation_run(
         else None
     )
     deltas = _deltas_from_previous(previous_run, package_index)
+    # PC-12: the commit-triggered spec-freshness surface. When a code↔spec manifest is supplied, the
+    # run recomputes each covered module's source hash and surfaces any module whose source drifted
+    # from its recorded baseline as an error-class finding — the spec S must be re-validated before
+    # S ∧ R can run against it. This is a REPORT-ONLY surface: the actual block lives at the S ∧ R
+    # refusal (system_checker) and the spec-freshness CI gate, so a continuous run records the drift
+    # without itself flipping to a blocking verdict (`result` stays "report_only").
+    spec_drift = (
+        build_spec_drift_report(
+            code_spec_manifest,
+            project_root=code_spec_project_root or Path.cwd(),
+        )
+        if code_spec_manifest is not None
+        else None
+    )
     findings = [
         *_package_findings(package_index["packages"]),
         *trace_findings,
         *(trace_validation_report["findings"] if trace_validation_report else []),
         *_findings_for_deltas(deltas),
+        *_spec_freshness_findings(spec_drift),
     ]
     return {
         "run_version": ATTESTATION_RUN_VERSION,
@@ -116,12 +134,20 @@ def build_attestation_run(
             if trace_validation_report
             else 0,
             "deltas": len(deltas),
+            "stale_specs": sum(
+                1 for status in spec_drift.statuses if status.status != "fresh"
+            )
+            if spec_drift is not None
+            else 0,
         },
         "findings": findings,
         "package_freshness": package_freshness,
         "trace_artifacts": trace_summary,
         "trace_validation": trace_validation_report,
         "deltas": deltas,
+        "spec_freshness": spec_drift.model_dump(mode="json", exclude_none=True)
+        if spec_drift is not None
+        else None,
         "package_index": package_index,
     }
 
@@ -480,6 +506,36 @@ def _findings_for_deltas(deltas: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 _delta_message(delta),
             )
         )
+    return findings
+
+
+def _spec_freshness_findings(report: SpecDriftReport | None) -> list[dict[str, Any]]:
+    """Surface each covered module whose source drifted from its recorded baseline as a finding.
+
+    A non-fresh module (its source changed, a source path went missing, or a dependency drifted) means
+    its reviewed spec S no longer provably describes the current code, so S ∧ R must not run against it
+    until S is re-validated. Emitted at ``error`` severity because it is a real blocker downstream (the
+    S ∧ R refusal and the spec-freshness CI gate), even though this report-only run does not itself
+    block.
+    """
+    if report is None:
+        return []
+    findings: list[dict[str, Any]] = []
+    for status in report.statuses:
+        if status.status == "fresh":
+            continue
+        detail = f"changed: {', '.join(status.changed_paths)}" if status.changed_paths else ""
+        if status.stale_due_to_dependencies:
+            dependency_detail = (
+                f"stale via dependencies {', '.join(status.stale_due_to_dependencies)}"
+            )
+            detail = f"{detail}; {dependency_detail}" if detail else dependency_detail
+        message = (
+            f"covered module {status.module_id} is {status.status}; "
+            f"spec(s) {', '.join(status.spec_ids)} must be re-validated before S ∧ R"
+            + (f" ({detail})" if detail else "")
+        )
+        findings.append(_finding("error", "stale_spec", None, "", message))
     return findings
 
 
