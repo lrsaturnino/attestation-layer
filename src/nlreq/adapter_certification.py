@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import base64
+import binascii
 import hashlib
 import json
 import re
@@ -97,12 +99,37 @@ def _forge_report_is_well_formed(raw_output: str, trace: NormalizedTrace) -> boo
     return True
 
 
+# The execution-trace file every Go runtime/trace begins with: the literal ``go `` then the producing
+# toolchain version then `` trace`` and a NUL. The Go producer (PC-7) carries the base64 of these real
+# binary bytes, so the gate decodes and checks this magic — ingested JSON cannot satisfy it.
+_GO_TRACE_MAGIC_PREFIX = b"go "
+_GO_TRACE_MAGIC_INFIX = b" trace\x00"
+
+
+def _go_runtime_trace_is_well_formed(raw_output: str, trace: NormalizedTrace) -> bool:
+    """Whether ``raw_output`` is the base64 of a genuine Go runtime/trace artifact (not ingested JSON).
+
+    The Go vertical (PC-7) records ``raw_output`` as the base64 of the RAW binary runtime/trace the
+    events were projected from. A real Go execution trace starts with ``go <version> trace\\x00`` — a
+    header normalized-trace JSON (an array, or an object with ``events``/``producer``) cannot carry.
+    The base64 round-trips and the magic header must be present, binding the provenance to a real
+    ``go test -trace`` run rather than a producer stamped over manifest-declared JSON (PC-1).
+    """
+    try:
+        decoded = base64.b64decode(raw_output, validate=True)
+    except (binascii.Error, ValueError):
+        return False
+    header = decoded[:64]
+    return header.startswith(_GO_TRACE_MAGIC_PREFIX) and _GO_TRACE_MAGIC_INFIX in header
+
+
 # Per-tool validators that confirm a producer's carried ``raw_output`` is a genuine artifact of that
-# tool (not ingested JSON dressed up as provenance). Extended per vertical — Go/OTel producers (PC-7)
-# register their own. A producer whose ``tool`` has no registered validator is not accepted as
-# source-bound evidence, so the gate never over-trusts a tool it cannot verify.
+# tool (not ingested JSON dressed up as provenance). Extended per vertical — Go's runtime/trace
+# producer (PC-7) registers its own here. A producer whose ``tool`` has no registered validator is not
+# accepted as source-bound evidence, so the gate never over-trusts a tool it cannot verify.
 _RAW_OUTPUT_VALIDATORS = {
     "forge": _forge_report_is_well_formed,
+    "go": _go_runtime_trace_is_well_formed,
 }
 
 
@@ -739,20 +766,33 @@ def _capability_evidence_findings(
     ]
 
 
+# Each entry is a (status_key, version_key) pair a tool-backed call-graph path records: an
+# ``analyzed`` status AND a captured tool version. Slither (Solidity, PC-3) and callgraph (Go, PC-6)
+# register their own signal; the regex fallback records neither, so it cannot reach
+# production_candidate. New verticals add their pair here.
+_TOOL_BACKED_CALL_GRAPH_SIGNALS: tuple[tuple[str, str], ...] = (
+    ("slither_status", "slither_version"),
+    ("callgraph_status", "go_version"),
+)
+
+
 def call_graph_is_tool_backed(call_graph: SourceCallGraph) -> bool:
     """Whether the call graph came from a real static-analysis tool with a recorded version.
 
-    production_candidate requires a tool-backed call graph (Slither for Solidity), not the regex
-    fallback. The signal is the metadata the Slither-backed path records: an ``analyzed`` status AND
-    a captured tool version (the regex fallback records neither). Unlike trace evidence — which is
-    preimage-bound above — this call-graph signal is adapter-asserted: a malicious adapter could
-    stamp ``slither_status=analyzed`` with a fabricated version. That asymmetry is deliberate and
+    production_candidate requires a tool-backed call graph (Slither for Solidity, callgraph for Go),
+    not the regex fallback. The signal is the metadata the tool-backed path records: an ``analyzed``
+    status AND a captured tool version (the regex fallback records neither). Unlike trace evidence —
+    which is preimage-bound above — this call-graph signal is adapter-asserted: a malicious adapter
+    could stamp ``<tool>_status=analyzed`` with a fabricated version. That asymmetry is deliberate and
     documented; tying the call-graph evidence to the tool client's captured output is a future
     tightening. What this gate guarantees now is that a *regex* fallback cannot reach
     production_candidate, which is the honesty boundary the HELPER flagged.
     """
     metadata = call_graph.metadata or {}
-    return metadata.get("slither_status") == "analyzed" and bool(metadata.get("slither_version"))
+    return any(
+        metadata.get(status_key) == "analyzed" and bool(metadata.get(version_key))
+        for status_key, version_key in _TOOL_BACKED_CALL_GRAPH_SIGNALS
+    )
 
 
 def achieved_capability_level(

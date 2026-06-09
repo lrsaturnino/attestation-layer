@@ -63,6 +63,32 @@ jobs:
           forge --version
           solc --version
 
+      # The Go vertical (PC-6/PC-7/PC-8) drives the real Go toolchain: gopls for symbol resolution,
+      # callgraph for the CHA call graph, and `go test -trace` + the vendored x/exp/trace reader for
+      # runtime-trace extraction. Pin Go to 1.26 to match the trace format the vendored reader
+      # supports (the runtime/trace format is coupled to the producing toolchain version) — without
+      # it the PC-6/PC-7/PC-8 tests skip and the real Go vertical is never exercised in CI.
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: Install gopls and callgraph
+        run: |
+          go install golang.org/x/tools/gopls@v0.22.0
+          go install golang.org/x/tools/cmd/callgraph@v0.45.0
+          echo "$(go env GOPATH)/bin" >> "$GITHUB_PATH"
+
+      # Fail loudly if the Go toolchain did not install, mirroring the Solidity verify step: a botched
+      # install would leave the tools absent, the PC-6/PC-7/PC-8 tests would silently skip, and CI
+      # would go green without ever exercising the real Go vertical.
+      - name: Verify Go toolchain is present
+        run: |
+          go version
+          gopls version
+          callgraph --help 2>&1 | head -1 || true
+          command -v callgraph
+
       - name: Check schema drift
         run: uv run python scripts/check_schema_drift.py
 

@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
-from . import foundry_client, slither_client
+from . import foundry_client, go_client, slither_client
 from .models import (
     EvidenceLevel,
     NormalizedTrace,
@@ -692,6 +692,309 @@ class GoSourceAdapter(RegexProductionSourceAdapter):
     def _manifest_metadata(self, manifest: SourceManifest) -> dict[str, str]:
         package_count = len({module.module_id.split(":")[0] for module in manifest.modules})
         return {**super()._manifest_metadata(manifest), "package_count": str(package_count)}
+
+    # --- gopls + callgraph-backed resolution + call graph (PC-6) ---------------------------------
+    # When the Go toolchain can be driven, symbol resolution is type-aware (a method declared on two
+    # types resolves ambiguous — Go's only ambiguity source) and the call graph is a real CHA graph
+    # (interface dispatch resolves to every implementation, an edge a lexical pass cannot attribute).
+    # When the tools are unavailable the adapter degrades to the lexical RegexProductionSourceAdapter
+    # behaviour and records the skip reason; it never claims a tool-backed result it did not run.
+
+    @staticmethod
+    def _go_symbol_type(kind: str) -> str:
+        if kind == "Function":
+            return "function"
+        if kind == "Method":
+            return "method"
+        if kind in {"Struct", "Interface", "Type"}:
+            return "type"
+        return kind.lower()
+
+    def _go_result(self, manifest: SourceManifest) -> go_client.GoAnalysisResult:
+        cache: dict[tuple[str, ...], go_client.GoAnalysisResult] = self.__dict__.setdefault(
+            "_go_results", {}
+        )
+        key = tuple(sorted(module.path for module in manifest.modules))
+        if key not in cache:
+            files = [self._path(module.path) for module in manifest.modules]
+            cache[key] = go_client.analyze_go_source(
+                files, project_root=self.project_root.resolve(strict=False)
+            )
+        return cache[key]
+
+    def _package_to_module(self, manifest: SourceManifest, module_path: str | None) -> dict[str, str]:
+        mapping: dict[str, str] = {}
+        if not module_path:
+            return mapping
+        for module in manifest.modules:
+            mapping[go_client._package_import_path(module_path, module.path)] = module.module_id
+        return mapping
+
+    def _go_span(self, symbol: go_client.GoSymbol, manifest: SourceManifest) -> SourceSpan | None:
+        module_path = self._module_path_for_symbol(symbol.file, manifest)
+        if module_path is None:
+            return None
+        path = self._path(module_path)
+        if not path.is_file():
+            return None
+        text = path.read_text()
+        lines = text.splitlines(keepends=True)
+        # gopls reports 1-based line, 1-based column, end-exclusive. Offsets are computed by
+        # character; non-ASCII identifiers (gopls counts UTF-16 code units) could be off, but the
+        # span is advisory review context, not the binding key.
+        if symbol.start_line > len(lines):
+            return None
+        start = sum(len(lines[i]) for i in range(symbol.start_line - 1)) + (symbol.start_col - 1)
+        end = sum(len(lines[i]) for i in range(symbol.end_line - 1)) + (symbol.end_col - 1)
+        start = max(0, min(start, len(text)))
+        end = max(start, min(end, len(text)))
+        return SourceSpan(
+            document=path.as_posix(), start_char=start, end_char=end, text=text[start:end]
+        )
+
+    def _module_for_symbol_file(self, file: str, manifest: SourceManifest) -> str | None:
+        basename = Path(file).name
+        for module in manifest.modules:
+            if module.path == file or Path(module.path).name == basename:
+                return module.module_id
+        return None
+
+    def _module_path_for_symbol(self, file: str, manifest: SourceManifest) -> str | None:
+        basename = Path(file).name
+        for module in manifest.modules:
+            if module.path == file or Path(module.path).name == basename:
+                return module.path
+        return None
+
+    def _annotate_go_fallback(
+        self,
+        resolution: SourceSymbolResolution,
+        *,
+        go_status: str,
+        skip_reason: str | None,
+    ) -> SourceSymbolResolution:
+        """Stamp the Go-toolchain skip reason onto a lexical fallback so the degrade is never silent.
+
+        Mirrors the Solidity adapter: every resolved/ambiguous symbol carries ``go_status`` +
+        ``go_skip_reason`` in its metadata; when nothing resolved the skip reason is appended to the
+        resolution ``reason`` so the honest "the Go tools did not run, this is the regex fallback"
+        signal stays visible on resolution itself.
+        """
+        annotated = [
+            symbol.model_copy(
+                update={
+                    "metadata": {
+                        **symbol.metadata,
+                        "go_status": go_status,
+                        **({"go_skip_reason": skip_reason} if skip_reason else {}),
+                    }
+                }
+            )
+            for symbol in resolution.symbols
+        ]
+        reason = resolution.reason
+        if not resolution.symbols:
+            note = f"go toolchain {go_status}" + (f": {skip_reason}" if skip_reason else "")
+            reason = f"{reason}; {note}" if reason else note
+        return resolution.model_copy(update={"symbols": annotated, "reason": reason})
+
+    def resolve_symbol(self, ref: SymbolRef, manifest: SourceManifest) -> SourceSymbolResolution:
+        result = self._go_result(manifest)
+        analysis = result.analysis
+        if result.status != "analyzed" or analysis is None:
+            fallback = super().resolve_symbol(ref, manifest)
+            return self._annotate_go_fallback(
+                fallback, go_status=result.status, skip_reason=result.reason
+            )
+
+        seen: set[tuple[str, str | None, str]] = set()
+        matches: list[SourceSymbol] = []
+        for symbol in analysis.symbols:
+            if symbol.name != ref.name:
+                continue
+            # A method shared by two types appears once per receiver; distinct (kind, container)
+            # stays distinct so it resolves ambiguous, while one definition is not double-counted.
+            identity = (symbol.kind, symbol.container, symbol.file)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            module_id = self._module_for_symbol_file(symbol.file, manifest) or (
+                manifest.modules[0].module_id if manifest.modules else "unknown"
+            )
+            module_path = self._module_path_for_symbol(symbol.file, manifest) or (
+                manifest.modules[0].path if manifest.modules else ""
+            )
+            matches.append(
+                SourceSymbol(
+                    name=symbol.name,
+                    module_id=module_id,
+                    path=module_path,
+                    symbol_type=self._go_symbol_type(symbol.kind),
+                    source_span=self._go_span(symbol, manifest),
+                    metadata={
+                        "analysis": "gopls",
+                        "ecosystem": "go",
+                        "kind": symbol.kind,
+                        "container": symbol.container or "",
+                    },
+                )
+            )
+        if len(matches) == 1:
+            return SourceSymbolResolution(ref=ref, status="resolved", symbols=matches)
+        if len(matches) > 1:
+            return SourceSymbolResolution(
+                ref=ref,
+                status="ambiguous",
+                symbols=matches,
+                reason=(
+                    f"symbol resolves to {len(matches)} gopls-analyzed definitions "
+                    "(a method shared across types or a name declared in multiple files)"
+                ),
+            )
+        return SourceSymbolResolution(
+            ref=ref, status="unresolved", reason="symbol not found by gopls analysis"
+        )
+
+    def call_graph(self, manifest: SourceManifest) -> SourceCallGraph:
+        result = self._go_result(manifest)
+        analysis = result.analysis
+        if result.status != "analyzed" or analysis is None:
+            graph = super().call_graph(manifest)
+            graph.metadata["callgraph_status"] = result.status
+            if result.reason:
+                graph.metadata["callgraph_skip_reason"] = result.reason
+            return graph
+
+        package_to_module = self._package_to_module(manifest, analysis.module_path)
+        edges: list[SourceCallEdge] = []
+        for edge in analysis.edges:
+            caller_module = package_to_module.get(edge.caller_package, edge.caller_package)
+            callee_module = package_to_module.get(edge.callee_package, edge.callee_package)
+            edges.append(
+                SourceCallEdge(
+                    caller=f"{caller_module}:{edge.caller_label}",
+                    callee=f"{callee_module}:{edge.callee_label}",
+                    metadata={
+                        "caller_package": edge.caller_package,
+                        "callee_package": edge.callee_package,
+                    },
+                )
+            )
+        metadata = {
+            "analysis": "callgraph",
+            "callgraph_status": "analyzed",
+            "callgraph_algo": "cha",
+            **self._manifest_metadata(manifest),
+        }
+        if analysis.go_version:
+            metadata["go_version"] = analysis.go_version
+        if analysis.gopls_version:
+            metadata["gopls_version"] = analysis.gopls_version
+        return SourceCallGraph(
+            adapter_id=self.adapter_id,
+            language=self.language,
+            modules=[module.module_id for module in manifest.modules],
+            edges=edges,
+            metadata=metadata,
+        )
+
+    # --- runtime/trace-backed extraction (PC-7) --------------------------------------------------
+    # When the project root is a Go module, the adapter PRODUCES traces by running `go test -trace`
+    # and projecting the real runtime/trace onto the NormalizedTrace contract: each user-meaningful,
+    # goroutine-attributed event (task/region/log) becomes one TraceEvent whose action is the
+    # region/task name so a spec's trace contract can match it (PC-8), with the goroutine id and the
+    # observed order preserved in metadata. The produced traces carry `go test -trace` provenance over
+    # the real binary trace artifact, so they are real-tool evidence the certification gate accepts.
+    # Without a Go module (or with go absent) it falls back to ingesting manifest-declared trace JSON,
+    # which carries no provenance and so never lifts the adapter above static_resolution.
+
+    def _go_packages(self, manifest: SourceManifest) -> list[str]:
+        packages: list[str] = []
+        for module in manifest.modules:
+            directory = str(Path(module.path).parent)
+            package = "./" if directory in ("", ".") else f"./{directory}/"
+            if package not in packages:
+                packages.append(package)
+        return packages
+
+    def _go_trace_result(self, manifest: SourceManifest) -> go_client.GoTraceResult:
+        cache: dict[tuple[str, ...], go_client.GoTraceResult] = self.__dict__.setdefault(
+            "_go_trace_results", {}
+        )
+        key = tuple(self._go_packages(manifest))
+        if key not in cache:
+            cache[key] = go_client.extract_go_traces(
+                self.project_root.resolve(strict=False), packages=list(key)
+            )
+        return cache[key]
+
+    def extract_traces(self, manifest: SourceManifest) -> NormalizedTraceArtifact:
+        result = self._go_trace_result(manifest)
+        if result.status != "extracted":
+            return super().extract_traces(manifest)
+        producer = NormalizedTraceProducer(
+            tool="go",
+            tool_version=result.go_version or "go",
+            # Carry the base64 of the real binary runtime/trace so the gate is source-bound:
+            # certification recomputes sha256(raw_output) == source_hash and confirms the Go trace
+            # magic header (a stamped-over-ingested trace cannot satisfy this).
+            raw_output=result.raw_output,
+        )
+        source_hash = result.raw_output_hash or "sha256:unknown"
+        traces: list[NormalizedTrace] = []
+        for test_trace in result.traces:
+            events = [self._normalize_go_event(event) for event in test_trace.events]
+            traces.append(
+                NormalizedTrace(
+                    trace_id=f"go::{test_trace.package}",
+                    adapter_id=self.adapter_id,
+                    source_hash=source_hash,
+                    language=self.language,
+                    runtime=self.runtime,
+                    events=events,
+                    producer=producer,
+                    metadata={
+                        "producer": "go-runtime-trace",
+                        "go_version": result.go_version or "",
+                        "test_status": test_trace.status,
+                        "package": test_trace.package,
+                        # The runtime trace -> call-level projection is lossy: scheduler/GC/sync
+                        # detail is dropped, goroutine scheduling is linearized to the observed order.
+                        "lossy_normalization": True,
+                    },
+                )
+            )
+        return NormalizedTraceArtifact.model_validate(traces)
+
+    @staticmethod
+    def _normalize_go_event(event: go_client.GoTraceEvent) -> TraceEvent:
+        # The action is the region/task name (or the log category) so a spec trace contract's target
+        # matches it; the goroutine id and the trace-observed order are preserved so the interleaving
+        # survives normalization.
+        action = event.name or event.category or event.kind
+        metadata: dict[str, object] = {
+            "kind": event.kind,
+            "goroutine": event.goroutine,
+            "go_runtime": "runtime/trace",
+            "task": event.task,
+        }
+        if event.category:
+            metadata["category"] = event.category
+        if event.message:
+            metadata["message"] = event.message
+        post_state: dict[str, object] | None = None
+        if event.message:
+            post_state = {"log": event.message}
+        return TraceEvent(
+            event_id=f"{event.kind}-{event.ordinal}",
+            timestamp=event.ordinal,
+            actor=f"goroutine-{event.goroutine}",
+            action=action,
+            post_state=post_state,
+            language="go",
+            runtime="go",
+            metadata=metadata,
+        )
 
 
 class TypeScriptSourceAdapter(RegexProductionSourceAdapter):
