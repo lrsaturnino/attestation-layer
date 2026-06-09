@@ -223,6 +223,31 @@ def test_no_coverage_when_no_obligation_is_witnessed() -> None:
     assert report.deltas == []
 
 
+def test_partial_coverage_does_not_close_as_satisfies_allow() -> None:
+    """A spec with one witnessed obligation and one never-witnessed obligation must NOT close as
+    satisfies/allow — the unwitnessed obligation is surfaced as no-coverage (review). Allowing here
+    would silently claim grounding the traces never evidenced."""
+    report = classify_spec_code_alignment(
+        contract=_contract(
+            # Witnessed: the Redeemed event is emitted in the trace.
+            SpecTraceExpectation(expectation_id="e-witnessed", kind="event_emitted", target="Redeemed"),
+            # Never witnessed: balanceOf is never read, so the obligation cannot be confirmed.
+            SpecTraceExpectation(
+                expectation_id="e-missing", kind="state_value_reached", target="balanceOf", value="1"
+            ),
+        ),
+        traces=_synthetic_traces(),
+    )
+
+    assert report.classification == "no_coverage"
+    assert report.closure_effect == "review"
+    assert report.deltas == []
+    # The partial signal is distinct from the none-witnessed signal and names the gap honestly.
+    assert "partially" in report.reason
+    outcomes = {obs.expectation_id: obs.outcome for obs in report.observations}
+    assert outcomes == {"e-witnessed": "satisfied", "e-missing": "no_coverage"}
+
+
 def test_replay_records_one_observation_per_expectation() -> None:
     contract = _contract(
         SpecTraceExpectation(expectation_id="a", kind="event_emitted", target="Redeemed"),

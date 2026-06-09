@@ -881,13 +881,16 @@ class SpecCodeDelta(BaseModel):
 class SpecCodeAlignmentReport(BaseModel):
     """Three-way classification of whether the registered spec S reproduces the code's real traces.
 
-    - ``satisfies``: the traces witness at least one of S's obligations and contradict none — S
-      reproduces the code's real traces (closure ``allow``).
+    - ``satisfies``: the traces witness EVERY one of S's obligations and contradict none — S fully
+      reproduces the code's real traces (closure ``allow``). A spec closes as satisfied only when all
+      its declared obligations are witnessed: one unwitnessed obligation is not evidence of grounding.
     - ``violates_with_delta``: at least one obligation is contradicted by the real traces; each
       contradiction is reported as a :class:`SpecCodeDelta` (closure ``block``). This is the
       "paper system" catch — a spec that cannot reproduce the code's traces is not a spec of the code.
-    - ``no_coverage``: the real traces witness none of S's obligations, so alignment is undetermined
-      (closure ``review``) — neither confirmed nor contradicted.
+    - ``no_coverage``: the real traces do not witness all of S's obligations and contradict none, so
+      alignment is undetermined (closure ``review``) — either none of the obligations is witnessed,
+      or only some are (a partial spec). The unwitnessed obligation(s) are surfaced rather than
+      silently allowed.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -911,12 +914,15 @@ def classify_spec_code_alignment(
 
     Replays S's declared trace-observable obligations (``contract``) against the real traces and
     folds the per-obligation outcomes into the three-way classification. Any violated obligation
-    yields ``violates_with_delta`` with a populated delta per contradiction; otherwise at least one
-    satisfied obligation yields ``satisfies``; if the traces witness none, ``no_coverage``.
+    yields ``violates_with_delta`` with a populated delta per contradiction. Otherwise the spec
+    closes as ``satisfies`` (allow) only when EVERY obligation is witnessed-satisfied; if any
+    obligation is never witnessed (none witnessed, or only some — a partial spec), the result is
+    ``no_coverage`` (review) so the unwitnessed obligation is surfaced rather than silently allowed.
     """
     replay = replay_spec_against_traces(contract=contract, traces=traces)
     violated = [obs for obs in replay.observations if obs.outcome == "violated"]
     satisfied = [obs for obs in replay.observations if obs.outcome == "satisfied"]
+    uncovered = [obs for obs in replay.observations if obs.outcome == "no_coverage"]
     deltas = [
         SpecCodeDelta(
             expectation_id=obs.expectation_id,
@@ -935,10 +941,23 @@ def classify_spec_code_alignment(
             f"spec contradicts the code's real traces in {len(violated)} obligation(s); "
             "it is not a spec of the code"
         )
-    elif satisfied:
+    elif satisfied and not uncovered:
+        # Every declared obligation is witnessed-satisfied and none is contradicted — only then does
+        # S fully reproduce the code's real traces and the spec close as allow.
         classification = "satisfies"
         closure_effect = "allow"
         reason = "spec reproduces the code's real traces"
+    elif satisfied:
+        # Partial: some obligations are witnessed-satisfied but at least one is never witnessed. The
+        # unwitnessed obligation is surfaced as no-coverage (review), never silently allowed — an
+        # unwitnessed obligation is not evidence that S reproduces the code's traces.
+        classification = "no_coverage"
+        closure_effect = "review"
+        reason = (
+            f"spec partially reproduces the code's real traces: {len(satisfied)} obligation(s) "
+            f"witnessed, {len(uncovered)} never witnessed; alignment for the unwitnessed "
+            "obligation(s) is undetermined"
+        )
     else:
         classification = "no_coverage"
         closure_effect = "review"
