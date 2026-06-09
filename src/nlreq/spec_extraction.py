@@ -609,6 +609,12 @@ def _spec_trace_rejection_reasons(replay: SpecTraceReplayReport) -> list[str]:
 def _go_candidate_tla_content(
     module_id: str, requirement: RequirementIRV2, extracted: ExtractedSpec
 ) -> str:
+    # The invariant bodies are the LLM's verbatim proposal and reference free names (e.g.
+    # ``validate_done``, ``total``) that a reviewer must declare as ``VARIABLES`` before the promoted
+    # spec is Apalache-runnable. Promotion records the declared invariant NAMES so S ∧ R routes to the
+    # solver rather than refusing on "no system invariant", but it does not register a runnable spec
+    # file — human review (promote_candidate_spec_with_review) sits in front of any gate run. Making
+    # the emitted module gate-runnable is out of PC-8 scope.
     module_name = "Candidate_" + _safe_tla_name(module_id)
     lines = [
         f"---- MODULE {module_name} ----",
