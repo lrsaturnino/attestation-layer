@@ -54,6 +54,15 @@ jobs:
           solc-select use 0.8.17
           echo "${HOME}/.local/bin" >> "$GITHUB_PATH"
 
+      # Fail loudly if the Solidity toolchain did not install. Without this a botched install would
+      # leave the tools absent, the PC-3/PC-4 tests would silently skip, and CI would go green
+      # without ever exercising the real Slither/Foundry verticals — the opposite of the intent.
+      - name: Verify Solidity toolchain is present
+        run: |
+          slither --version
+          forge --version
+          solc --version
+
       - name: Check schema drift
         run: uv run python scripts/check_schema_drift.py
 
