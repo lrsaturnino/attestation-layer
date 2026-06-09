@@ -4,6 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from .llm_client import LlmClient, parse_impact_estimate
 from .models import NormalizedTraceArtifact, SymbolRef
 from .source_adapter import SourceLanguageAdapter, SourceManifest, SourceSymbolResolution
 
@@ -101,6 +102,35 @@ class ProductionSourceImpactReport(BaseModel):
     closure_effect: Literal["allow", "review", "block"]
     call_graph_edges: list[dict[str, str]] = Field(default_factory=list)
     metadata: dict[str, str] = Field(default_factory=dict)
+
+
+def llm_semantic_suggestions(
+    client: LlmClient,
+    *,
+    prose: str,
+    symbols: list[str],
+    candidate_modules: list[str],
+) -> list[SemanticImpactSuggestion]:
+    """Produce semantic impact suggestions from an (untrusted) LLM estimate (PC-9).
+
+    Calls the LLM client for a semantic impact estimate over ``candidate_modules``, parses it
+    defensively with :func:`parse_impact_estimate`, and wraps each named module as a
+    ``SemanticImpactSuggestion`` with ``source="llm"``. These feed the existing production-impact
+    cross-validation (:func:`analyze_production_source_impact`), which surfaces any module outside
+    the deterministic call-graph set as a non-gateable review disagreement — the LLM estimate never
+    becomes gateable on its own. Use a ``RecordedLlmClient`` for offline/deterministic runs.
+    """
+    raw_estimate = client.estimate_impacted_modules(
+        prose=prose, symbols=symbols, candidate_modules=candidate_modules
+    )
+    return [
+        SemanticImpactSuggestion(
+            module_id=module_id,
+            reason="LLM semantic impact estimate (cross-validation only, non-gateable)",
+            source="llm",
+        )
+        for module_id in parse_impact_estimate(raw_estimate)
+    ]
 
 
 def analyze_source_impact_with_context(

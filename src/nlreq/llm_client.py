@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import json
 import os
+import re
 from pathlib import Path
 from typing import Protocol, runtime_checkable
 
@@ -124,6 +126,62 @@ class LlmClient(Protocol):
         """
         ...
 
+    def estimate_impacted_modules(
+        self, *, prose: str, symbols: list[str], candidate_modules: list[str]
+    ) -> str:
+        """Return a JSON array of module ids the model estimates the requirement impacts.
+
+        This is the SEMANTIC impact estimate cross-validated against the deterministic
+        call-graph-reachable set (PC-9). The model reads the requirement prose, its bound symbols,
+        and the universe of candidate modules, and returns the modules it believes are impacted.
+
+        The returned text is UNTRUSTED — like ``propose_controlled_rewrite`` it is never gateable
+        on its own. The cross-validation derives the AUTHORITATIVE affected set from the call graph
+        and uses this estimate only to surface agreement/disagreement as review flags; a module the
+        model names but the call graph never reaches does not enter the gateable impact set. Parse
+        the returned text with :func:`parse_impact_estimate`, which tolerates malformed output.
+
+        Args:
+            prose: The free-form requirement text (or controlled text) the estimate is over.
+            symbols: The requirement's bound symbols (the call-graph roots).
+            candidate_modules: The universe of module ids the model may choose from.
+
+        Returns:
+            A JSON array of module-id strings. Not yet verified.
+        """
+        ...
+
+
+def parse_impact_estimate(text: str) -> list[str]:
+    """Parse an UNTRUSTED LLM impact estimate into a sorted, de-duplicated list of module ids.
+
+    The model is asked for a JSON array of module-id strings. This parse is defensive because the
+    output is untrusted: it accepts a JSON array of strings (optionally wrapped in a ```json code
+    fence), ignores non-string entries, and falls back to comma/newline splitting when the text is
+    not valid JSON (a model may wrap the array in prose). It NEVER raises on malformed output — an
+    unparseable estimate yields an empty list, which the cross-validation reads as "the semantic
+    estimate named no modules" (surfaced as a disagreement against every call-graph module), not a
+    crash. The result is sorted + de-duplicated so cross-validation is order-insensitive.
+    """
+    stripped = text.strip()
+    # Strip a surrounding markdown code fence (```json ... ``` or ``` ... ```) if present.
+    fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", stripped, re.DOTALL)
+    if fence:
+        stripped = fence.group(1).strip()
+    try:
+        parsed = json.loads(stripped)
+    except (ValueError, TypeError):
+        parsed = None
+    else:
+        # Valid JSON: a list of strings is the estimate; any other JSON value (object, number,
+        # bare string) is treated as "named no modules" rather than re-split as loose text.
+        if isinstance(parsed, list):
+            return sorted({item.strip() for item in parsed if isinstance(item, str) and item.strip()})
+        return []
+    # Not JSON at all: a bare or prose-wrapped list — split on commas/newlines, strip brackets/quotes.
+    tokens = re.split(r"[,\n]", stripped.strip("[]"))
+    return sorted({token.strip().strip("\"'") for token in tokens if token.strip().strip("\"'")})
+
 
 class RecordedLlmClient:
     """Replays a pre-recorded fixture; never contacts a real model.
@@ -133,8 +191,13 @@ class RecordedLlmClient:
     golden tests pin the rewrite, not the translation path.
     """
 
-    def __init__(self, fixture: str) -> None:
+    def __init__(self, fixture: str, *, impact_fixture: str | None = None) -> None:
         self._fixture = fixture
+        # The recorded semantic-impact estimate (a JSON array of module ids). Optional and separate
+        # from the controlled-rewrite fixture so one client can replay BOTH the rewrite and the
+        # PC-9 impact estimate; when omitted, estimate_impacted_modules replays the main fixture
+        # (so a client constructed solely with the JSON list still serves an impact estimate).
+        self._impact_fixture = impact_fixture
 
     def propose_controlled_rewrite(
         self, prose: str, grammar_summary: str, *, language: str = "en"
@@ -143,6 +206,14 @@ class RecordedLlmClient:
         # this prose in this language (including any cross-language clarify sentinel), so
         # language only steers a live model — here it is accepted and ignored.
         return self._fixture
+
+    def estimate_impacted_modules(
+        self, *, prose: str, symbols: list[str], candidate_modules: list[str]
+    ) -> str:
+        # Deterministic replay: the recorded estimate already encodes the model's chosen modules,
+        # so prose/symbols/candidate_modules only steer a live model — here they are accepted and
+        # ignored. Falls back to the rewrite fixture when no dedicated impact fixture was recorded.
+        return self._impact_fixture if self._impact_fixture is not None else self._fixture
 
 
 def _extract_text(message: object) -> str:
@@ -231,6 +302,42 @@ class AnthropicLlmClient:
         # content blocks and the first one is not guaranteed to be a text block.
         return _extract_text(message)
 
+    def estimate_impacted_modules(
+        self, *, prose: str, symbols: list[str], candidate_modules: list[str]
+    ) -> str:
+        # Credential check first so a missing key surfaces as EnvironmentError even when the
+        # 'anthropic' package is not installed (mirrors propose_controlled_rewrite).
+        api_key = load_api_key()
+
+        try:
+            import anthropic
+        except ImportError as exc:
+            raise ImportError(
+                "Real LLM impact estimation requires the 'anthropic' package. "
+                "Install it via: pip install anthropic  (or uv add anthropic)"
+            ) from exc
+        client = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model=self._model,
+            max_tokens=1024,
+            temperature=0,
+            messages=[
+                {
+                    "role": "user",
+                    "content": (
+                        "You estimate which source modules a software requirement impacts. You are "
+                        "given the requirement prose, its bound symbols, and the universe of "
+                        "candidate module ids. Reply with ONLY a JSON array of the module ids you "
+                        "believe are impacted (a subset of the candidates), no prose.\n\n"
+                        "BOUND SYMBOLS: " + ", ".join(symbols) + "\n"
+                        "CANDIDATE MODULES: " + ", ".join(candidate_modules) + "\n\n"
+                        "REQUIREMENT:\n" + prose.strip()
+                    ),
+                }
+            ],
+        )
+        return _extract_text(message)
+
 
 class UnavailableLlmClient:
     """Raises a clear error when the real SDK is not installed.
@@ -245,4 +352,12 @@ class UnavailableLlmClient:
         raise NotImplementedError(
             "Real LLM drafting requires the 'anthropic' package. "
             "Install it or supply --fixture for offline use."
+        )
+
+    def estimate_impacted_modules(
+        self, *, prose: str, symbols: list[str], candidate_modules: list[str]
+    ) -> str:
+        raise NotImplementedError(
+            "Real LLM impact estimation requires the 'anthropic' package. "
+            "Install it or supply a RecordedLlmClient for offline use."
         )
