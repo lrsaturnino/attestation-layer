@@ -36,7 +36,10 @@ nlreq = "nlreq.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-nlreq = ["grammar.lark", "dsl_v2.lark", "dsl_v3.lark"]
+# The _go_trace_reader vendored Go module (PC-7) is non-Python data the go_client runs as a
+# subprocess; ship it so an installed wheel keeps the Go runtime-trace capability instead of
+# degrading to "reader missing".
+nlreq = ["grammar.lark", "dsl_v2.lark", "dsl_v3.lark", "_go_trace_reader/**/*"]
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

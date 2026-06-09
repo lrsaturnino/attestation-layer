@@ -1,0 +1,6 @@
+# golang.org/x/exp v0.0.0-20260603202125-055de637280b
+## explicit; go 1.25.0
+golang.org/x/exp/trace
+golang.org/x/exp/trace/internal/tracev1
+golang.org/x/exp/trace/internal/tracev2
+golang.org/x/exp/trace/internal/version
