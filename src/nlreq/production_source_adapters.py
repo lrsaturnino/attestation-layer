@@ -908,6 +908,112 @@ class GoSourceAdapter(RegexProductionSourceAdapter):
             metadata=metadata,
         )
 
+    # --- gopls-backed source presentation for PC-8 -----------------------------------------------
+    # The inherited regex presentation would carry only the IDENTIFIER token: gopls reports a symbol's
+    # name range, not its declaration body. A real Specula extraction (PC-8) must read the actual code,
+    # so the Go presentation widens each requested symbol to its full declaration source AND follows
+    # the CHA call graph one level to include the in-module callees' bodies — so presenting `Coordinate`
+    # also presents the `Validator.Run` / `(*Recorder).Run` implementations it dispatches to, the very
+    # logic a candidate invariant must be grounded in. When the Go tools are unavailable it degrades to
+    # the lexical regex presentation, honestly labelled.
+
+    @staticmethod
+    def _go_symbol_label(symbol: go_client.GoSymbol) -> str:
+        return symbol.name if not symbol.container else f"({symbol.container}).{symbol.name}"
+
+    def _go_label_index(
+        self, analysis: go_client.GoAnalysis
+    ) -> dict[str, go_client.GoSymbol]:
+        """Index the module's functions/methods by their normalized call-graph label.
+
+        Lets a call edge's callee label (which carries a pointer-receiver star callgraph writes but
+        gopls drops) resolve to the callee's symbol — and thus its source body — for the presentation.
+        """
+        index: dict[str, go_client.GoSymbol] = {}
+        for symbol in analysis.symbols:
+            if symbol.kind not in {"Function", "Method"}:
+                continue
+            index.setdefault(go_client._normalize_label(self._go_symbol_label(symbol)), symbol)
+        return index
+
+    def _go_callees(
+        self,
+        analysis: go_client.GoAnalysis,
+        caller: go_client.GoSymbol,
+        label_index: dict[str, go_client.GoSymbol],
+    ) -> list[go_client.GoSymbol]:
+        """The caller's in-module CHA callees, one level deep, deduplicated and source-resolvable.
+
+        Out-of-module callees (stdlib/other packages) have no symbol in ``label_index`` and are
+        skipped, so the presentation widens only to code the analyzed module actually contains.
+        """
+        caller_label = go_client._normalize_label(self._go_symbol_label(caller))
+        callees: list[go_client.GoSymbol] = []
+        seen: set[str] = set()
+        for edge in analysis.edges:
+            if go_client._normalize_label(edge.caller_label) != caller_label:
+                continue
+            callee_label = go_client._normalize_label(edge.callee_label)
+            if callee_label in seen:
+                continue
+            symbol = label_index.get(callee_label)
+            if symbol is not None:
+                seen.add(callee_label)
+                callees.append(symbol)
+        return callees
+
+    def _go_declaration_text(
+        self, symbol: go_client.GoSymbol, manifest: SourceManifest
+    ) -> str:
+        """The symbol's full declaration source, falling back to the identifier span if unreadable."""
+        module_path = self._module_path_for_symbol(symbol.file, manifest)
+        if module_path is not None:
+            path = self._path(module_path)
+            if path.is_file():
+                body = go_client._go_declaration_body(path.read_text(), symbol.start_line)
+                if body:
+                    return body
+        span = self._go_span(symbol, manifest)
+        return span.text if span else ""
+
+    def present_to_llm(self, refs: list[SymbolRef], manifest: SourceManifest) -> CodePresentation:
+        result = self._go_result(manifest)
+        analysis = result.analysis
+        if result.status != "analyzed" or analysis is None:
+            # The Go tools did not run — present the honest lexical fallback, not a fabricated body.
+            return super().present_to_llm(refs, manifest)
+
+        label_index = self._go_label_index(analysis)
+        presented: set[tuple[str, int]] = set()
+        snippets: list[dict[str, str]] = []
+
+        def add(symbol: go_client.GoSymbol) -> None:
+            key = (symbol.file, symbol.start_line)
+            if key in presented:
+                return
+            presented.add(key)
+            snippets.append(
+                {
+                    "symbol": symbol.name,
+                    "path": self._module_path_for_symbol(symbol.file, manifest) or symbol.file,
+                    "content": self._go_declaration_text(symbol, manifest),
+                }
+            )
+
+        for ref in refs:
+            for symbol in analysis.symbols:
+                if symbol.name != ref.name:
+                    continue
+                add(symbol)
+                for callee in self._go_callees(analysis, symbol, label_index):
+                    add(callee)
+        return CodePresentation(
+            adapter_id=self.adapter_id,
+            language=self.language,
+            snippets=snippets,
+            metadata={"analysis": "gopls"},
+        )
+
     # --- runtime/trace-backed extraction (PC-7) --------------------------------------------------
     # When the project root is a Go module, the adapter PRODUCES traces by running `go test -trace`
     # and projecting the real runtime/trace onto the NormalizedTrace contract: each user-meaningful,

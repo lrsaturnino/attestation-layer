@@ -155,6 +155,39 @@ def test_go_tools_absent_unresolved_symbol_surfaces_skip_reason_on_reason(
     assert "unavailable" in (resolution.reason or "")
 
 
+def test_go_declaration_body_widens_identifier_line_to_full_block() -> None:
+    """The declaration-body extractor is deterministic and tool-independent, so it is pinned directly:
+    it widens a gopls identifier line to the whole declaration (signature + block), brace-matching past
+    nested blocks and braces inside comments, and yields a single line for a brace-less declaration."""
+    source = (
+        "package p\n"  # 1
+        "\n"  # 2
+        "func (Validator) Run(amount int) int {\n"  # 3
+        "\t// a closing brace } inside a comment must not end the block\n"  # 4
+        "\tif amount < 0 {\n"  # 5
+        "\t\treturn 0\n"  # 6
+        "\t}\n"  # 7
+        "\treturn amount\n"  # 8
+        "}\n"  # 9
+        "\n"  # 10
+        "type Amount = int\n"  # 11
+    )
+    body = go_client._go_declaration_body(source, 3)
+    assert body.startswith("func (Validator) Run")
+    assert "if amount < 0 {" in body
+    # "return amount" is only reached if the comment brace on line 4 did NOT close the block early.
+    assert "return amount" in body
+    assert body.rstrip().endswith("}")
+    # A brace-less declaration (a type alias) yields just its single line.
+    assert go_client._go_declaration_body(source, 11) == "type Amount = int"
+
+
+def test_normalize_label_strips_pointer_receiver_marker() -> None:
+    assert go_client._normalize_label("(*Recorder).Run") == "(Recorder).Run"
+    assert go_client._normalize_label("(Validator).Run") == "(Validator).Run"
+    assert go_client._normalize_label("Coordinate") == "Coordinate"
+
+
 def test_parse_go_node_splits_package_and_method_label() -> None:
     """The callgraph node parser is deterministic and tool-independent, so it is pinned directly: a
     plain function and a pointer-receiver method both split into (package import path, label)."""

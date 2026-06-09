@@ -308,6 +308,96 @@ def _parse_go_node(node: str, module_path: str | None) -> tuple[str, str]:
     return package, func
 
 
+def _normalize_label(label: str) -> str:
+    """Drop a pointer-receiver marker so a call-graph callee label matches a gopls symbol label.
+
+    callgraph writes the pointer receiver ``(*Recorder).Run``; gopls records the receiver type without
+    the star (``Recorder``). Stripping the ``*`` lets the two label spaces join so a call edge resolves
+    to the callee's symbol (and thus its source body) for the PC-8 presentation.
+    """
+    return label.replace("(*", "(", 1)
+
+
+def _skip_go_literal(text: str, i: int) -> int:
+    """Return the index just past the Go string/rune literal opening at ``text[i]``.
+
+    Interpreted strings (``"``) and rune literals (``'``) honour ``\\`` escapes; a raw string
+    (`` ` ``) runs verbatim to the next backtick. A literal left unterminated before a newline stops at
+    that newline — defensive, so a malformed source cannot run the scan off the end.
+    """
+    quote = text[i]
+    n = len(text)
+    if quote == "`":
+        end = text.find("`", i + 1)
+        return n if end == -1 else end + 1
+    j = i + 1
+    while j < n:
+        char = text[j]
+        if char == "\\":
+            j += 2
+            continue
+        if char == quote:
+            return j + 1
+        if char == "\n":
+            return j
+        j += 1
+    return n
+
+
+# A line starting a new top-level Go declaration — the boundary that ends a brace-less declaration
+# (a type alias, a single-line const/var) before the next declaration's body is mistaken for its own.
+_GO_TOP_LEVEL_KEYWORD = re.compile(r"(?:func|type|var|const|import|package)\b")
+
+
+def _go_declaration_body(text: str, start_line: int) -> str:
+    """Extract a Go declaration's full source (signature + body) from its 1-based first line.
+
+    ``gopls symbols`` reports a symbol's IDENTIFIER range, not its declaration body, so the PC-8
+    presentation widens to the enclosing declaration here. Starting at the declaration's first line,
+    the body is the text up to and including the brace that closes the signature's block, found by
+    depth-matching ``{``/``}`` while skipping braces inside comments and string/rune literals. A
+    declaration with no brace body (a type alias, a single-line const/var) yields its single line —
+    detected by reaching the next top-level declaration before any brace opens.
+
+    This is a lexical heuristic, not a Go parse: a brace inside an inline parameter type in the
+    signature (e.g. ``func f(x struct{})``) could close the span early. The result is advisory review
+    context the model reads, never a binding key, so the approximation is acceptable and documented.
+    """
+    lines = text.splitlines(keepends=True)
+    if start_line < 1 or start_line > len(lines):
+        return ""
+    decl_start = sum(len(lines[index]) for index in range(start_line - 1))
+    i = decl_start
+    n = len(text)
+    depth = 0
+    opened = False
+    while i < n:
+        # A new top-level declaration at column 0 ends a declaration that never opened a brace body.
+        if not opened and i > decl_start and text[i - 1] == "\n" and _GO_TOP_LEVEL_KEYWORD.match(text, i):
+            return text[decl_start:i].rstrip()
+        char = text[i]
+        if char == "/" and i + 1 < n and text[i + 1] == "/":
+            newline = text.find("\n", i)
+            i = n if newline == -1 else newline
+            continue
+        if char == "/" and i + 1 < n and text[i + 1] == "*":
+            close = text.find("*/", i + 2)
+            i = n if close == -1 else close + 2
+            continue
+        if char in ('"', "'", "`"):
+            i = _skip_go_literal(text, i)
+            continue
+        if char == "{":
+            depth += 1
+            opened = True
+        elif char == "}":
+            depth -= 1
+            if opened and depth == 0:
+                return text[decl_start : i + 1]
+        i += 1
+    return text[decl_start:].rstrip()
+
+
 def _run_callgraph(
     callgraph: str,
     *,

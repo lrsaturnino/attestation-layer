@@ -40,6 +40,29 @@ requires_go = pytest.mark.skipif(
     reason="go is not installed; run with go on PATH to extract a real runtime/trace",
 )
 
+requires_go_tools = pytest.mark.skipif(
+    not go_client.go_symbol_tools_available(),
+    reason="go/gopls/callgraph are not installed; run with the Go toolchain on PATH",
+)
+
+
+def _go_manifest() -> SourceManifest:
+    return SourceManifest.model_validate(
+        {
+            "schema_version": "0.1",
+            "adapter": "go-source",
+            "language": "go",
+            "runtime": "go",
+            "modules": [
+                {
+                    "module_id": "coordinator",
+                    "path": "coordinator/coordinator.go",
+                    "symbols": ["Coordinate"],
+                }
+            ],
+        }
+    )
+
 # A candidate S whose invariants + trace obligations are read from the coordinator SOURCE: the
 # validate and record stages the code actually runs.
 _REAL_EXTRACTION = json.dumps(
@@ -232,28 +255,48 @@ def test_parse_spec_extraction_is_defensive() -> None:
     assert parse_spec_extraction(evm_shaped).trace_expectations == []
 
 
-@requires_go
-def test_end_to_end_real_go_trace_promotes_extracted_candidate() -> None:
-    """The full chain: the adapter extracts a REAL Go runtime/trace, and the source-extracted
-    candidate S is promotable because its obligations are reproduced by that real trace."""
+def _presentation_text(presentation: CodePresentation) -> str:
+    return "\n\n".join(snippet.get("content", "") for snippet in presentation.snippets)
+
+
+@requires_go_tools
+def test_go_presentation_is_source_grounded_with_callee_bodies() -> None:
+    """PC-8 source grounding: the Go presentation carries the requested symbol's FULL declaration body
+    plus the bodies of the in-module callees CHA resolves the interface dispatch to — not just the
+    gopls identifier token. So a candidate S extracted for Coordinate is grounded in the validate and
+    record logic, not in a bare name."""
     adapter = GoSourceAdapter(project_root=FIXTURE_ROOT)
-    manifest = SourceManifest.model_validate(
-        {
-            "schema_version": "0.1",
-            "adapter": "go-source",
-            "language": "go",
-            "runtime": "go",
-            "modules": [
-                {
-                    "module_id": "coordinator",
-                    "path": "coordinator/coordinator.go",
-                    "symbols": ["Coordinate"],
-                }
-            ],
-        }
-    )
+
+    presentation = adapter.present_to_llm([SymbolRef(name="Coordinate")], _go_manifest())
+
+    assert presentation.metadata["analysis"] == "gopls"
+    text = _presentation_text(presentation)
+    # The requested symbol's full body, including the interface dispatch call site.
+    assert "func Coordinate(" in text
+    assert "s.Run(out)" in text
+    # The callee implementations reached ONLY via CHA dispatch — a lexical pass that sees `s.Run(out)`
+    # cannot attribute these concrete receivers, so identifier-only presentation would omit them.
+    assert "func (Validator) Run(" in text
+    assert "func (r *Recorder) Run(" in text
+
+
+@requires_go
+@requires_go_tools
+def test_end_to_end_real_go_trace_promotes_extracted_candidate() -> None:
+    """The full chain: the adapter extracts a REAL Go runtime/trace and presents real source bodies,
+    and the source-extracted candidate S is promotable because its obligations are reproduced by that
+    real trace."""
+    adapter = GoSourceAdapter(project_root=FIXTURE_ROOT)
+    manifest = _go_manifest()
     traces = adapter.extract_traces(manifest)
     presentation = adapter.present_to_llm([SymbolRef(name="Coordinate")], manifest)
+
+    # The presentation the candidate is grounded in carries real source — Coordinate's body and the
+    # Validator.Run / (*Recorder).Run implementations — BEFORE the (recorded) LLM reads it.
+    presented = _presentation_text(presentation)
+    assert "func Coordinate(" in presented
+    assert "func (Validator) Run(" in presented
+    assert "func (r *Recorder) Run(" in presented
 
     report = extract_go_candidate_spec(
         requirement=_requirement(),
