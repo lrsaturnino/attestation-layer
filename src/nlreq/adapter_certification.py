@@ -246,11 +246,23 @@ def certify_adapter(
                 message="required code presentation capability emitted no source snippets",
             )
         )
+    trace_count = 0
+    provenanced_trace_count = 0
     try:
         traces = adapter.extract_traces(manifest)
         trace_count = len(traces.root)
+        # A trace counts as real-tool evidence only when it carries recorded producer provenance
+        # (a captured tool + tool version) over a real artifact hash (source_hash). Traces ingested
+        # from manifest-declared JSON have no producer, so they never lift the adapter above
+        # static_resolution — the honesty gate the regex adapters must observe (PC-1).
+        provenanced_trace_count = sum(
+            1
+            for trace in traces.root
+            if trace.producer is not None
+            and trace.producer.tool_version.strip()
+            and trace.source_hash.strip()
+        )
     except Exception as exc:  # pragma: no cover - defensive certification boundary
-        trace_count = 0
         findings.append(
             AdapterCertificationFinding(
                 category="trace_extraction",
@@ -271,12 +283,12 @@ def certify_adapter(
                 message="manifest declares trace sources but adapter emitted no traces",
             )
         )
+    findings.extend(_trace_evidence_findings(contract, provenanced_trace_count))
     level = _level(
         resolved=resolved,
         unresolved=unresolved,
         edges=call_graph_edges,
-        traces=trace_count,
-        trace_sources=len(trace_sources),
+        provenanced_traces=provenanced_trace_count,
     )
     blocked = any(finding.severity == "blocking" for finding in findings)
     return AdapterCertificationReport(
@@ -447,19 +459,75 @@ def _method_findings(
     return findings
 
 
+_TRACE_LEVELS: frozenset[AdapterCapabilityLevel] = frozenset(
+    {"trace_capable", "production_candidate"}
+)
+
+
+def _trace_evidence_findings(
+    contract: AdapterCapabilityContract,
+    provenanced_trace_count: int,
+) -> list[AdapterCertificationFinding]:
+    """Block a contract that claims a trace level it did not evidence with real-tool provenance.
+
+    PC-1.T2: a ``trace_capable``/``production_candidate`` capability requires a recorded trace
+    producer plus tool-version evidence. We honour that empirically — the claim is only evidenced
+    when ``extract_traces`` actually yields traces carrying producer provenance over a real artifact
+    hash. A purely lexical adapter that declares such a level (whether on the contract as a whole or
+    on a single capability claim) but produces no provenanced traces is over-claiming, so it fails
+    certification.
+    """
+    if provenanced_trace_count > 0:
+        return []
+    findings: list[AdapterCertificationFinding] = []
+    if contract.capability_level in _TRACE_LEVELS:
+        findings.append(
+            AdapterCertificationFinding(
+                category="capability_contract",
+                severity="blocking",
+                subject=contract.capability_level,
+                message=(
+                    f"capability contract declares level {contract.capability_level} but trace "
+                    "extraction produced no traces with recorded real-tool provenance (a captured "
+                    "tool version and a real artifact hash)"
+                ),
+            )
+        )
+    for claim in contract.capabilities:
+        if claim.level in _TRACE_LEVELS:
+            findings.append(
+                AdapterCertificationFinding(
+                    category="capability_contract",
+                    severity="blocking",
+                    subject=str(claim.capability_id),
+                    message=(
+                        f"capability {claim.capability_id} claims {claim.level} without a recorded "
+                        "trace producer + tool-version evidence; trace extraction produced no "
+                        "provenanced traces"
+                    ),
+                )
+            )
+    return findings
+
+
 def _level(
     *,
     resolved: int,
     unresolved: int,
     edges: int,
-    traces: int,
-    trace_sources: int,
+    provenanced_traces: int,
 ) -> AdapterCertificationLevel:
+    """The capability level the adapter empirically *achieved* on this run.
+
+    A trace level is reachable only with real-tool provenance: ingested JSON (``provenanced_traces``
+    == 0) never lifts the adapter past static_resolution. production_candidate is the complete,
+    tool-backed vertical — symbol resolution, a call graph, and provenanced traces all present.
+    """
     if resolved == 0 or unresolved > 0:
         return "manifest_only"
-    if trace_sources and traces > 0:
+    if provenanced_traces > 0 and edges > 0:
         return "production_candidate"
-    if traces > 0:
+    if provenanced_traces > 0:
         return "trace_capable"
     if edges > 0 or resolved > 0:
         return "static_resolution"

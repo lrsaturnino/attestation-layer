@@ -768,6 +768,25 @@ class TraceEvent(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class NormalizedTraceProducer(BaseModel):
+    """Recorded real-tool provenance for a trace the adapter *produced* (not ingested).
+
+    A trace carries a producer iff a real external tool ran to extract it — Foundry for the
+    Solidity vertical (PC-4), a real OpenTelemetry/runtime producer for others. ``tool`` is the
+    binary that ran and ``tool_version`` is its captured version string; together with the
+    enclosing trace's ``source_hash`` (the hash of the real tool artifact the trace was projected
+    from) they are the "captured tool version + real artifact hash" the capability gate requires
+    before an adapter may certify a ``trace_capable``/``production_candidate`` capability. A trace
+    ingested from manifest-declared JSON has ``producer == None`` on its enclosing trace and so can
+    never lift a regex/static adapter above ``static_resolution``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    tool: str
+    tool_version: str
+
+
 class NormalizedTrace(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -777,6 +796,12 @@ class NormalizedTrace(BaseModel):
     language: str | None = None
     runtime: str | None = None
     events: list[TraceEvent]
+    # Recorded real-tool provenance, present only when the adapter extracted this trace by running
+    # a real ecosystem tool. None for traces ingested from manifest-declared JSON. The adapter
+    # certification suite reads this to decide the achieved capability level: a trace_capable claim
+    # is unevidenced (and so blocked) unless extraction yields provenanced traces. See
+    # NormalizedTraceProducer and adapter_certification.certify_adapter.
+    producer: NormalizedTraceProducer | None = None
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 

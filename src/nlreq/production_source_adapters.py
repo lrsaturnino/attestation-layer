@@ -53,7 +53,12 @@ class RegexProductionSourceAdapter(SourceLanguageAdapter):
     runtime = None
     definition_pattern: re.Pattern[str]
     ecosystem: AdapterEcosystem = "generic"
-    capability_level: AdapterCapabilityLevel = "production_candidate"
+    # A purely lexical (regex) adapter resolves symbols statically; it drives no ecosystem tool and
+    # produces no provenanced traces, so the only level it can honestly evidence is
+    # static_resolution. trace_capable/production_candidate are reserved for adapters that extract
+    # traces with recorded real-tool provenance (a tool version + a real artifact hash) — the
+    # adapter certification suite blocks any contract that claims a trace level it cannot evidence.
+    capability_level: AdapterCapabilityLevel = "static_resolution"
     supported_symbol_types: tuple[str, ...] = ("function", "type", "value")
     trace_runtimes: tuple[str, ...] = ()
     limitations: tuple[AdapterLimitation, ...] = (
@@ -227,33 +232,42 @@ class RegexProductionSourceAdapter(SourceLanguageAdapter):
                 ),
                 AdapterCapabilityClaim(
                     capability_id="normalized_trace",
-                    level="trace_capable",
-                    evidence_labels=[EvidenceLevel.TRACE_VALIDATED],
+                    level="static_resolution",
+                    evidence_labels=[],
                     requires_external_tool=True,
                     limitation_ids=[
                         limitation.limitation_id
                         for limitation in self.limitations
                         if limitation.category == "runtime_trace"
                     ],
-                    notes="Consumes normalized trace artifacts declared by the source manifest.",
+                    notes=(
+                        "Ingests externally-produced normalized trace artifacts declared by the "
+                        "source manifest. It records no trace provenance of its own, so it cannot "
+                        "evidence TRACE_VALIDATED — a real ecosystem trace producer is required for "
+                        "that (e.g. the Foundry-backed Solidity vertical)."
+                    ),
                 ),
                 AdapterCapabilityClaim(
                     capability_id="runtime_trace_extraction",
-                    level="trace_capable",
-                    evidence_labels=[EvidenceLevel.TRACE_VALIDATED],
+                    level="static_resolution",
+                    evidence_labels=[],
                     requires_external_tool=True,
                     limitation_ids=[
                         limitation.limitation_id
                         for limitation in self.limitations
                         if limitation.category == "runtime_trace"
                     ],
-                    notes="Requires an ecosystem trace producer; extraction remains adapter-local.",
+                    notes=(
+                        "The lexical adapter does not run an ecosystem trace producer, so it claims "
+                        "no trace evidence. Promoting this capability to trace_capable requires "
+                        "recorded real-tool provenance (a captured tool version and a real artifact "
+                        "hash); the certification suite blocks an unevidenced trace claim."
+                    ),
                 ),
             ],
             limitations=list(self.limitations),
             supported_evidence=[
                 EvidenceLevel.STATICALLY_RESOLVED,
-                EvidenceLevel.TRACE_VALIDATED,
                 EvidenceLevel.REVIEWED,
             ],
             supported_symbol_types=list(self.supported_symbol_types),

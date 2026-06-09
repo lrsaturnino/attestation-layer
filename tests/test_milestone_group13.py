@@ -111,7 +111,10 @@ def test_phase139_solidity_graduation_blocks_overloads_and_normalizes_traces(
     assert event_resolution.status == "resolved"
     assert event_resolution.symbols[0].metadata["binding_role"] == "event"
     assert certified.result == "certified"
-    assert certified.level == "production_candidate"
+    # The adapter ingests the manifest-declared JSON trace, but ingested traces carry no real-tool
+    # provenance, so the honest achieved level is static_resolution — a regex adapter never reaches
+    # a trace level off pre-supplied JSON. Producing provenanced traces requires Foundry (PC-4).
+    assert certified.level == "static_resolution"
     assert certified.trace_count == 1
 
 
@@ -149,7 +152,9 @@ def test_phase140_go_graduation_certifies_package_graph_and_runtime_trace(
     }
     assert graph.metadata["package_count"] == "1"
     assert report.result == "certified"
-    assert report.level == "production_candidate"
+    # Ingested JSON traces are not real-tool evidence, so the achieved level stays static_resolution
+    # (the Go vertical has no Foundry-equivalent trace producer in this slice — PC-1 honesty gate).
+    assert report.level == "static_resolution"
     assert report.trace_count == 1
 
 

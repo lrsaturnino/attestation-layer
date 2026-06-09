@@ -1,9 +1,16 @@
 from pathlib import Path
 
+from nlreq.adapter_certification import certify_adapter
 from nlreq.javascript_source_adapter import JavaScriptSourceLanguageAdapter
-from nlreq.models import SymbolRef
+from nlreq.models import (
+    EvidenceLevel,
+    NormalizedTraceArtifact,
+    NormalizedTraceProducer,
+    SymbolRef,
+)
+from nlreq.production_source_adapters import SoliditySourceAdapter
 from nlreq.python_source_adapter import PythonSourceLanguageAdapter
-from nlreq.source_adapter import SourceManifest
+from nlreq.source_adapter import AdapterCapabilityContract, SourceManifest
 from nlreq.source_conformance import (
     SourceAdapterConformanceFixture,
     assert_source_adapter_conforms,
@@ -121,3 +128,204 @@ def _javascript_project(root: Path) -> SourceManifest:
             ],
         }
     )
+
+
+def _solidity_manifest(root: Path) -> SourceManifest:
+    (root / "Bridge.sol").write_text(
+        "// SPDX-License-Identifier: MIT\n"
+        "pragma solidity ^0.8.13;\n"
+        "contract Bridge {\n"
+        "  function requestRedemption() public {}\n"
+        "}\n"
+    )
+    return SourceManifest.model_validate(
+        {
+            "schema_version": "0.1",
+            "adapter": "solidity-source",
+            "language": "solidity",
+            "runtime": "evm",
+            "modules": [
+                {
+                    "module_id": "bridge",
+                    "path": "Bridge.sol",
+                    "symbols": ["requestRedemption"],
+                }
+            ],
+        }
+    )
+
+
+class _OverclaimingSolidityAdapter(SoliditySourceAdapter):
+    """A lexical adapter that dishonestly bumps a trace capability to trace_capable.
+
+    It still ingests (does not produce) traces, so it has no real-tool provenance to back the
+    claim — exactly the over-claim PC-1's certification gate must reject.
+    """
+
+    def capability_contract(self) -> AdapterCapabilityContract:
+        contract = super().capability_contract()
+        bumped = [
+            claim.model_copy(update={"level": "trace_capable"})
+            if claim.capability_id == "runtime_trace_extraction"
+            else claim
+            for claim in contract.capabilities
+        ]
+        return contract.model_copy(update={"capabilities": bumped})
+
+
+class _ToolBackedSolidityAdapter(SoliditySourceAdapter):
+    """A Solidity adapter that simulates a real trace producer.
+
+    It stamps producer provenance onto each extracted trace and declares the matching
+    trace_capable claim — the shape PC-4's Foundry-backed extraction takes, exercised here without
+    requiring Foundry so the gate's positive branch is always covered.
+    """
+
+    def extract_traces(self, manifest: SourceManifest) -> NormalizedTraceArtifact:
+        ingested = super().extract_traces(manifest)
+        stamped = [
+            trace.model_copy(
+                update={
+                    "producer": NormalizedTraceProducer(
+                        tool="forge", tool_version="forge 1.5.0-stable"
+                    )
+                }
+            )
+            for trace in ingested.root
+        ]
+        return NormalizedTraceArtifact.model_validate(stamped)
+
+    def capability_contract(self) -> AdapterCapabilityContract:
+        contract = super().capability_contract()
+        bumped = [
+            claim.model_copy(
+                update={
+                    "level": "trace_capable",
+                    "evidence_labels": [EvidenceLevel.TRACE_VALIDATED],
+                }
+            )
+            if claim.capability_id == "runtime_trace_extraction"
+            else claim
+            for claim in contract.capabilities
+        ]
+        return contract.model_copy(
+            update={
+                "capabilities": bumped,
+                "supported_evidence": [
+                    EvidenceLevel.STATICALLY_RESOLVED,
+                    EvidenceLevel.TRACE_VALIDATED,
+                    EvidenceLevel.REVIEWED,
+                ],
+            }
+        )
+
+
+def _write_ingested_trace(root: Path) -> str:
+    path = root / "trace.json"
+    path.write_text(
+        NormalizedTraceArtifact.model_validate(
+            [
+                {
+                    "trace_id": "trace-pc1",
+                    "adapter_id": "external-producer",
+                    "source_hash": "sha256:ingested",
+                    "language": "solidity",
+                    "runtime": "evm",
+                    "events": [
+                        {
+                            "event_id": "e1",
+                            "timestamp": "2026-06-08T00:00:00Z",
+                            "action": "requestRedemption",
+                        }
+                    ],
+                }
+            ]
+        ).model_dump_json()
+    )
+    return path.name
+
+
+def test_regex_adapter_does_not_claim_a_trace_level_it_cannot_evidence(tmp_path: Path) -> None:
+    """The honest default: a lexical Solidity adapter certifies at static_resolution.
+
+    It declares no trace_capable capability and never advertises TRACE_VALIDATED evidence, so it
+    cannot over-claim a runtime trace capability it does not have.
+    """
+    manifest = _solidity_manifest(tmp_path)
+    adapter = SoliditySourceAdapter(project_root=tmp_path)
+
+    contract = adapter.capability_contract()
+    report = certify_adapter(
+        adapter,
+        manifest,
+        symbol_refs=[SymbolRef(name="requestRedemption")],
+        required_capabilities=["static_symbol_resolution", "runtime_trace_extraction"],
+    )
+
+    assert contract.capability_level == "static_resolution"
+    assert EvidenceLevel.TRACE_VALIDATED not in contract.supported_evidence
+    assert all(claim.level != "trace_capable" for claim in contract.capabilities)
+    assert all(claim.level != "production_candidate" for claim in contract.capabilities)
+    assert report.result == "certified"
+    assert report.level == "static_resolution"
+
+
+def test_trace_capable_claim_without_real_tool_evidence_fails_certification(
+    tmp_path: Path,
+) -> None:
+    """PC-1 gate: a regex adapter that claims trace_capable without producing provenanced traces
+    fails certification. Ingested JSON traces do not count as real-tool evidence."""
+    manifest = _solidity_manifest(tmp_path)
+    trace_source = _write_ingested_trace(tmp_path)
+    manifest = manifest.model_copy(
+        update={
+            "modules": [
+                manifest.modules[0].model_copy(update={"trace_sources": [trace_source]})
+            ]
+        }
+    )
+    adapter = _OverclaimingSolidityAdapter(project_root=tmp_path)
+
+    report = certify_adapter(
+        adapter,
+        manifest,
+        symbol_refs=[SymbolRef(name="requestRedemption")],
+    )
+
+    assert report.result == "blocked"
+    assert report.trace_count == 1  # it ingested a trace, but the trace carries no producer
+    blocking = [
+        finding
+        for finding in report.findings
+        if finding.severity == "blocking"
+        and finding.category == "capability_contract"
+        and finding.subject == "runtime_trace_extraction"
+    ]
+    assert blocking, report.findings
+    assert "without a recorded trace producer" in blocking[0].message
+
+
+def test_trace_capable_claim_with_recorded_producer_evidence_certifies(tmp_path: Path) -> None:
+    """PC-1 gate, positive branch: when extraction yields traces carrying recorded producer
+    provenance over a real artifact hash, the trace_capable claim is evidenced and certifies."""
+    manifest = _solidity_manifest(tmp_path)
+    trace_source = _write_ingested_trace(tmp_path)
+    manifest = manifest.model_copy(
+        update={
+            "modules": [
+                manifest.modules[0].model_copy(update={"trace_sources": [trace_source]})
+            ]
+        }
+    )
+    adapter = _ToolBackedSolidityAdapter(project_root=tmp_path)
+
+    report = certify_adapter(
+        adapter,
+        manifest,
+        symbol_refs=[SymbolRef(name="requestRedemption")],
+        required_capabilities=["runtime_trace_extraction"],
+    )
+
+    assert report.result == "certified"
+    assert report.trace_count == 1
+    assert report.level in {"trace_capable", "production_candidate"}

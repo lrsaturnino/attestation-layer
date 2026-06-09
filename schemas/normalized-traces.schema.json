@@ -31,6 +31,17 @@
           "title": "Metadata",
           "type": "object"
         },
+        "producer": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/NormalizedTraceProducer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "runtime": {
           "anyOf": [
             {
@@ -59,6 +70,26 @@
         "events"
       ],
       "title": "NormalizedTrace",
+      "type": "object"
+    },
+    "NormalizedTraceProducer": {
+      "additionalProperties": false,
+      "description": "Recorded real-tool provenance for a trace the adapter *produced* (not ingested).\n\nA trace carries a producer iff a real external tool ran to extract it \u2014 Foundry for the\nSolidity vertical (PC-4), a real OpenTelemetry/runtime producer for others. ``tool`` is the\nbinary that ran and ``tool_version`` is its captured version string; together with the\nenclosing trace's ``source_hash`` (the hash of the real tool artifact the trace was projected\nfrom) they are the \"captured tool version + real artifact hash\" the capability gate requires\nbefore an adapter may certify a ``trace_capable``/``production_candidate`` capability. A trace\ningested from manifest-declared JSON has ``producer == None`` on its enclosing trace and so can\nnever lift a regex/static adapter above ``static_resolution``.",
+      "properties": {
+        "tool": {
+          "title": "Tool",
+          "type": "string"
+        },
+        "tool_version": {
+          "title": "Tool Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "tool",
+        "tool_version"
+      ],
+      "title": "NormalizedTraceProducer",
       "type": "object"
     },
     "TraceEvent": {
