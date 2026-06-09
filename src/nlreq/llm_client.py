@@ -399,6 +399,23 @@ class AnthropicLlmClient:
                 "Install it via: pip install anthropic  (or uv add anthropic)"
             ) from exc
         client = anthropic.Anthropic(api_key=api_key)
+        # A Solidity Foundry trace witnesses more than a runtime/trace can: beyond an event emitted or
+        # a forbidden action, it sees a view read reaching a value and a call that reverts, so the
+        # Solidity extractor (PC-5) accepts two more kinds and an optional "value" field. The
+        # non-solidity instruction is left byte-identical to the Go/other path so its prompt is
+        # unchanged.
+        if language == "solidity":
+            kinds_instruction = (
+                'where kind is "event_emitted" (an event is emitted), "action_never" (the action '
+                'must never run), "state_value_reached" (a view read reaches the claimed "value"), '
+                'or "action_reverts" (a call reverts, optionally with revert reason "value"); use '
+                'the optional "value" field for the state_value_reached and action_reverts kinds.'
+            )
+        else:
+            kinds_instruction = (
+                'where kind is "event_emitted" (the operation runs) '
+                'or "action_never" (the operation must never run).'
+            )
         message = client.messages.create(
             model=self._model,
             max_tokens=1024,
@@ -414,8 +431,7 @@ class AnthropicLlmClient:
                         "not from any external description. Reply with ONLY a JSON object of the form "
                         '{"invariants": [{"name": "...", "tla": "..."}], "trace_expectations": '
                         '[{"expectation_id": "...", "kind": "event_emitted", "target": "...", '
-                        '"description": "..."}]} where kind is "event_emitted" (the operation runs) '
-                        'or "action_never" (the operation must never run). No prose.\n\n'
+                        '"description": "..."}]} ' + kinds_instruction + ' No prose.\n\n'
                         "SOURCE:\n" + code_presentation.strip()
                     ),
                 }

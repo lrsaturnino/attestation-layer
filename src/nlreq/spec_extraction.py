@@ -25,6 +25,7 @@ from .trace_replay import SpecTraceReplayReport, TraceReplayReport, replay_spec_
 SPEC_EXTRACTION_SCHEMA_VERSION = "0.1"
 SPEC_EXTRACTION_V2_SCHEMA_VERSION = "0.2"
 SPEC_EXTRACTION_GO_SCHEMA_VERSION = "0.1"
+SPEC_EXTRACTION_SOLIDITY_SCHEMA_VERSION = "0.1"
 
 
 class CandidateSpecProvenance(BaseModel):
@@ -139,25 +140,51 @@ def build_spec_extraction_workbench_report(
         if status.status == "fresh"
         for module_id in status.module_ids
     }
-    # A Go module gets a REAL Specula candidate S read from its source (LLM) and trace-validated
-    # against its real Go traces (PC-8), not the vacuous `CandidateInvariant == TRUE` placeholder —
-    # but only when the caller supplies the offline LLM client, the real traces, AND the code
-    # presentation the extraction needs. When a Go module is missing one of those, it does NOT fall
-    # back to the generic `CandidateInvariant == TRUE` draft (that would masquerade an un-run
+    # A Go (PC-8) or Solidity (PC-5) module gets a REAL Specula candidate S read from its source (LLM)
+    # and trace-validated against its real traces, not the vacuous `CandidateInvariant == TRUE`
+    # placeholder — but only when the caller supplies the offline LLM client, the real traces, AND the
+    # code presentation the extraction needs. When such a module is missing one of those, it does NOT
+    # fall back to the generic `CandidateInvariant == TRUE` draft (that would masquerade an un-run
     # extraction as a candidate); it gets an explicit missing-input block naming the absent inputs,
-    # blocked by the integration gate. Non-Go modules still get the generic draft placeholder, which
-    # carries `trace_grounding_status="missing"` and so is blocked, never falsely promoted. The Go
-    # candidate's `trace_grounding_status` is set by the trace replay inside extract_go_candidate_spec,
-    # so the SAME integration gate blocks a paper-only candidate.
+    # blocked by the integration gate. Languages without a Specula extractor still get the generic
+    # draft placeholder, which carries `trace_grounding_status="missing"` and so is blocked, never
+    # falsely promoted. The extracted candidate's `trace_grounding_status` is set by the trace replay
+    # inside extract_{go,solidity}_candidate_spec, so the SAME integration gate blocks a paper-only
+    # candidate.
     is_go = impact.language == "go"
-    go_extraction = (
-        is_go and traces is not None and llm is not None and code_presentation is not None
+    is_solidity = impact.language == "solidity"
+    have_extraction_inputs = (
+        traces is not None and llm is not None and code_presentation is not None
     )
+    go_extraction = is_go and have_extraction_inputs
+    solidity_extraction = is_solidity and have_extraction_inputs
     candidates: list[CandidateSpec] = []
     for module_id in impact.affected_modules:
         if module_id in fresh_modules:
             continue
-        if go_extraction:
+        if solidity_extraction:
+            candidates.append(
+                extract_solidity_candidate_spec(
+                    requirement=requirement,
+                    module_id=module_id,
+                    impact=impact,
+                    code_presentation=code_presentation,
+                    traces=traces,
+                    llm=llm,
+                ).candidate
+            )
+        elif is_solidity:
+            candidates.append(
+                _solidity_missing_input_candidate(
+                    module_id,
+                    requirement=requirement,
+                    impact=impact,
+                    code_presentation=code_presentation,
+                    traces=traces,
+                    llm=llm,
+                )
+            )
+        elif go_extraction:
             candidates.append(
                 extract_go_candidate_spec(
                     requirement=requirement,
@@ -400,12 +427,19 @@ class ExtractedInvariant(BaseModel):
 class ExtractedTraceExpectation(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    # Only the obligation kinds a runtime/trace can witness are honest for Go: an operation that runs
-    # (``event_emitted``) or one that must never run (``action_never``). State-value and revert kinds
-    # are EVM-shaped and out of scope for the runtime/trace projection.
+    # A candidate S's trace-observable obligation. The honest kinds split by what each ecosystem's
+    # real trace can witness, enforced at PARSE time (parse_spec_extraction's ``allowed_kinds``), not
+    # by this type: a Go runtime/trace witnesses only an operation that runs (``event_emitted``) or
+    # one that must never run (``action_never``), so the Go extractor restricts to those; a Solidity
+    # Foundry trace additionally witnesses an EVM read reaching a value (``state_value_reached``) or a
+    # call that reverts (``action_reverts``), so the Solidity extractor (PC-5) allows all four.
+    # ``value`` is the EVM kinds' claimed value — the decoded read value, or an optional revert
+    # reason — threaded onto the SpecTraceExpectation so replay can check it; it is None for the Go
+    # kinds, which carry no value.
     expectation_id: str
-    kind: Literal["event_emitted", "action_never"]
+    kind: Literal["event_emitted", "action_never", "state_value_reached", "action_reverts"]
     target: str
+    value: str | None = None
     description: str = ""
 
 
@@ -417,14 +451,30 @@ class ExtractedSpec(BaseModel):
     trace_expectations: list[ExtractedTraceExpectation] = Field(default_factory=list)
 
 
-def parse_spec_extraction(text: str) -> ExtractedSpec:
+# The trace-observable obligation kinds each ecosystem's real trace can honestly witness, used as the
+# ``allowed_kinds`` filter in parse_spec_extraction. A Go runtime/trace witnesses only an operation
+# that ran or one that must never run; a Solidity Foundry trace additionally witnesses an EVM read
+# reaching a value and a call that reverts (PC-5). The DEFAULT is the Go set so the existing Go
+# extractor and its honesty test (an EVM kind is dropped) are unchanged; the Solidity extractor passes
+# SOLIDITY_TRACE_KINDS explicitly.
+GO_TRACE_KINDS: frozenset[str] = frozenset({"event_emitted", "action_never"})
+SOLIDITY_TRACE_KINDS: frozenset[str] = frozenset(
+    {"event_emitted", "action_never", "state_value_reached", "action_reverts"}
+)
+
+
+def parse_spec_extraction(
+    text: str, *, allowed_kinds: frozenset[str] = GO_TRACE_KINDS
+) -> ExtractedSpec:
     """Parse an UNTRUSTED LLM spec-extraction proposal into a structured :class:`ExtractedSpec`.
 
     Defensive because the output is untrusted (mirrors :func:`nlreq.llm_client.parse_impact_estimate`):
     it strips a surrounding markdown code fence, tolerates malformed JSON by yielding an empty
     extraction (no invariants, no obligations — which the trace gate rejects rather than promotes),
-    and drops individual malformed entries and any trace obligation whose kind a runtime/trace cannot
-    witness. It NEVER raises on malformed output.
+    and drops individual malformed entries and any trace obligation whose kind is not in
+    ``allowed_kinds`` — the kinds the caller's ecosystem trace can witness (Go's runtime/trace kinds by
+    default; Solidity passes :data:`SOLIDITY_TRACE_KINDS` for the EVM-shaped kinds). It NEVER raises on
+    malformed output.
     """
     stripped = text.strip()
     fence = re.match(r"^```(?:json)?\s*(.*?)\s*```$", stripped, re.DOTALL)
@@ -450,7 +500,7 @@ def parse_spec_extraction(text: str) -> ExtractedSpec:
             continue
         kind = entry.get("kind")
         target = entry.get("target")
-        if kind not in {"event_emitted", "action_never"}:
+        if kind not in allowed_kinds:
             continue
         if not isinstance(target, str) or not target.strip():
             continue
@@ -458,11 +508,16 @@ def parse_spec_extraction(text: str) -> ExtractedSpec:
         if not isinstance(expectation_id, str) or not expectation_id.strip():
             expectation_id = f"{kind}:{target.strip()}"
         description = entry.get("description")
+        # ``value`` is only meaningful for the EVM kinds (the decoded read value, or an optional
+        # revert reason); a blank or non-string value is normalized to None so an absent value never
+        # becomes the empty string the replay would test against.
+        value = entry.get("value")
         expectations.append(
             ExtractedTraceExpectation(
                 expectation_id=expectation_id.strip(),
                 kind=kind,
                 target=target.strip(),
+                value=value.strip() if isinstance(value, str) and value.strip() else None,
                 description=description.strip() if isinstance(description, str) else "",
             )
         )
@@ -706,6 +761,243 @@ def _go_missing_input_tla_content(
     lines = [
         f"---- MODULE {module_name} ----",
         f"\\* Go Specula extraction did not run for module {module_id}: required inputs are missing.",
+        f"\\* Requirement: {requirement.requirement_id}",
+    ]
+    for item in missing:
+        lines.append(f"\\* missing input: {item}")
+    lines.append(
+        "\\* No candidate S was extracted; this module declares no invariant and is not promotable."
+    )
+    lines.append("====")
+    return "\n".join(lines) + "\n"
+
+
+# --- PC-5: Specula-style candidate S extraction for Solidity, gated by trace validation ----------
+# The Solidity path mirrors the Go path above (extract a REAL candidate S from the contract SOURCE,
+# validate its obligations against the module's REAL Foundry traces, never the trace itself) but its
+# obligations are EVM-shaped: beyond an event that is emitted (``event_emitted``) or a forbidden
+# action (``action_never``), a Foundry trace also witnesses a view read reaching a value
+# (``state_value_reached``) and a call that reverts (``action_reverts``). The candidate is promotable
+# only if every declared obligation is REPRODUCED by the real traces AND at least one obligation is
+# positively witnessed; a paper-only candidate — asserting an event the contract never emits, a value
+# a read never reaches, or a revert that never happens — is rejected by the SAME trace guard and
+# positive-witness rule the Go path uses (`_spec_trace_rejection_reasons`). This keeps Solidity
+# Specula honest: a spec that cannot reproduce the contract's real traces is not a spec of the code.
+
+
+class SolidityCandidateExtractionReport(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["0.1"] = SPEC_EXTRACTION_SOLIDITY_SCHEMA_VERSION
+    requirement_id: str
+    module_id: str
+    candidate: CandidateSpec
+    trace_contract: SpecTraceContract
+    spec_trace_replay: SpecTraceReplayReport
+    promotable: bool
+    rejection_reasons: list[str] = Field(default_factory=list)
+
+
+def extract_solidity_candidate_spec(
+    *,
+    requirement: RequirementIRV2,
+    module_id: str,
+    impact: ImpactAnalysisArtifact,
+    code_presentation: CodePresentation,
+    traces: NormalizedTraceArtifact,
+    llm: LlmClient,
+) -> SolidityCandidateExtractionReport:
+    """Extract a candidate Solidity ``S`` from source (LLM) and validate it against real traces (PC-5).
+
+    Mirrors :func:`extract_go_candidate_spec`: the candidate's invariants and trace-observable
+    obligations are proposed by the LLM reading the contract's SOURCE; the obligations are then
+    replayed against the module's real Foundry traces (PC-4) with the PC-11 spec↔trace validator.
+    ``promotable`` is true only when every obligation is REPRODUCED by the traces AND at least one is
+    positively witnessed — so a paper-only candidate (an event never emitted, a value a read never
+    reaches, a revert that never happens) is not promotable, and a candidate that declares no
+    trace-observable obligation cannot be validated and is rejected. The obligation kinds are the
+    EVM-shaped set (:data:`SOLIDITY_TRACE_KINDS`); each expectation's ``value`` (the claimed read
+    value, or an optional revert reason) is threaded onto the SpecTraceContract so the replay can
+    check it. The returned candidate carries ``trace_grounding_status`` so the existing
+    :func:`promote_candidate_spec_with_review` gate promotes a reproduced candidate and blocks a
+    paper-only one.
+    """
+    raw = llm.extract_spec_invariants(
+        module_id=module_id,
+        code_presentation=_serialize_presentation(code_presentation),
+        language="solidity",
+    )
+    extracted = parse_spec_extraction(raw, allowed_kinds=SOLIDITY_TRACE_KINDS)
+    # The operator names the candidate TLA actually defines — normalized identically to the operators
+    # _solidity_candidate_tla_content emits — so a promoted entry's declared invariants resolve to real
+    # definitions in the spec text and the S ∧ R composition has a system invariant to conjoin.
+    invariant_names = [_safe_tla_name(invariant.name) for invariant in extracted.invariants]
+    content = _solidity_candidate_tla_content(module_id, requirement, extracted)
+    contract = SpecTraceContract(
+        spec_id=f"candidate:{requirement.requirement_id}:{module_id}",
+        module_ids=[module_id],
+        expectations=[
+            SpecTraceExpectation(
+                expectation_id=expectation.expectation_id,
+                kind=expectation.kind,
+                target=expectation.target,
+                value=expectation.value,
+                description=expectation.description,
+            )
+            for expectation in extracted.trace_expectations
+        ],
+        provenance="specula_extracted",
+    )
+    replay = replay_spec_against_traces(contract=contract, traces=traces)
+    # Promotability has two independent requirements, exactly as for Go: the code's real traces must
+    # reproduce the declared obligations (trace_reasons), AND the candidate must declare at least one
+    # invariant. A candidate that reproduces its traces but asserts no invariant would promote to a
+    # reviewed S the S ∧ R gate refuses (no system invariant to preserve), so it is rejected here as a
+    # dead spec rather than promoted. The trace_grounding gaps stay keyed on trace_reasons alone so a
+    # missing invariant never mislabels grounding the traces actually passed as "not reproduced".
+    trace_reasons = _spec_trace_rejection_reasons(replay)
+    rejection_reasons = list(trace_reasons)
+    if not invariant_names:
+        rejection_reasons.append(
+            "candidate declares no invariant; a spec with no safety property cannot be promoted"
+        )
+    promotable = not rejection_reasons
+    trace_status: Literal["passed", "blocked", "missing"] = "passed" if promotable else "blocked"
+    candidate = CandidateSpec(
+        candidate_id=f"{requirement.requirement_id}:{module_id}",
+        module_id=module_id,
+        path=f"specs/candidates/{_safe_path_part(module_id)}.tla",
+        content=content,
+        content_hash=sha256_text(content),
+        trace_grounding_status=trace_status,
+        invariant_names=invariant_names,
+        gaps=_solidity_candidate_gaps(extracted, trace_reasons=trace_reasons),
+        provenance=CandidateSpecProvenance(
+            requirement_id=requirement.requirement_id,
+            impact_hash=sha256_json(impact),
+            code_presentation_hash=sha256_json(code_presentation),
+            trace_replay_hash=sha256_json(replay),
+            llm_draft_used=True,
+            metadata={"module_id": module_id, "extraction": "specula_solidity"},
+        ),
+    )
+    return SolidityCandidateExtractionReport(
+        requirement_id=requirement.requirement_id,
+        module_id=module_id,
+        candidate=candidate,
+        trace_contract=contract,
+        spec_trace_replay=replay,
+        promotable=promotable,
+        rejection_reasons=rejection_reasons,
+    )
+
+
+def _solidity_candidate_tla_content(
+    module_id: str, requirement: RequirementIRV2, extracted: ExtractedSpec
+) -> str:
+    # The invariant bodies are the LLM's verbatim proposal and reference free names (e.g.
+    # ``redeemed``, ``total``) that a reviewer must declare as ``VARIABLES`` before the promoted spec
+    # is Apalache-runnable. Promotion records the declared invariant NAMES so S ∧ R routes to the
+    # solver rather than refusing on "no system invariant", but it does not register a runnable spec
+    # file — human review (promote_candidate_spec_with_review) sits in front of any gate run. Making
+    # the emitted module gate-runnable is out of PC-5 scope, exactly as for the Go path.
+    module_name = "Candidate_" + _safe_tla_name(module_id)
+    lines = [
+        f"---- MODULE {module_name} ----",
+        f"\\* Specula-extracted candidate S for Solidity module {module_id} (untrusted; trace-gated).",
+        f"\\* Requirement: {requirement.requirement_id}",
+    ]
+    for expectation in extracted.trace_expectations:
+        detail = (
+            f"{expectation.target} = {expectation.value}"
+            if expectation.value is not None
+            else expectation.target
+        )
+        lines.append(f"\\* trace obligation [{expectation.kind}]: {detail}")
+    for invariant in extracted.invariants:
+        lines.append(f"{_safe_tla_name(invariant.name)} == {invariant.tla}")
+    if extracted.invariants:
+        conjuncts = " /\\ ".join(_safe_tla_name(inv.name) for inv in extracted.invariants)
+        lines.append(f"CandidateInvariant == {conjuncts}")
+    else:
+        lines.append("\\* no invariants were extracted from the source")
+    lines.append("====")
+    return "\n".join(lines) + "\n"
+
+
+def _solidity_candidate_gaps(extracted: ExtractedSpec, *, trace_reasons: list[str]) -> list[str]:
+    """Human-readable gaps, faithful to why (if at all) the candidate is not promotable.
+
+    Mirrors :func:`_go_candidate_gaps`: ``trace_reasons`` are the trace-grounding rejections only (an
+    unreproduced obligation, or an absence-only contract with no positively-witnessed event). The
+    "not reproduced" gap is emitted only when one of those is present, so a candidate whose traces DID
+    reproduce but which simply declares no invariant reports the missing invariant — never a false
+    "not reproduced".
+    """
+    gaps = ["candidate spec is draft and cannot satisfy coverage until reviewed"]
+    if not extracted.invariants:
+        gaps.append("no invariants were extracted from the source")
+    if trace_reasons:
+        gaps.append("trace obligations are not reproduced by the code's real traces")
+    return gaps
+
+
+def _solidity_missing_input_candidate(
+    module_id: str,
+    *,
+    requirement: RequirementIRV2,
+    impact: ImpactAnalysisArtifact,
+    code_presentation: CodePresentation | None,
+    traces: NormalizedTraceArtifact | None,
+    llm: LlmClient | None,
+) -> CandidateSpec:
+    """A Solidity module whose Specula extraction could NOT run because a required input is missing.
+
+    Mirrors :func:`_go_missing_input_candidate`: PC-5 extraction reads the contract SOURCE with the
+    offline LLM client and validates the proposal against the module's real Foundry traces, so it
+    needs the recorded LLM client, those traces, and the code presentation. When any is absent we do
+    NOT fall back to the vacuous ``CandidateInvariant == TRUE`` placeholder — that would present an
+    extraction that never ran as if it were a candidate S. Instead we emit an explicit missing-input
+    block: a module declaring no invariant, ``trace_grounding_status="missing"``, and gaps naming
+    exactly which inputs are absent, so the integration gate blocks it for an honest reason. Its empty
+    ``invariant_names`` also keep it un-promotable on the S ∧ R side.
+    """
+    missing: list[str] = []
+    if llm is None:
+        missing.append("recorded LLM client (to read the contract source)")
+    if traces is None:
+        missing.append("real Solidity (Foundry) traces (to validate the candidate against the code)")
+    if code_presentation is None:
+        missing.append("code presentation (the source the extractor reads)")
+    content = _solidity_missing_input_tla_content(module_id, requirement, missing)
+    gaps = ["Solidity Specula extraction did not run: required inputs are missing"]
+    gaps.extend(f"missing input: {item}" for item in missing)
+    return CandidateSpec(
+        candidate_id=f"{requirement.requirement_id}:{module_id}",
+        module_id=module_id,
+        path=f"specs/candidates/{_safe_path_part(module_id)}.tla",
+        content=content,
+        content_hash=sha256_text(content),
+        trace_grounding_status="missing",
+        gaps=gaps,
+        provenance=CandidateSpecProvenance(
+            requirement_id=requirement.requirement_id,
+            impact_hash=sha256_json(impact),
+            code_presentation_hash=sha256_json(code_presentation)
+            if code_presentation is not None
+            else None,
+            metadata={"module_id": module_id, "extraction": "specula_solidity_missing_inputs"},
+        ),
+    )
+
+
+def _solidity_missing_input_tla_content(
+    module_id: str, requirement: RequirementIRV2, missing: list[str]
+) -> str:
+    module_name = "Candidate_" + _safe_tla_name(module_id)
+    lines = [
+        f"---- MODULE {module_name} ----",
+        f"\\* Solidity Specula extraction did not run for module {module_id}: required inputs are missing.",
         f"\\* Requirement: {requirement.requirement_id}",
     ]
     for item in missing:

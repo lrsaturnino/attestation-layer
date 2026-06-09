@@ -2988,8 +2988,9 @@ def main(argv: list[str] | None = None) -> int:
             if not isinstance(ir, RequirementIRV2):
                 raise ValueError("specula-extract requires ir_version 0.2")
             # Offline-only: a recorded spec proposal drives a RecordedLlmClient, never a live model.
-            # The Go path activates only when the recorded proposal AND the real traces are both given
-            # (the integration report's language/inputs guard falls back to the generic draft else).
+            # The real-extraction path (Go PC-8 / Solidity PC-5, selected by the impact's language)
+            # activates only when the recorded proposal AND the real traces are both given (the
+            # integration report's language/inputs guard falls back to the generic draft else).
             report = build_specula_extraction_integration_report(
                 requirement=ir,
                 impact=ImpactAnalysisArtifact.model_validate_json(args.impact.read_text()),
