@@ -31,6 +31,17 @@ _TRACE_LEVELS: frozenset[AdapterCapabilityLevel] = frozenset(
     {"trace_capable", "production_candidate"}
 )
 
+# The capability levels as a total order (low -> high). A contract may DECLARE a level no higher than
+# the level the adapter empirically ACHIEVED on a run; the declared-vs-achieved ordering check ranks
+# the two against this table. Keyed by the literal level strings so it serves both the source-adapter
+# ``AdapterCapabilityLevel`` and the certification ``AdapterCertificationLevel`` (identical members).
+_LEVEL_ORDER: dict[str, int] = {
+    "manifest_only": 0,
+    "static_resolution": 1,
+    "trace_capable": 2,
+    "production_candidate": 3,
+}
+
 
 def _recomputed_artifact_hash(raw_output: str) -> str:
     """The sha256 digest of a captured raw tool artifact, in the ``sha256:<hex>`` form the tool
@@ -176,6 +187,76 @@ def trace_evidence_violations(
                     ),
                 )
             )
+    return violations
+
+
+def capability_overclaim_violations(
+    contract: AdapterCapabilityContract,
+    achieved_level: str,
+) -> list[tuple[str, str]]:
+    """Every declared capability level that EXCEEDS the level the adapter achieved, as ``(subject,
+    message)`` pairs — the ordered declared-vs-achieved honesty check.
+
+    ``achieved_level`` is the level the run empirically evidenced (see :func:`achieved_capability_level`:
+    symbol resolution, a tool-backed call graph, and provenanced traces). A contract may declare a
+    level no higher than that — both the whole-contract ``capability_level`` and each individual
+    capability claim. This catches the gap the trace-evidence floor cannot: a ``production_candidate``
+    declaration backed by provenanced traces but only a regex (non-tool-backed) call graph achieves
+    ``trace_capable``, so the declaration is an over-claim even though traces exist (PC-1).
+    """
+    achieved_rank = _LEVEL_ORDER[achieved_level]
+    violations: list[tuple[str, str]] = []
+    if _LEVEL_ORDER[contract.capability_level] > achieved_rank:
+        violations.append(
+            (
+                contract.capability_level,
+                (
+                    f"capability contract declares level {contract.capability_level} but the adapter "
+                    f"only achieved {achieved_level} on this run; the evidence (symbol resolution, a "
+                    "tool-backed call graph, and provenanced traces) does not back the declared level"
+                ),
+            )
+        )
+    for claim in contract.capabilities:
+        if _LEVEL_ORDER[claim.level] > achieved_rank:
+            violations.append(
+                (
+                    str(claim.capability_id),
+                    (
+                        f"capability {claim.capability_id} claims {claim.level} but the adapter only "
+                        f"achieved {achieved_level} on this run; a higher claim needs the evidence "
+                        "that level requires"
+                    ),
+                )
+            )
+    return violations
+
+
+def capability_evidence_violations(
+    contract: AdapterCapabilityContract,
+    *,
+    achieved_level: str,
+    provenanced_trace_count: int,
+) -> list[tuple[str, str]]:
+    """All capability over-claims for a run, as ``(subject, message)`` pairs.
+
+    Two honesty rules, deduped by subject so each over-claiming subject yields exactly one pair:
+      * the trace-evidence floor — a ``trace_capable``/``production_candidate`` level declared with
+        *zero* provenanced traces (:func:`trace_evidence_violations`, kept for its specific message);
+      * the general declared-vs-achieved ordering (:func:`capability_overclaim_violations`).
+    The trace-evidence message wins for a shared subject (it is the more specific diagnosis).
+
+    Certification AND conformance both route through this single helper, so the over-claim rule — what
+    counts as evidence and how declared levels rank against the achieved level — cannot drift between
+    the two suites (PC-1: the gap the HELPER flagged was certification and conformance checking only
+    the floor, never the ordering).
+    """
+    trace_violations = trace_evidence_violations(contract, provenanced_trace_count)
+    covered = {subject for subject, _ in trace_violations}
+    violations = list(trace_violations)
+    for subject, message in capability_overclaim_violations(contract, achieved_level):
+        if subject not in covered:
+            violations.append((subject, message))
     return violations
 
 
@@ -383,7 +464,7 @@ def certify_adapter(
     try:
         call_graph = adapter.call_graph(manifest)
         call_graph_edges = len(call_graph.edges)
-        call_graph_tool_backed = _call_graph_is_tool_backed(call_graph)
+        call_graph_tool_backed = call_graph_is_tool_backed(call_graph)
     except Exception as exc:  # pragma: no cover - defensive certification boundary
         call_graph_edges = 0
         call_graph_tool_backed = False
@@ -446,13 +527,19 @@ def certify_adapter(
                 message="manifest declares trace sources but adapter emitted no traces",
             )
         )
-    findings.extend(_trace_evidence_findings(contract, provenanced_trace_count))
-    level = _level(
+    level = achieved_capability_level(
         resolved=resolved,
         unresolved=unresolved,
         edges=call_graph_edges,
         provenanced_traces=provenanced_trace_count,
         tool_backed_call_graph=call_graph_tool_backed,
+    )
+    # The capability contract may declare no level higher than the run achieved — both the
+    # whole-contract level and each individual claim. This is the ordered declared-vs-achieved gate
+    # (PC-1): the trace-evidence floor alone could not distinguish trace_capable from
+    # production_candidate, so a production_candidate over a regex call graph certified silently.
+    findings.extend(
+        _capability_evidence_findings(contract, level, provenanced_trace_count)
     )
     blocked = any(finding.severity == "blocking" for finding in findings)
     return AdapterCertificationReport(
@@ -624,16 +711,18 @@ def _method_findings(
     return findings
 
 
-def _trace_evidence_findings(
+def _capability_evidence_findings(
     contract: AdapterCapabilityContract,
+    achieved_level: AdapterCertificationLevel,
     provenanced_trace_count: int,
 ) -> list[AdapterCertificationFinding]:
-    """Block a contract that claims a trace level it did not evidence with real-tool provenance.
+    """Block a contract that claims a capability level it did not evidence on this run.
 
-    PC-1.T2: a ``trace_capable``/``production_candidate`` capability requires a recorded trace
-    producer plus tool-version evidence over a real artifact hash. The empirical check lives in the
-    shared :func:`trace_evidence_violations` so the conformance suite enforces the same honesty rule;
-    here we wrap each over-claim as a blocking certification finding.
+    PC-1: a ``trace_capable``/``production_candidate`` level requires real-tool evidence — recorded
+    trace provenance for a trace level, plus a tool-backed call graph for production_candidate. The
+    empirical rule lives in the shared :func:`capability_evidence_violations` (the trace-evidence
+    floor plus the ordered declared-vs-achieved check) so the conformance suite enforces the same
+    boundary; here we wrap each over-claim as a blocking certification finding.
     """
     return [
         AdapterCertificationFinding(
@@ -642,11 +731,15 @@ def _trace_evidence_findings(
             subject=subject,
             message=message,
         )
-        for subject, message in trace_evidence_violations(contract, provenanced_trace_count)
+        for subject, message in capability_evidence_violations(
+            contract,
+            achieved_level=achieved_level,
+            provenanced_trace_count=provenanced_trace_count,
+        )
     ]
 
 
-def _call_graph_is_tool_backed(call_graph: SourceCallGraph) -> bool:
+def call_graph_is_tool_backed(call_graph: SourceCallGraph) -> bool:
     """Whether the call graph came from a real static-analysis tool with a recorded version.
 
     production_candidate requires a tool-backed call graph (Slither for Solidity), not the regex
@@ -662,7 +755,7 @@ def _call_graph_is_tool_backed(call_graph: SourceCallGraph) -> bool:
     return metadata.get("slither_status") == "analyzed" and bool(metadata.get("slither_version"))
 
 
-def _level(
+def achieved_capability_level(
     *,
     resolved: int,
     unresolved: int,
@@ -677,6 +770,10 @@ def _level(
     tool-backed vertical — symbol resolution, a *tool-backed* call graph, and provenanced traces all
     present. A regex/static call graph (``tool_backed_call_graph`` False) caps the run at
     trace_capable even with provenanced traces: regex edges do not evidence production_candidate.
+
+    This is the single source of truth for the achieved level: certification computes it over its
+    fixture symbol refs, conformance over its resolved probe ref (the shared :func:`capability_overclaim_violations`
+    then ranks the declared level against it), so the two suites cannot disagree on what a level means.
     """
     if resolved == 0 or unresolved > 0:
         return "manifest_only"
@@ -687,3 +784,10 @@ def _level(
     if edges > 0 or resolved > 0:
         return "static_resolution"
     return "manifest_only"
+
+
+# Backwards-compatible private aliases: these two helpers became part of the cross-module honesty
+# surface (conformance imports them), so they carry public names now. The underscore-prefixed names
+# are retained so existing importers (e.g. the deterministic level/tool-backed pins) keep working.
+_level = achieved_capability_level
+_call_graph_is_tool_backed = call_graph_is_tool_backed

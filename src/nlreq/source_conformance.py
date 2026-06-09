@@ -2,7 +2,12 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .adapter_certification import count_provenanced_traces, trace_evidence_violations
+from .adapter_certification import (
+    achieved_capability_level,
+    call_graph_is_tool_backed,
+    capability_evidence_violations,
+    count_provenanced_traces,
+)
 from .jsonutil import canonical_json
 from .models import NormalizedTraceArtifact, SymbolRef
 from .source_adapter import (
@@ -111,21 +116,40 @@ def run_source_adapter_conformance(
     if not isinstance(traces, NormalizedTraceArtifact):
         failures.append("extract_traces must return a NormalizedTraceArtifact")
     else:
-        # PC-1: the conformance suite enforces the same trace-evidence honesty rule certification
-        # does — an adapter may not advertise a trace_capable/production_candidate level it did not
-        # back by producing traces with recorded real-tool provenance. Routing through the shared
-        # check means a static adapter that over-claims fails conformance, not only certification.
+        # PC-1: the conformance suite enforces the SAME capability-honesty rule certification does —
+        # an adapter may declare no level (whole-contract or per-claim) higher than the run achieved.
+        # Routing through the shared check means a static adapter that over-claims fails conformance,
+        # not only certification. This covers both the trace-evidence floor (a trace level with no
+        # provenanced traces) and the declared-vs-achieved ordering (a production_candidate backed by
+        # provenanced traces but only a regex, non-tool-backed call graph achieves trace_capable).
         # Adapters that expose no v2 capability contract (e.g. the manifest-only baselines) declare
-        # no trace level, so there is nothing to over-claim and the gate simply does not apply.
+        # no level to over-claim, so the gate simply does not apply.
         try:
             contract = adapter.capability_contract()
-        except Exception:  # an adapter that cannot describe a contract declares no trace level
+        except Exception:  # an adapter that cannot describe a contract declares no level
             contract = None
         if isinstance(contract, AdapterCapabilityContract):
             provenanced = count_provenanced_traces(traces.root)
-            for _subject, message in trace_evidence_violations(contract, provenanced):
+            # The fixture's unresolved/ambiguous refs are intentional probes, not resolution
+            # failures, so they do not cap the level — the resolved probe ref establishes the
+            # static_resolution floor. Trace + call-graph evidence then decide whether a declared
+            # trace level is backed, exactly as in certification (the shared achieved_capability_level).
+            achieved = achieved_capability_level(
+                resolved=1 if (resolved and resolved.status == "resolved") else 0,
+                unresolved=0,
+                edges=len(graph.edges) if graph is not None else 0,
+                provenanced_traces=provenanced,
+                tool_backed_call_graph=(
+                    call_graph_is_tool_backed(graph) if graph is not None else False
+                ),
+            )
+            for _subject, message in capability_evidence_violations(
+                contract,
+                achieved_level=achieved,
+                provenanced_trace_count=provenanced,
+            ):
                 failures.append(
-                    f"trace capability over-claimed without real-tool evidence: {message}"
+                    f"capability over-claimed without sufficient evidence: {message}"
                 )
 
     return failures

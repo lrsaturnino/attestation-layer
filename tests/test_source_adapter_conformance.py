@@ -1,4 +1,5 @@
 import hashlib
+import json
 from pathlib import Path
 
 import pytest
@@ -7,13 +8,20 @@ from nlreq.adapter_certification import certify_adapter
 from nlreq.javascript_source_adapter import JavaScriptSourceLanguageAdapter
 from nlreq.models import (
     EvidenceLevel,
+    NormalizedTrace,
     NormalizedTraceArtifact,
     NormalizedTraceProducer,
     SymbolRef,
+    TraceEvent,
 )
 from nlreq.production_source_adapters import SoliditySourceAdapter
 from nlreq.python_source_adapter import PythonSourceLanguageAdapter
-from nlreq.source_adapter import AdapterCapabilityContract, SourceManifest
+from nlreq.source_adapter import (
+    AdapterCapabilityContract,
+    SourceCallEdge,
+    SourceCallGraph,
+    SourceManifest,
+)
 from nlreq.source_conformance import (
     SourceAdapterConformanceError,
     SourceAdapterConformanceFixture,
@@ -261,6 +269,90 @@ class _PlaceholderHashSolidityAdapter(_OverclaimingSolidityAdapter):
         return NormalizedTraceArtifact.model_validate(stamped)
 
 
+def _forge_shaped_trace(adapter_id: str = "solidity-source") -> NormalizedTrace:
+    """A trace carrying a minimal but genuinely forge-``--json``-shaped ``raw_output`` (suite ->
+    test_results -> traces), hash-bound and producer-stamped so it passes the source-bound provenance
+    gate — it counts as a real provenanced trace and lifts the achieved level to trace_capable.
+
+    This exercises the *level-ordering* arm of the gate (declared production_candidate vs achieved
+    trace_capable), not the provenance gate itself — the provenance gate's source-bound positive
+    branch is covered end-to-end against a real ``forge`` run in tests/test_solidity_foundry_traces.py.
+    """
+    suite, test = "VaultTest", "testRedeem()"
+    report = json.dumps(
+        {suite: {"test_results": {test: {"status": "Success", "traces": [["Execution", {"arena": []}]]}}}}
+    )
+    digest = hashlib.sha256(report.encode("utf-8")).hexdigest()
+    return NormalizedTrace(
+        trace_id="trace-overclaim",
+        adapter_id=adapter_id,
+        source_hash=f"sha256:{digest}",
+        events=[TraceEvent(event_id="e1", timestamp=0, action="requestRedemption")],
+        producer=NormalizedTraceProducer(
+            tool="forge", tool_version="forge 1.5.0-stable", raw_output=report
+        ),
+        metadata={"suite": suite, "test": test},
+    )
+
+
+def _regex_call_graph(adapter: SoliditySourceAdapter, manifest: SourceManifest) -> SourceCallGraph:
+    """A regex (non-tool-backed) call graph with one real edge over the manifest's modules.
+
+    It evidences static_resolution but NOT production_candidate (which needs a Slither-backed graph),
+    so a run with provenanced traces plus this graph caps at trace_capable. Returning it explicitly
+    makes the cap deterministic whether or not Slither is installed: without the override, the
+    inherited SoliditySourceAdapter.call_graph would run Slither and could reach production_candidate,
+    masking the very over-claim these regressions assert.
+    """
+    module_ids = [module.module_id for module in manifest.modules]
+    first = module_ids[0]
+    return SourceCallGraph(
+        adapter_id=adapter.adapter_id,
+        language=adapter.language,
+        modules=module_ids,
+        edges=[SourceCallEdge(caller=f"{first}:caller", callee=f"{first}:callee")],
+        metadata={"analysis": "regex-static"},
+    )
+
+
+class _ProductionCandidateOverclaimAdapter(SoliditySourceAdapter):
+    """Declares production_candidate but its evidence reaches only trace_capable.
+
+    It produces a provenanced (forge-shaped) trace, yet its call graph is a regex, non-tool-backed
+    graph — so the achieved level is trace_capable and the whole-contract production_candidate
+    declaration is an over-claim. The trace-evidence floor cannot catch this (provenanced traces
+    exist); the ordered declared-vs-achieved check does (PC-1).
+    """
+
+    def call_graph(self, manifest: SourceManifest) -> SourceCallGraph:
+        return _regex_call_graph(self, manifest)
+
+    def extract_traces(self, manifest: SourceManifest) -> NormalizedTraceArtifact:
+        return NormalizedTraceArtifact.model_validate([_forge_shaped_trace(self.adapter_id)])
+
+    def capability_contract(self) -> AdapterCapabilityContract:
+        return super().capability_contract().model_copy(
+            update={"capability_level": "production_candidate"}
+        )
+
+
+class _ClaimLevelOverclaimAdapter(_ProductionCandidateOverclaimAdapter):
+    """Leaves the whole-contract level honest (static_resolution) but bumps a single capability claim
+    (call_graph) to production_candidate — isolating the per-claim arm of the declared-vs-achieved
+    check. The run still achieves only trace_capable, so the bumped claim is the lone over-claim.
+    """
+
+    def capability_contract(self) -> AdapterCapabilityContract:
+        contract = SoliditySourceAdapter.capability_contract(self)
+        bumped = [
+            claim.model_copy(update={"level": "production_candidate"})
+            if claim.capability_id == "call_graph"
+            else claim
+            for claim in contract.capabilities
+        ]
+        return contract.model_copy(update={"capabilities": bumped})
+
+
 def _write_ingested_trace(root: Path) -> str:
     path = root / "trace.json"
     path.write_text(
@@ -422,6 +514,65 @@ def test_trace_capable_claim_with_placeholder_artifact_hash_fails_certification(
     assert blocking, report.findings
 
 
+def test_production_candidate_declared_over_regex_call_graph_fails_certification(
+    tmp_path: Path,
+) -> None:
+    """PC-1 declared-vs-achieved gate: a contract declaring production_candidate is blocked when the
+    run only achieves trace_capable. Provenanced traces ARE present, but the call graph is a regex
+    (non-tool-backed) graph, so production_candidate is unevidenced — the exact gap the trace-evidence
+    floor alone could not catch (it returns no violation once any provenanced trace exists)."""
+    manifest = _solidity_manifest(tmp_path)
+    adapter = _ProductionCandidateOverclaimAdapter(project_root=tmp_path)
+
+    report = certify_adapter(
+        adapter,
+        manifest,
+        symbol_refs=[SymbolRef(name="requestRedemption")],
+    )
+
+    # provenanced forge-shaped trace + regex (non-tool-backed) call graph -> achieved trace_capable
+    assert report.level == "trace_capable"
+    assert report.call_graph_tool_backed is False
+    assert report.result == "blocked"
+    blocking = [
+        finding
+        for finding in report.findings
+        if finding.severity == "blocking"
+        and finding.category == "capability_contract"
+        and finding.subject == "production_candidate"
+    ]
+    assert blocking, report.findings
+    assert "only achieved trace_capable" in blocking[0].message
+
+
+def test_capability_claim_bumped_above_achieved_level_fails_certification(
+    tmp_path: Path,
+) -> None:
+    """PC-1 declared-vs-achieved gate, per-claim arm: a single capability claim bumped above the
+    achieved level fails certification even when the whole-contract level is honest. The run achieves
+    trace_capable, but the bumped call_graph claim declares production_candidate."""
+    manifest = _solidity_manifest(tmp_path)
+    adapter = _ClaimLevelOverclaimAdapter(project_root=tmp_path)
+
+    report = certify_adapter(
+        adapter,
+        manifest,
+        symbol_refs=[SymbolRef(name="requestRedemption")],
+    )
+
+    assert report.level == "trace_capable"
+    assert report.result == "blocked"
+    blocking = [
+        finding
+        for finding in report.findings
+        if finding.severity == "blocking"
+        and finding.category == "capability_contract"
+        and finding.subject == "call_graph"
+    ]
+    assert blocking, report.findings
+    assert "only achieved trace_capable" in blocking[0].message
+
+
 def _solidity_conformance_project(root: Path) -> SourceManifest:
     """A two-contract Solidity project whose resolved/unresolved/ambiguous refs hold under both the
     Slither-backed and the lexical-fallback resolution paths (a same-named function in two unrelated
@@ -492,5 +643,28 @@ def test_conformance_rejects_static_adapter_claiming_trace_capable(tmp_path: Pat
     manifest = _solidity_conformance_project(tmp_path)
     adapter = _OverclaimingSolidityAdapter(project_root=tmp_path)
 
-    with pytest.raises(SourceAdapterConformanceError, match="trace capability over-claimed"):
+    with pytest.raises(SourceAdapterConformanceError, match="capability over-claimed"):
+        assert_source_adapter_conforms(adapter, _solidity_conformance_fixture(manifest))
+
+
+def test_conformance_rejects_production_candidate_over_regex_call_graph(tmp_path: Path) -> None:
+    """PC-1 declared-vs-achieved gate in conformance: an adapter that produces provenanced traces but
+    only a regex call graph achieves trace_capable, so a production_candidate declaration is rejected
+    by conformance — the gap a trace-evidence-only conformance check missed (provenanced traces exist,
+    so the floor sees no violation, yet production_candidate is still unevidenced)."""
+    manifest = _solidity_conformance_project(tmp_path)
+    adapter = _ProductionCandidateOverclaimAdapter(project_root=tmp_path)
+
+    with pytest.raises(SourceAdapterConformanceError, match="only achieved trace_capable"):
+        assert_source_adapter_conforms(adapter, _solidity_conformance_fixture(manifest))
+
+
+def test_conformance_rejects_capability_claim_bumped_above_achieved_level(tmp_path: Path) -> None:
+    """PC-1 declared-vs-achieved gate in conformance, per-claim arm: even with an honest
+    whole-contract level, a single capability claim (call_graph) bumped to production_candidate over a
+    trace_capable run fails conformance — the per-claim ordering is enforced in both suites."""
+    manifest = _solidity_conformance_project(tmp_path)
+    adapter = _ClaimLevelOverclaimAdapter(project_root=tmp_path)
+
+    with pytest.raises(SourceAdapterConformanceError, match="call_graph claims production_candidate"):
         assert_source_adapter_conforms(adapter, _solidity_conformance_fixture(manifest))

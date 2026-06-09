@@ -17,10 +17,15 @@ import json
 from nlreq.adapter_certification import (
     _call_graph_is_tool_backed,
     _level,
+    capability_overclaim_violations,
     trace_has_real_tool_provenance,
 )
 from nlreq.models import NormalizedTrace, NormalizedTraceProducer, TraceEvent
-from nlreq.source_adapter import SourceCallGraph
+from nlreq.source_adapter import (
+    AdapterCapabilityClaim,
+    AdapterCapabilityContract,
+    SourceCallGraph,
+)
 
 
 def _forge_report(suite: str = "VaultTest", test: str = "testRedeem()") -> str:
@@ -88,6 +93,46 @@ def test_tool_backed_call_graph_without_traces_is_static_resolution() -> None:
 def test_unresolved_symbol_caps_at_manifest_only() -> None:
     level = _level(resolved=1, unresolved=1, edges=1, provenanced_traces=1, tool_backed_call_graph=True)
     assert level == "manifest_only"
+
+
+# --- declared-vs-achieved ordering (PC-1: a contract may declare no level above what it achieved) -
+
+
+def _contract(
+    capability_level: str, claim_levels: list[tuple[str, str]]
+) -> AdapterCapabilityContract:
+    return AdapterCapabilityContract(
+        adapter_id="x",
+        language="solidity",
+        capability_level=capability_level,
+        capabilities=[
+            AdapterCapabilityClaim(capability_id=cid, level=lvl) for cid, lvl in claim_levels
+        ],
+    )
+
+
+def test_declared_contract_level_above_achieved_is_an_overclaim() -> None:
+    """The production_candidate gap: declared production_candidate over an achieved trace_capable run
+    (provenanced traces but a regex call graph) is an over-claim the trace-evidence floor misses."""
+    contract = _contract("production_candidate", [("call_graph", "static_resolution")])
+    subjects = {subject for subject, _ in capability_overclaim_violations(contract, "trace_capable")}
+    assert "production_candidate" in subjects
+
+
+def test_declared_claim_level_above_achieved_is_an_overclaim() -> None:
+    contract = _contract("static_resolution", [("call_graph", "production_candidate")])
+    subjects = {subject for subject, _ in capability_overclaim_violations(contract, "trace_capable")}
+    assert "call_graph" in subjects
+    assert "static_resolution" not in subjects  # the contract level is at/below achieved
+
+
+def test_declared_levels_at_or_below_achieved_are_not_overclaims() -> None:
+    contract = _contract(
+        "trace_capable",
+        [("call_graph", "static_resolution"), ("runtime_trace_extraction", "trace_capable")],
+    )
+    assert capability_overclaim_violations(contract, "production_candidate") == []
+    assert capability_overclaim_violations(contract, "trace_capable") == []
 
 
 # --- call-graph backing signal ------------------------------------------------------------------
