@@ -817,11 +817,18 @@ class NormalizedTrace(BaseModel):
       - Internal (non-CALL) calls inlined by the compiler are not separate frames; they surface in
         the call graph (PC-3 Slither), not the trace.
 
-    Go (PC-7, future):
-      - Goroutine scheduling/interleaving is linearized to the observed event order; concurrency
-        detail beyond that order is dropped.
-      - Spans/log lines from a runtime or OpenTelemetry producer become TraceEvents; unexported
-        internal frames without instrumentation are not reconstructed.
+    Go (PC-7):
+      - The trace is a real runtime/trace captured by `go test -trace` and parsed by the vendored
+        golang.org/x/exp/trace reader (nlreq._go_trace_reader). Each user-meaningful, goroutine-
+        attributed event becomes one TraceEvent: a runtime/trace task or region becomes an event
+        whose action is the task/region type (e.g. "validate"), and a runtime/trace.Log becomes an
+        event whose action is the log category, with the message carried in post_state/metadata.
+      - Scheduler / GC / sync / metric events are dropped; goroutine scheduling and interleaving are
+        linearized to the observed event order. The goroutine id (TraceEvent.metadata["goroutine"])
+        and the observed order (TraceEvent.timestamp) are preserved, so the interleaving across
+        goroutines survives even though the lower-level scheduling detail does not.
+      - Unexported internal frames without runtime/trace instrumentation are not reconstructed; the
+        call graph (PC-6 callgraph) is where the static call structure lives, not the trace.
 
     `producer` records real-tool provenance and is set ONLY when a real tool extracted the trace;
     ingested JSON leaves it None (see NormalizedTraceProducer). `source_hash` is the hash of the

@@ -741,7 +741,12 @@ class GoSourceAdapter(RegexProductionSourceAdapter):
         lines = text.splitlines(keepends=True)
         # gopls reports 1-based line, 1-based column, end-exclusive. Offsets are computed by
         # character; non-ASCII identifiers (gopls counts UTF-16 code units) could be off, but the
-        # span is advisory review context, not the binding key.
+        # span is advisory review context, not the binding key. The span covers the IDENTIFIER token
+        # (gopls symbols reports the name range, not the declaration body), so the inherited
+        # present_to_llm presents the identifier rather than the full declaration source. That is a
+        # known limitation: a production LLM extraction (PC-8) that must read real bodies would widen
+        # this to the enclosing declaration (a future enhancement); the offline recorded extraction
+        # the tests use does not depend on the presented body.
         if symbol.start_line > len(lines):
             return None
         start = sum(len(lines[i]) for i in range(symbol.start_line - 1)) + (symbol.start_col - 1)
