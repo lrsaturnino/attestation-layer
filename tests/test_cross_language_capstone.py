@@ -100,11 +100,14 @@ def _impact(adapter_id, language, module_id, symbol) -> ImpactAnalysisArtifact:
     )
 
 
-def _solidity_vertical(project_root: Path, traces: NormalizedTraceArtifact, *, authorized: bool):
-    condition = "authorized" if authorized else "not authorized"
+def _solidity_vertical(project_root: Path, traces: NormalizedTraceArtifact, *, safe: bool):
+    # The sub-claim is ALWAYS the parent's unauthorized-rejection slice: when NOT authorized, the
+    # action must be rejected (the guard the requirement declares). ``safe`` selects the reviewed S,
+    # NOT the requirement — the SAFE S discharges it (forbidden outcome unreachable, premise still
+    # reachable → real valid, non-vacuous), the UNSAFE S yields a real counterexample over the SAME R.
     sub_claim = DslV3Parser().parse_ir(
         "requirement authorization_precondition: scope redemption when wallet is "
-        f"{condition} then finalize_redemption must reject before rejected.",
+        "not authorized then finalize_redemption must reject before rejected.",
         requirement_id="REQ-XLANG-REDEMPTION-001-SOL",
         title="On-chain redemption authorization",
     )
@@ -117,8 +120,8 @@ def _solidity_vertical(project_root: Path, traces: NormalizedTraceArtifact, *, a
             project_root,
             module_id="vault",
             spec_id="spec:vault",
-            spec_file="RedemptionVault.tla",
-            invariant="VaultAuthorizationClosed",
+            spec_file="RedemptionVault.tla" if safe else "RedemptionVaultUnsafe.tla",
+            invariant="VaultFinalizeAuthorized" if safe else "VaultAuthorizationClosed",
         ),
         impact=_impact("solidity-source", "solidity", "vault", "finalize_redemption"),
         project_root=project_root,
@@ -141,11 +144,12 @@ def _solidity_vertical(project_root: Path, traces: NormalizedTraceArtifact, *, a
     )
 
 
-def _go_vertical(project_root: Path, traces: NormalizedTraceArtifact, *, authorized: bool):
-    condition = "authorized" if authorized else "not authorized"
+def _go_vertical(project_root: Path, traces: NormalizedTraceArtifact, *, safe: bool):
+    # As in _solidity_vertical: the sub-claim is ALWAYS the parent's "when NOT authorized, reject"
+    # slice; ``safe`` selects the reviewed S (SAFE discharges it, UNSAFE counterexamples).
     sub_claim = DslV3Parser().parse_ir(
         "requirement authorization_precondition: scope sweep when operator is "
-        f"{condition} then execute_sweep must reject before rejected.",
+        "not authorized then execute_sweep must reject before rejected.",
         requirement_id="REQ-XLANG-REDEMPTION-001-GO",
         title="Off-chain sweep authorization",
     )
@@ -158,8 +162,8 @@ def _go_vertical(project_root: Path, traces: NormalizedTraceArtifact, *, authori
             project_root,
             module_id="coordinator",
             spec_id="spec:coordinator",
-            spec_file="RedemptionCoordinator.tla",
-            invariant="CoordinatorAuthorizationClosed",
+            spec_file="RedemptionCoordinator.tla" if safe else "RedemptionCoordinatorUnsafe.tla",
+            invariant="CoordinatorSweepAuthorized" if safe else "CoordinatorAuthorizationClosed",
         ),
         impact=_impact("go-source", "go", "coordinator", "execute_sweep"),
         project_root=project_root,
@@ -320,8 +324,8 @@ def test_close_refuses_a_misconfigured_vertical_binding(tmp_path) -> None:
     before any Apalache run — so a wrong-language S ∧ R can never be tagged onto a guard it does not
     belong to. Validation is tool-free; these cases run without apalache/forge/go.
     """
-    sol = _solidity_vertical(tmp_path / "sol", _empty_traces(), authorized=True)
-    go = _go_vertical(tmp_path / "go", _empty_traces(), authorized=True)
+    sol = _solidity_vertical(tmp_path / "sol", _empty_traces(), safe=True)
+    go = _go_vertical(tmp_path / "go", _empty_traces(), safe=True)
 
     # (1) Unknown guard: a vertical bound to a node that is not a per-language guard of the requirement.
     with pytest.raises(ValueError, match="not a per-language guard"):
@@ -348,6 +352,38 @@ def test_close_refuses_a_misconfigured_vertical_binding(tmp_path) -> None:
             ],
         )
 
+    # (4) Mismatched precondition: the RIGHT-language Solidity vertical, but carrying a sub-claim whose
+    # premise is "authorized" (not "not authorized"). Over a reviewed S that leaves Pred_authorized
+    # always-false this would close VACUOUSLY — discharging the Solidity guard without proving the
+    # parent's stated unauthorized-rejection slice. The guard declares
+    # guard_premise_predicate="not_authorized", so the binding is refused UP FRONT: a valid-but-wrong
+    # S ∧ R can never be tagged onto the guard.
+    vacuous_sub_claim = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope redemption when wallet is "
+        "authorized then finalize_redemption must reject before rejected.",
+        requirement_id="REQ-XLANG-REDEMPTION-001-SOL",
+        title="On-chain redemption authorization",
+    )
+    with pytest.raises(ValueError, match="guard_premise_predicate"):
+        close_cross_language_proof(
+            requirement=REQUIREMENT,
+            verticals=[dataclasses.replace(sol, sub_claim=vacuous_sub_claim)],
+        )
+
+    # (5) Mismatched action: a sub-claim naming a DIFFERENT action than the guard declares is refused
+    # on guard_action, so a vertical cannot prove a guard about one action with a run about another.
+    wrong_action_sub_claim = DslV3Parser().parse_ir(
+        "requirement authorization_precondition: scope redemption when wallet is "
+        "not authorized then request_redemption must reject before rejected.",
+        requirement_id="REQ-XLANG-REDEMPTION-001-SOL",
+        title="On-chain redemption authorization",
+    )
+    with pytest.raises(ValueError, match="guard_action"):
+        close_cross_language_proof(
+            requirement=REQUIREMENT,
+            verticals=[dataclasses.replace(sol, sub_claim=wrong_action_sub_claim)],
+        )
+
 
 # --- Real per-language S ∧ R end-to-end (the SP3 loop) --------------------------------------------
 
@@ -356,6 +392,13 @@ def test_close_refuses_a_misconfigured_vertical_binding(tmp_path) -> None:
 def test_cross_language_requirement_closes_one_proof_and_gates_the_action(tmp_path_factory) -> None:
     """The loop closes: both per-language guards are discharged by their OWN language's real Apalache
     S ∧ R (BOUNDED_CHECKED), the single ProofObject closes, and the closure gate passes the action.
+
+    Closure is NON-VACUOUS and proves the parent's stated slice. Both sub-claims are the requirement's
+    own "when NOT authorized, the action must be rejected" guard; each reviewed SAFE S leaves the
+    not-authorized premise REACHABLE (init/denied) while making the forbidden outcome — the action
+    firing while not-authorized — UNREACHABLE. So the premise fires and the obligation still holds: a
+    real ``valid`` that witnesses the guard, not a vacuous one where the premise is always false. The
+    companion counterexample tests run the SAME requirement against an UNSAFE S to show the contrast.
 
     The per-vertical project roots come from ``tmp_path_factory`` (session base), NOT ``tmp_path``,
     so the Apalache working-directory path carries only the clean label — never the test name. The
@@ -369,8 +412,8 @@ def test_cross_language_requirement_closes_one_proof_and_gates_the_action(tmp_pa
     result = close_cross_language_proof(
         requirement=REQUIREMENT,
         verticals=[
-            _solidity_vertical(tmp_path_factory.mktemp("xlang_sol"), sol_traces, authorized=True),
-            _go_vertical(tmp_path_factory.mktemp("xlang_go"), go_traces, authorized=True),
+            _solidity_vertical(tmp_path_factory.mktemp("xlang_sol"), sol_traces, safe=True),
+            _go_vertical(tmp_path_factory.mktemp("xlang_go"), go_traces, safe=True),
         ],
         downstream_action="merge",
     )
@@ -429,8 +472,8 @@ def test_counterexample_in_one_language_blocks_the_action(tmp_path_factory) -> N
     result = close_cross_language_proof(
         requirement=REQUIREMENT,
         verticals=[
-            _solidity_vertical(tmp_path_factory.mktemp("xlang_sol"), sol_traces, authorized=False),
-            _go_vertical(tmp_path_factory.mktemp("xlang_go"), go_traces, authorized=True),
+            _solidity_vertical(tmp_path_factory.mktemp("xlang_sol"), sol_traces, safe=False),
+            _go_vertical(tmp_path_factory.mktemp("xlang_go"), go_traces, safe=True),
         ],
         downstream_action="merge",
     )
@@ -448,4 +491,43 @@ def test_counterexample_in_one_language_blocks_the_action(tmp_path_factory) -> N
     # The per-language S ∧ R aggregate and the closure gate both block the downstream action.
     assert result.composition.result == "blocked"
     assert any("solidity" in blocker for blocker in result.composition.blockers)
+    assert result.gate.result == "blocked"
+
+
+@requires_capstone_tools
+def test_counterexample_in_the_go_vertical_blocks_the_action(tmp_path_factory) -> None:
+    """Symmetric to the Solidity counterexample: a real Apalache counterexample in the GO vertical
+    (the off-chain coordinator's UNSAFE S can reach a sweep while not-authorized) leaves the Go guard
+    undischarged, so the single ProofObject does not close and the gate blocks the action — even
+    though the Solidity guard discharges normally. EITHER language's real failure blocks the action;
+    the cross-language closure is not satisfied by the on-chain proof alone.
+
+    Project roots come from ``tmp_path_factory`` (clean label), not ``tmp_path``, so the Apalache
+    working-directory path the runner scans does not carry this test's name — see the closing test.
+    """
+    sol_traces = _solidity_traces()
+    go_traces = _go_traces()
+
+    result = close_cross_language_proof(
+        requirement=REQUIREMENT,
+        verticals=[
+            _solidity_vertical(tmp_path_factory.mktemp("xlang_sol"), sol_traces, safe=True),
+            _go_vertical(tmp_path_factory.mktemp("xlang_go"), go_traces, safe=False),
+        ],
+        downstream_action="merge",
+    )
+
+    assert result.proof.status != "closed"
+    premises = {p.node_id: p for p in result.proof.premises}
+    # The Go guard is blocked by its real counterexample; the Solidity guard still discharges.
+    assert premises["obligation.go_authorization_guard"].status == "blocked"
+    assert premises["obligation.solidity_authorization_guard"].status == "discharged"
+
+    by_lang = {v.language: v for v in result.verticals}
+    assert by_lang["go"].s_and_r_status == "counterexample"
+    assert by_lang["solidity"].s_and_r_status == "valid"
+
+    # The per-language S ∧ R aggregate and the closure gate both block the downstream action.
+    assert result.composition.result == "blocked"
+    assert any("go" in blocker for blocker in result.composition.blockers)
     assert result.gate.result == "blocked"

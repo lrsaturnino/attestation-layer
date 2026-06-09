@@ -633,6 +633,15 @@ def _validate_vertical_bindings(
     ``adapter_id`` match it — making the non-interchangeability guarantee structural at the binding, not
     just at the result tag. Guards without that metadata (e.g. a degenerate single-language fallback
     from :func:`cross_language_guard_nodes`) are unconstrained here, as before.
+
+    Matching the language is necessary but NOT sufficient: the right-language vertical could still
+    carry the WRONG sub-claim — one whose ``S ∧ R`` closes for an unrelated reason (e.g. a vacuous
+    ``when authorized => ...`` premise the reviewed ``S`` leaves always-false) — and discharge the
+    guard without proving the parent's stated slice. So when a guard also declares ``guard_action`` /
+    ``guard_premise_predicate`` (the A-side statement of which action and precondition that conjunct
+    is about), :func:`_validate_sub_claim_against_guard` enforces that the sub-claim's obligation
+    action and one of its premise predicates MATCH — binding the per-language proof to the guard's
+    meaning, not just its node_id and language.
     """
     seen: set[str] = set()
     for vertical in verticals:
@@ -666,6 +675,63 @@ def _validate_vertical_bindings(
                 f"{vertical.guard_node_id!r}, which declares vertical_adapter "
                 f"{expected_adapter!r}; a guard must be discharged by its declared adapter"
             )
+
+        _validate_sub_claim_against_guard(vertical, guard)
+
+
+def _sub_claim_action_and_premises(sub_claim: RequirementIRV2) -> tuple[str | None, list[str]]:
+    """The obligation action and premise predicate names of an authorization sub-claim.
+
+    Mirrors the shape :func:`validate_authorization_precondition_shape` reads: the premise is a
+    predicate node (or an ``and`` of them) whose ``name`` is the precondition (e.g. ``not_authorized``),
+    and the obligation's ``action.name`` is the guarded action. Returns ``(None, [])`` defensively for a
+    malformed sub-claim — lowering refuses that separately, so binding need not re-validate the shape.
+    """
+    root = sub_claim.semantic_ir
+    premise = root.premise
+    premise_names: list[str] = []
+    if premise is not None:
+        nodes = premise.children if premise.kind == "and" else [premise]
+        premise_names = [node.name for node in nodes if node.kind == "predicate" and node.name]
+    action = (
+        root.obligation.action.name
+        if root.obligation is not None and root.obligation.action is not None
+        else None
+    )
+    return action, premise_names
+
+
+def _validate_sub_claim_against_guard(vertical: CrossLanguageVertical, guard: SemanticNode) -> None:
+    """Refuse a vertical whose sub-claim does not formalize the guard the requirement declares.
+
+    Binding by ``guard_node_id`` alone lets an ARBITRARY sub-claim be tagged with the guard's
+    premise_id and discharge it — including one whose Apalache ``S ∧ R`` closes for an unrelated
+    reason (e.g. a vacuous ``when authorized => ~action`` premise the reviewed ``S`` leaves
+    always-false). When a guard declares ``guard_action`` / ``guard_premise_predicate``, enforce that
+    the sub-claim's obligation action and one of its premise predicates MATCH — so the per-language run
+    proves the parent's stated slice (e.g. an unauthorized ``finalize_redemption`` is rejected), not a
+    different, vacuously-closing one. Guards without that metadata are unconstrained here, as before.
+    """
+    expected_action = guard.metadata.get("guard_action")
+    expected_premise = guard.metadata.get("guard_premise_predicate")
+    if expected_action is None and expected_premise is None:
+        return
+    action, premise_names = _sub_claim_action_and_premises(vertical.sub_claim)
+    if expected_action is not None and action != expected_action:
+        raise ValueError(
+            f"cross-language vertical {vertical.language!r} binds guard node "
+            f"{vertical.guard_node_id!r}, which declares guard_action {expected_action!r}, but its "
+            f"sub-claim's obligation action is {action!r}; a vertical must discharge the guard's "
+            "declared action, not a different one"
+        )
+    if expected_premise is not None and expected_premise not in premise_names:
+        raise ValueError(
+            f"cross-language vertical {vertical.language!r} binds guard node "
+            f"{vertical.guard_node_id!r}, which declares guard_premise_predicate "
+            f"{expected_premise!r}, but its sub-claim's premise predicates are {premise_names}; a "
+            "vertical must discharge the guard's stated precondition (e.g. 'when ... is not "
+            "authorized'), so a sub-claim with a different premise cannot stand in for it"
+        )
 
 
 def _tag_premise(result: BackendResult, premise_id: str) -> BackendResult:

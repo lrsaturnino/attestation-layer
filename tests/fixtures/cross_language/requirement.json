@@ -63,7 +63,9 @@
           "confidence": "reviewed",
           "metadata": {
             "vertical_language": "solidity",
-            "vertical_adapter": "solidity-source"
+            "vertical_adapter": "solidity-source",
+            "guard_action": "finalize_redemption",
+            "guard_premise_predicate": "not_authorized"
           },
           "provenance": {
             "method": "manual_review",
@@ -78,7 +80,9 @@
           "confidence": "reviewed",
           "metadata": {
             "vertical_language": "go",
-            "vertical_adapter": "go-source"
+            "vertical_adapter": "go-source",
+            "guard_action": "execute_sweep",
+            "guard_premise_predicate": "not_authorized"
           },
           "provenance": {
             "method": "manual_review",
