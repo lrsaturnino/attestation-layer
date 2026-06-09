@@ -4,6 +4,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path
 
+from . import slither_client
 from .models import EvidenceLevel, NormalizedTraceArtifact, SourceSpan, SymbolRef
 from .source_adapter import (
     AdapterCapabilityClaim,
@@ -310,7 +311,7 @@ class SoliditySourceAdapter(RegexProductionSourceAdapter):
         AdapterLimitation(
             limitation_id="solidity-inheritance-static-depth",
             category="analysis_depth",
-            description="Inheritance, virtual dispatch, and modifier expansion are lexical in this adapter slice; Slither-class analysis remains adapter-local future depth.",
+            description="Inheritance, overloads, and the call graph are resolved by Slither when it is available; if Slither cannot be driven the adapter falls back to lexical extraction and reports static_resolution with a recorded skip reason.",
             closure_effect="review",
         ),
         AdapterLimitation(
@@ -331,6 +332,168 @@ class SoliditySourceAdapter(RegexProductionSourceAdapter):
             "ecosystem": "evm",
             "binding_role": "event" if definition.symbol_type == "event" else "source_symbol",
         }
+
+    # --- Slither-backed resolution + call graph (PC-3) ------------------------------------------
+    # When Slither can be driven, symbol resolution is inheritance- and overload-aware and the call
+    # graph is real (a base call from a derived contract resolves to the base that declares it).
+    # When Slither is unavailable the adapter degrades to the lexical RegexProductionSourceAdapter
+    # behaviour and records the skip reason; it never claims a Slither-backed result it did not run.
+
+    def _slither_result(self, manifest: SourceManifest):
+        cache: dict[tuple[str, ...], object] = self.__dict__.setdefault("_slither_results", {})
+        key = tuple(sorted(module.path for module in manifest.modules))
+        if key not in cache:
+            targets = [self._path(module.path) for module in manifest.modules]
+            cache[key] = slither_client.analyze_with_slither(
+                targets, project_root=self.project_root.resolve(strict=False)
+            )
+        return cache[key]
+
+    def _file_to_module(self, manifest: SourceManifest) -> dict[str, str]:
+        mapping: dict[str, str] = {}
+        for module in manifest.modules:
+            mapping[module.path] = module.module_id
+            mapping[Path(module.path).name] = module.module_id
+        return mapping
+
+    def _module_for_file(self, file: str | None, manifest: SourceManifest) -> str | None:
+        if not file:
+            return None
+        mapping = self._file_to_module(manifest)
+        return mapping.get(file) or mapping.get(Path(file).name)
+
+    def _module_path_for_file(self, file: str | None, manifest: SourceManifest) -> str | None:
+        if not file:
+            return None
+        basename = Path(file).name
+        for module in manifest.modules:
+            if module.path == file or Path(module.path).name == basename:
+                return module.path
+        return None
+
+    def _slither_span(self, symbol, manifest: SourceManifest) -> SourceSpan | None:
+        if symbol.start is None or symbol.length is None:
+            return None
+        module_path = self._module_path_for_file(symbol.file, manifest)
+        if module_path is None:
+            return None
+        path = self._path(module_path)
+        if not path.is_file():
+            return None
+        text = path.read_text()
+        end = symbol.start + symbol.length
+        return SourceSpan(
+            document=path.as_posix(),
+            start_char=symbol.start,
+            end_char=min(end, len(text)),
+            text=text[symbol.start : end],
+        )
+
+    @staticmethod
+    def _slither_symbol_type(kind: str) -> str:
+        return kind if kind in {"contract", "library", "interface", "function", "event", "modifier"} else "function"
+
+    def resolve_symbol(self, ref: SymbolRef, manifest: SourceManifest) -> SourceSymbolResolution:
+        result = self._slither_result(manifest)
+        analysis = getattr(result, "analysis", None)
+        if getattr(result, "status", None) != "analyzed" or analysis is None:
+            return super().resolve_symbol(ref, manifest)
+
+        seen: set[tuple[str, str | None, str]] = set()
+        matches: list[SourceSymbol] = []
+        for symbol in analysis.symbols:
+            if symbol.name != ref.name:
+                continue
+            # A function inherited by N contracts appears N times with the same declarer+signature;
+            # collapse to its single definition so inheritance does not look like ambiguity, while
+            # genuine overloads (same name, different signature) stay distinct and resolve ambiguous.
+            identity = (symbol.kind, symbol.declarer, symbol.signature)
+            if identity in seen:
+                continue
+            seen.add(identity)
+            module_id = self._module_for_file(symbol.file, manifest) or (
+                manifest.modules[0].module_id if manifest.modules else "unknown"
+            )
+            module_path = self._module_path_for_file(symbol.file, manifest) or (
+                manifest.modules[0].path if manifest.modules else ""
+            )
+            matches.append(
+                SourceSymbol(
+                    name=symbol.name,
+                    module_id=module_id,
+                    path=module_path,
+                    symbol_type=self._slither_symbol_type(symbol.kind),
+                    source_span=self._slither_span(symbol, manifest),
+                    metadata={
+                        "analysis": "slither",
+                        "ecosystem": "evm",
+                        "binding_role": "event" if symbol.kind == "event" else "source_symbol",
+                        "signature": symbol.signature,
+                        "declarer": symbol.declarer or "",
+                    },
+                )
+            )
+        if len(matches) == 1:
+            return SourceSymbolResolution(ref=ref, status="resolved", symbols=matches)
+        if len(matches) > 1:
+            return SourceSymbolResolution(
+                ref=ref,
+                status="ambiguous",
+                symbols=matches,
+                reason=(
+                    f"symbol resolves to {len(matches)} Slither-analyzed definitions "
+                    "(overloaded or multiply-declared)"
+                ),
+            )
+        return SourceSymbolResolution(
+            ref=ref, status="unresolved", reason="symbol not found by Slither analysis"
+        )
+
+    def call_graph(self, manifest: SourceManifest) -> SourceCallGraph:
+        result = self._slither_result(manifest)
+        analysis = getattr(result, "analysis", None)
+        if getattr(result, "status", None) != "analyzed" or analysis is None:
+            graph = super().call_graph(manifest)
+            graph.metadata["slither_status"] = getattr(result, "status", "unavailable")
+            reason = getattr(result, "reason", None)
+            if reason:
+                graph.metadata["slither_skip_reason"] = reason
+            return graph
+
+        edges: list[SourceCallEdge] = []
+        for edge in analysis.edges:
+            caller_module = self._module_for_file(edge.caller_file, manifest) or edge.caller_contract
+            callee_module = (
+                self._module_for_file(edge.callee_file, manifest)
+                or edge.callee_contract
+                or caller_module
+            )
+            edges.append(
+                SourceCallEdge(
+                    caller=f"{caller_module}:{edge.caller_signature}",
+                    callee=f"{callee_module}:{edge.callee_signature}",
+                    metadata={
+                        "kind": edge.kind,
+                        "caller_contract": edge.caller_contract,
+                        "callee_contract": edge.callee_contract or "",
+                        "callee_name": edge.callee_name,
+                    },
+                )
+            )
+        metadata = {
+            "analysis": "slither",
+            "slither_status": "analyzed",
+            **self._manifest_metadata(manifest),
+        }
+        if analysis.slither_version:
+            metadata["slither_version"] = analysis.slither_version
+        return SourceCallGraph(
+            adapter_id=self.adapter_id,
+            language=self.language,
+            modules=[module.module_id for module in manifest.modules],
+            edges=edges,
+            metadata=metadata,
+        )
 
 
 class GoSourceAdapter(RegexProductionSourceAdapter):
