@@ -6,7 +6,10 @@ from typing import TYPE_CHECKING, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .jsonutil import sha256_json, sha256_text
-from .llm_client import CROSS_LANGUAGE_CLARIFY_SENTINEL, language_prompt_addendum
+from .llm_client import (
+    CROSS_LANGUAGE_CLARIFY_SENTINEL,
+    build_drafting_prompt,
+)
 
 if TYPE_CHECKING:
     from .llm_client import LlmClient
@@ -538,17 +541,12 @@ def build_rewrite_prompt(prose: str, grammar_summary: str, *, language: str = "e
     and goldens remain reproducible. ``language`` adds non-English guidance only; for the
     "en" default the prompt is byte-identical to before, so English prompt hashes are
     unchanged (PA-11).
+
+    This is now a thin delegate to the shared ``build_drafting_prompt`` (Work Item 2): the
+    drafting prompt has a single source used by both ``AnthropicLlmClient`` and
+    ``CliLlmClient``, so a prompt fork between the API and CLI transports is impossible.
     """
-    return (
-        "You are a precise technical writer converting free-form requirement prose "
-        "into a controlled DSL v3 requirement.\n\n"
-        "GRAMMAR:\n"
-        + grammar_summary
-        + language_prompt_addendum(language)
-        + "\nPROSE:\n"
-        + prose.strip()
-        + "\n\nProduce ONLY the controlled DSL v3 text, no explanation or commentary."
-    )
+    return build_drafting_prompt(prose, grammar_summary, language=language)
 
 
 def draft_controlled_rewrite_with_llm(
@@ -559,6 +557,7 @@ def draft_controlled_rewrite_with_llm(
     timestamp: str,
     model: str | None = None,
     language: str | None = None,
+    extra_provenance: dict[str, str] | None = None,
 ) -> ControlledRewriteProposal:
     """Produce a controlled rewrite proposal by calling an LlmClient.
 
@@ -577,6 +576,11 @@ def draft_controlled_rewrite_with_llm(
             ``language`` (PA-11). Steers the drafting prompt for non-English prose and is
             recorded under ``source_language`` in the proposal's producer provenance, so
             the proposal artifact is self-describing without re-reading the intake.
+        extra_provenance: Optional per-role provenance from the model-config factory
+            (``RoleProvenance.as_metadata()`` — client_kind / prompt_version / wrapper).
+            Merged into ``producer.metadata`` alongside ``source_language``. Empty/None
+            on the default path so default-path proposals stay byte-identical to the
+            pre-config CLI (Work Item 1, acceptance #1).
 
     Returns:
         A ControlledRewriteProposal with status ``needs_approval``.
@@ -597,7 +601,7 @@ def draft_controlled_rewrite_with_llm(
         method="llm",
         model=model,
         prompt=prompt,
-        metadata={"source_language": effective_language},
+        metadata={"source_language": effective_language, **(extra_provenance or {})},
     )
 
 

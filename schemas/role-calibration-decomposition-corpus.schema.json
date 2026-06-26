@@ -1,0 +1,85 @@
+{
+  "$defs": {
+    "DecompositionCalibrationCase": {
+      "additionalProperties": false,
+      "description": "A decomposition-calibration case.\n\n``controlled_text`` is the APPROVED DSL v3 input the decomposer re-expresses. The gold\nFormalClaim signature is DERIVED from it (a faithful re-expression reproduces it), so no\nseparate gold-signature field is needed (mirrors drafting's gold-IR derivation).\n``recorded_dsl_text`` is the planted decomposer re-expression replayed in the recorded\ndiscriminator. ``fault_kind=\"false_refusal\"`` means the planted re-expression must NOT lower\nto a claim (the harness marks its IR unsupported so ``build_formal_claim`` refuses); a live\ndecomposer analogously refuses by emitting unparseable text or an unsupported IR.",
+      "properties": {
+        "case_id": {
+          "title": "Case Id",
+          "type": "string"
+        },
+        "controlled_text": {
+          "title": "Controlled Text",
+          "type": "string"
+        },
+        "domain": {
+          "title": "Domain",
+          "type": "string"
+        },
+        "fault_kind": {
+          "enum": [
+            "faithful",
+            "false_acceptance",
+            "false_refusal"
+          ],
+          "title": "Fault Kind",
+          "type": "string"
+        },
+        "language": {
+          "default": "en",
+          "title": "Language",
+          "type": "string"
+        },
+        "recorded_dsl_text": {
+          "title": "Recorded Dsl Text",
+          "type": "string"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case_id",
+        "title",
+        "domain",
+        "fault_kind",
+        "controlled_text",
+        "recorded_dsl_text"
+      ],
+      "title": "DecompositionCalibrationCase",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "cases": {
+      "items": {
+        "$ref": "#/$defs/DecompositionCalibrationCase"
+      },
+      "title": "Cases",
+      "type": "array"
+    },
+    "corpus_id": {
+      "title": "Corpus Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "corpus_id",
+    "version",
+    "cases"
+  ],
+  "title": "DecompositionCalibrationCorpus",
+  "type": "object"
+}

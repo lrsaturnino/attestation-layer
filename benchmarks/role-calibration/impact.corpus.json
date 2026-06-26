@@ -1,0 +1,271 @@
+{
+  "cases": [
+    {
+      "candidate_modules": [
+        "payments",
+        "ledger",
+        "notify",
+        "audit"
+      ],
+      "case_id": "impact-payments-faithful-1",
+      "domain": "payments",
+      "fault_kind": "faithful",
+      "gold_affected_modules": [
+        "payments",
+        "ledger"
+      ],
+      "language": "en",
+      "prose": "The payment service must reject refunds over the daily limit.",
+      "recorded_estimate": "[\"payments\", \"ledger\"]",
+      "symbols": [
+        "refund"
+      ],
+      "title": "payments faithful 1"
+    },
+    {
+      "candidate_modules": [
+        "payments",
+        "ledger",
+        "notify",
+        "audit"
+      ],
+      "case_id": "impact-payments-fa-1",
+      "domain": "payments",
+      "fault_kind": "false_acceptance",
+      "gold_affected_modules": [
+        "payments",
+        "ledger"
+      ],
+      "language": "en",
+      "prose": "The payment service must reject refunds over the daily limit.",
+      "recorded_estimate": "[\"ledger\", \"notify\", \"payments\"]",
+      "symbols": [
+        "refund"
+      ],
+      "title": "payments over-claim 1"
+    },
+    {
+      "candidate_modules": [
+        "payments",
+        "ledger",
+        "notify",
+        "audit"
+      ],
+      "case_id": "impact-payments-fr-1",
+      "domain": "payments",
+      "fault_kind": "false_refusal",
+      "gold_affected_modules": [
+        "payments",
+        "ledger"
+      ],
+      "language": "en",
+      "prose": "The payment service must reject refunds over the daily limit.",
+      "recorded_estimate": "[\"payments\"]",
+      "symbols": [
+        "refund"
+      ],
+      "title": "payments under-claim 1"
+    },
+    {
+      "candidate_modules": [
+        "payments",
+        "ledger",
+        "notify",
+        "audit"
+      ],
+      "case_id": "impact-payments-faithful-2",
+      "domain": "payments",
+      "fault_kind": "faithful",
+      "gold_affected_modules": [
+        "payments",
+        "ledger"
+      ],
+      "language": "en",
+      "prose": "The payment service must reject refunds over the daily limit.",
+      "recorded_estimate": "[\"payments\", \"ledger\"]",
+      "symbols": [
+        "refund"
+      ],
+      "title": "payments faithful 2"
+    },
+    {
+      "candidate_modules": [
+        "payments",
+        "ledger",
+        "notify",
+        "audit"
+      ],
+      "case_id": "impact-payments-fa-2",
+      "domain": "payments",
+      "fault_kind": "false_acceptance",
+      "gold_affected_modules": [
+        "payments",
+        "ledger"
+      ],
+      "language": "en",
+      "prose": "The payment service must reject refunds over the daily limit.",
+      "recorded_estimate": "[\"ledger\", \"notify\", \"payments\"]",
+      "symbols": [
+        "refund"
+      ],
+      "title": "payments over-claim 2"
+    },
+    {
+      "candidate_modules": [
+        "payments",
+        "ledger",
+        "notify",
+        "audit"
+      ],
+      "case_id": "impact-payments-fr-2",
+      "domain": "payments",
+      "fault_kind": "false_refusal",
+      "gold_affected_modules": [
+        "payments",
+        "ledger"
+      ],
+      "language": "en",
+      "prose": "The payment service must reject refunds over the daily limit.",
+      "recorded_estimate": "[\"payments\"]",
+      "symbols": [
+        "refund"
+      ],
+      "title": "payments under-claim 2"
+    },
+    {
+      "candidate_modules": [
+        "inventory",
+        "warehouse",
+        "notify",
+        "audit"
+      ],
+      "case_id": "impact-inventory-faithful-1",
+      "domain": "inventory",
+      "fault_kind": "faithful",
+      "gold_affected_modules": [
+        "inventory",
+        "warehouse"
+      ],
+      "language": "en",
+      "prose": "The inventory service must block stock moves below zero.",
+      "recorded_estimate": "[\"inventory\", \"warehouse\"]",
+      "symbols": [
+        "move"
+      ],
+      "title": "inventory faithful 1"
+    },
+    {
+      "candidate_modules": [
+        "inventory",
+        "warehouse",
+        "notify",
+        "audit"
+      ],
+      "case_id": "impact-inventory-fa-1",
+      "domain": "inventory",
+      "fault_kind": "false_acceptance",
+      "gold_affected_modules": [
+        "inventory",
+        "warehouse"
+      ],
+      "language": "en",
+      "prose": "The inventory service must block stock moves below zero.",
+      "recorded_estimate": "[\"inventory\", \"notify\", \"warehouse\"]",
+      "symbols": [
+        "move"
+      ],
+      "title": "inventory over-claim 1"
+    },
+    {
+      "candidate_modules": [
+        "inventory",
+        "warehouse",
+        "notify",
+        "audit"
+      ],
+      "case_id": "impact-inventory-fr-1",
+      "domain": "inventory",
+      "fault_kind": "false_refusal",
+      "gold_affected_modules": [
+        "inventory",
+        "warehouse"
+      ],
+      "language": "en",
+      "prose": "The inventory service must block stock moves below zero.",
+      "recorded_estimate": "[\"inventory\"]",
+      "symbols": [
+        "move"
+      ],
+      "title": "inventory under-claim 1"
+    },
+    {
+      "candidate_modules": [
+        "inventory",
+        "warehouse",
+        "notify",
+        "audit"
+      ],
+      "case_id": "impact-inventory-faithful-2",
+      "domain": "inventory",
+      "fault_kind": "faithful",
+      "gold_affected_modules": [
+        "inventory",
+        "warehouse"
+      ],
+      "language": "en",
+      "prose": "The inventory service must block stock moves below zero.",
+      "recorded_estimate": "[\"inventory\", \"warehouse\"]",
+      "symbols": [
+        "move"
+      ],
+      "title": "inventory faithful 2"
+    },
+    {
+      "candidate_modules": [
+        "inventory",
+        "warehouse",
+        "notify",
+        "audit"
+      ],
+      "case_id": "impact-inventory-fa-2",
+      "domain": "inventory",
+      "fault_kind": "false_acceptance",
+      "gold_affected_modules": [
+        "inventory",
+        "warehouse"
+      ],
+      "language": "en",
+      "prose": "The inventory service must block stock moves below zero.",
+      "recorded_estimate": "[\"inventory\", \"notify\", \"warehouse\"]",
+      "symbols": [
+        "move"
+      ],
+      "title": "inventory over-claim 2"
+    },
+    {
+      "candidate_modules": [
+        "inventory",
+        "warehouse",
+        "notify",
+        "audit"
+      ],
+      "case_id": "impact-inventory-fr-2",
+      "domain": "inventory",
+      "fault_kind": "false_refusal",
+      "gold_affected_modules": [
+        "inventory",
+        "warehouse"
+      ],
+      "language": "en",
+      "prose": "The inventory service must block stock moves below zero.",
+      "recorded_estimate": "[\"inventory\"]",
+      "symbols": [
+        "move"
+      ],
+      "title": "inventory under-claim 2"
+    }
+  ],
+  "corpus_id": "impact-calibration",
+  "schema_version": "0.1",
+  "version": "0.1"
+}

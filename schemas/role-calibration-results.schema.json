@@ -1,0 +1,84 @@
+{
+  "$defs": {
+    "RoleCalibrationCaseResult": {
+      "additionalProperties": false,
+      "description": "One case's scored outcome under a role-calibration run.\n\n``matched`` / ``false_acceptance`` / ``false_refusal`` are not mutually exclusive for the\nset-valued roles (impact / extraction): a partial-overlap estimate is both an over-claim (FA)\nand an under-claim (FR). For the verdict/signature roles (decomposition / audit) they are\nmutually exclusive. ``matched`` is True only when neither FA nor FR fired.",
+      "properties": {
+        "case_id": {
+          "title": "Case Id",
+          "type": "string"
+        },
+        "false_acceptance": {
+          "default": false,
+          "title": "False Acceptance",
+          "type": "boolean"
+        },
+        "false_refusal": {
+          "default": false,
+          "title": "False Refusal",
+          "type": "boolean"
+        },
+        "fault_kind": {
+          "enum": [
+            "faithful",
+            "false_acceptance",
+            "false_refusal"
+          ],
+          "title": "Fault Kind",
+          "type": "string"
+        },
+        "matched": {
+          "default": false,
+          "title": "Matched",
+          "type": "boolean"
+        },
+        "notes": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Notes",
+          "type": "array"
+        }
+      },
+      "required": [
+        "case_id",
+        "fault_kind"
+      ],
+      "title": "RoleCalibrationCaseResult",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Pre-computed role-calibration case results (the ``--results`` input shape).\n\nMirrors ``RequirementTranslationResults``: a schema-versioned wrapper around a list of\nper-case results so a calibration can be computed once and reported separately.",
+  "properties": {
+    "results": {
+      "items": {
+        "$ref": "#/$defs/RoleCalibrationCaseResult"
+      },
+      "title": "Results",
+      "type": "array"
+    },
+    "role": {
+      "enum": [
+        "decomposition",
+        "impact",
+        "extraction",
+        "audit"
+      ],
+      "title": "Role",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "role",
+    "results"
+  ],
+  "title": "RoleCalibrationResults",
+  "type": "object"
+}

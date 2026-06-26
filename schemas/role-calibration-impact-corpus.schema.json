@@ -1,0 +1,107 @@
+{
+  "$defs": {
+    "ImpactCalibrationCase": {
+      "additionalProperties": false,
+      "description": "An impact-calibration case.\n\n``prose`` / ``symbols`` / ``candidate_modules`` are the estimator's inputs.\n``gold_affected_modules`` is the authoritative affected set. ``recorded_estimate`` is the\nplanted raw JSON estimate replayed in the recorded discriminator.",
+      "properties": {
+        "candidate_modules": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Candidate Modules",
+          "type": "array"
+        },
+        "case_id": {
+          "title": "Case Id",
+          "type": "string"
+        },
+        "domain": {
+          "title": "Domain",
+          "type": "string"
+        },
+        "fault_kind": {
+          "enum": [
+            "faithful",
+            "false_acceptance",
+            "false_refusal"
+          ],
+          "title": "Fault Kind",
+          "type": "string"
+        },
+        "gold_affected_modules": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Gold Affected Modules",
+          "type": "array"
+        },
+        "language": {
+          "default": "en",
+          "title": "Language",
+          "type": "string"
+        },
+        "prose": {
+          "title": "Prose",
+          "type": "string"
+        },
+        "recorded_estimate": {
+          "title": "Recorded Estimate",
+          "type": "string"
+        },
+        "symbols": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Symbols",
+          "type": "array"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case_id",
+        "title",
+        "domain",
+        "fault_kind",
+        "prose",
+        "gold_affected_modules",
+        "recorded_estimate"
+      ],
+      "title": "ImpactCalibrationCase",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "cases": {
+      "items": {
+        "$ref": "#/$defs/ImpactCalibrationCase"
+      },
+      "title": "Cases",
+      "type": "array"
+    },
+    "corpus_id": {
+      "title": "Corpus Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "corpus_id",
+    "version",
+    "cases"
+  ],
+  "title": "ImpactCalibrationCorpus",
+  "type": "object"
+}

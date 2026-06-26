@@ -415,7 +415,13 @@ def test_translation_benchmark_reports_milestone8_metrics() -> None:
     assert report.observations[2].status == "false_acceptance"
 
 
-def test_translation_benchmark_ignores_extra_results_and_penalizes_missing_clarifications() -> None:
+def test_translation_benchmark_refuses_results_with_missing_and_extra_case_ids() -> None:
+    # A results file that does not exactly match the corpus (here: missing `clarify`, extra
+    # `extra`) is a structured refusal — never zeroed FA/FR rates from a truncated/mismatched
+    # file (iter-7 fix, mirroring ``benchmark-role``). Previously the report silently ignored
+    # the extra id and treated the missing `clarify` case as a zero-quality observation, which
+    # could understate FA/FR from malformed evidence files (scope §4 "structured refusal,
+    # never faked").
     corpus = RequirementTranslationCorpus.model_validate(
         {
             "corpus_id": "requirements-translation-m8-edge",
@@ -462,14 +468,12 @@ def test_translation_benchmark_ignores_extra_results_and_penalizes_missing_clari
         }
     )
 
-    report = build_translation_benchmark_report(corpus, results)
-
-    assert report.result == "failed"
-    assert report.syntactic_validity_rate == pytest.approx(1 / 2)
-    assert report.semantic_match_rate == pytest.approx(1 / 2)
-    assert report.clarification_quality == pytest.approx(0)
-    assert report.runtime_ms_total == 10
-    assert report.observations[1].status == "missing"
+    with pytest.raises(ValueError) as exc_info:
+        build_translation_benchmark_report(corpus, results)
+    message = str(exc_info.value)
+    assert "missing case ids" in message
+    assert "clarify" in message
+    assert "extra case ids" in message
 
 
 def test_milestone8_cli_commands_emit_artifacts(tmp_path: Path, capsys) -> None:

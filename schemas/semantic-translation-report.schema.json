@@ -50,12 +50,36 @@
     },
     "AuditVerdict": {
       "additionalProperties": false,
-      "description": "Structured verdict from a PA-6 audit of a decomposition result.\n\nFields:\n  covers_all_clauses: True if every clause in the controlled text is present in the IR.\n  invented_premises: List of IR premises or obligations not in the controlled text.\n  verdict: \"passed\" only when covers_all_clauses is True and invented_premises is empty.\n  audit_prompt_version: Version of the audit prompt used.\n  model_id: Model that produced the verdict (None for recorded fixtures).",
+      "description": "Structured verdict from a PA-6 audit of a decomposition result.\n\nFields:\n  covers_all_clauses: True if every clause in the controlled text is present in the IR.\n  invented_premises: List of IR premises or obligations not in the controlled text.\n  verdict: \"passed\" only when covers_all_clauses is True and invented_premises is empty.\n  audit_prompt_version: Version of the audit prompt used.\n  model_id: Model that produced the verdict (None for recorded fixtures).\n  client_kind: Transport that produced the verdict \u2014 ``anthropic`` | ``cli`` | ``recorded``\n    (None on the default/recorded path so default-path artifacts stay byte-identical;\n    ADR 0205). For the CLI audit transport this is ``cli``.\n  provider / route / wrapper / wrapper_hash / cli_version: CLI-transport sidecar\n    provenance (ADR 0203). All None for the anthropic/recorded transports; populated from\n    the validated sidecar by ``CliLlmClient.audit_decomposition``. Byte-stable: they default\n    to None and are excluded from serialization by ``exclude_none=True`` (``jsonutil.to_jsonable``),\n    so existing anthropic/recorded audit artifacts are unchanged.",
       "properties": {
         "audit_prompt_version": {
           "default": "0.1",
           "title": "Audit Prompt Version",
           "type": "string"
+        },
+        "cli_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cli Version"
+        },
+        "client_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Kind"
         },
         "covers_all_clauses": {
           "title": "Covers All Clauses",
@@ -80,6 +104,30 @@
           "default": null,
           "title": "Model Id"
         },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "route": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Route"
+        },
         "verdict": {
           "enum": [
             "passed",
@@ -87,6 +135,30 @@
           ],
           "title": "Verdict",
           "type": "string"
+        },
+        "wrapper": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wrapper"
+        },
+        "wrapper_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wrapper Hash"
         }
       },
       "required": [

@@ -531,6 +531,17 @@ def main(argv: list[str] | None = None) -> int:
         type=Path,
         help="Path to a recorded LLM fixture for offline use (--method llm only).",
     )
+    intake_draft_cmd.add_argument(
+        "--model-config",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a nlreq-models.toml per-role model config (drafting role). When omitted, "
+            "the NLREQ_MODEL_CONFIG env var is consulted; when both are unset the pinned code "
+            "default is used. Resolution ladder (highest wins): --model / --fixture → "
+            "NLREQ_DRAFTING_* env vars → config file → pinned default."
+        ),
+    )
 
     intake_approve_cmd = subcommands.add_parser(
         "intake-approve", help="Approve or reject a controlled rewrite proposal."
@@ -612,7 +623,9 @@ def main(argv: list[str] | None = None) -> int:
             "PA-5 decomposition ensemble client. Repeat for multiple clients (≥2 triggers check). "
             "Formats: 'live' (AnthropicDecompositionClient with default model), "
             "'live:<model-id>' (AnthropicDecompositionClient with given model), "
-            "'recorded:<path>' (RecordedDecompositionClient replaying a DecompositionResult JSON fixture)."
+            "'recorded:<path>' (RecordedDecompositionClient replaying a DecompositionResult JSON fixture), "
+            "'cli:<wrapper>[:<tier>|tier=<t>|model=<id>]' (cross-provider CLI transport; two distinct "
+            "wrappers is the recommended cross-provider operating point — ADR 0204)."
         ),
     )
     semantic_translate_cmd.add_argument(
@@ -625,7 +638,20 @@ def main(argv: list[str] | None = None) -> int:
             "Formats: 'live' (AnthropicAuditClient with default model), "
             "'live:<model-id>' (AnthropicAuditClient with given model), "
             "'recorded:<path>' (replays a hash-bound RecordedAuditFixture JSON fixture: a verdict "
-            "bound to the expected controlled-text hash so it cannot bless a different requirement)."
+            "bound to the expected controlled-text hash so it cannot bless a different requirement), "
+            "'cli:<wrapper>[:<tier>|tier=<t>|model=<id>]' (cross-provider CLI transport; audit on a "
+            "different provider than the decomposition is the recommended form — ADR 0204)."
+        ),
+    )
+    semantic_translate_cmd.add_argument(
+        "--model-config",
+        type=Path,
+        default=None,
+        help=(
+            "Path to a nlreq-models.toml per-role model config (decomposition + audit roles). "
+            "When omitted, the NLREQ_MODEL_CONFIG env var is consulted; when both are unset the "
+            "pinned code defaults are used. The 'live' / 'live:<model-id>' ensemble and audit "
+            "schemes resolve through this ladder so a configured model wins over the pinned default."
         ),
     )
 
@@ -776,6 +802,13 @@ def main(argv: list[str] | None = None) -> int:
     python_source_impact_production_cmd.add_argument("--semantic-suggestion", action="append", default=[])
     python_source_impact_production_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     python_source_impact_production_cmd.add_argument("--out", type=Path)
+    # Work Item 3: a live/cli impact client (live/recorded/cli scheme via the factory) produces a
+    # semantic impact estimate cross-validated against the deterministic call graph (PC-9). The
+    # estimate is non-gateable review input; the per-role client_kind/resolved-model/wrapper
+    # provenance is stamped into the report metadata (recommended action #7).
+    python_source_impact_production_cmd.add_argument("--llm-client")
+    python_source_impact_production_cmd.add_argument("--model-config", type=Path)
+    python_source_impact_production_cmd.add_argument("--prose", help="Requirement prose for the LLM semantic impact estimate (--llm-client).")
 
     javascript_source_impact_cmd = subcommands.add_parser(
         "javascript-source-impact", help="Run deterministic JavaScript source impact analysis."
@@ -938,7 +971,20 @@ def main(argv: list[str] | None = None) -> int:
     spec_extract_cmd.add_argument("--project-root", type=Path, default=Path.cwd())
     spec_extract_cmd.add_argument("--code-presentation", type=Path)
     spec_extract_cmd.add_argument("--trace-replay", type=Path)
+    # The real Specula extraction path (Go PC-8 / Solidity PC-5) activates only when BOTH the real
+    # traces AND the code presentation are supplied alongside an LLM client (the LLM may be a live
+    # cli: / live: client via --llm-client). Without --traces the workbench cannot run an LLM
+    # extraction, so --llm-client is refused by the provenance-integrity guard (an attestation
+    # client must never be recorded as answering a call it never made). --slither-analysis is the
+    # Solidity source context (PC-5); without it the Solidity candidate is blocked but still runs.
+    spec_extract_cmd.add_argument("--traces", type=Path)
+    spec_extract_cmd.add_argument("--slither-analysis", type=Path)
     spec_extract_cmd.add_argument("--out", type=Path)
+    # Work Item 3: a live/cli extraction client (live/recorded/cli scheme via the factory) takes
+    # precedence over the recorded-only default. Without --llm-client the workbench runs with no
+    # LLM (the generic CandidateInvariant==TRUE draft path), unchanged.
+    spec_extract_cmd.add_argument("--llm-client")
+    spec_extract_cmd.add_argument("--model-config", type=Path)
 
     specula_extract_cmd = subcommands.add_parser(
         "specula-extract", help="Generate candidate-only specs with structural validation."
@@ -959,6 +1005,12 @@ def main(argv: list[str] | None = None) -> int:
     # still runs but the candidate is blocked with the recorded fallback reason.
     specula_extract_cmd.add_argument("--slither-analysis", type=Path)
     specula_extract_cmd.add_argument("--out", type=Path)
+    # Work Item 3: a live/cli extraction client (live/recorded/cli scheme via the factory) takes
+    # precedence over --spec-fixture (the offline RecordedLlmClient). When --llm-client is set the
+    # recorded fixture is ignored; the per-role client_kind/resolved-model/wrapper provenance is
+    # stamped into each candidate's metadata (recommended action #7).
+    specula_extract_cmd.add_argument("--llm-client")
+    specula_extract_cmd.add_argument("--model-config", type=Path)
 
     candidate_review_cmd = subcommands.add_parser(
         "candidate-spec-review", help="Promote or reject a candidate spec with hash-bound review."
@@ -1252,8 +1304,34 @@ def main(argv: list[str] | None = None) -> int:
     benchmark_translation_cmd.add_argument(
         "--run",
         action="store_true",
-        help="Run the corpus offline through the recorded front-half (RecordedLlmClient) "
-        "to produce results, instead of reading a --results file.",
+        help="Run the corpus through the drafting front-half to produce results, instead of "
+        "reading a --results file. Without --llm-client each case's recorded output is replayed "
+        "offline (CI-safe); with --llm-client the corpus is drafted by that client for per-role "
+        "calibration (scope §5).",
+    )
+    benchmark_translation_cmd.add_argument(
+        "--llm-client",
+        help="Drafting client scheme (live:<model> / recorded:<fixture> / cli:<wrapper>[:...]) "
+        "for --run per-role calibration. Routes the corpus through the per-role factory so the "
+        "transport under calibration is the configured one (scope §5 / ADR 0204 §4). The live "
+        "FA/FR run is operator-side (needs the §6 sidecar + provider auth).",
+    )
+    benchmark_translation_cmd.add_argument(
+        "--model-config",
+        type=Path,
+        help="Path to nlreq-models.toml for per-role model config (used with --llm-client).",
+    )
+    benchmark_translation_cmd.add_argument(
+        "--role",
+        default="drafting",
+        help="Role under calibration with --llm-client (default: drafting). The translation "
+        "corpus measures ONLY the drafting front-half (prose -> controlled -> FormalClaim -> "
+        "FA/FR); only drafting is calibratable HERE. impact/extraction/decomposition/audit are NOT "
+        "exercised by this corpus and are refused (redirected to `benchmark-role`, which calibrates "
+        "them against their role-specific corpora) — stamping a non-drafting role onto a drafting "
+        "measurement would be false provenance. The report's ``calibration`` block records the "
+        "role/client_kind/provider/resolved_model/wrapper identity/prompt_version so the FA/FR "
+        "tables are self-describing (scope §5).",
     )
     benchmark_translation_cmd.add_argument(
         "--release-bar",
@@ -1273,6 +1351,45 @@ def main(argv: list[str] | None = None) -> int:
         help="Per-domain false-acceptance budget for --release-bar (default: same as corpus-wide).",
     )
     benchmark_translation_cmd.add_argument("--out", type=Path)
+
+    benchmark_role_cmd = subcommands.add_parser(
+        "benchmark-role",
+        help="Calibrate a non-drafting LLM role (decomposition/impact/extraction/audit) against "
+        "its role-specific FA/FR corpus.",
+    )
+    benchmark_role_cmd.add_argument(
+        "--role",
+        required=True,
+        choices=["decomposition", "impact", "extraction", "audit"],
+        help="The role under calibration. The translation corpus calibrates ONLY drafting "
+        "(use benchmark-translation for that); each non-drafting role has its own corpus shape.",
+    )
+    benchmark_role_cmd.add_argument("--corpus", type=Path, required=True)
+    benchmark_role_cmd.add_argument(
+        "--results",
+        type=Path,
+        help="Pre-computed role-calibration results JSON. Omit with --run to compute them.",
+    )
+    benchmark_role_cmd.add_argument(
+        "--run",
+        action="store_true",
+        help="Run the corpus through the role's client to produce results. Without --llm-client "
+        "each case's recorded (planted) output is replayed offline (CI-safe discriminator); with "
+        "--llm-client the corpus is driven by that client for live per-role calibration (operator-"
+        "side; needs provider auth / the §6 sidecar).",
+    )
+    benchmark_role_cmd.add_argument(
+        "--llm-client",
+        help="Client scheme (live:<model> / recorded:<fixture> / cli:<wrapper>[:...]) for --run "
+        "live calibration. Routes through the per-role factory so the transport under calibration "
+        "is the configured one (scope §5 / ADR 0204 §4).",
+    )
+    benchmark_role_cmd.add_argument(
+        "--model-config",
+        type=Path,
+        help="Path to nlreq-models.toml for per-role model config (used with --llm-client).",
+    )
+    benchmark_role_cmd.add_argument("--out", type=Path)
 
     validate_cmd = subcommands.add_parser("validate", help="Validate a package directory.")
     validate_cmd.add_argument("package_dir", type=Path)
@@ -2193,25 +2310,69 @@ def main(argv: list[str] | None = None) -> int:
                 language=args.language,
             )
             if args.method == "llm":
-                from .llm_client import AnthropicLlmClient, RecordedLlmClient
+                from .cli_llm_client import CliLlmClient, CliTransportError
+                from .model_config import (
+                    ClientKind,
+                    ModelConfigError,
+                    Role,
+                    build_client_for_role,
+                    load_model_config,
+                )
 
-                if args.fixture is not None:
-                    client = RecordedLlmClient(args.fixture.read_text())
-                    # Fixture replays don't speak to a real model; record the
-                    # caller-supplied model name as-is (may be None).
+                try:
+                    built = build_client_for_role(
+                        Role.drafting,
+                        load_model_config(args.model_config),
+                        model=args.model,
+                        fixture=args.fixture,
+                    )
+                except ModelConfigError as exc:
+                    print(f"nlreq: drafting client configuration error: {exc}", file=sys.stderr)
+                    return 2
+                # Fixture replays don't speak to a real model; record the caller-supplied
+                # model name as-is (may be None). For the anthropic transport the factory's
+                # resolved model is the concrete id always recorded in provenance. Both paths
+                # are byte-identical to the pre-config CLI when no config/override is active.
+                if built.provenance.client_kind is ClientKind.recorded:
                     effective_model = args.model
                 else:
-                    # Resolve the effective model before construction so the
-                    # concrete model id is always recorded in provenance.
-                    effective_model = args.model or "claude-haiku-4-5-20251001"
-                    client = AnthropicLlmClient(model=effective_model)
-                proposal = draft_controlled_rewrite_with_llm(
-                    intake=intake,
-                    client=client,
-                    proposal_id=args.proposal_id,
-                    timestamp=args.timestamp,
-                    model=effective_model,
-                )
+                    effective_model = built.provenance.resolved_model or args.model
+                try:
+                    proposal = draft_controlled_rewrite_with_llm(
+                        intake=intake,
+                        client=built.client,
+                        proposal_id=args.proposal_id,
+                        timestamp=args.timestamp,
+                        model=effective_model,
+                        extra_provenance=built.provenance.as_metadata(),
+                    )
+                except CliTransportError as exc:
+                    # A cli-transport drafting call that fails the pure-completion contract
+                    # (missing sidecar, route mismatch, tools active, non-zero exit) blocks —
+                    # never an accepted draft. Same blocking semantics as the solver clients.
+                    print(f"nlreq: drafting cli transport error: {exc}", file=sys.stderr)
+                    return 2
+                # Stamp the cli transport's sidecar-resolved provenance into the proposal
+                # metadata. The LlmClient protocol returns only text, so the sidecar — the
+                # authoritative record of what actually answered — would otherwise be lost.
+                # Records resolved_model (the sidecar id, NOT the tier), provider, route,
+                # wrapper, wrapper_hash, cli_version (acceptance #4 / scope §4). The
+                # default/anthropic/recorded paths are untouched (last_call_provenance is
+                # empty) so default-path proposals stay byte-identical (acceptance #1).
+                if isinstance(built.client, CliLlmClient):
+                    sidecar_prov = built.client.last_call_provenance()
+                    if sidecar_prov:
+                        # The sidecar-resolved model id is the authoritative producer.model for
+                        # the cli transport (the factory could not know it at construction time).
+                        producer_update: dict[str, object] = {
+                            "metadata": {**proposal.producer.metadata, **sidecar_prov}
+                        }
+                        resolved = sidecar_prov.get("resolved_model")
+                        if resolved:
+                            producer_update["model"] = resolved
+                        proposal = proposal.model_copy(update={
+                            "producer": proposal.producer.model_copy(update=producer_update)
+                        })
                 # PA-11: a low-confidence cross-language draft emits a clarify sentinel
                 # instead of guessing a controlled rewrite. Refuse with
                 # NLR-CROSS-LANGUAGE-UNCERTAIN — render the offending fragment inline
@@ -2345,72 +2506,38 @@ def main(argv: list[str] | None = None) -> int:
             from .jsonutil import write_json
 
             decomposition_clients = None
+            from .model_config import (
+                ModelConfigError,
+                Role,
+                load_model_config,
+            )
+            # Load once; both the decomposition ensemble and the audit client resolve through
+            # the same per-role config ladder (override → env → file → pinned default). A
+            # malformed/missing config is a structured refusal (exit 2, ``nlreq:``) — consistent
+            # with the ensemble/audit resolution below — never the generic top-level error path.
+            try:
+                model_config = load_model_config(args.model_config)
+            except ModelConfigError as exc:
+                print(f"nlreq: {exc}", file=sys.stderr)
+                return 2
             if args.ensemble_clients:
-                from .decomposition_client import (
-                    AnthropicDecompositionClient,
-                    DecompositionResult,
-                    RecordedDecompositionClient,
-                )
-
                 decomposition_clients = []
                 for spec in args.ensemble_clients:
-                    if spec == "live":
-                        decomposition_clients.append(AnthropicDecompositionClient())
-                    elif spec.startswith("live:"):
-                        model_id = spec.removeprefix("live:")
-                        decomposition_clients.append(AnthropicDecompositionClient(model=model_id))
-                    elif spec.startswith("recorded:"):
-                        fixture_path = Path(spec.removeprefix("recorded:"))
-                        fixture_result = DecompositionResult.model_validate_json(
-                            fixture_path.read_text()
-                        )
-                        decomposition_clients.append(
-                            RecordedDecompositionClient(
-                                fixture=fixture_result.requirement,
-                                candidate_id=fixture_result.candidate_id,
-                                approval=fixture_result.approval,
-                                is_audited=fixture_result.is_audited,
-                                audit_verdict=fixture_result.audit_verdict,
-                                model_id=fixture_result.model_id,
-                                prompt_hash=fixture_result.prompt_hash,
-                                fixture_provenance=fixture_result.provenance,
-                                source_spans=fixture_result.source_spans,
-                                expected_source_text_hash=fixture_result.source_text_hash,
-                            )
-                        )
-                    else:
-                        print(
-                            f"nlreq: unknown --ensemble-client spec {spec!r}. "
-                            "Use 'live', 'live:<model-id>', or 'recorded:<fixture-path>'.",
-                            file=sys.stderr,
-                        )
+                    try:
+                        built = _resolve_client_scheme(spec, Role.decomposition, model_config)
+                    except ModelConfigError as exc:
+                        print(f"nlreq: {exc}", file=sys.stderr)
                         return 2
+                    decomposition_clients.append(built.client)
 
             audit_client = None
             if args.audit_client:
-                from .audit_client import AnthropicAuditClient, RecordedAuditFixture
-                audit_spec = args.audit_client
-                if audit_spec == "live":
-                    audit_client = AnthropicAuditClient()
-                elif audit_spec.startswith("live:"):
-                    audit_model_id = audit_spec.removeprefix("live:")
-                    audit_client = AnthropicAuditClient(model=audit_model_id)
-                elif audit_spec.startswith("recorded:"):
-                    # The recorded audit fixture is hash-bound: it carries the verdict plus
-                    # the controlled-text hash (and optionally IR-summary hash) it was produced
-                    # for, so a passing verdict cannot bless a different requirement on replay.
-                    audit_fixture_path = Path(audit_spec.removeprefix("recorded:"))
-                    audit_fixture = RecordedAuditFixture.model_validate_json(
-                        audit_fixture_path.read_text()
-                    )
-                    audit_client = audit_fixture.build_client()
-                else:
-                    print(
-                        f"nlreq: unknown --audit-client spec {audit_spec!r}. "
-                        "Use 'live', 'live:<model-id>', or 'recorded:<fixture-path>'.",
-                        file=sys.stderr,
-                    )
+                try:
+                    built = _resolve_client_scheme(args.audit_client, Role.audit, model_config)
+                except ModelConfigError as exc:
+                    print(f"nlreq: {exc}", file=sys.stderr)
                     return 2
+                audit_client = built.client
 
             try:
                 report = translate_controlled_requirement_to_formal_claim(
@@ -2716,8 +2843,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(canonical_json(artifact), end="")
             return 0
         if args.command == "python-source-impact-production":
+            from .cli_llm_client import CliLlmClient, CliTransportError
             from .jsonutil import write_json
+            from .model_config import ModelConfigError, Role, load_model_config
             from .models import NormalizedTraceArtifact
+            from .source_impact import llm_semantic_suggestions
 
             adapter = PythonSourceLanguageAdapter(project_root=args.project_root)
             manifest = adapter.parse_manifest(args.manifest)
@@ -2726,15 +2856,57 @@ def main(argv: list[str] | None = None) -> int:
                 if args.trace_artifact
                 else None
             )
+            suggestions = _semantic_suggestions_from_args(args.semantic_suggestion)
+            role_extra: dict[str, str] | None = None
+            cli_client = None
+            # Work Item 3: --llm-client <scheme> constructs an impact client through the per-role
+            # factory and produces a non-gateable semantic estimate cross-validated against the
+            # deterministic call graph (PC-9). The estimate merges with any --semantic-suggestion.
+            if args.llm_client:
+                if not args.prose:
+                    print(
+                        "nlreq: --llm-client requires --prose (the requirement prose for the "
+                        "semantic impact estimate)",
+                        file=sys.stderr,
+                    )
+                    return 2
+                try:
+                    built = _resolve_client_scheme(
+                        args.llm_client, Role.impact, load_model_config(args.model_config)
+                    )
+                except ModelConfigError as exc:
+                    print(f"nlreq: {exc}", file=sys.stderr)
+                    return 2
+                cli_client = built.client if isinstance(built.client, CliLlmClient) else None
+                role_extra = _llm_role_provenance(built)
+                candidate_modules = [module.module_id for module in manifest.modules]
+                try:
+                    llm_suggestions = llm_semantic_suggestions(
+                        built.client,
+                        prose=args.prose,
+                        symbols=args.symbol,
+                        candidate_modules=candidate_modules,
+                    )
+                except CliTransportError as exc:
+                    # A cli impact call that fails the pure-completion contract blocks, never an
+                    # estimate built on unverifiable origin (same blocking semantics as drafting).
+                    print(f"nlreq: impact cli transport error: {exc}", file=sys.stderr)
+                    return 2
+                suggestions = (suggestions or []) + llm_suggestions
             report = analyze_production_source_impact(
                 adapter,
                 manifest,
                 symbols=args.symbol,
                 traces=traces,
-                semantic_suggestions=_semantic_suggestions_from_args(
-                    args.semantic_suggestion
-                ),
+                semantic_suggestions=suggestions,
             )
+            # Stamp the per-role (and, for cli, sidecar-resolved) provenance into the report
+            # metadata. Only on the --llm-client path; the no-LLM path is byte-identical to before.
+            if role_extra is not None:
+                extra = dict(role_extra)
+                if cli_client is not None:
+                    extra = {**extra, **cli_client.last_call_provenance()}
+                report = report.model_copy(update={"metadata": {**report.metadata, **extra}})
             if args.out:
                 write_json(args.out, report)
                 print(f"Production source impact report: {args.out}")
@@ -3009,29 +3181,84 @@ def main(argv: list[str] | None = None) -> int:
                 print(canonical_json(report), end="")
             return 0
         if args.command == "spec-extract":
+            from .cli_llm_client import CliLlmClient, CliTransportError
             from .impact import ImpactAnalysisArtifact
             from .jsonutil import write_json
-            from .models import RequirementIRV2
+            from .model_config import ModelConfigError, Role, load_model_config
+            from .models import NormalizedTraceArtifact, RequirementIRV2
+            from .slither_client import SlitherClientResult
             from .source_adapter import CodePresentation
             from .trace_replay import TraceReplayReport
 
             ir = validate_requirement_ir_json(args.requirement_ir.read_text())
             if not isinstance(ir, RequirementIRV2):
                 raise ValueError("spec-extract requires ir_version 0.2")
-            report = build_spec_extraction_workbench_report(
-                requirement=ir,
-                impact=ImpactAnalysisArtifact.model_validate_json(args.impact.read_text()),
-                registry=load_system_spec_registry(args.registry),
-                project_root=args.project_root,
-                code_presentation=CodePresentation.model_validate_json(
-                    args.code_presentation.read_text()
+            # Work Item 3: --llm-client <scheme> constructs a live/cli extraction client through
+            # the per-role factory (recorded: / live: / cli:). Without it the workbench runs with
+            # no LLM (the generic CandidateInvariant==TRUE draft path), unchanged.
+            llm_client = None
+            role_extra: dict[str, str] | None = None
+            cli_client = None
+            if args.llm_client:
+                try:
+                    built = _resolve_client_scheme(
+                        args.llm_client, Role.extraction, load_model_config(args.model_config)
+                    )
+                except ModelConfigError as exc:
+                    print(f"nlreq: {exc}", file=sys.stderr)
+                    return 2
+                llm_client = built.client
+                cli_client = built.client if isinstance(built.client, CliLlmClient) else None
+                role_extra = _llm_role_provenance(built)
+            try:
+                report = build_spec_extraction_workbench_report(
+                    requirement=ir,
+                    impact=ImpactAnalysisArtifact.model_validate_json(args.impact.read_text()),
+                    registry=load_system_spec_registry(args.registry),
+                    project_root=args.project_root,
+                    code_presentation=CodePresentation.model_validate_json(
+                        args.code_presentation.read_text()
+                    )
+                    if args.code_presentation
+                    else None,
+                    trace_replay=TraceReplayReport.model_validate_json(args.trace_replay.read_text())
+                    if args.trace_replay
+                    else None,
+                    traces=NormalizedTraceArtifact.model_validate_json(args.traces.read_text())
+                    if args.traces
+                    else None,
+                    llm=llm_client,
+                    slither=SlitherClientResult.model_validate_json(
+                        args.slither_analysis.read_text()
+                    )
+                    if args.slither_analysis
+                    else None,
                 )
-                if args.code_presentation
-                else None,
-                trace_replay=TraceReplayReport.model_validate_json(args.trace_replay.read_text())
-                if args.trace_replay
-                else None,
-            )
+            except CliTransportError as exc:
+                # A cli extraction call that fails the pure-completion contract blocks, never a
+                # candidate built on unverifiable origin (same blocking semantics as drafting).
+                print(f"nlreq: extraction cli transport error: {exc}", file=sys.stderr)
+                return 2
+            # Provenance-integrity guard (BLOCKING fix): --llm-client records an attestation
+            # client as answering a call. If no LLM extraction call actually ran (no Specula
+            # extractor for this language, or required inputs missing), the client never answered
+            # — refuse rather than stamp un-backed client_kind/wrapper provenance onto the generic
+            # placeholder / missing-input candidates. A candidate's llm_draft_used flag is the
+            # honest signal an LLM call produced it.
+            if role_extra is not None and not _extraction_report_made_llm_call(report):
+                print(
+                    "nlreq: --llm-client was supplied but no LLM extraction call ran (no Specula "
+                    "extractor for this language, or required inputs missing: --traces / "
+                    "--code-presentation). An attestation client must never be recorded as "
+                    "answering a call it never made; drop --llm-client or supply the required inputs.",
+                    file=sys.stderr,
+                )
+                return 2
+            # Stamp the per-role (and, for cli, sidecar-resolved) provenance into each candidate's
+            # metadata. Only on the --llm-client path AND only onto candidates an LLM call actually
+            # produced (llm_draft_used=True); the no-LLM path is byte-identical to before.
+            if role_extra is not None:
+                report = _stamp_llm_role_provenance(report, role_extra, cli_client)
             if args.out:
                 write_json(args.out, report)
                 print(f"Spec extraction workbench report: {args.out}")
@@ -3039,9 +3266,11 @@ def main(argv: list[str] | None = None) -> int:
                 print(canonical_json(report), end="")
             return 0
         if args.command == "specula-extract":
+            from .cli_llm_client import CliLlmClient, CliTransportError
             from .impact import ImpactAnalysisArtifact
             from .jsonutil import write_json
             from .llm_client import RecordedLlmClient
+            from .model_config import ModelConfigError, Role, load_model_config
             from .models import NormalizedTraceArtifact, RequirementIRV2
             from .slither_client import SlitherClientResult
             from .source_adapter import CodePresentation
@@ -3050,35 +3279,78 @@ def main(argv: list[str] | None = None) -> int:
             ir = validate_requirement_ir_json(args.requirement_ir.read_text())
             if not isinstance(ir, RequirementIRV2):
                 raise ValueError("specula-extract requires ir_version 0.2")
-            # Offline-only: a recorded spec proposal drives a RecordedLlmClient, never a live model.
-            # The real-extraction path (Go PC-8 / Solidity PC-5, selected by the impact's language)
-            # activates only when the recorded proposal AND the real traces are both given (the
-            # integration report's language/inputs guard falls back to the generic draft else).
-            report = build_specula_extraction_integration_report(
-                requirement=ir,
-                impact=ImpactAnalysisArtifact.model_validate_json(args.impact.read_text()),
-                registry=load_system_spec_registry(args.registry),
-                project_root=args.project_root,
-                code_presentation=CodePresentation.model_validate_json(
-                    args.code_presentation.read_text()
+            # Work Item 3: --llm-client <scheme> constructs a live/cli extraction client through
+            # the per-role factory and takes precedence over --spec-fixture (the offline
+            # RecordedLlmClient). When --llm-client is set the recorded fixture is ignored.
+            llm_client = None
+            role_extra: dict[str, str] | None = None
+            cli_client = None
+            if args.llm_client:
+                try:
+                    built = _resolve_client_scheme(
+                        args.llm_client, Role.extraction, load_model_config(args.model_config)
+                    )
+                except ModelConfigError as exc:
+                    print(f"nlreq: {exc}", file=sys.stderr)
+                    return 2
+                llm_client = built.client
+                cli_client = built.client if isinstance(built.client, CliLlmClient) else None
+                role_extra = _llm_role_provenance(built)
+            elif args.spec_fixture:
+                # Offline-only: a recorded spec proposal drives a RecordedLlmClient, never a live
+                # model. The real-extraction path (Go PC-8 / Solidity PC-5) activates only when the
+                # recorded proposal AND the real traces are both given.
+                llm_client = RecordedLlmClient("", spec_fixture=args.spec_fixture.read_text())
+            try:
+                report = build_specula_extraction_integration_report(
+                    requirement=ir,
+                    impact=ImpactAnalysisArtifact.model_validate_json(args.impact.read_text()),
+                    registry=load_system_spec_registry(args.registry),
+                    project_root=args.project_root,
+                    code_presentation=CodePresentation.model_validate_json(
+                        args.code_presentation.read_text()
+                    )
+                    if args.code_presentation
+                    else None,
+                    trace_replay=TraceReplayReport.model_validate_json(args.trace_replay.read_text())
+                    if args.trace_replay
+                    else None,
+                    traces=NormalizedTraceArtifact.model_validate_json(args.traces.read_text())
+                    if args.traces
+                    else None,
+                    llm=llm_client,
+                    slither=SlitherClientResult.model_validate_json(
+                        args.slither_analysis.read_text()
+                    )
+                    if args.slither_analysis
+                    else None,
                 )
-                if args.code_presentation
-                else None,
-                trace_replay=TraceReplayReport.model_validate_json(args.trace_replay.read_text())
-                if args.trace_replay
-                else None,
-                traces=NormalizedTraceArtifact.model_validate_json(args.traces.read_text())
-                if args.traces
-                else None,
-                llm=RecordedLlmClient("", spec_fixture=args.spec_fixture.read_text())
-                if args.spec_fixture
-                else None,
-                slither=SlitherClientResult.model_validate_json(
-                    args.slither_analysis.read_text()
+            except CliTransportError as exc:
+                # A cli extraction call that fails the pure-completion contract blocks, never a
+                # candidate built on unverifiable origin (same blocking semantics as drafting).
+                print(f"nlreq: extraction cli transport error: {exc}", file=sys.stderr)
+                return 2
+            # Provenance-integrity guard (BLOCKING fix): --llm-client records an attestation
+            # client as answering a call. If no LLM extraction call actually ran (no Specula
+            # extractor for this language, or required inputs missing), the client never answered
+            # — refuse rather than stamp un-backed client_kind/wrapper provenance onto the
+            # missing-input candidates. A candidate's llm_draft_used flag is the honest signal an
+            # LLM call produced it.
+            if role_extra is not None and not _extraction_report_made_llm_call(report):
+                print(
+                    "nlreq: --llm-client was supplied but no LLM extraction call ran (no Specula "
+                    "extractor for this language, or required inputs missing: --traces / "
+                    "--code-presentation; --slither-analysis for Solidity). An attestation client "
+                    "must never be recorded as answering a call it never made; drop --llm-client "
+                    "or supply the required inputs.",
+                    file=sys.stderr,
                 )
-                if args.slither_analysis
-                else None,
-            )
+                return 2
+            # Stamp the per-role (and, for cli, sidecar-resolved) provenance into each candidate's
+            # metadata. Only on the --llm-client path AND only onto candidates an LLM call actually
+            # produced (llm_draft_used=True); the --spec-fixture path is byte-identical.
+            if role_extra is not None:
+                report = _stamp_llm_role_provenance(report, role_extra, cli_client)
             if args.out:
                 write_json(args.out, report)
                 print(f"Specula extraction integration report: {args.out}")
@@ -3685,8 +3957,68 @@ def main(argv: list[str] | None = None) -> int:
             from .jsonutil import write_json
 
             corpus = RequirementTranslationCorpus.model_validate_json(args.corpus.read_text())
+            # ``calibration`` is bound for EVERY branch (``--run`` may populate it via
+            # ``_calibration_provenance``; ``--results`` / the missing-arg refusal leave it None)
+            # so ``build_translation_benchmark_report(..., calibration=calibration)`` below never
+            # hits an UnboundLocalError on the ``--results`` path (previously untested).
+            from .translation_benchmark import CalibrationProvenance
+
+            calibration: CalibrationProvenance | None = None
             if args.run:
-                results = run_translation_corpus(corpus)
+                from .cli_llm_client import CliTransportError
+                from .model_config import (
+                    ClientKind,
+                    ModelConfigError,
+                    Role,
+                    load_model_config,
+                )
+
+                drafter_client = None
+                if args.llm_client:
+                    # Per-role calibration (scope §5 / ADR 0204 §4): route the corpus through the
+                    # per-role factory so the transport under calibration is the configured one.
+                    # --role selects which role's transport is the drafter (default drafting). The
+                    # translation corpus measures ONLY the drafting front-half (prose -> controlled
+                    # -> FormalClaim -> FA/FR); only drafting is calibratable HERE. The non-drafting
+                    # roles are calibrated by `benchmark-role` against their role-specific corpora
+                    # (scope §5 / ADR 0204 §4.1) and are refused here — stamping a non-drafting role
+                    # onto a drafting measurement would be false provenance (the all-"0.1" prompt-version
+                    # coincidence previously masked this).
+                    try:
+                        role = Role(args.role)
+                    except ValueError as exc:
+                        print(f"nlreq: unknown --role {args.role!r}: {exc}", file=sys.stderr)
+                        return 2
+                    if role != Role.drafting:
+                        print(
+                            f"nlreq: --role {role.value!r} is not calibratable by the translation "
+                            "corpus (it measures only the drafting front-half: prose -> controlled "
+                            "-> FormalClaim -> FA/FR). The non-drafting roles are calibrated by "
+                            "`benchmark-role --role <role>` against their role-specific corpora "
+                            "(scope §5 / ADR 0204 §4); use drafting here",
+                            file=sys.stderr,
+                        )
+                        return 2
+                    try:
+                        built = _resolve_client_scheme(
+                            args.llm_client, role, load_model_config(args.model_config)
+                        )
+                    except ModelConfigError as exc:
+                        print(f"nlreq: {exc}", file=sys.stderr)
+                        return 2
+                    drafter_client = built.client
+                try:
+                    results = run_translation_corpus(corpus, client=drafter_client)
+                except CliTransportError as exc:
+                    # A cli calibration call that fails the pure-completion contract blocks — the
+                    # FA/FR measurement is meaningless against an unverifiable-origin response.
+                    print(f"nlreq: benchmark-translation cli transport error: {exc}", file=sys.stderr)
+                    return 2
+                # Self-describing calibration provenance (recommended action #2): the FA/FR tables
+                # record role / client kind / provider / resolved model / wrapper identity /
+                # prompt version, so the report stands alone without external filenames or prose.
+                if args.llm_client:
+                    calibration = _calibration_provenance(built, role, drafter_client)
             elif args.results is not None:
                 results = RequirementTranslationResults.model_validate_json(args.results.read_text())
             else:
@@ -3695,7 +4027,14 @@ def main(argv: list[str] | None = None) -> int:
                     file=sys.stderr,
                 )
                 return 2
-            report = build_translation_benchmark_report(corpus, results)
+            try:
+                report = build_translation_benchmark_report(corpus, results, calibration=calibration)
+            except ValueError as exc:
+                # A results list that does not match the corpus (missing/duplicate/extra case
+                # ids) is a structured refusal — never zeroed FA/FR rates from a truncated or
+                # duplicated file (mirrors ``benchmark-role``).
+                print(f"nlreq: {exc}", file=sys.stderr)
+                return 2
             if args.release_bar:
                 # The corpus mixes accept-gold and refuse-gold cases, so semantic_match_rate
                 # is diluted by the (correct) refusals; the false-acceptance budget — overall
@@ -3725,6 +4064,104 @@ def main(argv: list[str] | None = None) -> int:
             if args.out:
                 write_json(args.out, report)
                 print(f"Requirement translation benchmark report: {args.out}")
+            else:
+                print(canonical_json(report), end="")
+            return 0 if report.result == "passed" else 1
+        if args.command == "benchmark-role":
+            import json as _json
+
+            from .jsonutil import write_json
+            from .model_config import ModelConfigError, Role, load_model_config
+            from .role_calibration import (
+                CalibrationRunError,
+                RoleCalibrationResults,
+                build_role_calibration_report,
+                load_role_corpus,
+                run_role_calibration,
+            )
+            from .translation_benchmark import CalibrationProvenance
+
+            role: str = args.role  # one of decomposition/impact/extraction/audit (argparse choices)
+            try:
+                model_role = Role(role)
+            except ValueError as exc:
+                print(f"nlreq: unknown --role {role!r}: {exc}", file=sys.stderr)
+                return 2
+            try:
+                corpus = load_role_corpus(role, args.corpus)
+            except ValueError as exc:
+                print(f"nlreq: {exc}", file=sys.stderr)
+                return 2
+            calibration: CalibrationProvenance | None = None
+            if args.run:
+                from .cli_llm_client import CliLlmClient, CliTransportError
+
+                client = None
+                built = None
+                if args.llm_client:
+                    # Live per-role calibration (scope §5 / ADR 0204 §4): route the corpus through
+                    # the per-role factory so the transport under calibration is the configured
+                    # one. A bad scheme / missing config refuses at exit 2; a CLI transport that
+                    # violates the pure-completion contract refuses via CliTransportError.
+                    try:
+                        model_config = load_model_config(args.model_config)
+                    except ModelConfigError as exc:
+                        print(f"nlreq: {exc}", file=sys.stderr)
+                        return 2
+                    try:
+                        built = _resolve_client_scheme(args.llm_client, model_role, model_config)
+                    except ModelConfigError as exc:
+                        print(f"nlreq: {exc}", file=sys.stderr)
+                        return 2
+                    client = built.client
+                try:
+                    results = run_role_calibration(role, corpus.cases, client=client)
+                except CliTransportError as exc:
+                    print(f"nlreq: benchmark-role cli transport error: {exc}", file=sys.stderr)
+                    return 2
+                except CalibrationRunError as exc:
+                    # A live client that could not reach a scoreable outcome on a case (missing
+                    # API key / SDK, an auth/network/rate-limit SDK error, OSError, ImportError,
+                    # ...) is an infrastructure failure, not model behavior: surface it as a
+                    # structured refusal (exit 2) and write NO report — a measurement that could
+                    # not run must not be recorded as false-refusal evidence (scope §4
+                    # "structured refusal, never faked").
+                    print(f"nlreq: benchmark-role calibration run error: {exc}", file=sys.stderr)
+                    return 2
+                if args.llm_client and built is not None:
+                    cli_client = built.client if isinstance(built.client, CliLlmClient) else None
+                    calibration = _calibration_provenance(built, model_role, cli_client)
+            elif args.results is not None:
+                try:
+                    payload = RoleCalibrationResults.model_validate_json(args.results.read_text())
+                except ValueError as exc:
+                    print(f"nlreq: role-calibration results file is invalid: {exc}", file=sys.stderr)
+                    return 2
+                if payload.role != role:
+                    # The results file's top-level ``role`` is part of its self-description: a
+                    # payload stamped for one role must not be reported under another ``--role``
+                    # (false provenance — the case ids may coincide but the scorer/semantics
+                    # differ). Refuse at exit 2 rather than silently re-stamping.
+                    print(
+                        f"nlreq: role-calibration results file role {payload.role!r} does not "
+                        f"match --role {role!r}",
+                        file=sys.stderr,
+                    )
+                    return 2
+                results = payload.results
+            else:
+                print("error: benchmark-role requires --results or --run", file=sys.stderr)
+                return 2
+            try:
+                report = build_role_calibration_report(role, corpus, results, calibration=calibration)
+            except ValueError as exc:
+                # A results list that does not match the corpus (missing/duplicate/extra case
+                # ids) is a structured refusal — never zeroed FA/FR rates from a truncated file.
+                print(f"nlreq: {exc}", file=sys.stderr)
+                return 2
+            if args.out:
+                write_json(args.out, report)
+                print(f"Role calibration report: {args.out}")
             else:
                 print(canonical_json(report), end="")
             return 0 if report.result == "passed" else 1
@@ -4985,6 +5422,250 @@ def _requirement_gate_execution_from_args(
         tool_version_command=args.tool_version_command,
         output_limit_bytes=args.output_limit_bytes,
     )
+
+
+def _resolve_client_scheme(spec: str, role: object, model_config: object):
+    """Parse a live:/recorded:/cli: client scheme into a BuiltClient via the factory.
+
+    Shared by ``--ensemble-client``, ``--audit-client``, and ``--llm-client`` so every CLI
+    client selection uses one parser and the per-role config ladder (recommended action #5).
+    Schemes:
+      * ``live`` / ``live:<model-id>``     — Anthropic SDK transport. ``live`` is a TOP-RUNG
+                                            FORCE-ANTHROPIC override: it never silently
+                                            resolves to ``cli``/``recorded`` via env/config
+                                            (a transport different from the requested one is a
+                                            provenance hazard, ADR 0202). It honors a configured
+                                            anthropic *model* (env ``NLREQ_<ROLE>_MODEL`` when
+                                            the role's env client is anthropic, or a config
+                                            ``[role] client='anthropic'`` section); otherwise the
+                                            pinned default model is used. ``live:<model-id>`` pins
+                                            that exact model (also anthropic).
+      * ``recorded:<fixture-path>``         — deterministic fixture replay.
+      * ``cli:<wrapper>``                   — cross-provider CLI transport, wrapper defaults.
+      * ``cli:<wrapper>:<tier>``            — tier shorthand (tier ∈ heavy|lite|tiny).
+      * ``cli:<wrapper>:tier=<t>``          — explicit tier (t ∈ heavy|lite|tiny).
+      * ``cli:<wrapper>:model=<id>``        — explicit EXPECTED resolved model (sidecar must
+                                              match; provenance records the resolved id, never
+                                              the tier — scope §4). Verification-only BY DESIGN:
+                                              the operator wrappers resolve models from
+                                              wrapper+tier-specific env vars, so per-call model
+                                              *selection* (pinning) is the config/env ``model_env``
+                                              rung's job, not this suffix's (ADR 0203).
+
+    The ``cli:`` suffix grammar follows the scope's ``cli:<wrapper>[:<tier-or-model>]`` form: a
+    bare suffix that is a known tier (heavy|lite|tiny) is tier shorthand; a ``tier=``/``model=``
+    prefix is explicit; ANY OTHER bare suffix is the model-id VERIFICATION guard (the same
+    fail-closed sidecar check as ``model=<id>``: the sidecar MUST report exactly that resolved
+    model, else the call is refused — scope §4, ADR 0204 §4.1). A bare suffix reaching the
+    verification branch is by construction NOT a tier, so the only remaining interpretation is a
+    model id; a mis-typed tier (e.g. ``hevy``) becomes a verification the fail-closed sidecar
+    refuses, never a silent mis-selection. Explicit model *pinning* (choosing which model the
+    wrapper resolves) is the config/env ``model_env`` rung's job, because the operator wrappers
+    resolve models from wrapper+tier-specific env vars; ``model=<id>`` is the explicit
+    verification form and a bare ``:<model-id>`` is the original grammar's shorthand for it.
+    Raises ``ModelConfigError`` on an unknown scheme, an empty wrapper/suffix, a repeated
+    tier/model, or an invalid tier value.
+    """
+    from .model_config import CliOverride, ModelConfigError, build_client_for_role
+
+    if spec == "live":
+        # Bare `live` is a TOP-RUNG force-anthropic override: it must never silently resolve to
+        # cli/recorded via env/config (a transport different from the requested one is a
+        # provenance hazard). force_anthropic skips cli/recorded rungs; it honors a configured
+        # anthropic MODEL, else the pinned default (byte-identical to the no-config `live` path).
+        return build_client_for_role(role, model_config, force_anthropic=True)
+    if spec.startswith("live:"):
+        # `live:<model-id>` pins that exact anthropic model (model_override rung, already anthropic).
+        return build_client_for_role(role, model_config, model=spec.removeprefix("live:"))
+    if spec.startswith("recorded:"):
+        return build_client_for_role(role, model_config, fixture=Path(spec.removeprefix("recorded:")))
+    if spec.startswith("cli:"):
+        rest = spec.removeprefix("cli:")
+        parts = rest.split(":")
+        wrapper = parts[0]
+        if not wrapper:
+            raise ModelConfigError(f"client spec {spec!r} has an empty wrapper")
+        tier: str | None = None
+        expected_model: str | None = None
+        # Each colon-separated segment after the wrapper is a suffix. At most one tier and one
+        # model may appear (in any order), so ``cli:w:tier=lite:model=x`` pins the lite tier AND
+        # verifies the resolved model in one scheme. A bare heavy|lite|tiny is tier shorthand;
+        # ``tier=<t>`` / ``model=<id>`` are explicit; ANY OTHER bare suffix is the model-id
+        # VERIFICATION guard (scope §4, ADR 0204 §4.1) — the original ``cli:<wrapper>[:<tier-or-model>]``
+        # grammar, where ``model=<id>`` is the explicit form and a bare ``:<model-id>`` is its shorthand.
+        for suffix in parts[1:]:
+            if not suffix:
+                raise ModelConfigError(f"client spec {spec!r} has an empty suffix segment")
+            if suffix.startswith("tier="):
+                value = suffix.removeprefix("tier=")
+                if value not in {"heavy", "lite", "tiny"}:
+                    raise ModelConfigError(
+                        f"client spec {spec!r}: tier={value!r} is not one of heavy|lite|tiny"
+                    )
+                if tier is not None:
+                    raise ModelConfigError(f"client spec {spec!r} specifies tier more than once")
+                tier = value
+            elif suffix.startswith("model="):
+                value = suffix.removeprefix("model=")
+                if not value:
+                    raise ModelConfigError(f"client spec {spec!r} has an empty model=")
+                if expected_model is not None:
+                    raise ModelConfigError(f"client spec {spec!r} specifies model more than once")
+                expected_model = value
+            elif suffix in {"heavy", "lite", "tiny"}:
+                # Bare tier shorthand (backwards-compatible with the scope's cli:run-gpt:lite form).
+                if tier is not None:
+                    raise ModelConfigError(f"client spec {spec!r} specifies tier more than once")
+                tier = suffix
+            else:
+                # Bare non-tier suffix: the scope's ``cli:<wrapper>[:<tier-or-model>]`` grammar
+                # treats this as the model-id VERIFICATION guard (the same fail-closed check as
+                # ``model=<id>``: the sidecar MUST report exactly this resolved model, else the call
+                # is refused — scope §4, ADR 0204 §4.1). A suffix reaching here is NOT a tier
+                # (heavy|lite|tiny shorthand is matched above), so the only remaining interpretation
+                # is a model id; a mis-typed tier (e.g. "hevy") becomes a verification the
+                # fail-closed sidecar check refuses, never a silent mis-selection. ``model=<id>`` is
+                # the explicit form; a bare ``:<model-id>`` is the original grammar's shorthand.
+                if expected_model is not None:
+                    raise ModelConfigError(f"client spec {spec!r} specifies model more than once")
+                expected_model = suffix
+        return build_client_for_role(
+            role,
+            model_config,
+            cli_override=CliOverride(
+                wrapper=wrapper, tier=tier, expected_model=expected_model
+            ),
+        )
+    raise ModelConfigError(
+        f"unknown client spec {spec!r}. "
+        "Use 'live', 'live:<model-id>', 'recorded:<fixture-path>', or "
+        "'cli:<wrapper>[:<tier> | tier=<t> | model=<id> | <model-id>]' "
+        "(a bare <model-id> suffix is the model-verification guard; ADR 0204 §4.1)."
+    )
+
+
+def _calibration_provenance(built: object, role: object, cli_client: object):
+    """Build self-describing ``CalibrationProvenance`` from a factory-built client (action #2).
+
+    Stamped onto a ``RequirementTranslationBenchmarkReport`` so the FA/FR tables are
+    self-describing by role / client kind / provider / resolved model / wrapper identity /
+    prompt version — no reliance on external filenames or prose. For the cli transport the
+    resolved model / provider / route / wrapper / wrapper_hash / cli_version come from the
+    validated sidecar (``last_call_provenance()`` after the run); for anthropic the resolved
+    model is the configured/default model and the provider is ``anthropic``; for recorded
+    there is no live model. ``transport_source`` is the ladder rung that resolved.
+    """
+    from .model_config import ClientKind
+    from .translation_benchmark import CalibrationProvenance
+
+    prov = built.provenance
+    if prov.client_kind is ClientKind.cli:
+        sidecar = cli_client.last_call_provenance() if cli_client is not None else {}
+        return CalibrationProvenance(
+            role=role.value,
+            client_kind=prov.client_kind.value,
+            provider=sidecar.get("provider"),
+            resolved_model=sidecar.get("resolved_model"),
+            wrapper=sidecar.get("wrapper") or prov.wrapper,
+            wrapper_hash=sidecar.get("wrapper_hash"),
+            route=sidecar.get("route"),
+            cli_version=sidecar.get("cli_version"),
+            prompt_version=prov.prompt_version,
+            transport_source=prov.source,
+        )
+    if prov.client_kind is ClientKind.anthropic:
+        return CalibrationProvenance(
+            role=role.value,
+            client_kind=prov.client_kind.value,
+            provider="anthropic",
+            resolved_model=prov.resolved_model,
+            prompt_version=prov.prompt_version,
+            transport_source=prov.source,
+        )
+    # recorded: no live model / provider / wrapper.
+    return CalibrationProvenance(
+        role=role.value,
+        client_kind=prov.client_kind.value,
+        prompt_version=prov.prompt_version,
+        transport_source=prov.source,
+    )
+
+
+def _llm_role_provenance(built: object) -> dict[str, str]:
+    """Per-role provenance to stamp into an LLM-role artifact's metadata (recommended action #7).
+
+    Used by the extraction (spec-extract / specula-extract) and impact command paths. Records
+    ``client_kind``, ``prompt_version``, ``wrapper`` (cli), and ``resolved_model``. For the cli
+    transport the resolved_model is the sidecar id (overlaid by the caller AFTER the call via
+    ``CliLlmClient.last_call_provenance``); for anthropic/recorded the factory's ``resolved_model``
+    is the concrete id. Empty on the default path so default-path artifacts stay byte-identical
+    (acceptance #1). Only called on the ``--llm-client`` path.
+    """
+    meta = dict(built.provenance.as_metadata())
+    if built.provenance.resolved_model is not None:
+        meta["resolved_model"] = built.provenance.resolved_model
+    return meta
+
+
+def _extraction_report_made_llm_call(report: object) -> bool:
+    """Whether any candidate in an extraction report was produced by an LLM call.
+
+    A candidate's ``llm_draft_used`` flag is the honest signal an LLM extraction call produced
+    it (set in ``extract_go_candidate_spec`` / ``extract_solidity_candidate_spec``). The generic
+    ``_candidate_for_module`` placeholder and the Go/Solidity missing-input blocks leave it False
+    (defaulted) because no LLM call ran. Used by the ``--llm-client`` provenance-integrity guard:
+    an attestation client must never be recorded as answering a call it never made, so the
+    command refuses when ``--llm-client`` is supplied but no candidate was LLM-produced.
+    """
+    return any(cand.provenance.llm_draft_used for cand in report.candidates)
+
+
+def _stamp_llm_role_provenance(report: object, extra: dict[str, str], cli_client: object) -> object:
+    """Overlay per-role + sidecar provenance onto LLM-produced candidates, post-report.
+
+    Only called on the ``--llm-client`` path, AFTER the provenance-integrity guard confirmed an
+    LLM call ran. Two provenance-integrity invariants hold here:
+
+    1. **cli provenance requires a sidecar-backed call.** For the cli transport the sidecar is
+       the ONLY proof a call happened. If ``last_call_provenance()`` is empty (no validated
+       sidecar), the factory's ``client_kind=cli`` / ``wrapper`` would claim a provider answered
+       with no evidence — so nothing is stamped. The extraction commands additionally refuse the
+       whole command when ``--llm-client`` could not drive any call, so this is defence in depth.
+    2. **Only LLM-produced candidates carry LLM provenance.** A placeholder / missing-input
+       candidate (``llm_draft_used=False``) was NOT produced by the LLM and is left unchanged —
+       it must never claim a provider answered it.
+
+    The candidate's ``content_hash`` is over spec CONTENT, so metadata changes don't invalidate
+    it. For the cli transport the sidecar's resolved_model / provider / route / wrapper /
+    wrapper_hash from the last call are overlaid (one wrapper → one resolved model across
+    modules, so the last sidecar is authoritative). Returns a new report with stamped candidates
+    (the original is unchanged).
+    """
+    if not extra:
+        return report
+    if cli_client is not None:
+        sidecar_prov = cli_client.last_call_provenance()
+        if not sidecar_prov:
+            # No validated sidecar → no proof a cli call answered. Stamp nothing: never record a
+            # cli provider that never answered (provenance-integrity, BLOCKING fix).
+            return report
+        extra = {**extra, **sidecar_prov}
+    if not extra:
+        return report
+    stamped = []
+    for cand in report.candidates:
+        if not cand.provenance.llm_draft_used:
+            # Not produced by an LLM call (generic placeholder / missing-input block): leave its
+            # metadata unchanged so it never claims a provider answered it.
+            stamped.append(cand)
+            continue
+        new_meta = {**cand.provenance.metadata, **extra}
+        stamped.append(
+            cand.model_copy(update={
+                "provenance": cand.provenance.model_copy(update={"metadata": new_meta}),
+            })
+        )
+    return report.model_copy(update={"candidates": stamped})
 
 
 def _semantic_suggestions_from_args(

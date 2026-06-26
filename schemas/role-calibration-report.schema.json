@@ -116,22 +116,37 @@
       "title": "CalibrationProvenance",
       "type": "object"
     },
-    "RequirementTranslationObservation": {
+    "RoleCalibrationCaseResult": {
       "additionalProperties": false,
+      "description": "One case's scored outcome under a role-calibration run.\n\n``matched`` / ``false_acceptance`` / ``false_refusal`` are not mutually exclusive for the\nset-valued roles (impact / extraction): a partial-overlap estimate is both an over-claim (FA)\nand an under-claim (FR). For the verdict/signature roles (decomposition / audit) they are\nmutually exclusive. ``matched`` is True only when neither FA nor FR fired.",
       "properties": {
         "case_id": {
           "title": "Case Id",
           "type": "string"
         },
-        "expected_outcome": {
+        "false_acceptance": {
+          "default": false,
+          "title": "False Acceptance",
+          "type": "boolean"
+        },
+        "false_refusal": {
+          "default": false,
+          "title": "False Refusal",
+          "type": "boolean"
+        },
+        "fault_kind": {
           "enum": [
-            "accepted",
-            "clarification",
-            "refused",
-            "needs_review"
+            "faithful",
+            "false_acceptance",
+            "false_refusal"
           ],
-          "title": "Expected Outcome",
+          "title": "Fault Kind",
           "type": "string"
+        },
+        "matched": {
+          "default": false,
+          "title": "Matched",
+          "type": "boolean"
         },
         "notes": {
           "items": {
@@ -139,97 +154,18 @@
           },
           "title": "Notes",
           "type": "array"
-        },
-        "observed_outcome": {
-          "anyOf": [
-            {
-              "enum": [
-                "accepted",
-                "clarification",
-                "refused",
-                "needs_review"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Observed Outcome"
-        },
-        "status": {
-          "enum": [
-            "matched",
-            "missing",
-            "semantic_mismatch",
-            "clarification_mismatch",
-            "refusal_mismatch",
-            "review_mismatch",
-            "false_acceptance",
-            "false_refusal",
-            "outcome_mismatch"
-          ],
-          "title": "Status",
-          "type": "string"
         }
       },
       "required": [
         "case_id",
-        "expected_outcome",
-        "status"
+        "fault_kind"
       ],
-      "title": "RequirementTranslationObservation",
+      "title": "RoleCalibrationCaseResult",
       "type": "object"
     },
-    "TranslationDomainMetrics": {
+    "RoleCalibrationSubgroupMetrics": {
       "additionalProperties": false,
-      "description": "Per-domain false-acceptance / false-refusal breakdown (PA-9).\n\nBoth rates are reported separately and never collapsed into a single\n\"accuracy\": false-acceptance (a wrong claim accepted) and false-refusal\n(a correct claim refused) trade off against each other and must be read\nindependently.",
-      "properties": {
-        "domain": {
-          "title": "Domain",
-          "type": "string"
-        },
-        "false_acceptance_count": {
-          "title": "False Acceptance Count",
-          "type": "integer"
-        },
-        "false_acceptance_rate": {
-          "title": "False Acceptance Rate",
-          "type": "number"
-        },
-        "false_refusal_count": {
-          "title": "False Refusal Count",
-          "type": "integer"
-        },
-        "false_refusal_rate": {
-          "title": "False Refusal Rate",
-          "type": "number"
-        },
-        "semantic_match_rate": {
-          "title": "Semantic Match Rate",
-          "type": "number"
-        },
-        "total_cases": {
-          "title": "Total Cases",
-          "type": "integer"
-        }
-      },
-      "required": [
-        "domain",
-        "total_cases",
-        "semantic_match_rate",
-        "false_acceptance_count",
-        "false_acceptance_rate",
-        "false_refusal_count",
-        "false_refusal_rate"
-      ],
-      "title": "TranslationDomainMetrics",
-      "type": "object"
-    },
-    "TranslationLanguageMetrics": {
-      "additionalProperties": false,
-      "description": "Per-language false-acceptance / false-refusal breakdown (PA-11).\n\n\"NL-agnostic\" may be claimed for a language only when its recorded rates are within\nthe English budget on the spike; otherwise the claim is scoped to the languages that\npass. Both rates are reported, never collapsed into one accuracy.",
+      "description": "Per-subgroup (domain or language) FA/FR breakdown.\n\nBoth rates are reported separately and never collapsed into one \"accuracy\" \u2014 false-acceptance\nand false-refusal trade off against each other and must be read independently, exactly as in\nthe drafting report.",
       "properties": {
         "false_acceptance_count": {
           "title": "False Acceptance Count",
@@ -247,13 +183,13 @@
           "title": "False Refusal Rate",
           "type": "number"
         },
-        "language": {
-          "title": "Language",
+        "label": {
+          "title": "Label",
           "type": "string"
         },
-        "semantic_match_rate": {
-          "title": "Semantic Match Rate",
-          "type": "number"
+        "matched_count": {
+          "title": "Matched Count",
+          "type": "integer"
         },
         "total_cases": {
           "title": "Total Cases",
@@ -261,24 +197,21 @@
         }
       },
       "required": [
-        "language",
+        "label",
         "total_cases",
-        "semantic_match_rate",
+        "matched_count",
         "false_acceptance_count",
         "false_acceptance_rate",
         "false_refusal_count",
         "false_refusal_rate"
       ],
-      "title": "TranslationLanguageMetrics",
+      "title": "RoleCalibrationSubgroupMetrics",
       "type": "object"
     }
   },
   "additionalProperties": false,
+  "description": "Self-describing per-role FA/FR calibration report.\n\n``result`` is ``\"passed\"`` only when every case matched (FA=0 AND FR=0). A discriminator run\nover a planted-error corpus is EXPECTED to be ``\"failed\"`` \u2014 that non-zero FA/FR is the\nnon-vacuity proof that the harness discriminates (a constant-zero instrument would pass\nvacuously). The committed discriminator reports therefore read as ``\"failed\"`` by design.\n``calibration`` is None for a plain recorded ``--run`` (byte-stable, like the drafting release\ncorpus) and populated only for a ``--llm-client`` calibration run.",
   "properties": {
-    "ambiguity_rate": {
-      "title": "Ambiguity Rate",
-      "type": "number"
-    },
     "calibration": {
       "anyOf": [
         {
@@ -290,25 +223,13 @@
       ],
       "default": null
     },
-    "clarification_quality": {
-      "anyOf": [
-        {
-          "type": "number"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Clarification Quality"
-    },
     "corpus_id": {
       "title": "Corpus Id",
       "type": "string"
     },
     "domains": {
       "items": {
-        "$ref": "#/$defs/TranslationDomainMetrics"
+        "$ref": "#/$defs/RoleCalibrationSubgroupMetrics"
       },
       "title": "Domains",
       "type": "array"
@@ -334,7 +255,7 @@
     },
     "languages": {
       "items": {
-        "$ref": "#/$defs/TranslationLanguageMetrics"
+        "$ref": "#/$defs/RoleCalibrationSubgroupMetrics"
       },
       "title": "Languages",
       "type": "array"
@@ -343,28 +264,12 @@
       "title": "Matched Cases",
       "type": "integer"
     },
-    "needs_review_rate": {
-      "title": "Needs Review Rate",
-      "type": "number"
-    },
     "observations": {
       "items": {
-        "$ref": "#/$defs/RequirementTranslationObservation"
+        "$ref": "#/$defs/RoleCalibrationCaseResult"
       },
       "title": "Observations",
       "type": "array"
-    },
-    "refusal_correctness": {
-      "anyOf": [
-        {
-          "type": "number"
-        },
-        {
-          "type": "null"
-        }
-      ],
-      "default": null,
-      "title": "Refusal Correctness"
     },
     "result": {
       "enum": [
@@ -374,23 +279,21 @@
       "title": "Result",
       "type": "string"
     },
-    "runtime_ms_total": {
-      "title": "Runtime Ms Total",
-      "type": "integer"
+    "role": {
+      "enum": [
+        "decomposition",
+        "impact",
+        "extraction",
+        "audit"
+      ],
+      "title": "Role",
+      "type": "string"
     },
     "schema_version": {
       "const": "0.1",
       "default": "0.1",
       "title": "Schema Version",
       "type": "string"
-    },
-    "semantic_match_rate": {
-      "title": "Semantic Match Rate",
-      "type": "number"
-    },
-    "syntactic_validity_rate": {
-      "title": "Syntactic Validity Rate",
-      "type": "number"
     },
     "total_cases": {
       "title": "Total Cases",
@@ -402,18 +305,14 @@
     }
   },
   "required": [
+    "role",
     "corpus_id",
     "version",
     "result",
     "total_cases",
     "matched_cases",
-    "syntactic_validity_rate",
-    "semantic_match_rate",
-    "ambiguity_rate",
-    "needs_review_rate",
-    "false_acceptance_rate",
-    "runtime_ms_total"
+    "false_acceptance_rate"
   ],
-  "title": "RequirementTranslationBenchmarkReport",
+  "title": "RoleCalibrationReport",
   "type": "object"
 }

@@ -93,6 +93,14 @@ from nlreq.translation_benchmark import (
     RequirementTranslationReleaseThresholds,
     RequirementTranslationResults,
 )
+from nlreq.role_calibration import (
+    AuditCalibrationCorpus,
+    DecompositionCalibrationCorpus,
+    ExtractionCalibrationCorpus,
+    ImpactCalibrationCorpus,
+    RoleCalibrationReport,
+    RoleCalibrationResults,
+)
 from nlreq.translation_repair import TranslationRepairHistory, TranslationRepairReport
 from nlreq.translator_workbench import TranslatorRunArtifact, TranslatorSelectionArtifact
 from nlreq.delta_extractor import DeltaReport
@@ -298,6 +306,12 @@ SCHEMAS = {
     "requirement-translation-benchmark-report.schema.json": RequirementTranslationBenchmarkReport,
     "requirement-translation-release-thresholds.schema.json": RequirementTranslationReleaseThresholds,
     "requirement-translation-release-bar-report.schema.json": RequirementTranslationReleaseBarReport,
+    "role-calibration-decomposition-corpus.schema.json": DecompositionCalibrationCorpus,
+    "role-calibration-audit-corpus.schema.json": AuditCalibrationCorpus,
+    "role-calibration-impact-corpus.schema.json": ImpactCalibrationCorpus,
+    "role-calibration-extraction-corpus.schema.json": ExtractionCalibrationCorpus,
+    "role-calibration-results.schema.json": RoleCalibrationResults,
+    "role-calibration-report.schema.json": RoleCalibrationReport,
     "evidence.schema.json": EvidenceObject,
     "evidence-producer-validation.schema.json": EvidenceProducerValidationReport,
     "proof-evidence-boundary-report.schema.json": ProofEvidenceBoundaryReport,

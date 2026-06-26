@@ -742,13 +742,15 @@ def build_corpus() -> RequirementTranslationCorpus:
     )
 
 
-# --- PA-11 multilingual spike --------------------------------------------------------------
+# --- PA-11 multilingual corpus -------------------------------------------------------------
 #
 # The SAME requirement authored in English and Portuguese, each paired to the SAME
 # language-neutral controlled rewrite. Because the controlled DSL normalises to snake_case
 # symbols, EN and PT prose converge on identical FormalClaim signatures (the equivalence the
-# spike checks) while merchant/identifier strings stay verbatim in the intake provenance.
+# corpus checks) while merchant/identifier strings stay verbatim in the intake provenance.
 # A handful of low-confidence PT cases exercise the cross-language clarification refusal.
+# (30 en + 33 pt pairs meet the scope §5 per-language >=30 floor; the domain identifier keeps
+# its original "multilingual-spike" name for backward-compatible test/spec references.)
 _MULTILINGUAL_DOMAIN = "multilingual-spike"
 
 
@@ -985,6 +987,102 @@ _PAIRS: list[tuple[str, str, str, str]] = [
         "scope compliance\n"
         "when risk_score >= 90\n"
         'then state account_status must be "frozen"\n',
+    ),
+    # Pairs 21-30 expand the pt slice from 23 to 33 cases so the multilingual corpus meets the
+    # scope §5 per-language >=30 floor for BOTH en and pt (previously a below-floor spike, ADR
+    # 0204). Each reuses a protocol-corpus controlled rewrite (known to parse as DSL v3) paired
+    # with fresh natural-language en + pt prose, so the expansion adds translation evidence
+    # without introducing gold-parse risk. The controlled symbols match the prose exactly so the
+    # drafting front-half measures genuine prose->controlled translation, not symbol guessing.
+    (
+        "Unauthorized pause rejected",
+        "A pause triggered by an account that is not authorized must be rejected before paused.",
+        "Uma pausa acionada por uma conta que não está autorizada deve ser rejeitada antes de pausada.",
+        "requirement authorization_precondition:\n"
+        "scope emergency_controller\n"
+        "when account is not authorized\n"
+        "then pause must reject before paused\n",
+    ),
+    (
+        "Confirmed checkpoint allows withdrawal",
+        "Once a checkpoint is confirmed, finalizing the withdrawal must succeed.",
+        "Assim que um ponto de verificação é confirmado, finalizar o saque deve ser bem-sucedido.",
+        "requirement state_precondition:\n"
+        "scope rollup_exit\n"
+        "when checkpoint is confirmed\n"
+        "then finalize_withdrawal must succeed\n",
+    ),
+    (
+        "Approved slash recorded",
+        "When the slasher is approved, a slash_recorded event must be emitted within 10 seconds.",
+        "Quando o slashador é aprovado, um evento slash_recorded deve ser emitido em 10 segundos.",
+        "requirement event_state_correspondence:\n"
+        "scope staking\n"
+        "when slasher is approved\n"
+        "then emit slash_recorded within 10 seconds\n",
+    ),
+    (
+        "Validator-set size bounded",
+        "While the validator-set size is between four and one hundred, keep the set size at most one hundred.",
+        "Enquanto o tamanho do conjunto de validadores estiver entre quatro e cem, mantenha o tamanho do conjunto em no máximo cem.",
+        "requirement numeric_invariant:\n"
+        "scope consensus\n"
+        "when validator_count >= 4 and validator_count <= 100\n"
+        "then keep validator_count <= 100\n",
+    ),
+    (
+        "Authorized round finalizes within blocks",
+        "When the validator is authorized, a round_finalized event must be emitted within 5 blocks.",
+        "Quando o validador está autorizado, um evento round_finalized deve ser emitido em 5 blocos.",
+        "requirement bounded_temporal:\n"
+        "scope consensus\n"
+        "when validator is authorized\n"
+        "then emit round_finalized within 5 blocks\n",
+    ),
+    (
+        "Confirmed bridge lock mints wrapped",
+        "When the deposit is confirmed, the bridge module causes the mint module to issue within 15 minutes.",
+        "Quando o depósito é confirmado, o módulo bridge faz o módulo mint emitir em 15 minutos.",
+        "requirement cross_module_causal_obligation:\n"
+        "scope bridge\n"
+        "when deposit is confirmed\n"
+        "then module bridge causes module mint to issue within 15 minutes\n",
+    ),
+    (
+        "Only allowlisted callers may settle",
+        "When the caller is in the allowlist set, settling must succeed.",
+        "Quando o chamador está no conjunto de permissões, liquidar deve ser bem-sucedido.",
+        "requirement state_precondition:\n"
+        "scope settlement\n"
+        "when caller is in allowlist\n"
+        "then settle_position must succeed\n",
+    ),
+    (
+        "Approved borrower above ratio borrows",
+        "When the borrower is approved and the collateral ratio is at least one hundred fifty, borrowing must succeed.",
+        "Quando o mutuário é aprovado e a razão de garantia é de pelo menos cento e cinquenta, pegar emprestado deve ser bem-sucedido.",
+        "requirement state_precondition:\n"
+        "scope lending_pool\n"
+        "when borrower is approved and collateral_ratio >= 150\n"
+        "then borrow must succeed\n",
+    ),
+    (
+        "Quorum reached marks finalizable",
+        "When the vote count is at least two thirds of the validators, the round status must be finalizable.",
+        "Quando a contagem de votos é de pelo menos dois terços dos validadores, o status da rodada deve ser finalizável.",
+        "requirement state_postcondition:\n"
+        "scope consensus\n"
+        "when votes >= 67\n"
+        'then state round_status must be "finalizable"\n',
+    ),
+    (
+        "Reserve floor invariant",
+        "When the reserve balance is between ten and one thousand, keep the reserve balance at least ten.",
+        "Quando o saldo da reserva está entre dez e mil, mantenha o saldo da reserva em pelo menos dez.",
+        "requirement numeric_invariant:\n"
+        "scope reserve\n"
+        "when reserve_balance >= 10 and reserve_balance <= 1000\n"
+        "then keep reserve_balance >= 10\n",
     ),
 ]
 

@@ -1,0 +1,525 @@
+{
+  "ambiguity_rate": 0.8181818181818182,
+  "calibration": {
+    "cli_version": "2.1.191 (Claude Code)",
+    "client_kind": "cli",
+    "prompt_version": "0.1",
+    "provider": "anthropic",
+    "resolved_model": "claude-haiku-4-5",
+    "role": "drafting",
+    "route": "official",
+    "transport_source": "override",
+    "wrapper": "run-claude",
+    "wrapper_hash": "5524a2abf5665fa7396432372a473a682fea7570ad2736c7984c7a8425eddaf5"
+  },
+  "corpus_id": "translation-corpus-pa9",
+  "domains": [
+    {
+      "domain": "procurement-approval",
+      "false_acceptance_count": 3,
+      "false_acceptance_rate": 0.09090909090909091,
+      "false_refusal_count": 27,
+      "false_refusal_rate": 0.8181818181818182,
+      "semantic_match_rate": 0.0,
+      "total_cases": 33
+    },
+    {
+      "domain": "protocol-safety",
+      "false_acceptance_count": 9,
+      "false_acceptance_rate": 0.2727272727272727,
+      "false_refusal_count": 21,
+      "false_refusal_rate": 0.6363636363636364,
+      "semantic_match_rate": 0.0,
+      "total_cases": 33
+    }
+  ],
+  "false_acceptance_count": 12,
+  "false_acceptance_rate": 0.18181818181818182,
+  "false_refusal_count": 48,
+  "false_refusal_rate": 0.7272727272727273,
+  "languages": [
+    {
+      "false_acceptance_count": 12,
+      "false_acceptance_rate": 0.18181818181818182,
+      "false_refusal_count": 48,
+      "false_refusal_rate": 0.7272727272727273,
+      "language": "en",
+      "semantic_match_rate": 0.0,
+      "total_cases": 66
+    }
+  ],
+  "matched_cases": 6,
+  "needs_review_rate": 0.0,
+  "observations": [
+    {
+      "case_id": "proc-auth-unapproved-buyer",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-auth-vendor-onboarding",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-auth-invoice-release",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-state-approved-buyer-order",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "accepted",
+      "status": "false_acceptance"
+    },
+    {
+      "case_id": "proc-state-confirmed-receipt",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-state-approved-budget-line",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-post-order-status-accepted",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-post-order-status-released",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-post-threshold-status",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-event-order-acknowledged",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "accepted",
+      "status": "false_acceptance"
+    },
+    {
+      "case_id": "proc-event-invoice-matched",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-num-spend-limit",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-num-open-orders",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-num-discount-floor",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-temporal-approval-sla",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-temporal-escalation",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-causal-order-to-ledger",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-causal-receipt-to-payable",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-member-approved-vendor-list",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-member-category-set",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-multi-approved-and-limit",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-multi-confirmed-and-state",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-auth-contract-amend",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-event-three-way-match",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-num-pcard-cap",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-post-rejected-status",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-temporal-po-dispatch",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "accepted",
+      "status": "false_acceptance"
+    },
+    {
+      "case_id": "proc-state-confirmed-budget-check",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-auth-supplier-portal",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-num-approval-tiers",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proc-ambiguous-it",
+      "expected_outcome": "refused",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "matched"
+    },
+    {
+      "case_id": "proc-incomplete-threshold",
+      "expected_outcome": "refused",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "matched"
+    },
+    {
+      "case_id": "proc-adversarial-bypass",
+      "expected_outcome": "refused",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "matched"
+    },
+    {
+      "case_id": "proto-auth-withdrawal",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-auth-mint",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "accepted",
+      "status": "false_acceptance"
+    },
+    {
+      "case_id": "proto-auth-upgrade",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-state-approved-staker",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "accepted",
+      "status": "false_acceptance"
+    },
+    {
+      "case_id": "proto-state-confirmed-oracle",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-state-approved-validator",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-post-settled-status",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-post-liquidation-status",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-post-quorum-state",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-event-deposit-credited",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-event-slash-recorded",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "accepted",
+      "status": "false_acceptance"
+    },
+    {
+      "case_id": "proto-num-collateral-ratio",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "accepted",
+      "status": "false_acceptance"
+    },
+    {
+      "case_id": "proto-num-reserve-floor",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "accepted",
+      "status": "false_acceptance"
+    },
+    {
+      "case_id": "proto-num-supply-cap",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-num-utilization",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-temporal-finalize",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-temporal-redemption",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "accepted",
+      "status": "false_acceptance"
+    },
+    {
+      "case_id": "proto-causal-withdraw-to-ledger",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-causal-bridge-to-mint",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "accepted",
+      "status": "false_acceptance"
+    },
+    {
+      "case_id": "proto-member-allowlisted-caller",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-member-supported-asset",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-multi-approved-and-ratio",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-multi-confirmed-and-quorum",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-auth-pause",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-event-withdraw-finalized",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-num-fee-bound",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-post-frozen-status",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-temporal-challenge-window",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "false_refusal"
+    },
+    {
+      "case_id": "proto-state-confirmed-checkpoint",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "accepted",
+      "status": "false_acceptance"
+    },
+    {
+      "case_id": "proto-num-validator-set",
+      "expected_outcome": "accepted",
+      "notes": [],
+      "observed_outcome": "accepted",
+      "status": "false_acceptance"
+    },
+    {
+      "case_id": "proto-ambiguous-it",
+      "expected_outcome": "refused",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "matched"
+    },
+    {
+      "case_id": "proto-incomplete-safety",
+      "expected_outcome": "refused",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "matched"
+    },
+    {
+      "case_id": "proto-adversarial-drain",
+      "expected_outcome": "refused",
+      "notes": [],
+      "observed_outcome": "refused",
+      "status": "matched"
+    }
+  ],
+  "refusal_correctness": 1.0,
+  "result": "failed",
+  "runtime_ms_total": 0,
+  "schema_version": "0.1",
+  "semantic_match_rate": 0.0,
+  "syntactic_validity_rate": 0.18181818181818182,
+  "total_cases": 66,
+  "version": "0.1"
+}

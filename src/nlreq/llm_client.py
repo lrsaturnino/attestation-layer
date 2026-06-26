@@ -9,9 +9,21 @@ from typing import Protocol, runtime_checkable
 
 NLREQ_API_KEY_ENV = "NLREQ_ANTHROPIC_API_KEY"
 
-# Model used for controlled-rewrite drafting. Temperature=0 for best-effort
-# reproducibility; callers must still treat output as untrusted.
+# Model used for controlled-rewrite drafting. temperature=0 is sent for
+# best-effort reproducibility only; callers must still treat output as untrusted.
 _DEFAULT_MODEL = "claude-haiku-4-5-20251001"
+
+# Version stamps for the three LlmClient prompt templates (drafting, impact, extraction).
+# Bump the relevant one when the semantic content of that prompt changes so prompt_hash /
+# provenance stays interpretable. These are the per-role prompt-version provenance the
+# model-config factory records (Work Item 1); Work Item 2 lifts the inline prompt builders
+# into shared module-level templates (build_drafting_prompt / build_impact_estimate_prompt /
+# build_spec_extraction_prompt) without changing the text, so these versions — and the
+# prompt_hash values — stay stable across the lift. Both transports (AnthropicLlmClient and
+# CliLlmClient) call the same builders, so a prompt fork between transports is impossible.
+_DRAFTING_PROMPT_VERSION = "0.1"
+_IMPACT_PROMPT_VERSION = "0.1"
+_EXTRACTION_PROMPT_VERSION = "0.1"
 
 # Sentinel a drafting model emits in place of controlled text when it is NOT confident
 # it can faithfully translate a (typically non-English) fragment. The intake layer turns
@@ -37,6 +49,75 @@ def language_prompt_addendum(language: str) -> str:
         "string literals VERBATIM in their original language — do not translate or transliterate "
         "them. If you cannot confidently map a fragment to the controlled grammar, reply with "
         f"'{CROSS_LANGUAGE_CLARIFY_SENTINEL} <the untranslatable fragment>' and nothing else.\n"
+    )
+
+
+def build_drafting_prompt(prose: str, grammar_summary: str, *, language: str = "en") -> str:
+    """The controlled-rewrite drafting prompt — the single source shared by both transports.
+
+    Byte-identical to the prompt ``intake.build_rewrite_prompt`` has always recorded (so
+    existing prompt_hash values stay stable). ``language`` steers the non-English addendum
+    (PA-11); 'en' yields no addendum, so the English prompt — and its pinned prompt_hash —
+    is unchanged. ``AnthropicLlmClient`` and ``CliLlmClient`` both call this so a prompt fork
+    between the API and CLI transports is impossible (Work Item 2).
+    """
+    return (
+        "You are a precise technical writer converting free-form requirement prose "
+        "into a controlled DSL v3 requirement.\n\n"
+        "GRAMMAR:\n"
+        + grammar_summary
+        + language_prompt_addendum(language)
+        + "\nPROSE:\n"
+        + prose.strip()
+        + "\n\nProduce ONLY the controlled DSL v3 text, no explanation or commentary."
+    )
+
+
+def build_impact_estimate_prompt(
+    *, prose: str, symbols: list[str], candidate_modules: list[str]
+) -> str:
+    """The semantic impact-estimate prompt — single source shared by both transports."""
+    return (
+        "You estimate which source modules a software requirement impacts. You are "
+        "given the requirement prose, its bound symbols, and the universe of "
+        "candidate module ids. Reply with ONLY a JSON array of the module ids you "
+        "believe are impacted (a subset of the candidates), no prose.\n\n"
+        "BOUND SYMBOLS: " + ", ".join(symbols) + "\n"
+        "CANDIDATE MODULES: " + ", ".join(candidate_modules) + "\n\n"
+        "REQUIREMENT:\n" + prose.strip()
+    )
+
+
+def build_spec_extraction_prompt(
+    *, module_id: str, code_presentation: str, language: str = "en"
+) -> str:
+    """The Specula spec-extraction prompt — single source shared by both transports.
+
+    The Solidity branch (PC-5) accepts two more trace-observable kinds and an optional
+    ``value`` field; the non-solidity instruction is byte-identical to the Go/other path.
+    """
+    if language == "solidity":
+        kinds_instruction = (
+            'where kind is "event_emitted" (an event is emitted), "action_never" (the action '
+            'must never run), "state_value_reached" (a view read reaches the claimed "value"), '
+            'or "action_reverts" (a call reverts, optionally with revert reason "value"); use '
+            'the optional "value" field for the state_value_reached and action_reverts kinds.'
+        )
+    else:
+        kinds_instruction = (
+            'where kind is "event_emitted" (the operation runs) '
+            'or "action_never" (the operation must never run).'
+        )
+    return (
+        "You extract candidate formal invariants from source code. Read the "
+        f"presented {language} source of module '{module_id}' and propose candidate "
+        "safety invariants AND the trace-observable operations those invariants imply "
+        "(operations the code performs at runtime). Derive everything from the CODE, "
+        "not from any external description. Reply with ONLY a JSON object of the form "
+        '{"invariants": [{"name": "...", "tla": "..."}], "trace_expectations": '
+        '[{"expectation_id": "...", "kind": "event_emitted", "target": "...", '
+        '"description": "..."}]} ' + kinds_instruction + ' No prose.\n\n'
+        "SOURCE:\n" + code_presentation.strip()
     )
 
 
@@ -331,15 +412,8 @@ class AnthropicLlmClient:
             messages=[
                 {
                     "role": "user",
-                    "content": (
-                        "You are a precise technical writer converting free-form requirement prose "
-                        "into a controlled DSL v3 requirement.\n\n"
-                        "GRAMMAR:\n"
-                        + grammar_summary
-                        + language_prompt_addendum(language)
-                        + "\nPROSE:\n"
-                        + prose.strip()
-                        + "\n\nProduce ONLY the controlled DSL v3 text, no explanation or commentary."
+                    "content": build_drafting_prompt(
+                        prose, grammar_summary, language=language
                     ),
                 }
             ],
@@ -370,14 +444,8 @@ class AnthropicLlmClient:
             messages=[
                 {
                     "role": "user",
-                    "content": (
-                        "You estimate which source modules a software requirement impacts. You are "
-                        "given the requirement prose, its bound symbols, and the universe of "
-                        "candidate module ids. Reply with ONLY a JSON array of the module ids you "
-                        "believe are impacted (a subset of the candidates), no prose.\n\n"
-                        "BOUND SYMBOLS: " + ", ".join(symbols) + "\n"
-                        "CANDIDATE MODULES: " + ", ".join(candidate_modules) + "\n\n"
-                        "REQUIREMENT:\n" + prose.strip()
+                    "content": build_impact_estimate_prompt(
+                        prose=prose, symbols=symbols, candidate_modules=candidate_modules
                     ),
                 }
             ],
@@ -399,23 +467,8 @@ class AnthropicLlmClient:
                 "Install it via: pip install anthropic  (or uv add anthropic)"
             ) from exc
         client = anthropic.Anthropic(api_key=api_key)
-        # A Solidity Foundry trace witnesses more than a runtime/trace can: beyond an event emitted or
-        # a forbidden action, it sees a view read reaching a value and a call that reverts, so the
-        # Solidity extractor (PC-5) accepts two more kinds and an optional "value" field. The
-        # non-solidity instruction is left byte-identical to the Go/other path so its prompt is
-        # unchanged.
-        if language == "solidity":
-            kinds_instruction = (
-                'where kind is "event_emitted" (an event is emitted), "action_never" (the action '
-                'must never run), "state_value_reached" (a view read reaches the claimed "value"), '
-                'or "action_reverts" (a call reverts, optionally with revert reason "value"); use '
-                'the optional "value" field for the state_value_reached and action_reverts kinds.'
-            )
-        else:
-            kinds_instruction = (
-                'where kind is "event_emitted" (the operation runs) '
-                'or "action_never" (the operation must never run).'
-            )
+        # The Solidity-vs-other kinds branch (PC-5) lives in the shared builder so both
+        # transports emit identical extraction prompts.
         message = client.messages.create(
             model=self._model,
             max_tokens=1024,
@@ -423,16 +476,10 @@ class AnthropicLlmClient:
             messages=[
                 {
                     "role": "user",
-                    "content": (
-                        "You extract candidate formal invariants from source code. Read the "
-                        f"presented {language} source of module '{module_id}' and propose candidate "
-                        "safety invariants AND the trace-observable operations those invariants imply "
-                        "(operations the code performs at runtime). Derive everything from the CODE, "
-                        "not from any external description. Reply with ONLY a JSON object of the form "
-                        '{"invariants": [{"name": "...", "tla": "..."}], "trace_expectations": '
-                        '[{"expectation_id": "...", "kind": "event_emitted", "target": "...", '
-                        '"description": "..."}]} ' + kinds_instruction + ' No prose.\n\n'
-                        "SOURCE:\n" + code_presentation.strip()
+                    "content": build_spec_extraction_prompt(
+                        module_id=module_id,
+                        code_presentation=code_presentation,
+                        language=language,
                     ),
                 }
             ],

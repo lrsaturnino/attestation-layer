@@ -53,6 +53,14 @@ class AuditVerdict(BaseModel):
       verdict: "passed" only when covers_all_clauses is True and invented_premises is empty.
       audit_prompt_version: Version of the audit prompt used.
       model_id: Model that produced the verdict (None for recorded fixtures).
+      client_kind: Transport that produced the verdict — ``anthropic`` | ``cli`` | ``recorded``
+        (None on the default/recorded path so default-path artifacts stay byte-identical;
+        ADR 0205). For the CLI audit transport this is ``cli``.
+      provider / route / wrapper / wrapper_hash / cli_version: CLI-transport sidecar
+        provenance (ADR 0203). All None for the anthropic/recorded transports; populated from
+        the validated sidecar by ``CliLlmClient.audit_decomposition``. Byte-stable: they default
+        to None and are excluded from serialization by ``exclude_none=True`` (``jsonutil.to_jsonable``),
+        so existing anthropic/recorded audit artifacts are unchanged.
     """
 
     model_config = ConfigDict(extra="forbid")
@@ -62,6 +70,15 @@ class AuditVerdict(BaseModel):
     verdict: Literal["passed", "failed"]
     audit_prompt_version: str = _AUDIT_PROMPT_VERSION
     model_id: str | None = None
+    # CLI-transport sidecar provenance (ADR 0203 / ADR 0205). Optional + None-default so the
+    # anthropic/recorded paths (and existing golden artifacts) are byte-identical: ``to_jsonable``
+    # serializes with ``exclude_none=True``, so these keys are absent unless a CLI audit set them.
+    client_kind: str | None = None
+    provider: str | None = None
+    route: str | None = None
+    wrapper: str | None = None
+    wrapper_hash: str | None = None
+    cli_version: str | None = None
 
     @model_validator(mode="after")
     def _normalize_verdict_from_fields(self) -> "AuditVerdict":

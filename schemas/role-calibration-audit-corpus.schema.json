@@ -1,0 +1,218 @@
+{
+  "$defs": {
+    "AuditCalibrationCase": {
+      "additionalProperties": false,
+      "description": "An audit-calibration case.\n\n``controlled_text`` + ``ir_summary`` are the auditor's inputs. ``gold_verdict`` is the\ncorrect verdict (``passed`` for a faithful IR summary; ``failed`` for one with an invented\npremise / missing clause). ``recorded_verdict`` is the planted auditor response replayed in\nthe recorded discriminator.",
+      "properties": {
+        "case_id": {
+          "title": "Case Id",
+          "type": "string"
+        },
+        "controlled_text": {
+          "title": "Controlled Text",
+          "type": "string"
+        },
+        "domain": {
+          "title": "Domain",
+          "type": "string"
+        },
+        "fault_kind": {
+          "enum": [
+            "faithful",
+            "false_acceptance",
+            "false_refusal"
+          ],
+          "title": "Fault Kind",
+          "type": "string"
+        },
+        "gold_verdict": {
+          "enum": [
+            "passed",
+            "failed"
+          ],
+          "title": "Gold Verdict",
+          "type": "string"
+        },
+        "ir_summary": {
+          "title": "Ir Summary",
+          "type": "string"
+        },
+        "language": {
+          "default": "en",
+          "title": "Language",
+          "type": "string"
+        },
+        "recorded_verdict": {
+          "$ref": "#/$defs/AuditVerdict"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "case_id",
+        "title",
+        "domain",
+        "fault_kind",
+        "controlled_text",
+        "ir_summary",
+        "gold_verdict",
+        "recorded_verdict"
+      ],
+      "title": "AuditCalibrationCase",
+      "type": "object"
+    },
+    "AuditVerdict": {
+      "additionalProperties": false,
+      "description": "Structured verdict from a PA-6 audit of a decomposition result.\n\nFields:\n  covers_all_clauses: True if every clause in the controlled text is present in the IR.\n  invented_premises: List of IR premises or obligations not in the controlled text.\n  verdict: \"passed\" only when covers_all_clauses is True and invented_premises is empty.\n  audit_prompt_version: Version of the audit prompt used.\n  model_id: Model that produced the verdict (None for recorded fixtures).\n  client_kind: Transport that produced the verdict \u2014 ``anthropic`` | ``cli`` | ``recorded``\n    (None on the default/recorded path so default-path artifacts stay byte-identical;\n    ADR 0205). For the CLI audit transport this is ``cli``.\n  provider / route / wrapper / wrapper_hash / cli_version: CLI-transport sidecar\n    provenance (ADR 0203). All None for the anthropic/recorded transports; populated from\n    the validated sidecar by ``CliLlmClient.audit_decomposition``. Byte-stable: they default\n    to None and are excluded from serialization by ``exclude_none=True`` (``jsonutil.to_jsonable``),\n    so existing anthropic/recorded audit artifacts are unchanged.",
+      "properties": {
+        "audit_prompt_version": {
+          "default": "0.1",
+          "title": "Audit Prompt Version",
+          "type": "string"
+        },
+        "cli_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Cli Version"
+        },
+        "client_kind": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Client Kind"
+        },
+        "covers_all_clauses": {
+          "title": "Covers All Clauses",
+          "type": "boolean"
+        },
+        "invented_premises": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Invented Premises",
+          "type": "array"
+        },
+        "model_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model Id"
+        },
+        "provider": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider"
+        },
+        "route": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Route"
+        },
+        "verdict": {
+          "enum": [
+            "passed",
+            "failed"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        },
+        "wrapper": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wrapper"
+        },
+        "wrapper_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Wrapper Hash"
+        }
+      },
+      "required": [
+        "covers_all_clauses",
+        "verdict"
+      ],
+      "title": "AuditVerdict",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "cases": {
+      "items": {
+        "$ref": "#/$defs/AuditCalibrationCase"
+      },
+      "title": "Cases",
+      "type": "array"
+    },
+    "corpus_id": {
+      "title": "Corpus Id",
+      "type": "string"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    },
+    "version": {
+      "title": "Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "corpus_id",
+    "version",
+    "cases"
+  ],
+  "title": "AuditCalibrationCorpus",
+  "type": "object"
+}

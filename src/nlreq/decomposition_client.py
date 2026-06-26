@@ -9,8 +9,9 @@ from .jsonutil import sha256_text
 from .models import Approval, RequirementIRV2, SourceSpan
 
 
-# Model used for decomposition. Temperature=0 for best-effort reproducibility;
-# callers must still treat output as untrusted and never approved/audited.
+# Model used for decomposition. temperature=0 is sent for best-effort
+# reproducibility only; callers must still treat output as untrusted
+# and never approved/audited.
 _DEFAULT_DECOMPOSITION_MODEL = "claude-haiku-4-5-20251001"
 
 # Bump this string whenever the semantic content of the prompt changes so
@@ -185,8 +186,19 @@ class AnthropicDecompositionClient:
     needs_review, not refused-ambiguous, until audit is available.
     """
 
-    def __init__(self, model: str = _DEFAULT_DECOMPOSITION_MODEL) -> None:
+    def __init__(
+        self,
+        model: str = _DEFAULT_DECOMPOSITION_MODEL,
+        *,
+        client_kind: str | None = None,
+    ) -> None:
+        # client_kind is the per-role transport provenance (Work Item 1): it is emitted
+        # into the DecompositionResult provenance dict ONLY when set, so the default
+        # path (client_kind=None, no model-config) stays byte-identical to the pre-config
+        # CLI. The model-config factory passes the resolved client_kind on non-default
+        # rungs; direct callers leave it None.
         self._model = model
+        self._client_kind = client_kind
 
     def decompose_controlled_to_ir(
         self,
@@ -248,5 +260,6 @@ class AnthropicDecompositionClient:
                 "source": "anthropic_decomposition",
                 "model": self._model,
                 "prompt_version": _DECOMPOSITION_PROMPT_VERSION,
+                **({"client_kind": self._client_kind} if self._client_kind else {}),
             },
         )

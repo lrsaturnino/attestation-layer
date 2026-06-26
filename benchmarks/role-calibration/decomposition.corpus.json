@@ -1,0 +1,115 @@
+{
+  "cases": [
+    {
+      "case_id": "decomp-authorization-faithful-1",
+      "controlled_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is not authorized\nthen withdraw must reject before settled\n",
+      "domain": "authorization",
+      "fault_kind": "faithful",
+      "language": "en",
+      "recorded_dsl_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is not authorized\nthen withdraw must reject before settled\n",
+      "title": "authorization faithful 1"
+    },
+    {
+      "case_id": "decomp-authorization-fa-1",
+      "controlled_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is not authorized\nthen withdraw must reject before settled\n",
+      "domain": "authorization",
+      "fault_kind": "false_acceptance",
+      "language": "en",
+      "recorded_dsl_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is authorized\nthen withdraw must reject before settled\n",
+      "title": "authorization false-acceptance 1"
+    },
+    {
+      "case_id": "decomp-authorization-fr-1",
+      "controlled_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is not authorized\nthen withdraw must reject before settled\n",
+      "domain": "authorization",
+      "fault_kind": "false_refusal",
+      "language": "en",
+      "recorded_dsl_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is not authorized\nthen withdraw must reject before settled\n",
+      "title": "authorization false-refusal 1"
+    },
+    {
+      "case_id": "decomp-authorization-faithful-2",
+      "controlled_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is not authorized\nthen withdraw must reject before settled\n",
+      "domain": "authorization",
+      "fault_kind": "faithful",
+      "language": "en",
+      "recorded_dsl_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is not authorized\nthen withdraw must reject before settled\n",
+      "title": "authorization faithful 2"
+    },
+    {
+      "case_id": "decomp-authorization-fa-2",
+      "controlled_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is not authorized\nthen withdraw must reject before settled\n",
+      "domain": "authorization",
+      "fault_kind": "false_acceptance",
+      "language": "en",
+      "recorded_dsl_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is authorized\nthen withdraw must reject before settled\n",
+      "title": "authorization false-acceptance 2"
+    },
+    {
+      "case_id": "decomp-authorization-fr-2",
+      "controlled_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is not authorized\nthen withdraw must reject before settled\n",
+      "domain": "authorization",
+      "fault_kind": "false_refusal",
+      "language": "en",
+      "recorded_dsl_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is not authorized\nthen withdraw must reject before settled\n",
+      "title": "authorization false-refusal 2"
+    },
+    {
+      "case_id": "decomp-procurement-faithful-1",
+      "controlled_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is not authorized\nthen place_order must reject before ordered\n",
+      "domain": "procurement",
+      "fault_kind": "faithful",
+      "language": "en",
+      "recorded_dsl_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is not authorized\nthen place_order must reject before ordered\n",
+      "title": "procurement faithful 1"
+    },
+    {
+      "case_id": "decomp-procurement-fa-1",
+      "controlled_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is not authorized\nthen place_order must reject before ordered\n",
+      "domain": "procurement",
+      "fault_kind": "false_acceptance",
+      "language": "en",
+      "recorded_dsl_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is authorized\nthen place_order must reject before ordered\n",
+      "title": "procurement false-acceptance 1"
+    },
+    {
+      "case_id": "decomp-procurement-fr-1",
+      "controlled_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is not authorized\nthen place_order must reject before ordered\n",
+      "domain": "procurement",
+      "fault_kind": "false_refusal",
+      "language": "en",
+      "recorded_dsl_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is not authorized\nthen place_order must reject before ordered\n",
+      "title": "procurement false-refusal 1"
+    },
+    {
+      "case_id": "decomp-procurement-faithful-2",
+      "controlled_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is not authorized\nthen place_order must reject before ordered\n",
+      "domain": "procurement",
+      "fault_kind": "faithful",
+      "language": "en",
+      "recorded_dsl_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is not authorized\nthen place_order must reject before ordered\n",
+      "title": "procurement faithful 2"
+    },
+    {
+      "case_id": "decomp-procurement-fa-2",
+      "controlled_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is not authorized\nthen place_order must reject before ordered\n",
+      "domain": "procurement",
+      "fault_kind": "false_acceptance",
+      "language": "en",
+      "recorded_dsl_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is authorized\nthen place_order must reject before ordered\n",
+      "title": "procurement false-acceptance 2"
+    },
+    {
+      "case_id": "decomp-procurement-fr-2",
+      "controlled_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is not authorized\nthen place_order must reject before ordered\n",
+      "domain": "procurement",
+      "fault_kind": "false_refusal",
+      "language": "en",
+      "recorded_dsl_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is not authorized\nthen place_order must reject before ordered\n",
+      "title": "procurement false-refusal 2"
+    }
+  ],
+  "corpus_id": "decomposition-calibration",
+  "schema_version": "0.1",
+  "version": "0.1"
+}

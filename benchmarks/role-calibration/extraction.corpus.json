@@ -1,0 +1,199 @@
+{
+  "cases": [
+    {
+      "case_id": "extract-payments-faithful-1",
+      "code_presentation": "func refund() { if amount > LIMIT { reject } }",
+      "domain": "payments",
+      "fault_kind": "faithful",
+      "gold_invariants": [
+        {
+          "name": "S_refund_limit",
+          "tla": "refund_amount <= LIMIT"
+        }
+      ],
+      "language": "go",
+      "module_id": "payments",
+      "recorded_estimate": "{\"invariants\": [{\"name\": \"S_refund_limit\", \"tla\": \"refund_amount <= LIMIT\"}]}",
+      "title": "payments faithful 1"
+    },
+    {
+      "case_id": "extract-payments-fa-1",
+      "code_presentation": "func refund() { if amount > LIMIT { reject } }",
+      "domain": "payments",
+      "fault_kind": "false_acceptance",
+      "gold_invariants": [
+        {
+          "name": "S_refund_limit",
+          "tla": "refund_amount <= LIMIT"
+        }
+      ],
+      "language": "go",
+      "module_id": "payments",
+      "recorded_estimate": "{\"invariants\": [{\"name\": \"S_refund_limit\", \"tla\": \"refund_amount <= LIMIT\"}, {\"name\": \"S_invented_payments\", \"tla\": \"false\"}]}",
+      "title": "payments invented 1"
+    },
+    {
+      "case_id": "extract-payments-fr-1",
+      "code_presentation": "func refund() { if amount > LIMIT { reject } }",
+      "domain": "payments",
+      "fault_kind": "false_refusal",
+      "gold_invariants": [
+        {
+          "name": "S_refund_limit",
+          "tla": "refund_amount <= LIMIT"
+        }
+      ],
+      "language": "go",
+      "module_id": "payments",
+      "recorded_estimate": "{\"invariants\": []}",
+      "title": "payments missed 1"
+    },
+    {
+      "case_id": "extract-payments-faithful-2",
+      "code_presentation": "func refund() { if amount > LIMIT { reject } }",
+      "domain": "payments",
+      "fault_kind": "faithful",
+      "gold_invariants": [
+        {
+          "name": "S_refund_limit",
+          "tla": "refund_amount <= LIMIT"
+        }
+      ],
+      "language": "go",
+      "module_id": "payments",
+      "recorded_estimate": "{\"invariants\": [{\"name\": \"S_refund_limit\", \"tla\": \"refund_amount <= LIMIT\"}]}",
+      "title": "payments faithful 2"
+    },
+    {
+      "case_id": "extract-payments-fa-2",
+      "code_presentation": "func refund() { if amount > LIMIT { reject } }",
+      "domain": "payments",
+      "fault_kind": "false_acceptance",
+      "gold_invariants": [
+        {
+          "name": "S_refund_limit",
+          "tla": "refund_amount <= LIMIT"
+        }
+      ],
+      "language": "go",
+      "module_id": "payments",
+      "recorded_estimate": "{\"invariants\": [{\"name\": \"S_refund_limit\", \"tla\": \"refund_amount <= LIMIT\"}, {\"name\": \"S_invented_payments\", \"tla\": \"false\"}]}",
+      "title": "payments invented 2"
+    },
+    {
+      "case_id": "extract-payments-fr-2",
+      "code_presentation": "func refund() { if amount > LIMIT { reject } }",
+      "domain": "payments",
+      "fault_kind": "false_refusal",
+      "gold_invariants": [
+        {
+          "name": "S_refund_limit",
+          "tla": "refund_amount <= LIMIT"
+        }
+      ],
+      "language": "go",
+      "module_id": "payments",
+      "recorded_estimate": "{\"invariants\": []}",
+      "title": "payments missed 2"
+    },
+    {
+      "case_id": "extract-inventory-faithful-1",
+      "code_presentation": "func move() { if stock < 0 { block } }",
+      "domain": "inventory",
+      "fault_kind": "faithful",
+      "gold_invariants": [
+        {
+          "name": "S_nonnegative_stock",
+          "tla": "stock >= 0"
+        }
+      ],
+      "language": "go",
+      "module_id": "inventory",
+      "recorded_estimate": "{\"invariants\": [{\"name\": \"S_nonnegative_stock\", \"tla\": \"stock >= 0\"}]}",
+      "title": "inventory faithful 1"
+    },
+    {
+      "case_id": "extract-inventory-fa-1",
+      "code_presentation": "func move() { if stock < 0 { block } }",
+      "domain": "inventory",
+      "fault_kind": "false_acceptance",
+      "gold_invariants": [
+        {
+          "name": "S_nonnegative_stock",
+          "tla": "stock >= 0"
+        }
+      ],
+      "language": "go",
+      "module_id": "inventory",
+      "recorded_estimate": "{\"invariants\": [{\"name\": \"S_nonnegative_stock\", \"tla\": \"stock >= 0\"}, {\"name\": \"S_invented_inventory\", \"tla\": \"false\"}]}",
+      "title": "inventory invented 1"
+    },
+    {
+      "case_id": "extract-inventory-fr-1",
+      "code_presentation": "func move() { if stock < 0 { block } }",
+      "domain": "inventory",
+      "fault_kind": "false_refusal",
+      "gold_invariants": [
+        {
+          "name": "S_nonnegative_stock",
+          "tla": "stock >= 0"
+        }
+      ],
+      "language": "go",
+      "module_id": "inventory",
+      "recorded_estimate": "{\"invariants\": []}",
+      "title": "inventory missed 1"
+    },
+    {
+      "case_id": "extract-inventory-faithful-2",
+      "code_presentation": "func move() { if stock < 0 { block } }",
+      "domain": "inventory",
+      "fault_kind": "faithful",
+      "gold_invariants": [
+        {
+          "name": "S_nonnegative_stock",
+          "tla": "stock >= 0"
+        }
+      ],
+      "language": "go",
+      "module_id": "inventory",
+      "recorded_estimate": "{\"invariants\": [{\"name\": \"S_nonnegative_stock\", \"tla\": \"stock >= 0\"}]}",
+      "title": "inventory faithful 2"
+    },
+    {
+      "case_id": "extract-inventory-fa-2",
+      "code_presentation": "func move() { if stock < 0 { block } }",
+      "domain": "inventory",
+      "fault_kind": "false_acceptance",
+      "gold_invariants": [
+        {
+          "name": "S_nonnegative_stock",
+          "tla": "stock >= 0"
+        }
+      ],
+      "language": "go",
+      "module_id": "inventory",
+      "recorded_estimate": "{\"invariants\": [{\"name\": \"S_nonnegative_stock\", \"tla\": \"stock >= 0\"}, {\"name\": \"S_invented_inventory\", \"tla\": \"false\"}]}",
+      "title": "inventory invented 2"
+    },
+    {
+      "case_id": "extract-inventory-fr-2",
+      "code_presentation": "func move() { if stock < 0 { block } }",
+      "domain": "inventory",
+      "fault_kind": "false_refusal",
+      "gold_invariants": [
+        {
+          "name": "S_nonnegative_stock",
+          "tla": "stock >= 0"
+        }
+      ],
+      "language": "go",
+      "module_id": "inventory",
+      "recorded_estimate": "{\"invariants\": []}",
+      "title": "inventory missed 2"
+    }
+  ],
+  "corpus_id": "extraction-calibration",
+  "schema_version": "0.1",
+  "version": "0.1"
+}

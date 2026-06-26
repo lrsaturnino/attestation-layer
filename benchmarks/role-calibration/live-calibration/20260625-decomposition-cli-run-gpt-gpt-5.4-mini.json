@@ -1,0 +1,158 @@
+{
+  "calibration": {
+    "cli_version": "codex-cli 0.140.0",
+    "client_kind": "cli",
+    "prompt_version": "0.1",
+    "provider": "openai",
+    "resolved_model": "gpt-5.4-mini",
+    "role": "decomposition",
+    "route": "official",
+    "transport_source": "override",
+    "wrapper": "run-gpt",
+    "wrapper_hash": "0dd5aa277dc9577b43c3fb57c6f710df0f2bbe138f05ca429857f2d4fa553294"
+  },
+  "corpus_id": "decomposition-calibration",
+  "domains": [
+    {
+      "false_acceptance_count": 0,
+      "false_acceptance_rate": 0.0,
+      "false_refusal_count": 1,
+      "false_refusal_rate": 0.16666666666666666,
+      "label": "authorization",
+      "matched_count": 5,
+      "total_cases": 6
+    },
+    {
+      "false_acceptance_count": 0,
+      "false_acceptance_rate": 0.0,
+      "false_refusal_count": 1,
+      "false_refusal_rate": 0.16666666666666666,
+      "label": "procurement",
+      "matched_count": 5,
+      "total_cases": 6
+    }
+  ],
+  "false_acceptance_count": 0,
+  "false_acceptance_rate": 0.0,
+  "false_refusal_count": 2,
+  "false_refusal_rate": 0.16666666666666666,
+  "languages": [
+    {
+      "false_acceptance_count": 0,
+      "false_acceptance_rate": 0.0,
+      "false_refusal_count": 2,
+      "false_refusal_rate": 0.16666666666666666,
+      "label": "en",
+      "matched_count": 10,
+      "total_cases": 12
+    }
+  ],
+  "matched_cases": 10,
+  "observations": [
+    {
+      "case_id": "decomp-authorization-faithful-1",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "faithful",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-authorization-fa-1",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "false_acceptance",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-authorization-fr-1",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "decomposer raised: DslV3ParseError('dsl_v3_parse_error at line 1, column 13: unsupported or malformed DSL v3 fragment')"
+      ]
+    },
+    {
+      "case_id": "decomp-authorization-faithful-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "faithful",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-authorization-fa-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "false_acceptance",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-authorization-fr-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "false_refusal",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-procurement-faithful-1",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "faithful",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-procurement-fa-1",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "false_acceptance",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-procurement-fr-1",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "false_refusal",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-procurement-faithful-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "faithful",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-procurement-fa-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "false_acceptance",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-procurement-fr-2",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "decomposer raised: DslV3ParseError('dsl_v3_parse_error at line 1, column 13: unsupported or malformed DSL v3 fragment')"
+      ]
+    }
+  ],
+  "result": "failed",
+  "role": "decomposition",
+  "schema_version": "0.1",
+  "total_cases": 12,
+  "version": "0.1"
+}

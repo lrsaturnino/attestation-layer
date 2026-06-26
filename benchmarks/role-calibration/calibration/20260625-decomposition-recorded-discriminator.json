@@ -1,0 +1,158 @@
+{
+  "corpus_id": "decomposition-calibration",
+  "domains": [
+    {
+      "false_acceptance_count": 2,
+      "false_acceptance_rate": 0.3333333333333333,
+      "false_refusal_count": 2,
+      "false_refusal_rate": 0.3333333333333333,
+      "label": "authorization",
+      "matched_count": 2,
+      "total_cases": 6
+    },
+    {
+      "false_acceptance_count": 2,
+      "false_acceptance_rate": 0.3333333333333333,
+      "false_refusal_count": 2,
+      "false_refusal_rate": 0.3333333333333333,
+      "label": "procurement",
+      "matched_count": 2,
+      "total_cases": 6
+    }
+  ],
+  "false_acceptance_count": 4,
+  "false_acceptance_rate": 0.3333333333333333,
+  "false_refusal_count": 4,
+  "false_refusal_rate": 0.3333333333333333,
+  "languages": [
+    {
+      "false_acceptance_count": 4,
+      "false_acceptance_rate": 0.3333333333333333,
+      "false_refusal_count": 4,
+      "false_refusal_rate": 0.3333333333333333,
+      "label": "en",
+      "matched_count": 4,
+      "total_cases": 12
+    }
+  ],
+  "matched_cases": 4,
+  "observations": [
+    {
+      "case_id": "decomp-authorization-faithful-1",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "faithful",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-authorization-fa-1",
+      "false_acceptance": true,
+      "false_refusal": false,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "decomposition lowered to a divergent FormalClaim signature"
+      ]
+    },
+    {
+      "case_id": "decomp-authorization-fr-1",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "decomposition IR refused lowering: NLR-SEMANTIC-UNSUPPORTED"
+      ]
+    },
+    {
+      "case_id": "decomp-authorization-faithful-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "faithful",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-authorization-fa-2",
+      "false_acceptance": true,
+      "false_refusal": false,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "decomposition lowered to a divergent FormalClaim signature"
+      ]
+    },
+    {
+      "case_id": "decomp-authorization-fr-2",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "decomposition IR refused lowering: NLR-SEMANTIC-UNSUPPORTED"
+      ]
+    },
+    {
+      "case_id": "decomp-procurement-faithful-1",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "faithful",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-procurement-fa-1",
+      "false_acceptance": true,
+      "false_refusal": false,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "decomposition lowered to a divergent FormalClaim signature"
+      ]
+    },
+    {
+      "case_id": "decomp-procurement-fr-1",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "decomposition IR refused lowering: NLR-SEMANTIC-UNSUPPORTED"
+      ]
+    },
+    {
+      "case_id": "decomp-procurement-faithful-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "faithful",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-procurement-fa-2",
+      "false_acceptance": true,
+      "false_refusal": false,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "decomposition lowered to a divergent FormalClaim signature"
+      ]
+    },
+    {
+      "case_id": "decomp-procurement-fr-2",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "decomposition IR refused lowering: NLR-SEMANTIC-UNSUPPORTED"
+      ]
+    }
+  ],
+  "result": "failed",
+  "role": "decomposition",
+  "schema_version": "0.1",
+  "total_cases": 12,
+  "version": "0.1"
+}

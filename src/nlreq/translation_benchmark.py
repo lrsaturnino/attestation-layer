@@ -1,9 +1,14 @@
 from __future__ import annotations
 
 from pathlib import PurePosixPath
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+if TYPE_CHECKING:
+    # Imported only for type-checking to avoid a runtime cycle; the live drafter is passed in
+    # by the caller (the per-role factory, for calibration — scope §5 / ADR 0204 §4).
+    from .llm_client import LlmClient
 
 
 TRANSLATION_BENCHMARK_SCHEMA_VERSION = "0.1"
@@ -171,6 +176,42 @@ class TranslationLanguageMetrics(BaseModel):
     false_refusal_rate: float
 
 
+class CalibrationProvenance(BaseModel):
+    """Self-describing per-role / per-model calibration provenance (scope §5, ADR 0204 §4).
+
+    Stamped onto a ``RequirementTranslationBenchmarkReport`` when ``--llm-client`` calibrates a
+    role, so the false-acceptance / false-refusal tables are self-describing by role / client
+    kind / provider / resolved model / wrapper identity / prompt version — no reliance on
+    external filenames or prose (recommended action #2). All transport-specific fields are
+    optional so a partial provenance (e.g. anthropic with no wrapper) is honest rather than
+    fabricated; ``jsonutil.to_jsonable`` serializes with ``exclude_none=True``, so absent fields
+    are omitted and a non-calibration report (``calibration=None``) is byte-identical to before.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    # The role under calibration (drafting / impact / extraction — the LlmClient-protocol roles
+    # the translation corpus can drive). Required: a calibration report MUST state its role.
+    role: str
+    # The transport kind: anthropic | cli | recorded. Required.
+    client_kind: str
+    # The provider that answered (``anthropic`` for the SDK transport; the sidecar provider for
+    # cli). None for recorded.
+    provider: str | None = None
+    # The exact model id that answered — the sidecar-resolved id for cli (NEVER the tier), the
+    # configured/default model for anthropic. None for recorded.
+    resolved_model: str | None = None
+    # CLI-transport wrapper identity (ADR 0203). None for anthropic/recorded.
+    wrapper: str | None = None
+    wrapper_hash: str | None = None
+    route: str | None = None
+    cli_version: str | None = None
+    # The role's prompt-template version stamp (shared across transports, ADR 0203).
+    prompt_version: str | None = None
+    # The ladder rung that resolved (override / env / config-file / default).
+    transport_source: str | None = None
+
+
 class RequirementTranslationBenchmarkReport(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -195,6 +236,10 @@ class RequirementTranslationBenchmarkReport(BaseModel):
     domains: list[TranslationDomainMetrics] = Field(default_factory=list)
     # Per-language breakdown of both rates (PA-11). Single "en" entry for monolingual corpora.
     languages: list[TranslationLanguageMetrics] = Field(default_factory=list)
+    # Self-describing calibration provenance (scope §5, ADR 0204 §4). None for a plain
+    # --run (recorded replay) or a --results read — only set when --llm-client calibrates a
+    # role, so non-calibration reports are byte-identical to before (exclude_none).
+    calibration: CalibrationProvenance | None = None
     observations: list[RequirementTranslationObservation] = Field(default_factory=list)
 
 
@@ -226,10 +271,57 @@ class RequirementTranslationReleaseBarReport(BaseModel):
     covered_expected_outcomes: list[TranslationOutcome] = Field(default_factory=list)
 
 
+def _validate_translation_results_against_corpus(
+    corpus: RequirementTranslationCorpus,
+    results: RequirementTranslationResults,
+) -> None:
+    """Ensure exactly one scored result per corpus case (no missing/duplicate/extra).
+
+    Without this guard, ``build_translation_benchmark_report`` collapses results into a dict
+    keyed by ``case_id`` (duplicates overwrite earlier observations), silently omits missing
+    case ids, and ignores extra ids — so a truncated or duplicated results file would report
+    zeroed FA/FR rates while missing most cases (weak evidence hygiene for committed
+    calibration tables). Mirrors ``role_calibration._validate_results_against_corpus``. Raises
+    ``ValueError`` (surfaced by the CLI as exit 2 with ``nlreq:``) on any mismatch.
+    """
+    case_ids = [case.case_id for case in corpus.cases]
+    result_ids = [result.case_id for result in results.results]
+    seen: set[str] = set()
+    dupes: list[str] = []
+    for rid in result_ids:
+        if rid in seen:
+            dupes.append(rid)
+        seen.add(rid)
+    if dupes:
+        raise ValueError(
+            f"translation-benchmark results have duplicate case ids: {sorted(set(dupes))}; "
+            "exactly one observation per corpus case is required"
+        )
+    expected = set(case_ids)
+    actual = set(result_ids)
+    missing = sorted(expected - actual)
+    extra = sorted(actual - expected)
+    if missing or extra:
+        problems: list[str] = []
+        if missing:
+            problems.append(f"missing case ids {missing}")
+        if extra:
+            problems.append(f"extra case ids {extra} (not in corpus)")
+        raise ValueError(
+            f"translation-benchmark results do not match the corpus "
+            f"({len(case_ids)} corpus cases, {len(result_ids)} results): {'; '.join(problems)}; "
+            "exactly one observation per corpus case is required — supply a complete results "
+            "file or run --run (a truncated file must not report zeroed FA/FR rates)"
+        )
+
+
 def build_translation_benchmark_report(
     corpus: RequirementTranslationCorpus,
     results: RequirementTranslationResults,
+    *,
+    calibration: CalibrationProvenance | None = None,
 ) -> RequirementTranslationBenchmarkReport:
+    _validate_translation_results_against_corpus(corpus, results)
     result_by_id = {result.case_id: result for result in results.results}
     observations = [_observe(case, result_by_id.get(case.case_id)) for case in corpus.cases]
     corpus_results = [
@@ -267,6 +359,7 @@ def build_translation_benchmark_report(
         runtime_ms_total=runtime,
         domains=_domain_metrics(corpus, result_by_id),
         languages=_language_metrics(corpus, result_by_id),
+        calibration=calibration,
         observations=observations,
     )
 
@@ -507,6 +600,7 @@ def evaluate_translation_case(
     case: RequirementTranslationCase,
     *,
     intake_timestamp: str = _DEFAULT_INTAKE_TIMESTAMP,
+    client: LlmClient | None = None,
 ) -> RequirementTranslationCaseResult:
     from .formal_claim import formal_claim_signature
     from .intake import (
@@ -520,12 +614,21 @@ def evaluate_translation_case(
         translate_controlled_requirement_to_formal_claim,
     )
 
-    recorded = case.recorded_output()
     gold_signature = _gold_claim_signature(case)
 
+    # When a live client is supplied (per-role calibration, scope §5 / ADR 0204 §4), the drafter
+    # IS that client — the corpus measures ITS false-acceptance / false-refusal against the gold,
+    # routing through the per-role factory so the transport under calibration is the configured
+    # one. Without a client, the case's recorded output is replayed offline (CI-safe, byte-stable).
+    if client is not None:
+        drafter = client
+    else:
+        drafter = RecordedLlmClient(case.recorded_output())
+
     # Route through the PA-4 drafting path so the prose -> controlled inference is exercised
-    # exactly as production would, with the recorded model output replayed offline. The
-    # intake records the source language (PA-11) which steers the (here recorded) drafter.
+    # exactly as production would. The intake records the source language (PA-11) which steers
+    # the drafter. With no ``client`` the case's recorded output is replayed offline; with a
+    # ``client`` the live (factory-built) drafter is under calibration (scope §5).
     intake = create_free_form_intake(
         intake_id=f"intake-{case.case_id}",
         original_text=case.input_text,
@@ -534,7 +637,7 @@ def evaluate_translation_case(
     )
     proposal = draft_controlled_rewrite_with_llm(
         intake=intake,
-        client=RecordedLlmClient(recorded),
+        client=drafter,
         proposal_id=f"proposal-{case.case_id}",
         timestamp=intake_timestamp,
         model="recorded",
@@ -595,11 +698,19 @@ def run_translation_corpus(
     corpus: RequirementTranslationCorpus,
     *,
     intake_timestamp: str = _DEFAULT_INTAKE_TIMESTAMP,
+    client: LlmClient | None = None,
 ) -> RequirementTranslationResults:
-    """Run every corpus case through the offline front-half and collect scored results."""
+    """Run every corpus case through the offline front-half and collect scored results.
+
+    When ``client`` is supplied (per-role calibration, scope §5 / ADR 0204 §4), each case is
+    drafted by that client instead of its recorded output, so the corpus measures the client's
+    false-acceptance / false-refusal against the gold. Routing through a factory-built client is
+    what makes the per-role, per-model calibration executable across providers; the live FA/FR
+    run itself is operator-side (it needs the §6 sidecar + provider auth, neither CI-safe).
+    """
     return RequirementTranslationResults(
         results=[
-            evaluate_translation_case(case, intake_timestamp=intake_timestamp)
+            evaluate_translation_case(case, intake_timestamp=intake_timestamp, client=client)
             for case in corpus.cases
         ]
     )

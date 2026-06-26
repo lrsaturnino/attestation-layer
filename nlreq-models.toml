@@ -1,0 +1,139 @@
+# nlreq per-role model configuration — calibrated operating points (reference).
+#
+# This file is the committed record of the chosen per-role operating points (scope §5 /
+# ADR 0204). It is a REFERENCE config: nlreq loads it ONLY when invoked with
+# `--model-config nlreq-models.toml` or `NLREQ_MODEL_CONFIG=nlreq-models.toml` (there is no
+# auto-discovery — ADR 0202's no-silent-fallback invariant). With no role sections active
+# below, loading it reproduces the zero-config default (anthropic, pinned models) byte-for-byte,
+# which is the deliberately chosen operating point (see the calibration result below).
+#
+# ── Calibration result (2026-06-25, single-run snapshots, temperature=0) ──────────────
+# The translation benchmark corpus was run live against real model outputs on BOTH transports
+# through the per-role factory (`benchmark-translation --run --llm-client <scheme> --role drafting`):
+#   - Anthropic SDK transport (live:<model>) on the 66-case English corpus (corpus.json,
+#     2 domains × 33) AND the 63-case multilingual corpus (multilingual.corpus.json, 30 en + 33 pt —
+#     both meeting the §5 per-language >=30 floor), two candidate models each (haiku, sonnet);
+#   - Cross-provider CLI transport (cli:<wrapper>:tiny) on the 66-case English corpus via TWO
+#     DISTINCT §6-eligible operator wrappers — run-claude (anthropic) + run-gpt (openai) — now
+#     that the operator landed §6 for both (ADR 0204 §5).
+# Self-describing reports are committed under benchmarks/translation-corpus/calibration/.
+#
+# English corpus (en only) — Anthropic SDK transport:
+#   model                              | FA  | FR  | syntactic | semantic_match
+#   -----------------------------------+-----+-----+-----------+---------------
+#   claude-haiku-4-5-20251001          |  54 |   8 |   0.818   |   0.000
+#   claude-sonnet-4-5-20250929         |   0 |  60 |   0.000   |   0.000
+#   (recorded release corpus, control) |   0 |   0 |   1.000   |   1.000
+#
+# English corpus (en only) — Cross-provider CLI transport (two DISTINCT providers):
+#   wrapper     | provider  | resolved model   | FA  | FR  | semantic_match
+#   ------------+-----------+------------------+-----+-----+---------------
+#   run-claude  | anthropic | claude-haiku-4-5 |  12 |  48 |   0.000
+#   run-gpt     | openai    | gpt-5.4-mini     |  54 |   9 |   0.000
+#   (run-gpt's FA=54 reproduces the SDK-haiku re-expression failure in a SECOND provider family;
+#    run-claude's FR=48 surfaces a transport-divergence — the claude CLI --bare profile parses
+#    less readily than the SDK path for the same model family.)
+#
+# Multilingual corpus (Anthropic SDK, per-language, floor-satisfying): haiku — en FA=26/FR=4,
+#   pt FA=28/FR=2; sonnet — en FA=0/FR=30, pt FA=0/FR=30. (en=30, pt=33 — both meeting the §5
+#   per-language >=30 floor, no longer a below-floor spike. The cross-provider CLI calibration is
+#   English-only — the floor-satisfying corpus; a multilingual CLI run is optional future evidence.)
+#
+# Finding: under drafting-prompt v0.1 NO live model is a viable production drafter on ANY
+# transport or corpus. SDK haiku + CLI run-gpt re-express claims in divergent predicate
+# vocabulary (~82-86% false-acceptance — the signature-equality gate flags every re-expression
+# as a wrong claim; the failure is prompt-driven, now confirmed across two provider families);
+# SDK sonnet ignores the DSL v3 grammar (0% syntactic validity → ~91-100% false-refusal en+pt);
+# CLI run-claude shifts toward false-refusal (FA=12/FR=48). All configurations: 0% semantic
+# match. The release corpus stays recorded-only (the recorded path is the release-validated
+# one: 0 FA / 0 FR). The recorded control confirms the harness discriminates.
+#
+# Operating-point decision (ADR 0204 §4): live drafting is NOT released until a prompt
+# revision (format-eliciting, e.g. a concrete DSL v3 worked example) re-runs this calibration
+# (across BOTH transports) to a viable FA/FR budget. The shipped default transport stays
+# anthropic (ADR 0202); the release corpus remains recorded-only.
+#
+# ── Chosen operating points (the zero-config default — no sections active) ───────────
+# To keep loading this file byte-identical to the no-config default (acceptance #1), the
+# role sections below are commented out. The chosen operating point IS the default:
+#   drafting      = anthropic, claude-haiku-4-5-20251001   (pinned default; NOT release-validated live)
+#   decomposition = anthropic, claude-haiku-4-5-20251001   (pinned default)
+#   impact        = anthropic, claude-haiku-4-5-20251001   (pinned default)
+#   extraction    = anthropic, claude-haiku-4-5-20251001   (pinned default)
+#   audit         = anthropic, claude-haiku-4-5-20251001   (pinned default)
+#
+# ── Non-drafting role calibration (2026-06-25, recorded discriminator + 12-case live run) ─
+# The four non-drafting roles are calibrated by their OWN role-specific corpora + harness
+# (`benchmark-role --role <role> --corpus benchmarks/role-calibration/<role>.corpus.json`),
+# NOT the translation corpus (which exercises only the drafting front-half). Each corpus is a
+# DISCRIMINATOR corpus (12 cases, 2 domains x [2 faithful + 2 FA + 2 FR]); the recorded run
+# replays each case's planted output offline and is the non-vacuity proof the harness
+# discriminates (a constant-zero instrument would pass vacuously). Committed reports under
+# benchmarks/role-calibration/calibration/ (FA=4 / FR=4 / matched=4 / result=failed — the
+# EXPECTED non-zero signal):
+#
+# FLOOR-STATUS NOTE (iter 2, ADR 0204 §4.1): the scope §5 per-domain >=30 floor is met ONLY by
+# drafting (English 2x33 + multilingual 30 en/33 pt, above). The non-drafting corpora are 12-case
+# DISCRIMINATOR corpora — a non-vacuity proof, NOT a floor-sized FA/FR measurement. The 12-case
+# live run below is an EXPLICIT OWNER-PENDING DEVIATION from the §5 floor-sized standard, not a
+# fully-closed floor-sized calibration. Closing the non-drafting floor dimension is an operator
+# action: expand each role corpus to per-domain >=30 and re-run `benchmark-role --run --llm-client
+# cli:<wrapper>:tiny` across both providers.
+#   role          | corpus shape            | recorded discriminator FA / FR / matched
+#   --------------+-------------------------+-----------------------------------------
+#   decomposition | controlled -> IR -> sig  | 4 / 4 / 4   (FA=divergent sig; FR=IR refuses lowering)
+#   audit         | (controlled, IR) -> verdict | 4 / 4 / 4 (FA=missed fault; FR=false alarm)
+#   impact        | (prose, symbols) -> set | 4 / 4 / 4   (FA=over-claim; FR=under-claim)
+#   extraction    | (module, code) -> invs  | 4 / 4 / 4   (FA=invented; FR=missed)
+# The live FA/FR measurement is EXECUTED (iter 4, 2026-06-25): all four non-drafting roles were
+# run LIVE through the cross-provider CLI transport (`benchmark-role --run --llm-client
+# cli:<wrapper>:tiny`) against TWO DISTINCT §6-eligible operator wrappers — run-claude
+# (anthropic, claude-haiku-4-5) + run-gpt (openai, gpt-5.4-mini). 8 self-describing reports are
+# committed under benchmarks/role-calibration/live-calibration/ (single-run snapshots,
+# temperature=0; guarded by tests/test_role_calibration.py exact-count drift guards + the
+# cross-provider-per-role diversity guard). Per-(role, model) FA / FR / matched:
+#   role          | wrapper     | provider  | resolved model   | matched | FA  | FR
+#   --------------+-------------+-----------+------------------+---------+-----+-----
+#   decomposition | run-claude  | anthropic | claude-haiku-4-5 |      11 |   0 |   1
+#   decomposition | run-gpt     | openai    | gpt-5.4-mini     |      10 |   0 |   2
+#   impact        | run-claude  | anthropic | claude-haiku-4-5 |       4 |   1 |   8
+#   impact        | run-gpt     | openai    | gpt-5.4-mini     |       2 |   0 |  10
+#   extraction    | run-claude  | anthropic | claude-haiku-4-5 |       0 |  12 |  12
+#   extraction    | run-gpt     | openai    | gpt-5.4-mini     |       0 |  11 |  12
+#   audit         | run-claude  | anthropic | claude-haiku-4-5 |       4 |   0 |   8
+#   audit         | run-gpt     | openai    | gpt-5.4-mini     |       4 |   0 |   8
+# (The wrapper hashes — run-claude 5524a2ab..., run-gpt 0dd5aa27... — match the drafting CLI
+#  calibration + the committed ensemble artifact, so the evidence shares provenance. matched for
+#  the set-valued roles (impact/extraction) = exact set equality; FA and FR are not mutually
+#  exclusive there. result=failed is the expected non-viable signal under prompt v0.1.)
+#
+# Operating-point decision (ADR 0204 §4.1): no live non-drafting model is activated — every
+# role x provider exceeds the FA=0 / exact-match bar under prompt v0.1. decomposition is the
+# strongest role (run-claude 11/12 matched, FA=0) and the tracked first-releasable live role;
+# extraction is the weakest (0/12 on both providers) and needs the most prompt work. The
+# zero-config default (anthropic, pinned models) is the shipped operating point for all five
+# roles (the recorded path is the release-validated one). A prompt revision that produces a
+# viable operating point is re-run across both providers via `benchmark-role --run --llm-client
+# cli:<wrapper>:tiny` and appended here + activated in this file.
+#
+# ── Example: cross-provider cli operating point (§6 landed for run-claude + run-gpt) ───
+# The operator wrappers run-claude + run-gpt ARE §6-eligible (emit the sidecar + honor the
+# pure-completion profile under NLREQ_ATTESTATION=1, ADR 0204 §5); run-oss/run-oss-local/
+# run-gemini are attestation-ineligible (refuse upfront). A recommended cross-provider
+# decomposition ensemble + audit would be configured via env or a machine-level file (NOT
+# here — wrappers are operator-private, ADR 0202). Illustrative:
+#
+#   [decomposition]
+#   client = "cli"
+#   wrapper = "run-claude"
+#   tier = "lite"
+#   model_env = { CLAUDE_LITE_MODEL = "claude-haiku-4-5-20251001" }
+#
+#   [audit]
+#   client = "cli"
+#   wrapper = "run-gpt"
+#   tier = "lite"
+#
+# (Per-call cross-provider ensembles use the `cli:<wrapper>` scheme directly, e.g.
+#  `--ensemble-client cli:run-claude --ensemble-client cli:run-gpt`, which is the
+#  recommended two-provider decomposition operating point — ADR 0204 §1.)

@@ -755,6 +755,64 @@ def test_cli_semantic_translate_unknown_ensemble_spec_exits_2(tmp_path: Path) ->
     assert exit_code == 2, f"expected exit 2 for unknown spec, got {exit_code}"
 
 
+@pytest.mark.parametrize("bad_config", ["not = valid = toml =", "[drafting\nclient = 'anthropic'\n"])
+def test_cli_semantic_translate_bad_model_config_exits_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], bad_config: str
+) -> None:
+    """semantic-translate --model-config <bad file> is a structured refusal (exit 2, nlreq:).
+
+    Regression (iter 3, recommended action #3): the model config is loaded ONCE up front for both
+    the decomposition ensemble and the audit client. That load used to sit OUTSIDE any
+    ModelConfigError handler, so malformed/missing TOML fell through to the top-level
+    except (OSError, ValidationError, ValueError) -> exit 1 with the generic 'error:' prefix
+    and no 'nlreq:' provenance -- an inconsistent refusal surface for a configured LLM transport
+    (every other model-config path returns exit 2 with 'nlreq:'). It now refuses at exit 2 with
+    'nlreq:' and emits NO traceback/generic top-level error, matching the ensemble/audit
+    resolution path below it.
+    """
+    req_file = tmp_path / "req.nlreq"
+    req_file.write_text(_CONTROLLED_TEXT)
+    bad_path = tmp_path / "bad-models.toml"
+    bad_path.write_text(bad_config)
+
+    exit_code = main([
+        "semantic-translate", str(req_file),
+        "--requirement-id", _REQUIREMENT_ID,
+        "--title", _TITLE,
+        "--model-config", str(bad_path),
+    ])
+
+    assert exit_code == 2, f"expected exit 2 for bad model-config, got {exit_code}"
+    err = capsys.readouterr().err
+    assert "nlreq:" in err, f"expected structured `nlreq:` refusal, got: {err!r}"
+    assert "error:" not in err, f"must not use the generic top-level `error:` path: {err!r}"
+    assert "Traceback" not in err, f"must not leak a traceback: {err!r}"
+
+
+def test_cli_semantic_translate_missing_model_config_exits_2(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A missing --model-config path is the same structured refusal (exit 2, nlreq:), not the
+    generic exit-1 path -- the load_model_config refusal is consistent whether the file is
+    malformed or absent."""
+    req_file = tmp_path / "req.nlreq"
+    req_file.write_text(_CONTROLLED_TEXT)
+    missing = tmp_path / "does-not-exist.toml"
+
+    exit_code = main([
+        "semantic-translate", str(req_file),
+        "--requirement-id", _REQUIREMENT_ID,
+        "--title", _TITLE,
+        "--model-config", str(missing),
+    ])
+
+    assert exit_code == 2
+    err = capsys.readouterr().err
+    assert "nlreq:" in err
+    assert "error:" not in err
+    assert "Traceback" not in err
+
+
 def test_recorded_decomposition_client_preserves_fixture_provenance() -> None:
     """RecordedDecompositionClient must merge fixture_provenance into the result provenance.
 

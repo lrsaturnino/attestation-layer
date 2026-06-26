@@ -1,0 +1,158 @@
+{
+  "corpus_id": "impact-calibration",
+  "domains": [
+    {
+      "false_acceptance_count": 2,
+      "false_acceptance_rate": 0.3333333333333333,
+      "false_refusal_count": 2,
+      "false_refusal_rate": 0.3333333333333333,
+      "label": "payments",
+      "matched_count": 2,
+      "total_cases": 6
+    },
+    {
+      "false_acceptance_count": 2,
+      "false_acceptance_rate": 0.3333333333333333,
+      "false_refusal_count": 2,
+      "false_refusal_rate": 0.3333333333333333,
+      "label": "inventory",
+      "matched_count": 2,
+      "total_cases": 6
+    }
+  ],
+  "false_acceptance_count": 4,
+  "false_acceptance_rate": 0.3333333333333333,
+  "false_refusal_count": 4,
+  "false_refusal_rate": 0.3333333333333333,
+  "languages": [
+    {
+      "false_acceptance_count": 4,
+      "false_acceptance_rate": 0.3333333333333333,
+      "false_refusal_count": 4,
+      "false_refusal_rate": 0.3333333333333333,
+      "label": "en",
+      "matched_count": 4,
+      "total_cases": 12
+    }
+  ],
+  "matched_cases": 4,
+  "observations": [
+    {
+      "case_id": "impact-payments-faithful-1",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "faithful",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "impact-payments-fa-1",
+      "false_acceptance": true,
+      "false_refusal": false,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "over-claimed modules: ['notify']"
+      ]
+    },
+    {
+      "case_id": "impact-payments-fr-1",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "missed modules: ['ledger']"
+      ]
+    },
+    {
+      "case_id": "impact-payments-faithful-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "faithful",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "impact-payments-fa-2",
+      "false_acceptance": true,
+      "false_refusal": false,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "over-claimed modules: ['notify']"
+      ]
+    },
+    {
+      "case_id": "impact-payments-fr-2",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "missed modules: ['ledger']"
+      ]
+    },
+    {
+      "case_id": "impact-inventory-faithful-1",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "faithful",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "impact-inventory-fa-1",
+      "false_acceptance": true,
+      "false_refusal": false,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "over-claimed modules: ['notify']"
+      ]
+    },
+    {
+      "case_id": "impact-inventory-fr-1",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "missed modules: ['warehouse']"
+      ]
+    },
+    {
+      "case_id": "impact-inventory-faithful-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "faithful",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "impact-inventory-fa-2",
+      "false_acceptance": true,
+      "false_refusal": false,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "over-claimed modules: ['notify']"
+      ]
+    },
+    {
+      "case_id": "impact-inventory-fr-2",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "missed modules: ['warehouse']"
+      ]
+    }
+  ],
+  "result": "failed",
+  "role": "impact",
+  "schema_version": "0.1",
+  "total_cases": 12,
+  "version": "0.1"
+}

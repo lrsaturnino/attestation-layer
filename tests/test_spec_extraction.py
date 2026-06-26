@@ -1,3 +1,7 @@
+import hashlib
+import json
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -186,3 +190,124 @@ def _trace_replay() -> TraceReplayReport:
         result="passed",
         observations=[],
     )
+
+
+# ---------------------------------------------------------------------------
+# Provenance-integrity guard (BLOCKING fix): --llm-client must never be recorded
+# as answering a call it never made. A generic-language spec-extract has no Specula
+# extractor, so the LLM client is never called — the command refuses rather than
+# stamp un-backed client_kind/wrapper provenance onto the placeholder candidate.
+# ---------------------------------------------------------------------------
+
+
+def _echo_wrapper(tmp_path: Path) -> Path:
+    """A minimal offline echo wrapper that writes a valid sidecar (never invoked here)."""
+    script = tmp_path / "echo-extract"
+    script.write_text(
+        (
+            '#!/usr/bin/env python3\n'
+            'import hashlib, json, sys\n'
+            'out = sys.argv[2]\n'
+            'open(out, "w").write("{}")\n'
+            'own_hash = hashlib.sha256(open(sys.argv[0], "rb").read()).hexdigest()\n'
+            'json.dump({"resolved_model": "echo-snap", "route": "official", "tools_active": False, '
+            '"provider": "echo", "wrapper": "echo", "wrapper_hash": own_hash, "cli_version": "1", "duration_s": 0.01}, '
+            'open(out + ".meta.json", "w"))\n'
+        ),
+        encoding="utf-8",
+    )
+    os.chmod(script, os.stat(script).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return script
+
+
+def test_spec_extract_cli_llm_client_generic_language_refuses(tmp_path: Path, capsys) -> None:
+    """A generic-language (python) spec-extract has no Specula extractor, so ``--llm-client``
+    can drive no LLM call. The command refuses (exit 2) rather than stamp ``client_kind=cli``
+    provenance onto the ``CandidateInvariant == TRUE`` placeholder — an attestation client must
+    never be recorded as answering a call it never made (BLOCKING fix)."""
+    wrapper = _echo_wrapper(tmp_path)
+    ir_path = tmp_path / "requirement.ir.json"
+    impact_path = tmp_path / "impact.json"
+    registry_path = tmp_path / "registry.json"
+    out = tmp_path / "spec-extraction.json"
+    ir_path.write_text(_ir().model_dump_json())
+    impact_path.write_text(_impact().model_dump_json())
+    registry_path.write_text(_registry([]).model_dump_json())
+
+    exit_code = main(
+        [
+            "spec-extract",
+            "--requirement-ir", str(ir_path),
+            "--impact", str(impact_path),
+            "--registry", str(registry_path),
+            "--llm-client", f"cli:{wrapper}",
+            "--out", str(out),
+        ]
+    )
+
+    assert exit_code == 2
+    assert "no LLM extraction call ran" in capsys.readouterr().err
+    # No report is written on a refusal (a config error, not a result).
+    assert not out.exists()
+
+
+def test_spec_extract_live_llm_client_generic_language_refuses(tmp_path: Path) -> None:
+    """The same provenance-integrity guard covers the anthropic ``live:`` transport: a generic-
+    language spec-extract never calls the LLM, so ``--llm-client live:<model>`` must refuse
+    rather than stamp ``client_kind=anthropic`` onto a placeholder the SDK never produced.
+
+    Construction of ``AnthropicLlmClient`` makes no API call and imports no SDK, so this is
+    CI-safe — the refusal fires before any call path is reached.
+    """
+    ir_path = tmp_path / "requirement.ir.json"
+    impact_path = tmp_path / "impact.json"
+    registry_path = tmp_path / "registry.json"
+    out = tmp_path / "spec-extraction.json"
+    ir_path.write_text(_ir().model_dump_json())
+    impact_path.write_text(_impact().model_dump_json())
+    registry_path.write_text(_registry([]).model_dump_json())
+
+    exit_code = main(
+        [
+            "spec-extract",
+            "--requirement-ir", str(ir_path),
+            "--impact", str(impact_path),
+            "--registry", str(registry_path),
+            "--llm-client", "live:claude-haiku-4-5-20251001",
+            "--out", str(out),
+        ]
+    )
+
+    assert exit_code == 2
+    assert not out.exists()
+
+
+def test_spec_extract_no_llm_client_is_byte_identical_to_before(tmp_path: Path, capsys) -> None:
+    """Without ``--llm-client`` the generic spec-extract is unchanged: a placeholder candidate
+    with NO per-role LLM provenance (byte-stability / acceptance #1). The guard only engages
+    when an attestation client was explicitly selected."""
+    ir_path = tmp_path / "requirement.ir.json"
+    impact_path = tmp_path / "impact.json"
+    registry_path = tmp_path / "registry.json"
+    out = tmp_path / "spec-extraction.json"
+    ir_path.write_text(_ir().model_dump_json())
+    impact_path.write_text(_impact().model_dump_json())
+    registry_path.write_text(_registry([]).model_dump_json())
+
+    exit_code = main(
+        [
+            "spec-extract",
+            "--requirement-ir", str(ir_path),
+            "--impact", str(impact_path),
+            "--registry", str(registry_path),
+            "--out", str(out),
+        ]
+    )
+
+    assert exit_code == 0
+    md = read_json(out)["candidates"][0]["provenance"]["metadata"]
+    # No per-role LLM provenance keys leak onto a non-LLM-produced candidate.
+    assert "client_kind" not in md
+    assert "wrapper" not in md
+    assert "resolved_model" not in md
+    assert "prompt_version" not in md

@@ -1,0 +1,291 @@
+{
+  "cases": [
+    {
+      "case_id": "audit-authorization-faithful-1",
+      "controlled_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is not authorized\nthen withdraw must reject before settled\n",
+      "domain": "authorization",
+      "fault_kind": "faithful",
+      "gold_verdict": "passed",
+      "ir_summary": "faithful IR summary",
+      "language": "en",
+      "recorded_verdict": {
+        "audit_prompt_version": "0.1",
+        "cli_version": null,
+        "client_kind": null,
+        "covers_all_clauses": true,
+        "invented_premises": [],
+        "model_id": null,
+        "provider": null,
+        "route": null,
+        "verdict": "passed",
+        "wrapper": null,
+        "wrapper_hash": null
+      },
+      "title": "authorization faithful 1"
+    },
+    {
+      "case_id": "audit-authorization-fa-1",
+      "controlled_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is not authorized\nthen withdraw must reject before settled\n",
+      "domain": "authorization",
+      "fault_kind": "false_acceptance",
+      "gold_verdict": "failed",
+      "ir_summary": "IR with an invented premise",
+      "language": "en",
+      "recorded_verdict": {
+        "audit_prompt_version": "0.1",
+        "cli_version": null,
+        "client_kind": null,
+        "covers_all_clauses": true,
+        "invented_premises": [],
+        "model_id": null,
+        "provider": null,
+        "route": null,
+        "verdict": "passed",
+        "wrapper": null,
+        "wrapper_hash": null
+      },
+      "title": "authorization missed-fault 1"
+    },
+    {
+      "case_id": "audit-authorization-fr-1",
+      "controlled_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is not authorized\nthen withdraw must reject before settled\n",
+      "domain": "authorization",
+      "fault_kind": "false_refusal",
+      "gold_verdict": "passed",
+      "ir_summary": "faithful IR summary",
+      "language": "en",
+      "recorded_verdict": {
+        "audit_prompt_version": "0.1",
+        "cli_version": null,
+        "client_kind": null,
+        "covers_all_clauses": false,
+        "invented_premises": [
+          "invented-premise-not-in-text"
+        ],
+        "model_id": null,
+        "provider": null,
+        "route": null,
+        "verdict": "failed",
+        "wrapper": null,
+        "wrapper_hash": null
+      },
+      "title": "authorization false-alarm 1"
+    },
+    {
+      "case_id": "audit-authorization-faithful-2",
+      "controlled_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is not authorized\nthen withdraw must reject before settled\n",
+      "domain": "authorization",
+      "fault_kind": "faithful",
+      "gold_verdict": "passed",
+      "ir_summary": "faithful IR summary",
+      "language": "en",
+      "recorded_verdict": {
+        "audit_prompt_version": "0.1",
+        "cli_version": null,
+        "client_kind": null,
+        "covers_all_clauses": true,
+        "invented_premises": [],
+        "model_id": null,
+        "provider": null,
+        "route": null,
+        "verdict": "passed",
+        "wrapper": null,
+        "wrapper_hash": null
+      },
+      "title": "authorization faithful 2"
+    },
+    {
+      "case_id": "audit-authorization-fa-2",
+      "controlled_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is not authorized\nthen withdraw must reject before settled\n",
+      "domain": "authorization",
+      "fault_kind": "false_acceptance",
+      "gold_verdict": "failed",
+      "ir_summary": "IR with an invented premise",
+      "language": "en",
+      "recorded_verdict": {
+        "audit_prompt_version": "0.1",
+        "cli_version": null,
+        "client_kind": null,
+        "covers_all_clauses": true,
+        "invented_premises": [],
+        "model_id": null,
+        "provider": null,
+        "route": null,
+        "verdict": "passed",
+        "wrapper": null,
+        "wrapper_hash": null
+      },
+      "title": "authorization missed-fault 2"
+    },
+    {
+      "case_id": "audit-authorization-fr-2",
+      "controlled_text": "requirement authorization_precondition:\nscope withdrawal\nwhen account is not authorized\nthen withdraw must reject before settled\n",
+      "domain": "authorization",
+      "fault_kind": "false_refusal",
+      "gold_verdict": "passed",
+      "ir_summary": "faithful IR summary",
+      "language": "en",
+      "recorded_verdict": {
+        "audit_prompt_version": "0.1",
+        "cli_version": null,
+        "client_kind": null,
+        "covers_all_clauses": false,
+        "invented_premises": [
+          "invented-premise-not-in-text"
+        ],
+        "model_id": null,
+        "provider": null,
+        "route": null,
+        "verdict": "failed",
+        "wrapper": null,
+        "wrapper_hash": null
+      },
+      "title": "authorization false-alarm 2"
+    },
+    {
+      "case_id": "audit-procurement-faithful-1",
+      "controlled_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is not authorized\nthen place_order must reject before ordered\n",
+      "domain": "procurement",
+      "fault_kind": "faithful",
+      "gold_verdict": "passed",
+      "ir_summary": "faithful IR summary",
+      "language": "en",
+      "recorded_verdict": {
+        "audit_prompt_version": "0.1",
+        "cli_version": null,
+        "client_kind": null,
+        "covers_all_clauses": true,
+        "invented_premises": [],
+        "model_id": null,
+        "provider": null,
+        "route": null,
+        "verdict": "passed",
+        "wrapper": null,
+        "wrapper_hash": null
+      },
+      "title": "procurement faithful 1"
+    },
+    {
+      "case_id": "audit-procurement-fa-1",
+      "controlled_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is not authorized\nthen place_order must reject before ordered\n",
+      "domain": "procurement",
+      "fault_kind": "false_acceptance",
+      "gold_verdict": "failed",
+      "ir_summary": "IR with an invented premise",
+      "language": "en",
+      "recorded_verdict": {
+        "audit_prompt_version": "0.1",
+        "cli_version": null,
+        "client_kind": null,
+        "covers_all_clauses": true,
+        "invented_premises": [],
+        "model_id": null,
+        "provider": null,
+        "route": null,
+        "verdict": "passed",
+        "wrapper": null,
+        "wrapper_hash": null
+      },
+      "title": "procurement missed-fault 1"
+    },
+    {
+      "case_id": "audit-procurement-fr-1",
+      "controlled_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is not authorized\nthen place_order must reject before ordered\n",
+      "domain": "procurement",
+      "fault_kind": "false_refusal",
+      "gold_verdict": "passed",
+      "ir_summary": "faithful IR summary",
+      "language": "en",
+      "recorded_verdict": {
+        "audit_prompt_version": "0.1",
+        "cli_version": null,
+        "client_kind": null,
+        "covers_all_clauses": false,
+        "invented_premises": [
+          "invented-premise-not-in-text"
+        ],
+        "model_id": null,
+        "provider": null,
+        "route": null,
+        "verdict": "failed",
+        "wrapper": null,
+        "wrapper_hash": null
+      },
+      "title": "procurement false-alarm 1"
+    },
+    {
+      "case_id": "audit-procurement-faithful-2",
+      "controlled_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is not authorized\nthen place_order must reject before ordered\n",
+      "domain": "procurement",
+      "fault_kind": "faithful",
+      "gold_verdict": "passed",
+      "ir_summary": "faithful IR summary",
+      "language": "en",
+      "recorded_verdict": {
+        "audit_prompt_version": "0.1",
+        "cli_version": null,
+        "client_kind": null,
+        "covers_all_clauses": true,
+        "invented_premises": [],
+        "model_id": null,
+        "provider": null,
+        "route": null,
+        "verdict": "passed",
+        "wrapper": null,
+        "wrapper_hash": null
+      },
+      "title": "procurement faithful 2"
+    },
+    {
+      "case_id": "audit-procurement-fa-2",
+      "controlled_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is not authorized\nthen place_order must reject before ordered\n",
+      "domain": "procurement",
+      "fault_kind": "false_acceptance",
+      "gold_verdict": "failed",
+      "ir_summary": "IR with an invented premise",
+      "language": "en",
+      "recorded_verdict": {
+        "audit_prompt_version": "0.1",
+        "cli_version": null,
+        "client_kind": null,
+        "covers_all_clauses": true,
+        "invented_premises": [],
+        "model_id": null,
+        "provider": null,
+        "route": null,
+        "verdict": "passed",
+        "wrapper": null,
+        "wrapper_hash": null
+      },
+      "title": "procurement missed-fault 2"
+    },
+    {
+      "case_id": "audit-procurement-fr-2",
+      "controlled_text": "requirement authorization_precondition:\nscope purchase_order\nwhen buyer is not authorized\nthen place_order must reject before ordered\n",
+      "domain": "procurement",
+      "fault_kind": "false_refusal",
+      "gold_verdict": "passed",
+      "ir_summary": "faithful IR summary",
+      "language": "en",
+      "recorded_verdict": {
+        "audit_prompt_version": "0.1",
+        "cli_version": null,
+        "client_kind": null,
+        "covers_all_clauses": false,
+        "invented_premises": [
+          "invented-premise-not-in-text"
+        ],
+        "model_id": null,
+        "provider": null,
+        "route": null,
+        "verdict": "failed",
+        "wrapper": null,
+        "wrapper_hash": null
+      },
+      "title": "procurement false-alarm 2"
+    }
+  ],
+  "corpus_id": "audit-calibration",
+  "schema_version": "0.1",
+  "version": "0.1"
+}

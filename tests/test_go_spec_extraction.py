@@ -7,7 +7,10 @@ operation the code never runs) is rejected. The gate-logic tests run fully offli
 constructed real-shaped trace; one end-to-end test extracts the trace from a real Go execution.
 """
 
+import hashlib
 import json
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -15,7 +18,7 @@ import pytest
 from nlreq import go_client
 from nlreq.dsl_v2 import DslV2Parser
 from nlreq.impact import ImpactAnalysisArtifact
-from nlreq.llm_client import RecordedLlmClient
+from nlreq.llm_client import RecordedLlmClient, _EXTRACTION_PROMPT_VERSION
 from nlreq.models import (
     NormalizedTrace,
     NormalizedTraceArtifact,
@@ -482,6 +485,285 @@ def test_specula_extract_cli_blocks_paper_only_go_candidate(tmp_path: Path, caps
 
     assert exit_code == 1
     assert read_json(paths["out.json"])["result"] == "blocked"
+
+
+def _cli_extraction_echo_wrapper(
+    tmp_path: Path,
+    *,
+    output_text: str,
+    model: str = "extract-model-snap",
+    wrapper_name: str = "run-extract",
+) -> Path:
+    """A minimal offline echo wrapper for the cli extraction transport.
+
+    Writes the given spec-extraction proposal JSON to the output file plus a COMPLETE valid
+    sidecar (all provenance-critical fields), so ``CliLlmClient`` accepts the call. The
+    ``wrapper_hash`` is the script's OWN SHA-256 (computed at run time, matching the real
+    operator wrappers' ``_script_sha256``), so nlreq's always-on executable-hash verification
+    passes (iter-2).
+    """
+    script = tmp_path / "echo-extract"
+    script.write_text(
+        (
+            '#!/usr/bin/env python3\n'
+            'import hashlib, json, sys\n'
+            'out = sys.argv[2]\n'
+            'open(out, "w").write(%r)\n'
+            'own_hash = hashlib.sha256(open(sys.argv[0], "rb").read()).hexdigest()\n'
+            'json.dump({"resolved_model": %r, "route": "official", "tools_active": False, '
+            '"provider": "echo", "wrapper": %r, "wrapper_hash": own_hash, "cli_version": "echo-1.0", "duration_s": 0.01}, '
+            'open(out + ".meta.json", "w"))\n'
+        ) % (output_text, model, wrapper_name),
+        encoding="utf-8",
+    )
+    os.chmod(script, os.stat(script).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return script
+
+
+def test_specula_extract_cli_llm_client_stamps_sidecar_provenance(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """Work Item 3 / #7: ``--llm-client cli:<wrapper>`` drives Go extraction through the cli
+    transport and stamps the sidecar-resolved model / provider / route / wrapper / wrapper_hash /
+    prompt_version into the candidate metadata, while preserving the original extraction metadata.
+
+    The echo wrapper returns the same recorded proposal ``--spec-fixture`` would, so the candidate
+    is identical EXCEPT for the overlaid per-role cli provenance — proving the extraction command
+    accepts ``--llm-client cli:...`` and records the same provenance (acceptance #4).
+    """
+    for role in ("DRAFTING", "DECOMPOSITION", "IMPACT", "EXTRACTION", "AUDIT"):
+        for sfx in ("CLIENT", "MODEL", "WRAPPER", "TIER", "FIXTURE", "MODEL_ENV", "TIMEOUT_S"):
+            monkeypatch.delenv(f"NLREQ_{role}_{sfx}", raising=False)
+    monkeypatch.delenv("NLREQ_MODEL_CONFIG", raising=False)
+
+    wrapper = _cli_extraction_echo_wrapper(tmp_path, output_text=_REAL_EXTRACTION)
+    paths = {name: tmp_path / name for name in ("ir.json", "impact.json", "registry.json", "pres.json", "traces.json", "out.json")}
+    paths["ir.json"].write_text(_requirement().model_dump_json())
+    paths["impact.json"].write_text(_impact().model_dump_json())
+    paths["registry.json"].write_text(_empty_registry().model_dump_json())
+    paths["pres.json"].write_text(_presentation().model_dump_json())
+    paths["traces.json"].write_text(_go_traces().model_dump_json())
+
+    exit_code = main(
+        [
+            "specula-extract",
+            "--requirement-ir", str(paths["ir.json"]),
+            "--impact", str(paths["impact.json"]),
+            "--registry", str(paths["registry.json"]),
+            "--code-presentation", str(paths["pres.json"]),
+            "--traces", str(paths["traces.json"]),
+            "--llm-client", f"cli:{wrapper}",
+            "--out", str(paths["out.json"]),
+        ]
+    )
+    assert exit_code == 0
+    report = read_json(paths["out.json"])
+    assert report["result"] == "candidates"
+    md = report["candidates"][0]["provenance"]["metadata"]
+    # Original extraction metadata is preserved.
+    assert md["module_id"] == "coordinator"
+    assert md["extraction"] == "specula_go"
+    # Per-role cli provenance is stamped (acceptance #4 / #7).
+    assert md["client_kind"] == "cli"
+    assert md["resolved_model"] == "extract-model-snap"  # sidecar id, not a tier
+    assert md["provider"] == "echo"
+    assert md["route"] == "official"
+    assert md["wrapper"] == "run-extract"
+    assert md["wrapper_hash"] == hashlib.sha256(wrapper.read_bytes()).hexdigest()
+    assert md["prompt_version"] == _EXTRACTION_PROMPT_VERSION
+    assert "tier" not in md
+
+
+def test_spec_extract_cli_llm_client_drives_go_extraction(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """``spec-extract --llm-client cli:<wrapper>`` is a REAL runnable LLM extraction path (iter-3
+    BLOCKING fix): with a Go impact + real traces + code presentation, the workbench drives the Go
+    Specula extractor through the cli transport, producing a trace-grounded candidate whose
+    ``llm_draft_used`` is True and whose metadata carries the sidecar-resolved per-role provenance
+    (acceptance #4 — satisfied by ``spec-extract``, not only ``specula-extract``).
+
+    Previously ``spec-extract`` exposed ``--llm-client`` but had no ``--traces`` argument and never
+    passed traces into ``build_spec_extraction_workbench_report``, so the extractor's
+    ``traces is not None`` gate was always False and no LLM call could ever run — the command could
+    only refuse. This test pins the fix: ``--traces`` is wired through and an LLM call runs."""
+    for role in ("DRAFTING", "DECOMPOSITION", "IMPACT", "EXTRACTION", "AUDIT"):
+        for sfx in ("CLIENT", "MODEL", "WRAPPER", "TIER", "FIXTURE", "MODEL_ENV", "TIMEOUT_S"):
+            monkeypatch.delenv(f"NLREQ_{role}_{sfx}", raising=False)
+    monkeypatch.delenv("NLREQ_MODEL_CONFIG", raising=False)
+
+    wrapper = _cli_extraction_echo_wrapper(tmp_path, output_text=_REAL_EXTRACTION)
+    paths = {name: tmp_path / name for name in ("ir.json", "impact.json", "registry.json", "pres.json", "traces.json", "out.json")}
+    paths["ir.json"].write_text(_requirement().model_dump_json())
+    paths["impact.json"].write_text(_impact().model_dump_json())
+    paths["registry.json"].write_text(_empty_registry().model_dump_json())
+    paths["pres.json"].write_text(_presentation().model_dump_json())
+    paths["traces.json"].write_text(_go_traces().model_dump_json())
+
+    exit_code = main(
+        [
+            "spec-extract",
+            "--requirement-ir", str(paths["ir.json"]),
+            "--impact", str(paths["impact.json"]),
+            "--registry", str(paths["registry.json"]),
+            "--code-presentation", str(paths["pres.json"]),
+            "--traces", str(paths["traces.json"]),
+            "--llm-client", f"cli:{wrapper}",
+            "--out", str(paths["out.json"]),
+        ]
+    )
+    assert exit_code == 0
+    assert "Spec extraction workbench report:" in capsys.readouterr().out
+    report = read_json(paths["out.json"])
+    assert report["result"] == "candidates"
+    cand = report["candidates"][0]
+    # The candidate was produced by a REAL LLM extraction call (the honest signal).
+    assert cand["provenance"]["llm_draft_used"] is True
+    assert "== TRUE" not in cand["content"]
+    assert "ValidateBeforeRecord" in cand["content"]
+    md = cand["provenance"]["metadata"]
+    # Original extraction metadata is preserved.
+    assert md["module_id"] == "coordinator"
+    assert md["extraction"] == "specula_go"
+    # Per-role cli provenance is stamped (acceptance #4 / #7).
+    assert md["client_kind"] == "cli"
+    assert md["resolved_model"] == "extract-model-snap"  # sidecar id, not a tier
+    assert md["provider"] == "echo"
+    assert md["route"] == "official"
+    assert md["wrapper"] == "run-extract"
+    assert md["wrapper_hash"] == hashlib.sha256(wrapper.read_bytes()).hexdigest()
+    assert md["prompt_version"] == _EXTRACTION_PROMPT_VERSION
+    assert "tier" not in md
+
+
+def test_specula_extract_cli_llm_client_go_missing_inputs_refuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """A Go specula-extract WITHOUT ``--traces`` cannot run the Specula extractor, so
+    ``--llm-client cli:<wrapper>`` drives no LLM call. The command refuses (exit 2) rather
+    than stamp ``client_kind=cli`` provenance onto the missing-input block — an attestation
+    client must never be recorded as answering a call it never made (BLOCKING fix).
+
+    The echo wrapper is available and valid, proving the refusal is the provenance-integrity
+    guard (no LLM call ran), not a wrapper-resolution failure: the wrapper is never invoked.
+    """
+    for role in ("DRAFTING", "DECOMPOSITION", "IMPACT", "EXTRACTION", "AUDIT"):
+        for sfx in ("CLIENT", "MODEL", "WRAPPER", "TIER", "FIXTURE", "MODEL_ENV", "TIMEOUT_S"):
+            monkeypatch.delenv(f"NLREQ_{role}_{sfx}", raising=False)
+    monkeypatch.delenv("NLREQ_MODEL_CONFIG", raising=False)
+
+    wrapper = _cli_extraction_echo_wrapper(tmp_path, output_text=_REAL_EXTRACTION)
+    paths = {name: tmp_path / name for name in ("ir.json", "impact.json", "registry.json", "pres.json", "out.json")}
+    paths["ir.json"].write_text(_requirement().model_dump_json())
+    paths["impact.json"].write_text(_impact().model_dump_json())
+    paths["registry.json"].write_text(_empty_registry().model_dump_json())
+    paths["pres.json"].write_text(_presentation().model_dump_json())
+    # traces intentionally omitted — extraction cannot run.
+
+    exit_code = main(
+        [
+            "specula-extract",
+            "--requirement-ir", str(paths["ir.json"]),
+            "--impact", str(paths["impact.json"]),
+            "--registry", str(paths["registry.json"]),
+            "--code-presentation", str(paths["pres.json"]),
+            "--llm-client", f"cli:{wrapper}",
+            "--out", str(paths["out.json"]),
+        ]
+    )
+
+    assert exit_code == 2
+    assert "no LLM extraction call ran" in capsys.readouterr().err
+    assert not paths["out.json"].exists()
+
+
+# The well-known per-role LLM provenance key set carried in CandidateSpecProvenance.metadata
+# (ADR 0205). The contract is this key SET, asserted here rather than by schema closure: the
+# generic metadata slot (additionalProperties: string) is the intended carrier, so the keys are
+# present on the cli path and absent when no attestation client was selected (byte-stability).
+_LLM_ROLE_PROVENANCE_KEYS = frozenset({
+    "client_kind", "prompt_version", "resolved_model", "wrapper",
+    "provider", "route", "wrapper_hash", "cli_version",
+})
+
+
+def test_specula_extract_cli_llm_client_stamps_full_well_known_key_set(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR 0205 contract: a cli-driven Go extraction stamps the FULL well-known per-role LLM
+    provenance key set into the candidate metadata (client_kind / prompt_version /
+    resolved_model / wrapper / provider / route / wrapper_hash / cli_version), with
+    resolved_model the sidecar id — never the tier."""
+    for role in ("DRAFTING", "DECOMPOSITION", "IMPACT", "EXTRACTION", "AUDIT"):
+        for sfx in ("CLIENT", "MODEL", "WRAPPER", "TIER", "FIXTURE", "MODEL_ENV", "TIMEOUT_S"):
+            monkeypatch.delenv(f"NLREQ_{role}_{sfx}", raising=False)
+    monkeypatch.delenv("NLREQ_MODEL_CONFIG", raising=False)
+
+    wrapper = _cli_extraction_echo_wrapper(tmp_path, output_text=_REAL_EXTRACTION)
+    paths = {name: tmp_path / name for name in ("ir.json", "impact.json", "registry.json", "pres.json", "traces.json", "out.json")}
+    paths["ir.json"].write_text(_requirement().model_dump_json())
+    paths["impact.json"].write_text(_impact().model_dump_json())
+    paths["registry.json"].write_text(_empty_registry().model_dump_json())
+    paths["pres.json"].write_text(_presentation().model_dump_json())
+    paths["traces.json"].write_text(_go_traces().model_dump_json())
+
+    exit_code = main(
+        [
+            "specula-extract",
+            "--requirement-ir", str(paths["ir.json"]),
+            "--impact", str(paths["impact.json"]),
+            "--registry", str(paths["registry.json"]),
+            "--code-presentation", str(paths["pres.json"]),
+            "--traces", str(paths["traces.json"]),
+            "--llm-client", f"cli:{wrapper}",
+            "--out", str(paths["out.json"]),
+        ]
+    )
+    assert exit_code == 0
+    md = read_json(paths["out.json"])["candidates"][0]["provenance"]["metadata"]
+    # The full well-known per-role LLM provenance key set is present.
+    assert _LLM_ROLE_PROVENANCE_KEYS <= set(md), md
+    assert md["client_kind"] == "cli"
+    assert md["resolved_model"] == "extract-model-snap"  # sidecar id, not a tier
+    assert "tier" not in md
+
+
+def test_specula_extract_without_llm_client_has_no_role_provenance_keys(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """ADR 0205 contract / byte-stability: without ``--llm-client`` the recorded-fixture Go
+    extraction carries NONE of the well-known per-role LLM provenance keys — the generic
+    metadata slot holds only the extraction's own keys (module_id / extraction). An attestation
+    client is never recorded when none was selected."""
+    for role in ("DRAFTING", "DECOMPOSITION", "IMPACT", "EXTRACTION", "AUDIT"):
+        for sfx in ("CLIENT", "MODEL", "WRAPPER", "TIER", "FIXTURE", "MODEL_ENV", "TIMEOUT_S"):
+            monkeypatch.delenv(f"NLREQ_{role}_{sfx}", raising=False)
+    monkeypatch.delenv("NLREQ_MODEL_CONFIG", raising=False)
+
+    paths = {name: tmp_path / name for name in ("ir.json", "impact.json", "registry.json", "pres.json", "traces.json", "fixture.json", "out.json")}
+    paths["ir.json"].write_text(_requirement().model_dump_json())
+    paths["impact.json"].write_text(_impact().model_dump_json())
+    paths["registry.json"].write_text(_empty_registry().model_dump_json())
+    paths["pres.json"].write_text(_presentation().model_dump_json())
+    paths["traces.json"].write_text(_go_traces().model_dump_json())
+    paths["fixture.json"].write_text(_REAL_EXTRACTION)
+
+    exit_code = main(
+        [
+            "specula-extract",
+            "--requirement-ir", str(paths["ir.json"]),
+            "--impact", str(paths["impact.json"]),
+            "--registry", str(paths["registry.json"]),
+            "--code-presentation", str(paths["pres.json"]),
+            "--traces", str(paths["traces.json"]),
+            "--spec-fixture", str(paths["fixture.json"]),
+            "--out", str(paths["out.json"]),
+        ]
+    )
+    assert exit_code == 0
+    md = read_json(paths["out.json"])["candidates"][0]["provenance"]["metadata"]
+    # No per-role LLM provenance keys leak onto a candidate produced without an attestation client.
+    assert _LLM_ROLE_PROVENANCE_KEYS.isdisjoint(md), md
 
 
 def test_parse_spec_extraction_is_defensive() -> None:

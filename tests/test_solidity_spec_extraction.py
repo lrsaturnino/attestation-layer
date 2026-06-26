@@ -16,7 +16,10 @@ a constructed analyzed Slither result; one end-to-end test extracts the trace fr
 run and the source context from a real ``slither`` run.
 """
 
+import hashlib
 import json
+import os
+import stat
 from pathlib import Path
 
 import pytest
@@ -706,6 +709,32 @@ def test_integration_report_blocks_solidity_module_with_missing_inputs() -> None
     assert "Solidity Specula extraction did not run" in report.blockers[0]
 
 
+def _solidity_extraction_echo_wrapper(tmp_path: Path, *, output_text: str) -> Path:
+    """A minimal offline echo wrapper for the cli extraction transport (Solidity).
+
+    Writes the given spec-extraction proposal JSON to the output file plus a COMPLETE valid
+    sidecar (all provenance-critical fields), so ``CliLlmClient`` would accept the call. Never
+    invoked on the missing-input refusal path — the wrapper exists to prove the refusal is the
+    provenance-integrity guard, not a wrapper-resolution failure.
+    """
+    script = tmp_path / "echo-extract-sol"
+    script.write_text(
+        (
+            '#!/usr/bin/env python3\n'
+            'import hashlib, json, sys\n'
+            'out = sys.argv[2]\n'
+            'open(out, "w").write(%r)\n'
+            'own_hash = hashlib.sha256(open(sys.argv[0], "rb").read()).hexdigest()\n'
+            'json.dump({"resolved_model": "sol-extract-snap", "route": "official", "tools_active": False, '
+            '"provider": "echo", "wrapper": "run-extract-sol", "wrapper_hash": own_hash, '
+            '"cli_version": "echo-1.0", "duration_s": 0.01}, open(out + ".meta.json", "w"))\n'
+        ) % (output_text,),
+        encoding="utf-8",
+    )
+    os.chmod(script, os.stat(script).st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+    return script
+
+
 def _cli_paths(tmp_path: Path, fixture: str) -> dict[str, Path]:
     names = (
         "ir.json", "impact.json", "registry.json", "pres.json", "traces.json",
@@ -795,6 +824,47 @@ def test_specula_extract_cli_blocks_solidity_candidate_without_slither(tmp_path:
     report = read_json(paths["out.json"])
     assert report["result"] == "blocked"
     assert any("not Slither-backed" in blocker for blocker in report["blockers"])
+
+
+def test_specula_extract_cli_llm_client_solidity_missing_inputs_refuses(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys
+) -> None:
+    """A Solidity specula-extract WITHOUT ``--traces`` cannot run the Specula extractor, so
+    ``--llm-client cli:<wrapper>`` drives no LLM call. The command refuses (exit 2) rather
+    than stamp ``client_kind=cli`` provenance onto the missing-input block — an attestation
+    client must never be recorded as answering a call it never made (BLOCKING fix).
+
+    The echo wrapper is available and valid, proving the refusal is the provenance-integrity
+    guard (no LLM call ran), not a wrapper-resolution failure: the wrapper is never invoked.
+    """
+    for role in ("DRAFTING", "DECOMPOSITION", "IMPACT", "EXTRACTION", "AUDIT"):
+        for sfx in ("CLIENT", "MODEL", "WRAPPER", "TIER", "FIXTURE", "MODEL_ENV", "TIMEOUT_S"):
+            monkeypatch.delenv(f"NLREQ_{role}_{sfx}", raising=False)
+    monkeypatch.delenv("NLREQ_MODEL_CONFIG", raising=False)
+
+    wrapper = _solidity_extraction_echo_wrapper(tmp_path, output_text=_REAL_EXTRACTION)
+    paths = {name: tmp_path / name for name in ("ir.json", "impact.json", "registry.json", "pres.json", "out.json")}
+    paths["ir.json"].write_text(_requirement().model_dump_json())
+    paths["impact.json"].write_text(_impact().model_dump_json())
+    paths["registry.json"].write_text(_empty_registry().model_dump_json())
+    paths["pres.json"].write_text(_presentation().model_dump_json())
+    # traces intentionally omitted — extraction cannot run.
+
+    exit_code = main(
+        [
+            "specula-extract",
+            "--requirement-ir", str(paths["ir.json"]),
+            "--impact", str(paths["impact.json"]),
+            "--registry", str(paths["registry.json"]),
+            "--code-presentation", str(paths["pres.json"]),
+            "--llm-client", f"cli:{wrapper}",
+            "--out", str(paths["out.json"]),
+        ]
+    )
+
+    assert exit_code == 2
+    assert "no LLM extraction call ran" in capsys.readouterr().err
+    assert not paths["out.json"].exists()
 
 
 def test_parse_spec_extraction_allows_evm_kinds_for_solidity() -> None:

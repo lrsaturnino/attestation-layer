@@ -1,0 +1,189 @@
+{
+  "calibration": {
+    "cli_version": "codex-cli 0.140.0",
+    "client_kind": "cli",
+    "prompt_version": "0.1",
+    "provider": "openai",
+    "resolved_model": "gpt-5.4-mini",
+    "role": "extraction",
+    "route": "official",
+    "transport_source": "override",
+    "wrapper": "run-gpt",
+    "wrapper_hash": "0dd5aa277dc9577b43c3fb57c6f710df0f2bbe138f05ca429857f2d4fa553294"
+  },
+  "corpus_id": "extraction-calibration",
+  "domains": [
+    {
+      "false_acceptance_count": 5,
+      "false_acceptance_rate": 0.8333333333333334,
+      "false_refusal_count": 6,
+      "false_refusal_rate": 1.0,
+      "label": "payments",
+      "matched_count": 0,
+      "total_cases": 6
+    },
+    {
+      "false_acceptance_count": 6,
+      "false_acceptance_rate": 1.0,
+      "false_refusal_count": 6,
+      "false_refusal_rate": 1.0,
+      "label": "inventory",
+      "matched_count": 0,
+      "total_cases": 6
+    }
+  ],
+  "false_acceptance_count": 11,
+  "false_acceptance_rate": 0.9166666666666666,
+  "false_refusal_count": 12,
+  "false_refusal_rate": 1.0,
+  "languages": [
+    {
+      "false_acceptance_count": 11,
+      "false_acceptance_rate": 0.9166666666666666,
+      "false_refusal_count": 12,
+      "false_refusal_rate": 1.0,
+      "label": "go",
+      "matched_count": 0,
+      "total_cases": 12
+    }
+  ],
+  "matched_cases": 0,
+  "observations": [
+    {
+      "case_id": "extract-payments-faithful-1",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "faithful",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('refund_amount_bounded_by_limit', 'For every execution of `refund`, if `amount > LIMIT` then the refund is rejected; equivalently, a non-rejected refund implies `amount <= LIMIT`.')]",
+        "missed invariants: [('S_refund_limit', 'refund_amount <= LIMIT')]"
+      ]
+    },
+    {
+      "case_id": "extract-payments-fa-1",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('refund_upper_bound_check', 'If `refund` executes, then any branch that reaches `reject` is guarded by `amount > LIMIT`; equivalently, a refund should not be rejected when `amount <= LIMIT`.')]",
+        "missed invariants: [('S_refund_limit', 'refund_amount <= LIMIT')]"
+      ]
+    },
+    {
+      "case_id": "extract-payments-fr-1",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('refund_nonrejection_under_limit', '[](amount <= LIMIT -> ~reject)'), ('refund_rejects_only_over_limit', '[](reject -> amount > LIMIT)')]",
+        "missed invariants: [('S_refund_limit', 'refund_amount <= LIMIT')]"
+      ]
+    },
+    {
+      "case_id": "extract-payments-faithful-2",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "faithful",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('RefundAmountBound', 'Always, refund proceeds only when amount <= LIMIT; if amount > LIMIT then the refund is rejected.')]",
+        "missed invariants: [('S_refund_limit', 'refund_amount <= LIMIT')]"
+      ]
+    },
+    {
+      "case_id": "extract-payments-fa-2",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "missed invariants: [('S_refund_limit', 'refund_amount <= LIMIT')]"
+      ]
+    },
+    {
+      "case_id": "extract-payments-fr-2",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('refund_rejects_when_amount_exceeds_limit', 'If refund() executes and amount > LIMIT, then reject occurs; otherwise reject does not occur.')]",
+        "missed invariants: [('S_refund_limit', 'refund_amount <= LIMIT')]"
+      ]
+    },
+    {
+      "case_id": "extract-inventory-faithful-1",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "faithful",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('move_does_not_block_when_stock_is_non_negative', 'stock >= 0 => move does not invoke block'), ('non_negative_stock_guards_blocking_move', 'stock < 0 => move invokes block')]",
+        "missed invariants: [('S_nonnegative_stock', 'stock >= 0')]"
+      ]
+    },
+    {
+      "case_id": "extract-inventory-fa-1",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('NoBlockWhenStockIsNonNegative', 'stock >= 0 => block does not execute'), ('NonNegativeStockOrBlock', 'stock < 0 => block executes')]",
+        "missed invariants: [('S_nonnegative_stock', 'stock >= 0')]"
+      ]
+    },
+    {
+      "case_id": "extract-inventory-fr-1",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('block_guarded_by_negative_stock', '[](block_executed => stock < 0)'), ('no_block_when_stock_nonnegative', '[](stock >= 0 => ~block_executed)')]",
+        "missed invariants: [('S_nonnegative_stock', 'stock >= 0')]"
+      ]
+    },
+    {
+      "case_id": "extract-inventory-faithful-2",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "faithful",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('stock_non_negative_guard', 'ALWAYS stock >= 0')]",
+        "missed invariants: [('S_nonnegative_stock', 'stock >= 0')]"
+      ]
+    },
+    {
+      "case_id": "extract-inventory-fa-2",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('move_does_not_allow_negative_stock_to_proceed', '[] (stock < 0 => ~proceed_without_block)'), ('non_negative_stock_or_block', '[] (stock < 0 => block_called)')]",
+        "missed invariants: [('S_nonnegative_stock', 'stock >= 0')]"
+      ]
+    },
+    {
+      "case_id": "extract-inventory-fr-2",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('nonnegative_stock_before_move_completes', 'Whenever move() executes without taking the block branch, stock is not negative; equivalently, move() must not complete normally when stock < 0.')]",
+        "missed invariants: [('S_nonnegative_stock', 'stock >= 0')]"
+      ]
+    }
+  ],
+  "result": "failed",
+  "role": "extraction",
+  "schema_version": "0.1",
+  "total_cases": 12,
+  "version": "0.1"
+}

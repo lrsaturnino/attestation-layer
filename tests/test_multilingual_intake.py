@@ -3,7 +3,7 @@
 Non-English prose flows through the same PA-4 drafting path (the IR is language-neutral).
 Provenance records the source language; merchant/identifier strings stay verbatim; a
 low-confidence cross-language fragment refuses with a clarification rather than guessing.
-The EN/PT spike reports per-language false-acceptance/false-refusal and demonstrates
+The EN/PT corpus reports per-language false-acceptance/false-refusal and demonstrates
 EN<->PT FormalClaim signature equivalence.
 """
 
@@ -268,7 +268,7 @@ def test_multilingual_corpus_has_paired_en_and_pt_requirements() -> None:
 
 def test_portuguese_rates_are_within_the_english_budget() -> None:
     # The NL-agnostic claim is scoped to languages whose recorded rates match English. On
-    # this spike Portuguese matches English: zero false-acceptance and zero false-refusal.
+    # this corpus Portuguese matches English: zero false-acceptance and zero false-refusal.
     corpus = _load_multilingual()
     report = build_translation_benchmark_report(corpus, run_translation_corpus(corpus))
     assert report.result == "passed"
@@ -299,7 +299,7 @@ def test_multilingual_low_confidence_cases_refuse_with_clarification() -> None:
     corpus = _load_multilingual()
     results = {r.case_id: r for r in run_translation_corpus(corpus).results}
     low_confidence = [r for cid, r in results.items() if cid.startswith("ml-lc")]
-    assert low_confidence, "spike must include low-confidence Portuguese cases"
+    assert low_confidence, "corpus must include low-confidence Portuguese cases"
     for result in low_confidence:
         assert result.outcome == "refused"
         assert result.refusal_code == "NLR-CROSS-LANGUAGE-UNCERTAIN"

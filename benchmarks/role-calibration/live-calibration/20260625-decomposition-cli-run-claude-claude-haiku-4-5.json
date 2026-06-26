@@ -1,0 +1,156 @@
+{
+  "calibration": {
+    "cli_version": "2.1.193 (Claude Code)",
+    "client_kind": "cli",
+    "prompt_version": "0.1",
+    "provider": "anthropic",
+    "resolved_model": "claude-haiku-4-5",
+    "role": "decomposition",
+    "route": "official",
+    "transport_source": "override",
+    "wrapper": "run-claude",
+    "wrapper_hash": "5524a2abf5665fa7396432372a473a682fea7570ad2736c7984c7a8425eddaf5"
+  },
+  "corpus_id": "decomposition-calibration",
+  "domains": [
+    {
+      "false_acceptance_count": 0,
+      "false_acceptance_rate": 0.0,
+      "false_refusal_count": 1,
+      "false_refusal_rate": 0.16666666666666666,
+      "label": "authorization",
+      "matched_count": 5,
+      "total_cases": 6
+    },
+    {
+      "false_acceptance_count": 0,
+      "false_acceptance_rate": 0.0,
+      "false_refusal_count": 0,
+      "false_refusal_rate": 0.0,
+      "label": "procurement",
+      "matched_count": 6,
+      "total_cases": 6
+    }
+  ],
+  "false_acceptance_count": 0,
+  "false_acceptance_rate": 0.0,
+  "false_refusal_count": 1,
+  "false_refusal_rate": 0.08333333333333333,
+  "languages": [
+    {
+      "false_acceptance_count": 0,
+      "false_acceptance_rate": 0.0,
+      "false_refusal_count": 1,
+      "false_refusal_rate": 0.08333333333333333,
+      "label": "en",
+      "matched_count": 11,
+      "total_cases": 12
+    }
+  ],
+  "matched_cases": 11,
+  "observations": [
+    {
+      "case_id": "decomp-authorization-faithful-1",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "faithful",
+      "matched": false,
+      "notes": [
+        "decomposer raised: DslV3ParseError('dsl_v3_parse_error at line 1, column 1: unsupported or malformed DSL v3 fragment')"
+      ]
+    },
+    {
+      "case_id": "decomp-authorization-fa-1",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "false_acceptance",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-authorization-fr-1",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "false_refusal",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-authorization-faithful-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "faithful",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-authorization-fa-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "false_acceptance",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-authorization-fr-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "false_refusal",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-procurement-faithful-1",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "faithful",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-procurement-fa-1",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "false_acceptance",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-procurement-fr-1",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "false_refusal",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-procurement-faithful-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "faithful",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-procurement-fa-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "false_acceptance",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "decomp-procurement-fr-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "false_refusal",
+      "matched": true,
+      "notes": []
+    }
+  ],
+  "result": "failed",
+  "role": "decomposition",
+  "schema_version": "0.1",
+  "total_cases": 12,
+  "version": "0.1"
+}

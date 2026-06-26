@@ -78,7 +78,7 @@ An LLM (optional, off by default) is used in exactly four places, all of them **
 
 The LLM **never produces evidence, never decides a status, and never approves anything.** Every verdict in the pipeline comes from deterministic tools: the Lark parser, Z3, cvc5, Apalache, real test runners, and real trace readers. Construction-time guards in the data model make it impossible to even *represent* a high-assurance claim without the backing evidence object.
 
-Practical configuration: the provider is Anthropic (`pip` extra `llm`), the default model is pinned in code (`claude-haiku-4-5-20251001` — cheap and fast is correct, since the model only drafts), overridable per call with `--model`. The API key is read from the `NLREQ_ANTHROPIC_API_KEY` environment variable or a `.claude/.env` file. A `RecordedLlmClient` replays captured responses so tests and CI are deterministic and need no network — the deterministic core never makes a network call.
+Practical configuration: the provider is Anthropic (`pip` extra `llm`), the default model is pinned in code (`claude-haiku-4-5-20251001`), overridable per call with `--model`. The API key is read from the `NLREQ_ANTHROPIC_API_KEY` environment variable or a `.claude/.env` file. A `RecordedLlmClient` replays captured responses so tests and CI are deterministic and need no network — the deterministic core never makes a network call.
 
 ## What an approved requirement gives you
 

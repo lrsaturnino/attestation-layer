@@ -1,0 +1,174 @@
+{
+  "calibration": {
+    "cli_version": "codex-cli 0.140.0",
+    "client_kind": "cli",
+    "prompt_version": "0.1",
+    "provider": "openai",
+    "resolved_model": "gpt-5.4-mini",
+    "role": "impact",
+    "route": "official",
+    "transport_source": "override",
+    "wrapper": "run-gpt",
+    "wrapper_hash": "0dd5aa277dc9577b43c3fb57c6f710df0f2bbe138f05ca429857f2d4fa553294"
+  },
+  "corpus_id": "impact-calibration",
+  "domains": [
+    {
+      "false_acceptance_count": 0,
+      "false_acceptance_rate": 0.0,
+      "false_refusal_count": 4,
+      "false_refusal_rate": 0.6666666666666666,
+      "label": "payments",
+      "matched_count": 2,
+      "total_cases": 6
+    },
+    {
+      "false_acceptance_count": 0,
+      "false_acceptance_rate": 0.0,
+      "false_refusal_count": 6,
+      "false_refusal_rate": 1.0,
+      "label": "inventory",
+      "matched_count": 0,
+      "total_cases": 6
+    }
+  ],
+  "false_acceptance_count": 0,
+  "false_acceptance_rate": 0.0,
+  "false_refusal_count": 10,
+  "false_refusal_rate": 0.8333333333333334,
+  "languages": [
+    {
+      "false_acceptance_count": 0,
+      "false_acceptance_rate": 0.0,
+      "false_refusal_count": 10,
+      "false_refusal_rate": 0.8333333333333334,
+      "label": "en",
+      "matched_count": 2,
+      "total_cases": 12
+    }
+  ],
+  "matched_cases": 2,
+  "observations": [
+    {
+      "case_id": "impact-payments-faithful-1",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "faithful",
+      "matched": false,
+      "notes": [
+        "missed modules: ['ledger']"
+      ]
+    },
+    {
+      "case_id": "impact-payments-fa-1",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "missed modules: ['ledger']"
+      ]
+    },
+    {
+      "case_id": "impact-payments-fr-1",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "missed modules: ['ledger']"
+      ]
+    },
+    {
+      "case_id": "impact-payments-faithful-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "faithful",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "impact-payments-fa-2",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "missed modules: ['ledger']"
+      ]
+    },
+    {
+      "case_id": "impact-payments-fr-2",
+      "false_acceptance": false,
+      "false_refusal": false,
+      "fault_kind": "false_refusal",
+      "matched": true,
+      "notes": []
+    },
+    {
+      "case_id": "impact-inventory-faithful-1",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "faithful",
+      "matched": false,
+      "notes": [
+        "missed modules: ['warehouse']"
+      ]
+    },
+    {
+      "case_id": "impact-inventory-fa-1",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "missed modules: ['warehouse']"
+      ]
+    },
+    {
+      "case_id": "impact-inventory-fr-1",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "missed modules: ['warehouse']"
+      ]
+    },
+    {
+      "case_id": "impact-inventory-faithful-2",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "faithful",
+      "matched": false,
+      "notes": [
+        "missed modules: ['warehouse']"
+      ]
+    },
+    {
+      "case_id": "impact-inventory-fa-2",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "missed modules: ['warehouse']"
+      ]
+    },
+    {
+      "case_id": "impact-inventory-fr-2",
+      "false_acceptance": false,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "missed modules: ['warehouse']"
+      ]
+    }
+  ],
+  "result": "failed",
+  "role": "impact",
+  "schema_version": "0.1",
+  "total_cases": 12,
+  "version": "0.1"
+}

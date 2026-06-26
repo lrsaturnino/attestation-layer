@@ -801,6 +801,406 @@
       "title": "Sanctioned account frozen"
     },
     {
+      "case_id": "ml-21-en",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement authorization_precondition:\nscope emergency_controller\nwhen account is not authorized\nthen pause must reject before paused\n",
+      "input_kind": "messy_prose",
+      "input_text": "A pause triggered by an account that is not authorized must be rejected before paused.",
+      "language": "en",
+      "recorded_controlled_text": "requirement authorization_precondition:\nscope emergency_controller\nwhen account is not authorized\nthen pause must reject before paused\n",
+      "tags": [
+        "multilingual",
+        "en"
+      ],
+      "title": "Unauthorized pause rejected"
+    },
+    {
+      "case_id": "ml-21-pt",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement authorization_precondition:\nscope emergency_controller\nwhen account is not authorized\nthen pause must reject before paused\n",
+      "input_kind": "multilingual",
+      "input_text": "Uma pausa acionada por uma conta que n\u00e3o est\u00e1 autorizada deve ser rejeitada antes de pausada.",
+      "language": "pt",
+      "recorded_controlled_text": "requirement authorization_precondition:\nscope emergency_controller\nwhen account is not authorized\nthen pause must reject before paused\n",
+      "tags": [
+        "multilingual",
+        "pt"
+      ],
+      "title": "Unauthorized pause rejected"
+    },
+    {
+      "case_id": "ml-22-en",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement state_precondition:\nscope rollup_exit\nwhen checkpoint is confirmed\nthen finalize_withdrawal must succeed\n",
+      "input_kind": "messy_prose",
+      "input_text": "Once a checkpoint is confirmed, finalizing the withdrawal must succeed.",
+      "language": "en",
+      "recorded_controlled_text": "requirement state_precondition:\nscope rollup_exit\nwhen checkpoint is confirmed\nthen finalize_withdrawal must succeed\n",
+      "tags": [
+        "multilingual",
+        "en"
+      ],
+      "title": "Confirmed checkpoint allows withdrawal"
+    },
+    {
+      "case_id": "ml-22-pt",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement state_precondition:\nscope rollup_exit\nwhen checkpoint is confirmed\nthen finalize_withdrawal must succeed\n",
+      "input_kind": "multilingual",
+      "input_text": "Assim que um ponto de verifica\u00e7\u00e3o \u00e9 confirmado, finalizar o saque deve ser bem-sucedido.",
+      "language": "pt",
+      "recorded_controlled_text": "requirement state_precondition:\nscope rollup_exit\nwhen checkpoint is confirmed\nthen finalize_withdrawal must succeed\n",
+      "tags": [
+        "multilingual",
+        "pt"
+      ],
+      "title": "Confirmed checkpoint allows withdrawal"
+    },
+    {
+      "case_id": "ml-23-en",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement event_state_correspondence:\nscope staking\nwhen slasher is approved\nthen emit slash_recorded within 10 seconds\n",
+      "input_kind": "messy_prose",
+      "input_text": "When the slasher is approved, a slash_recorded event must be emitted within 10 seconds.",
+      "language": "en",
+      "recorded_controlled_text": "requirement event_state_correspondence:\nscope staking\nwhen slasher is approved\nthen emit slash_recorded within 10 seconds\n",
+      "tags": [
+        "multilingual",
+        "en"
+      ],
+      "title": "Approved slash recorded"
+    },
+    {
+      "case_id": "ml-23-pt",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement event_state_correspondence:\nscope staking\nwhen slasher is approved\nthen emit slash_recorded within 10 seconds\n",
+      "input_kind": "multilingual",
+      "input_text": "Quando o slashador \u00e9 aprovado, um evento slash_recorded deve ser emitido em 10 segundos.",
+      "language": "pt",
+      "recorded_controlled_text": "requirement event_state_correspondence:\nscope staking\nwhen slasher is approved\nthen emit slash_recorded within 10 seconds\n",
+      "tags": [
+        "multilingual",
+        "pt"
+      ],
+      "title": "Approved slash recorded"
+    },
+    {
+      "case_id": "ml-24-en",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement numeric_invariant:\nscope consensus\nwhen validator_count >= 4 and validator_count <= 100\nthen keep validator_count <= 100\n",
+      "input_kind": "messy_prose",
+      "input_text": "While the validator-set size is between four and one hundred, keep the set size at most one hundred.",
+      "language": "en",
+      "recorded_controlled_text": "requirement numeric_invariant:\nscope consensus\nwhen validator_count >= 4 and validator_count <= 100\nthen keep validator_count <= 100\n",
+      "tags": [
+        "multilingual",
+        "en"
+      ],
+      "title": "Validator-set size bounded"
+    },
+    {
+      "case_id": "ml-24-pt",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement numeric_invariant:\nscope consensus\nwhen validator_count >= 4 and validator_count <= 100\nthen keep validator_count <= 100\n",
+      "input_kind": "multilingual",
+      "input_text": "Enquanto o tamanho do conjunto de validadores estiver entre quatro e cem, mantenha o tamanho do conjunto em no m\u00e1ximo cem.",
+      "language": "pt",
+      "recorded_controlled_text": "requirement numeric_invariant:\nscope consensus\nwhen validator_count >= 4 and validator_count <= 100\nthen keep validator_count <= 100\n",
+      "tags": [
+        "multilingual",
+        "pt"
+      ],
+      "title": "Validator-set size bounded"
+    },
+    {
+      "case_id": "ml-25-en",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement bounded_temporal:\nscope consensus\nwhen validator is authorized\nthen emit round_finalized within 5 blocks\n",
+      "input_kind": "messy_prose",
+      "input_text": "When the validator is authorized, a round_finalized event must be emitted within 5 blocks.",
+      "language": "en",
+      "recorded_controlled_text": "requirement bounded_temporal:\nscope consensus\nwhen validator is authorized\nthen emit round_finalized within 5 blocks\n",
+      "tags": [
+        "multilingual",
+        "en"
+      ],
+      "title": "Authorized round finalizes within blocks"
+    },
+    {
+      "case_id": "ml-25-pt",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement bounded_temporal:\nscope consensus\nwhen validator is authorized\nthen emit round_finalized within 5 blocks\n",
+      "input_kind": "multilingual",
+      "input_text": "Quando o validador est\u00e1 autorizado, um evento round_finalized deve ser emitido em 5 blocos.",
+      "language": "pt",
+      "recorded_controlled_text": "requirement bounded_temporal:\nscope consensus\nwhen validator is authorized\nthen emit round_finalized within 5 blocks\n",
+      "tags": [
+        "multilingual",
+        "pt"
+      ],
+      "title": "Authorized round finalizes within blocks"
+    },
+    {
+      "case_id": "ml-26-en",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement cross_module_causal_obligation:\nscope bridge\nwhen deposit is confirmed\nthen module bridge causes module mint to issue within 15 minutes\n",
+      "input_kind": "messy_prose",
+      "input_text": "When the deposit is confirmed, the bridge module causes the mint module to issue within 15 minutes.",
+      "language": "en",
+      "recorded_controlled_text": "requirement cross_module_causal_obligation:\nscope bridge\nwhen deposit is confirmed\nthen module bridge causes module mint to issue within 15 minutes\n",
+      "tags": [
+        "multilingual",
+        "en"
+      ],
+      "title": "Confirmed bridge lock mints wrapped"
+    },
+    {
+      "case_id": "ml-26-pt",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement cross_module_causal_obligation:\nscope bridge\nwhen deposit is confirmed\nthen module bridge causes module mint to issue within 15 minutes\n",
+      "input_kind": "multilingual",
+      "input_text": "Quando o dep\u00f3sito \u00e9 confirmado, o m\u00f3dulo bridge faz o m\u00f3dulo mint emitir em 15 minutos.",
+      "language": "pt",
+      "recorded_controlled_text": "requirement cross_module_causal_obligation:\nscope bridge\nwhen deposit is confirmed\nthen module bridge causes module mint to issue within 15 minutes\n",
+      "tags": [
+        "multilingual",
+        "pt"
+      ],
+      "title": "Confirmed bridge lock mints wrapped"
+    },
+    {
+      "case_id": "ml-27-en",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement state_precondition:\nscope settlement\nwhen caller is in allowlist\nthen settle_position must succeed\n",
+      "input_kind": "messy_prose",
+      "input_text": "When the caller is in the allowlist set, settling must succeed.",
+      "language": "en",
+      "recorded_controlled_text": "requirement state_precondition:\nscope settlement\nwhen caller is in allowlist\nthen settle_position must succeed\n",
+      "tags": [
+        "multilingual",
+        "en"
+      ],
+      "title": "Only allowlisted callers may settle"
+    },
+    {
+      "case_id": "ml-27-pt",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement state_precondition:\nscope settlement\nwhen caller is in allowlist\nthen settle_position must succeed\n",
+      "input_kind": "multilingual",
+      "input_text": "Quando o chamador est\u00e1 no conjunto de permiss\u00f5es, liquidar deve ser bem-sucedido.",
+      "language": "pt",
+      "recorded_controlled_text": "requirement state_precondition:\nscope settlement\nwhen caller is in allowlist\nthen settle_position must succeed\n",
+      "tags": [
+        "multilingual",
+        "pt"
+      ],
+      "title": "Only allowlisted callers may settle"
+    },
+    {
+      "case_id": "ml-28-en",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement state_precondition:\nscope lending_pool\nwhen borrower is approved and collateral_ratio >= 150\nthen borrow must succeed\n",
+      "input_kind": "messy_prose",
+      "input_text": "When the borrower is approved and the collateral ratio is at least one hundred fifty, borrowing must succeed.",
+      "language": "en",
+      "recorded_controlled_text": "requirement state_precondition:\nscope lending_pool\nwhen borrower is approved and collateral_ratio >= 150\nthen borrow must succeed\n",
+      "tags": [
+        "multilingual",
+        "en"
+      ],
+      "title": "Approved borrower above ratio borrows"
+    },
+    {
+      "case_id": "ml-28-pt",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement state_precondition:\nscope lending_pool\nwhen borrower is approved and collateral_ratio >= 150\nthen borrow must succeed\n",
+      "input_kind": "multilingual",
+      "input_text": "Quando o mutu\u00e1rio \u00e9 aprovado e a raz\u00e3o de garantia \u00e9 de pelo menos cento e cinquenta, pegar emprestado deve ser bem-sucedido.",
+      "language": "pt",
+      "recorded_controlled_text": "requirement state_precondition:\nscope lending_pool\nwhen borrower is approved and collateral_ratio >= 150\nthen borrow must succeed\n",
+      "tags": [
+        "multilingual",
+        "pt"
+      ],
+      "title": "Approved borrower above ratio borrows"
+    },
+    {
+      "case_id": "ml-29-en",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement state_postcondition:\nscope consensus\nwhen votes >= 67\nthen state round_status must be \"finalizable\"\n",
+      "input_kind": "messy_prose",
+      "input_text": "When the vote count is at least two thirds of the validators, the round status must be finalizable.",
+      "language": "en",
+      "recorded_controlled_text": "requirement state_postcondition:\nscope consensus\nwhen votes >= 67\nthen state round_status must be \"finalizable\"\n",
+      "tags": [
+        "multilingual",
+        "en"
+      ],
+      "title": "Quorum reached marks finalizable"
+    },
+    {
+      "case_id": "ml-29-pt",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement state_postcondition:\nscope consensus\nwhen votes >= 67\nthen state round_status must be \"finalizable\"\n",
+      "input_kind": "multilingual",
+      "input_text": "Quando a contagem de votos \u00e9 de pelo menos dois ter\u00e7os dos validadores, o status da rodada deve ser finaliz\u00e1vel.",
+      "language": "pt",
+      "recorded_controlled_text": "requirement state_postcondition:\nscope consensus\nwhen votes >= 67\nthen state round_status must be \"finalizable\"\n",
+      "tags": [
+        "multilingual",
+        "pt"
+      ],
+      "title": "Quorum reached marks finalizable"
+    },
+    {
+      "case_id": "ml-30-en",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement numeric_invariant:\nscope reserve\nwhen reserve_balance >= 10 and reserve_balance <= 1000\nthen keep reserve_balance >= 10\n",
+      "input_kind": "messy_prose",
+      "input_text": "When the reserve balance is between ten and one thousand, keep the reserve balance at least ten.",
+      "language": "en",
+      "recorded_controlled_text": "requirement numeric_invariant:\nscope reserve\nwhen reserve_balance >= 10 and reserve_balance <= 1000\nthen keep reserve_balance >= 10\n",
+      "tags": [
+        "multilingual",
+        "en"
+      ],
+      "title": "Reserve floor invariant"
+    },
+    {
+      "case_id": "ml-30-pt",
+      "domain": "multilingual-spike",
+      "expected": {
+        "expected_clarification_questions": [],
+        "expected_ir_path": null,
+        "expected_refusal_code": null,
+        "outcome": "accepted"
+      },
+      "gold_controlled_text": "requirement numeric_invariant:\nscope reserve\nwhen reserve_balance >= 10 and reserve_balance <= 1000\nthen keep reserve_balance >= 10\n",
+      "input_kind": "multilingual",
+      "input_text": "Quando o saldo da reserva est\u00e1 entre dez e mil, mantenha o saldo da reserva em pelo menos dez.",
+      "language": "pt",
+      "recorded_controlled_text": "requirement numeric_invariant:\nscope reserve\nwhen reserve_balance >= 10 and reserve_balance <= 1000\nthen keep reserve_balance >= 10\n",
+      "tags": [
+        "multilingual",
+        "pt"
+      ],
+      "title": "Reserve floor invariant"
+    },
+    {
       "case_id": "ml-lc-01-pt",
       "domain": "multilingual-spike",
       "expected": {

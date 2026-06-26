@@ -1,0 +1,509 @@
+{
+  "ambiguity_findings": [],
+  "clarification_questions": [
+    "Ensemble decomposition candidates must be audited (PA-6 audit) and explicitly approved before their IR can drive a formal-claim comparison. Supply audited results or omit the ensemble check to proceed."
+  ],
+  "ensemble_candidate_audit_verdicts": [
+    null,
+    null
+  ],
+  "ensemble_candidate_provenances": [
+    {
+      "client_kind": "cli",
+      "model": "claude-haiku-4-5",
+      "prompt_version": "0.1",
+      "provider": "anthropic",
+      "route": "official",
+      "source": "cli_decomposition",
+      "wrapper": "run-claude",
+      "wrapper_hash": "5524a2abf5665fa7396432372a473a682fea7570ad2736c7984c7a8425eddaf5"
+    },
+    {
+      "client_kind": "cli",
+      "model": "gpt-5.4-mini",
+      "prompt_version": "0.1",
+      "provider": "openai",
+      "route": "official",
+      "source": "cli_decomposition",
+      "wrapper": "run-gpt",
+      "wrapper_hash": "0dd5aa277dc9577b43c3fb57c6f710df0f2bbe138f05ca429857f2d4fa553294"
+    }
+  ],
+  "input_hashes": {
+    "controlled_text": "sha256:dfbf31488cd2087fecdba35fa8a4c25138dfa3163b00cf3998860150ff2263ba",
+    "semantic_decomposition": "sha256:6614f50a3bd6734f6616bdfc0e26e5c81335b7710d2e4e908f04206540415be8",
+    "semantic_tree": "sha256:f0ca58ed8580e44b0eeb9b01ff095eec18fb4438f0950762a47271c8e6c7d9c9"
+  },
+  "refusal_code": "NLR-UNAUDITED-DECOMPOSITION",
+  "refusal_source_spans": [
+    {
+      "document": "controlled_requirement",
+      "end_char": 131,
+      "start_char": 0,
+      "text": "requirement authorization_precondition:\nscope operation\nwhen actor is not authorized\nthen operation must reject before state_change"
+    }
+  ],
+  "requirement_id": "R-CP-20260625",
+  "requirement_ir": {
+    "assumptions": [],
+    "bindings": {},
+    "ir_version": "0.2",
+    "required_evidence": [],
+    "requirement_id": "R-CP-20260625",
+    "semantic_ir": {
+      "annotations": {},
+      "args": [],
+      "children": [],
+      "confidence": "deterministic_parse",
+      "kind": "rule",
+      "metadata": {
+        "dsl_version": "0.3",
+        "requirement_class": "authorization_precondition"
+      },
+      "node_id": "rule.root",
+      "obligation": {
+        "action": {
+          "annotations": {},
+          "args": [],
+          "children": [],
+          "confidence": "deterministic_parse",
+          "kind": "action",
+          "metadata": {},
+          "name": "operation",
+          "node_id": "obligation.action",
+          "provenance": {
+            "derived_from": [
+              "obligation.action"
+            ],
+            "metadata": {},
+            "method": "deterministic_parse",
+            "source_document": "controlled_requirement",
+            "tool": "nlreq.dsl_v3",
+            "tool_version": "0.3"
+          },
+          "scope": [],
+          "source_spans": [
+            {
+              "document": "controlled_requirement",
+              "end_char": 131,
+              "start_char": 85,
+              "text": "then operation must reject before state_change"
+            }
+          ]
+        },
+        "annotations": {},
+        "args": [],
+        "children": [],
+        "confidence": "deterministic_parse",
+        "kind": "action_obligation",
+        "metadata": {},
+        "must": {
+          "annotations": {},
+          "args": [],
+          "children": [
+            {
+              "annotations": {},
+              "args": [
+                {
+                  "kind": "identifier",
+                  "value": "operation"
+                }
+              ],
+              "children": [],
+              "confidence": "deterministic_parse",
+              "kind": "predicate",
+              "metadata": {},
+              "name": "rejects",
+              "node_id": "obligation.0.reject",
+              "provenance": {
+                "derived_from": [
+                  "obligation.0.reject"
+                ],
+                "metadata": {},
+                "method": "deterministic_parse",
+                "source_document": "controlled_requirement",
+                "tool": "nlreq.dsl_v3",
+                "tool_version": "0.3"
+              },
+              "scope": [],
+              "source_spans": [
+                {
+                  "document": "controlled_requirement",
+                  "end_char": 131,
+                  "start_char": 90,
+                  "text": "operation must reject before state_change"
+                }
+              ]
+            },
+            {
+              "annotations": {},
+              "args": [],
+              "children": [],
+              "confidence": "deterministic_parse",
+              "kind": "state_ref",
+              "metadata": {},
+              "name": "state_change",
+              "node_id": "obligation.0.before",
+              "provenance": {
+                "derived_from": [
+                  "obligation.0.before"
+                ],
+                "metadata": {},
+                "method": "deterministic_parse",
+                "source_document": "controlled_requirement",
+                "tool": "nlreq.dsl_v3",
+                "tool_version": "0.3"
+              },
+              "scope": [],
+              "source_spans": [
+                {
+                  "document": "controlled_requirement",
+                  "end_char": 131,
+                  "start_char": 90,
+                  "text": "operation must reject before state_change"
+                }
+              ]
+            }
+          ],
+          "confidence": "deterministic_parse",
+          "kind": "before",
+          "metadata": {},
+          "node_id": "obligation.0",
+          "provenance": {
+            "derived_from": [
+              "obligation.0"
+            ],
+            "metadata": {},
+            "method": "deterministic_parse",
+            "source_document": "controlled_requirement",
+            "tool": "nlreq.dsl_v3",
+            "tool_version": "0.3"
+          },
+          "scope": [],
+          "source_spans": [
+            {
+              "document": "controlled_requirement",
+              "end_char": 131,
+              "start_char": 90,
+              "text": "operation must reject before state_change"
+            }
+          ]
+        },
+        "node_id": "obligation.root",
+        "provenance": {
+          "derived_from": [
+            "obligation.root"
+          ],
+          "metadata": {},
+          "method": "deterministic_parse",
+          "source_document": "controlled_requirement",
+          "tool": "nlreq.dsl_v3",
+          "tool_version": "0.3"
+        },
+        "scope": [],
+        "source_spans": [
+          {
+            "document": "controlled_requirement",
+            "end_char": 131,
+            "start_char": 85,
+            "text": "then operation must reject before state_change"
+          }
+        ]
+      },
+      "premise": {
+        "annotations": {},
+        "args": [],
+        "children": [
+          {
+            "annotations": {},
+            "args": [
+              {
+                "kind": "identifier",
+                "value": "actor"
+              }
+            ],
+            "children": [],
+            "confidence": "deterministic_parse",
+            "kind": "predicate",
+            "metadata": {},
+            "name": "not_authorized",
+            "node_id": "premise.0",
+            "provenance": {
+              "derived_from": [
+                "premise.0"
+              ],
+              "metadata": {},
+              "method": "deterministic_parse",
+              "source_document": "controlled_requirement",
+              "tool": "nlreq.dsl_v3",
+              "tool_version": "0.3"
+            },
+            "scope": [],
+            "source_spans": [
+              {
+                "document": "controlled_requirement",
+                "end_char": 84,
+                "start_char": 61,
+                "text": "actor is not authorized"
+              }
+            ]
+          }
+        ],
+        "confidence": "deterministic_parse",
+        "kind": "and",
+        "metadata": {},
+        "node_id": "premise.root",
+        "provenance": {
+          "derived_from": [
+            "premise.root"
+          ],
+          "metadata": {},
+          "method": "deterministic_parse",
+          "source_document": "controlled_requirement",
+          "tool": "nlreq.dsl_v3",
+          "tool_version": "0.3"
+        },
+        "scope": [],
+        "source_spans": [
+          {
+            "document": "controlled_requirement",
+            "end_char": 84,
+            "start_char": 56,
+            "text": "when actor is not authorized"
+          }
+        ]
+      },
+      "provenance": {
+        "derived_from": [
+          "rule.root"
+        ],
+        "metadata": {},
+        "method": "deterministic_parse",
+        "source_document": "controlled_requirement",
+        "tool": "nlreq.dsl_v3",
+        "tool_version": "0.3"
+      },
+      "scope": [
+        {
+          "annotations": {},
+          "args": [],
+          "children": [],
+          "confidence": "deterministic_parse",
+          "kind": "forall",
+          "metadata": {},
+          "name": "operation",
+          "node_id": "scope.0",
+          "provenance": {
+            "derived_from": [
+              "scope.0"
+            ],
+            "metadata": {},
+            "method": "deterministic_parse",
+            "source_document": "controlled_requirement",
+            "tool": "nlreq.dsl_v3",
+            "tool_version": "0.3"
+          },
+          "scope": [],
+          "source_spans": [
+            {
+              "document": "controlled_requirement",
+              "end_char": 55,
+              "start_char": 40,
+              "text": "scope operation"
+            }
+          ],
+          "target": "Operation"
+        }
+      ],
+      "source_spans": [
+        {
+          "document": "controlled_requirement",
+          "end_char": 131,
+          "start_char": 0,
+          "text": "requirement authorization_precondition:\nscope operation\nwhen actor is not authorized\nthen operation must reject before state_change"
+        }
+      ]
+    },
+    "source": {
+      "controlled_text": "requirement authorization_precondition:\nscope operation\nwhen actor is not authorized\nthen operation must reject before state_change\n"
+    },
+    "title": "cross-provider-real-ensemble"
+  },
+  "result": "needs_review",
+  "schema_version": "0.1",
+  "semantic_decomposition": {
+    "input_hashes": {
+      "requirement_ir": "sha256:2b1fb38acae95030f2eae9cb555e126e52a433ee372251734b14baafa56a3d14"
+    },
+    "requirement_id": "R-CP-20260625",
+    "root": {
+      "children": [
+        {
+          "children": [],
+          "kind": "forall",
+          "label": "operation",
+          "node_id": "scope.0",
+          "role": "scope",
+          "source_spans": [
+            {
+              "document": "controlled_requirement",
+              "end_char": 55,
+              "start_char": 40,
+              "text": "scope operation"
+            }
+          ]
+        },
+        {
+          "children": [
+            {
+              "children": [],
+              "kind": "predicate",
+              "label": "not_authorized",
+              "node_id": "premise.0",
+              "role": "child",
+              "source_spans": [
+                {
+                  "document": "controlled_requirement",
+                  "end_char": 84,
+                  "start_char": 61,
+                  "text": "actor is not authorized"
+                }
+              ]
+            }
+          ],
+          "kind": "and",
+          "label": "and",
+          "node_id": "premise.root",
+          "role": "premise",
+          "source_spans": [
+            {
+              "document": "controlled_requirement",
+              "end_char": 84,
+              "start_char": 56,
+              "text": "when actor is not authorized"
+            }
+          ]
+        },
+        {
+          "children": [
+            {
+              "children": [],
+              "kind": "action",
+              "label": "operation",
+              "node_id": "obligation.action",
+              "role": "action",
+              "source_spans": [
+                {
+                  "document": "controlled_requirement",
+                  "end_char": 131,
+                  "start_char": 85,
+                  "text": "then operation must reject before state_change"
+                }
+              ]
+            },
+            {
+              "children": [
+                {
+                  "children": [],
+                  "kind": "predicate",
+                  "label": "rejects",
+                  "node_id": "obligation.0.reject",
+                  "role": "child",
+                  "source_spans": [
+                    {
+                      "document": "controlled_requirement",
+                      "end_char": 131,
+                      "start_char": 90,
+                      "text": "operation must reject before state_change"
+                    }
+                  ]
+                },
+                {
+                  "children": [],
+                  "kind": "state_ref",
+                  "label": "state_change",
+                  "node_id": "obligation.0.before",
+                  "role": "child",
+                  "source_spans": [
+                    {
+                      "document": "controlled_requirement",
+                      "end_char": 131,
+                      "start_char": 90,
+                      "text": "operation must reject before state_change"
+                    }
+                  ]
+                }
+              ],
+              "kind": "before",
+              "label": "before",
+              "node_id": "obligation.0",
+              "role": "obligation",
+              "source_spans": [
+                {
+                  "document": "controlled_requirement",
+                  "end_char": 131,
+                  "start_char": 90,
+                  "text": "operation must reject before state_change"
+                }
+              ]
+            }
+          ],
+          "kind": "action_obligation",
+          "label": "action_obligation",
+          "node_id": "obligation.root",
+          "role": "obligation",
+          "source_spans": [
+            {
+              "document": "controlled_requirement",
+              "end_char": 131,
+              "start_char": 85,
+              "text": "then operation must reject before state_change"
+            }
+          ]
+        }
+      ],
+      "kind": "rule",
+      "label": "rule",
+      "node_id": "rule.root",
+      "role": "root",
+      "source_spans": [
+        {
+          "document": "controlled_requirement",
+          "end_char": 131,
+          "start_char": 0,
+          "text": "requirement authorization_precondition:\nscope operation\nwhen actor is not authorized\nthen operation must reject before state_change"
+        }
+      ]
+    },
+    "schema_version": "0.1",
+    "source_ir_hash": "sha256:2b1fb38acae95030f2eae9cb555e126e52a433ee372251734b14baafa56a3d14",
+    "tool": "nlreq.semantic_translation",
+    "tool_version": "0.1",
+    "tree_id": "semantic-decomposition-R-CP-20260625"
+  },
+  "semantic_decomposition_hash": "sha256:6614f50a3bd6734f6616bdfc0e26e5c81335b7710d2e4e908f04206540415be8",
+  "semantic_tree_hash": "sha256:f0ca58ed8580e44b0eeb9b01ff095eec18fb4438f0950762a47271c8e6c7d9c9",
+  "stages": [
+    {
+      "artifact_hash": "sha256:dfbf31488cd2087fecdba35fa8a4c25138dfa3163b00cf3998860150ff2263ba",
+      "message": "controlled text accepted for deterministic DSL v3 parsing",
+      "stage": "canonicalize",
+      "status": "passed"
+    },
+    {
+      "artifact_hash": "sha256:6614f50a3bd6734f6616bdfc0e26e5c81335b7710d2e4e908f04206540415be8",
+      "message": "controlled text parsed to explicit semantic decomposition tree",
+      "stage": "parse_semantic_tree",
+      "status": "passed"
+    },
+    {
+      "message": "2 of 2 decomposition candidate(s) are unapproved or lack a present, passing audit verdict; audit evidence required before claim inference",
+      "stage": "lower_formal_claim",
+      "status": "needs_review"
+    }
+  ],
+  "syntactically_valid": true,
+  "tool": "nlreq.semantic_translation",
+  "tool_version": "0.1",
+  "translation_id": "semantic-translation-R-CP-20260625"
+}

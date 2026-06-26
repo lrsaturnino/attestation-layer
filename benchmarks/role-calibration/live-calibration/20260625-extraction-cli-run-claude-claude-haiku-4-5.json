@@ -1,0 +1,190 @@
+{
+  "calibration": {
+    "cli_version": "2.1.193 (Claude Code)",
+    "client_kind": "cli",
+    "prompt_version": "0.1",
+    "provider": "anthropic",
+    "resolved_model": "claude-haiku-4-5",
+    "role": "extraction",
+    "route": "official",
+    "transport_source": "override",
+    "wrapper": "run-claude",
+    "wrapper_hash": "5524a2abf5665fa7396432372a473a682fea7570ad2736c7984c7a8425eddaf5"
+  },
+  "corpus_id": "extraction-calibration",
+  "domains": [
+    {
+      "false_acceptance_count": 6,
+      "false_acceptance_rate": 1.0,
+      "false_refusal_count": 6,
+      "false_refusal_rate": 1.0,
+      "label": "payments",
+      "matched_count": 0,
+      "total_cases": 6
+    },
+    {
+      "false_acceptance_count": 6,
+      "false_acceptance_rate": 1.0,
+      "false_refusal_count": 6,
+      "false_refusal_rate": 1.0,
+      "label": "inventory",
+      "matched_count": 0,
+      "total_cases": 6
+    }
+  ],
+  "false_acceptance_count": 12,
+  "false_acceptance_rate": 1.0,
+  "false_refusal_count": 12,
+  "false_refusal_rate": 1.0,
+  "languages": [
+    {
+      "false_acceptance_count": 12,
+      "false_acceptance_rate": 1.0,
+      "false_refusal_count": 12,
+      "false_refusal_rate": 1.0,
+      "label": "go",
+      "matched_count": 0,
+      "total_cases": 12
+    }
+  ],
+  "matched_cases": 0,
+  "observations": [
+    {
+      "case_id": "extract-payments-faithful-1",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "faithful",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('LimitedRefundAmount', '(amount > LIMIT) => reject'), ('RefundCompletionRequiresLimitCompliance', 'refund_completes => (amount <= LIMIT)')]",
+        "missed invariants: [('S_refund_limit', 'refund_amount <= LIMIT')]"
+      ]
+    },
+    {
+      "case_id": "extract-payments-fa-1",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('amount_limit_checked', '(amount > LIMIT) => reject_occurs'), ('reject_requires_excess_amount', 'reject_occurs => (amount > LIMIT)')]",
+        "missed invariants: [('S_refund_limit', 'refund_amount <= LIMIT')]"
+      ]
+    },
+    {
+      "case_id": "extract-payments-fr-1",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('large_refunds_prevented', '[]( amount > LIMIT => ~refund_succeeds )'), ('refunds_bounded_by_limit', '[]((refund_executed /\\\\ amount > LIMIT) => rejected)')]",
+        "missed invariants: [('S_refund_limit', 'refund_amount <= LIMIT')]"
+      ]
+    },
+    {
+      "case_id": "extract-payments-faithful-2",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "faithful",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('bounded_successful_refund', '[] (refund_succeeds => (amount <= LIMIT))'), ('limit_guard_enforcement', '[] ((amount > LIMIT) => reject)')]",
+        "missed invariants: [('S_refund_limit', 'refund_amount <= LIMIT')]"
+      ]
+    },
+    {
+      "case_id": "extract-payments-fa-2",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('HighAmountRefusedByReject', '(amount > LIMIT) => reject'), ('RefundAmountMustBeWithinLimit', 'refund_processed => (amount <= LIMIT)')]",
+        "missed invariants: [('S_refund_limit', 'refund_amount <= LIMIT')]"
+      ]
+    },
+    {
+      "case_id": "extract-payments-fr-2",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('AllowOnLimit', '(amount <= LIMIT) => \u00acreject_called'), ('RejectOnExcess', '(amount > LIMIT) => reject_called')]",
+        "missed invariants: [('S_refund_limit', 'refund_amount <= LIMIT')]"
+      ]
+    },
+    {
+      "case_id": "extract-inventory-faithful-1",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "faithful",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('stock_non_negative', 'stock >= 0')]",
+        "missed invariants: [('S_nonnegative_stock', 'stock >= 0')]"
+      ]
+    },
+    {
+      "case_id": "extract-inventory-fa-1",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('stock_non_negative', 'stock >= 0')]",
+        "missed invariants: [('S_nonnegative_stock', 'stock >= 0')]"
+      ]
+    },
+    {
+      "case_id": "extract-inventory-fr-1",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('StockNonNegative', 'stock >= 0')]",
+        "missed invariants: [('S_nonnegative_stock', 'stock >= 0')]"
+      ]
+    },
+    {
+      "case_id": "extract-inventory-faithful-2",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "faithful",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('StockNonNegative', 'stock >= 0')]",
+        "missed invariants: [('S_nonnegative_stock', 'stock >= 0')]"
+      ]
+    },
+    {
+      "case_id": "extract-inventory-fa-2",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "false_acceptance",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('stock_non_negative', 'stock >= 0')]",
+        "missed invariants: [('S_nonnegative_stock', 'stock >= 0')]"
+      ]
+    },
+    {
+      "case_id": "extract-inventory-fr-2",
+      "false_acceptance": true,
+      "false_refusal": true,
+      "fault_kind": "false_refusal",
+      "matched": false,
+      "notes": [
+        "invented invariants: [('StockNonNegative', 'stock >= 0')]",
+        "missed invariants: [('S_nonnegative_stock', 'stock >= 0')]"
+      ]
+    }
+  ],
+  "result": "failed",
+  "role": "extraction",
+  "schema_version": "0.1",
+  "total_cases": 12,
+  "version": "0.1"
+}
