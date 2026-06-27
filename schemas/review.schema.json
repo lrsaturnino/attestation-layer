@@ -81,6 +81,7 @@
     }
   },
   "additionalProperties": false,
+  "description": "A package's ``review.json`` \u2014 the review of the controlled requirement's pinned meaning.\n\nThe ``review_origin`` field is the POSITIVE contract that distinguishes a fabricated\npackage-builder approval (``review_origin=\"package_builder\"`` \u2014 the default Phase 0 /\nper-language ``_review`` fabrication under a ``phase<N>@example.invalid`` placeholder\nreviewer) from a real human review event (``review_origin=\"human\"``). A real human review is\nUNREPRESENTABLE under a placeholder reviewer: the construction guard refuses\n``review_origin=\"human\"`` whose ``reviewer`` is a package-builder placeholder, so a\nfabricated approval can never be labeled human (ADR 0206; acceptance #5). This closes the\n``ReviewArtifact`` / ``review.json`` fabrication gap the original provenance-axis guard left\nopen: a fabricated package-builder ``review.json`` now carries an explicit non-human origin and\ncannot validate as a real human review event. (The deeper stamping-path change \u2014 a machine\npackage emitting a pinning record INSTEAD of a fake ``review.json`` \u2014 has since shipped:\n``package.build_package(pinning=...)`` writes a ``needs_review`` review plus a\n``machine_agreement`` ``pinning-provenance.json`` for a machine-pinned package.)",
   "properties": {
     "checklist": {
       "$ref": "#/$defs/ReviewChecklist"
@@ -96,6 +97,15 @@
     },
     "review_id": {
       "title": "Review Id",
+      "type": "string"
+    },
+    "review_origin": {
+      "default": "package_builder",
+      "enum": [
+        "human",
+        "package_builder"
+      ],
+      "title": "Review Origin",
       "type": "string"
     },
     "reviewed_hashes": {

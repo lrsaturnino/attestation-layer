@@ -1171,3 +1171,194 @@ def test_ineligible_wrapper_refuses_upfront_with_zero_egress(wrapper_name: str) 
     assert "attestation" in msg.lower() or "refused" in msg.lower(), (
         f"expected an attestation-refusal message, got: {msg!r}"
     )
+
+
+# ---------------------------------------------------------------------------
+# CLI-level attest-spec machine-pin (three-zone scope §7; HELPER iter-3 #1).
+#
+# The library-level tests (test_attest_spec.py) prove the orchestrator machine-pins given a real
+# shape check; THESE tests prove the whole PRODUCTION CLI path — argv → per-role client resolution
+# → provider-family derivation (run-claude→anthropic / run-gpt→openai) → the REAL
+# ``deterministic_shape_for_controlled_text`` (NOT a test-injected check) → route_machine_pinning →
+# the written report — actually auto-advances a clean cross-provider-agreed candidate end-to-end.
+# This closes the iter-3 gap where the CLI never supplied a shape check, so only library tests
+# could auto-advance (the production command could never machine-pin).
+# ---------------------------------------------------------------------------
+
+
+# A controlled requirement the REAL deterministic shape check parses + binds + evidences (the
+# authorization_precondition fixture shape); both drafting wrappers echo it so the ensemble agrees.
+_ATTEST_PARSEABLE_CONTROLLED = (
+    "For every operation request:\n"
+    "  if actor is not authorized\n"
+    "  then operation must be rejected before state_change.\n"
+)
+
+
+def _write_machine_pin_policy(tmp_path: Path) -> Path:
+    """Write an opt-in machine-pin policy JSON (calibration + default-deny allow-list).
+
+    The calibration covers the 2-member / 2-family / FA=0 configuration the echo ensemble produces,
+    so the calibration-derived threshold admits it (AC9, no hand-set constant). The changed-path
+    policy is enabled with a ``src/**`` allow-list, so a ``src/*`` changed path is admitted
+    (default-deny, AC4). ``required_deterministic_levels`` is empty: machine pinning never
+    substitutes for a proof level, and this CLI test exercises the routing/provenance path, not the
+    evidence-level gate (which has its own library coverage).
+    """
+    policy = {
+        "policy_id": "attest-cli-test",
+        "schema_version": "0.1",
+        "rules": {
+            "minimum_ensemble_size": 2,
+            "required_distinct_provider_families": 2,
+            "required_deterministic_levels": [],
+            "calibration": {
+                "calibration_id": "ens-fa-cli-1",
+                "configurations": [
+                    {
+                        "ensemble_size": 2,
+                        "distinct_provider_families": 2,
+                        "false_acceptance_rate": 0.0,
+                        "sample_count": 50,
+                    }
+                ],
+            },
+            "changed_path_policy": {
+                "enabled": True,
+                "allowed_changed_path_patterns": ["src/**"],
+            },
+        },
+    }
+    path = tmp_path / "machine-pin-policy.json"
+    path.write_text(json.dumps(policy), encoding="utf-8")
+    return path
+
+
+def _attest_drafting_wrappers(tmp_path: Path) -> tuple[Path, Path]:
+    """Two cross-provider drafting wrappers (run-claude→anthropic, run-gpt→openai) that AGREE.
+
+    The wrapper BASENAME drives ``provider_family`` (``PROVIDER_FAMILY_BY_WRAPPER``), so naming the
+    files ``run-claude`` / ``run-gpt`` yields two distinct families that satisfy the diversity gate;
+    both echo the SAME parseable controlled text so the drafting ensemble agrees.
+    """
+    wrapper_claude = _make_echo_wrapper(
+        tmp_path, name="run-claude", provider="anthropic", model="claude-snap",
+        wrapper_name="run-claude", output_text=_ATTEST_PARSEABLE_CONTROLLED,
+    )
+    wrapper_gpt = _make_echo_wrapper(
+        tmp_path, name="run-gpt", provider="openai", model="gpt-snap",
+        wrapper_name="run-gpt", output_text=_ATTEST_PARSEABLE_CONTROLLED,
+    )
+    return wrapper_claude, wrapper_gpt
+
+
+def _attest_partition_wrappers(tmp_path: Path) -> tuple[Path, Path]:
+    """Two cross-provider PARTITION wrappers (Zone 1) that AGREE on one candidate rule per segment.
+
+    Mirrors ``_attest_drafting_wrappers`` for the partition role: the wrapper basenames
+    (run-claude→anthropic, run-gpt→openai) give two distinct provider families, so the partition
+    ensemble satisfies the ≥2-distinct-family diversity gate a machine pin requires (scope §4) — the
+    rule's BOUNDARY, not just its wording, is cross-checked. Both echo the SAME candidate-rule JSON
+    proposal, so the ensemble agrees with no boundary disagreement. Written into a ``partition``
+    subdir so the basenames match the family table while the file paths stay distinct from the
+    drafting wrappers.
+    """
+    proposal = json.dumps([{"rule": "The system shall reject unauthorized transfers."}])
+    subdir = tmp_path / "partition"
+    subdir.mkdir(exist_ok=True)
+    wrapper_claude = _make_echo_wrapper(
+        subdir, name="run-claude", provider="anthropic", model="claude-snap",
+        wrapper_name="run-claude", output_text=proposal,
+    )
+    wrapper_gpt = _make_echo_wrapper(
+        subdir, name="run-gpt", provider="openai", model="gpt-snap",
+        wrapper_name="run-gpt", output_text=proposal,
+    )
+    return wrapper_claude, wrapper_gpt
+
+
+def test_cli_attest_spec_machine_pins_a_clean_cross_provider_agreed_candidate(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The production ``attest-spec`` CLI machine-pins a clean candidate end-to-end (HELPER iter-3 #1).
+
+    Two cross-provider drafting wrappers echo the SAME parseable controlled text → the drafting
+    ensemble agrees; the policy opts in with a calibration covering the 2-family configuration and a
+    ``src/**`` allow-list; the changed path is ``src/*``. The CLI supplies the REAL
+    ``deterministic_shape_for_controlled_text`` (no injected check), so this exercises the whole
+    production path. The written report carries one ``machine_agreement`` pin whose ensemble records
+    the two DISTINCT provider families the CLI derived from the wrapper basenames.
+    """
+    _clear_model_env(monkeypatch)
+    monkeypatch.delenv("NLREQ_MACHINE_PIN", raising=False)
+    wrapper_claude, wrapper_gpt = _attest_drafting_wrappers(tmp_path)
+    # A machine pin also requires a cross-provider PARTITION ensemble (scope §4): the rule's boundary
+    # must be cross-checked, not only its wording. Supply two distinct-family partition wrappers.
+    partition_claude, partition_gpt = _attest_partition_wrappers(tmp_path)
+    document = tmp_path / "spec.md"
+    document.write_text("# Payments\n\nThe system shall reject unauthorized transfers.\n")
+    policy = _write_machine_pin_policy(tmp_path)
+    out = tmp_path / "attest-report.json"
+
+    exit_code = main([
+        "attest-spec", str(document),
+        "--client", f"cli:{partition_claude}",
+        "--client", f"cli:{partition_gpt}",
+        "--draft-client", f"cli:{wrapper_claude}",
+        "--draft-client", f"cli:{wrapper_gpt}",
+        "--machine-pin-policy", str(policy),
+        "--changed-path", "src/payments.py",
+        "--out", str(out),
+    ])
+    assert exit_code == 0
+    report = json.loads(out.read_text())
+
+    # The production CLI path machine-pinned the clean cross-provider-agreed candidate.
+    assert report["policy_off"] is False
+    assert len(report["machine_pinned"]) == 1
+    pin = report["machine_pinned"][0]
+    assert pin["controlled_text"] == _ATTEST_PARSEABLE_CONTROLLED
+    pinning = pin["pinning"]
+    assert pinning["kind"] == "machine_agreement"
+    # The ensemble members carry the two DISTINCT provider families the CLI derived from the wrapper
+    # basenames — proving the provider-family derivation flowed into routing (not a same-family pin).
+    families = {m["provider_family"] for m in pinning["ensemble"]["members"]}
+    assert families == {"anthropic", "openai"}
+    # A machine-pinned candidate requires no human attention — its index is NOT in the human queue.
+    pinned_index = pin["candidate_index"]
+    assert all(item["candidate_index"] != pinned_index for item in report["human_queue"])
+
+
+def test_cli_attest_spec_policy_off_routes_every_candidate_to_human(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """With NO ``--machine-pin-policy`` (and ``NLREQ_MACHINE_PIN`` unset) the production CLI emits no
+    pin and routes every candidate to the human queue — byte-identical to today (AC1).
+
+    Same agreeing cross-provider ensemble + changed path as the machine-pin test; ONLY the policy is
+    absent. The default posture must never auto-advance, so ``policy_off`` is True and
+    ``machine_pinned`` is empty regardless of how clean the candidate is.
+    """
+    _clear_model_env(monkeypatch)
+    monkeypatch.delenv("NLREQ_MACHINE_PIN", raising=False)
+    wrapper_claude, wrapper_gpt = _attest_drafting_wrappers(tmp_path)
+    document = tmp_path / "spec.md"
+    document.write_text("# Payments\n\nThe system shall reject unauthorized transfers.\n")
+    out = tmp_path / "attest-report.json"
+
+    exit_code = main([
+        "attest-spec", str(document),
+        "--draft-client", f"cli:{wrapper_claude}",
+        "--draft-client", f"cli:{wrapper_gpt}",
+        # NO --machine-pin-policy: machine pinning is OFF by default.
+        "--changed-path", "src/payments.py",
+        "--out", str(out),
+    ])
+    assert exit_code == 0
+    report = json.loads(out.read_text())
+    assert report["policy_off"] is True
+    assert report["machine_pinned"] == []
+    # Every candidate routed to the human queue with the policy-disabled reason.
+    assert report["human_queue"]
+    joined = " ".join(reason for item in report["human_queue"] for reason in item["reasons"])
+    assert "disabled" in joined

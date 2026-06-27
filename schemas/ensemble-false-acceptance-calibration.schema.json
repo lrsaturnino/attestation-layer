@@ -1,0 +1,65 @@
+{
+  "$defs": {
+    "EnsembleCalibrationConfiguration": {
+      "additionalProperties": false,
+      "description": "One measured ensemble configuration in a false-acceptance calibration.\n\nA configuration is identified by (ensemble_size, distinct_provider_families) \u2014 the two axes\nthe diversity + agreement gates vary \u2014 and carries the measured false-acceptance rate over a\nlabeled corpus (agreed-but-wrong / agreed) and the sample count that backs it. The\ndeterministically-derived auto-advance threshold (``derive_ensemble_fa_threshold``) is a\nfunction of these rates, never a hand-set constant (AC9).",
+      "properties": {
+        "distinct_provider_families": {
+          "minimum": 1,
+          "title": "Distinct Provider Families",
+          "type": "integer"
+        },
+        "ensemble_size": {
+          "minimum": 1,
+          "title": "Ensemble Size",
+          "type": "integer"
+        },
+        "false_acceptance_rate": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "False Acceptance Rate",
+          "type": "number"
+        },
+        "sample_count": {
+          "minimum": 0,
+          "title": "Sample Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ensemble_size",
+        "distinct_provider_families",
+        "false_acceptance_rate",
+        "sample_count"
+      ],
+      "title": "EnsembleCalibrationConfiguration",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The committed ensemble false-acceptance calibration the threshold is derived from (AC9).\n\nThis is a SEPARATE calibration from the per-role ``RoleCalibrationReport`` (scope \u00a73): the\nper-role calibration measures PER-MODEL false-acceptance/false-refusal on the translation\ncorpus, which is NOT an ensemble auto-advance false-acceptance metric. This calibration\nmeasures the ENSEMBLE's agreed-but-wrong rate across (size, families) configurations. The\nauto-advance threshold is derived deterministically from ``configurations`` via\n``derive_ensemble_fa_threshold`` \u2014 never a hand-set constant (AC9).",
+  "properties": {
+    "calibration_id": {
+      "title": "Calibration Id",
+      "type": "string"
+    },
+    "configurations": {
+      "items": {
+        "$ref": "#/$defs/EnsembleCalibrationConfiguration"
+      },
+      "title": "Configurations",
+      "type": "array"
+    },
+    "schema_version": {
+      "const": "0.1",
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "calibration_id"
+  ],
+  "title": "EnsembleFalseAcceptanceCalibration",
+  "type": "object"
+}

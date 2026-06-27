@@ -61,9 +61,90 @@ __all__ = [
     "ModelConfigError",
     "DEFAULT_CONFIG_FILENAME",
     "CONFIG_PATH_ENV",
+    "PROVIDER_FAMILY_BY_WRAPPER",
+    "PROVIDER_FAMILY_BY_PROVIDER",
+    "provider_family_for",
     "load_model_config",
     "build_client_for_role",
 ]
+
+
+# ---------------------------------------------------------------------------
+# Provider-family metadata (three-zone scope §3)
+# ---------------------------------------------------------------------------
+#
+# The per-role scope records the *provider* (wrapper) and resolved model id and frames diversity
+# as "two providers / avoid same-family correlated bias", but it does NOT define a machine-readable
+# provider-FAMILY grouping or a "two distinct families" predicate — and two distinct *providers*
+# can still be the same family (e.g. two wrappers both resolving to Anthropic models, or two
+# OpenRouter-routed models). The three-zone scope OWNS this contract (§3): a family tag coarser
+# than the wrapper, plus a "≥2 distinct families" predicate the partition-ensemble and
+# machine-agreement diversity gates need. ``provider_family_for`` is the single resolver both
+# gates call.
+#
+# The family is derived from the OPERATOR WRAPPER name (a known finite set — run-claude / run-gpt /
+# run-gemini / run-oss / run-oss-local, per ``cli_llm_client``) so it is known at CONSTRUCTION time
+# (the diversity gate runs before any call), with a sidecar-``provider`` fallback for a wrapper not
+# in the table. The anthropic kind is always ``"anthropic"``; the recorded kind has no live model.
+
+PROVIDER_FAMILY_BY_WRAPPER: dict[str, str] = {
+    "run-claude": "anthropic",
+    "run-gpt": "openai",
+    "run-gemini": "google",
+    "run-oss": "open-source",
+    "run-oss-local": "open-source",
+}
+
+PROVIDER_FAMILY_BY_PROVIDER: dict[str, str] = {
+    "anthropic": "anthropic",
+    "openai": "openai",
+    "google": "google",
+    "gemini": "google",
+    "meta": "meta",
+    "mistral": "mistral",
+    "ollama": "open-source",
+    "openrouter": "open-source",
+    "open-source": "open-source",
+    "together": "open-source",
+}
+
+
+def provider_family_for(
+    *,
+    client_kind: "ClientKind",
+    wrapper: str | None = None,
+    provider: str | None = None,
+) -> str | None:
+    """Resolve the provider FAMILY of a client — coarser than the wrapper (three-zone §3).
+
+    The diversity gate (partition ensemble / machine agreement) requires ≥2 distinct provider
+    *families*, not merely ≥2 distinct providers: two wrappers can resolve to the same family
+    (e.g. two OpenRouter-routed models, or two Anthropic-resolving wrappers) and so share
+    correlated training bias. The family is derived as:
+
+      * ``anthropic`` kind  → ``"anthropic"`` (deterministic; the SDK transport is Anthropic-only).
+      * ``cli`` kind        → the wrapper-basename family from ``PROVIDER_FAMILY_BY_WRAPPER``
+                              (run-claude→anthropic, run-gpt→openai, …), falling back to the
+                              sidecar ``provider`` family when the wrapper is not in the table.
+      * ``recorded`` kind   → ``None`` (no live model; a recorded fixture carries no family).
+
+    Returns ``None`` when the family cannot be resolved (an unknown wrapper with no provider),
+    which the diversity gate treats as "cannot satisfy distinct-family" rather than guessing —
+    a same-family/unknown ensemble routes to the human queue, never a silent pin (AC7).
+    """
+    if client_kind is ClientKind.anthropic:
+        return "anthropic"
+    if client_kind is ClientKind.cli:
+        if wrapper:
+            base = os.path.basename(wrapper)
+            family = PROVIDER_FAMILY_BY_WRAPPER.get(base)
+            if family is not None:
+                return family
+        if provider:
+            return PROVIDER_FAMILY_BY_PROVIDER.get(str(provider).strip().lower())
+        return None
+    # recorded: no live model, no family.
+    return None
 
 
 class ModelConfigError(ValueError):
@@ -77,12 +158,15 @@ class ModelConfigError(ValueError):
 
 
 class Role(str, Enum):
-    """The five LLM roles nlreq configures independently.
+    """The six LLM roles nlreq configures independently.
 
-    ``drafting`` / ``impact`` / ``extraction`` share the ``LlmClient`` type (three
-    methods on one protocol) but are distinct roles: a project may want a heavy model
-    for drafting and a lite model for impact estimation. ``decomposition`` and
-    ``audit`` have their own protocol/client families.
+    ``drafting`` / ``impact`` / ``extraction`` / ``partition`` share the ``LlmClient`` type
+    (four methods on one protocol) but are distinct roles: a project may want a heavy model
+    for drafting and a lite model for impact estimation. ``partition`` (three-zone scope §3/§4)
+    is the spec-partitioning proposal role (document segment → candidate rules); it is named
+    ``partition`` to avoid colliding with the existing ``decomposition`` (controlled→IR) and
+    ``extraction`` (Specula) roles. ``decomposition`` and ``audit`` have their own protocol/
+    client families.
     """
 
     drafting = "drafting"
@@ -90,6 +174,7 @@ class Role(str, Enum):
     impact = "impact"
     extraction = "extraction"
     audit = "audit"
+    partition = "partition"
 
 
 class ClientKind(str, Enum):
@@ -98,7 +183,7 @@ class ClientKind(str, Enum):
     ``anthropic`` — in-process Anthropic SDK call (the precision transport; the
     response carries the exact model snapshot id). ``cli`` — subprocess call to an
     operator wrapper executable for cross-provider diversity (Work Item 2/3 wires the
-    transport for all five roles). ``recorded`` — deterministic fixture replay for
+    transport for all six roles). ``recorded`` — deterministic fixture replay for
     offline/CI use.
     """
 
@@ -184,6 +269,7 @@ class ModelConfig(BaseModel):
     impact: RoleSpec | None = None
     extraction: RoleSpec | None = None
     audit: RoleSpec | None = None
+    partition: RoleSpec | None = None
 
 
 @dataclass(frozen=True)
@@ -205,6 +291,12 @@ class RoleProvenance:
     wrapper: str | None
     source: str
     is_default: bool
+    # The provider FAMILY (three-zone scope §3), coarser than ``wrapper``. ``None`` for the
+    # recorded kind (no live model) and for a ``cli`` wrapper whose family is unresolvable. Read
+    # directly by the partition-ensemble and machine-agreement diversity gates; DELIBERATELY NOT
+    # emitted by ``as_metadata()`` so default-path artifact bytes stay byte-identical (AC1) — the
+    # family is a routing input, not stamped artifact provenance.
+    provider_family: str | None = None
 
     def as_metadata(self) -> dict[str, str]:
         """Flat string→string map for artifact metadata; empty on the default path.
@@ -246,7 +338,7 @@ class CliOverride:
     env/file/default rungs (a per-call scheme is the highest-rung override) and selects the cli
     kind with the given wrapper, an optional ``tier`` (heavy|lite|tiny, passed as ``--tier``),
     and/or an optional ``expected_model`` (the exact resolved model id the sidecar MUST report).
-    The factory then constructs a ``CliLlmClient`` for any of the five roles.
+    The factory then constructs a ``CliLlmClient`` for any of the six roles.
 
     **Explicit model vs tier.** The operator wrappers resolve a model from wrapper+tier-specific
     env vars (e.g. ``CLAUDE_TINY_MODEL``) sourced from ``models.env`` in conditional-assignment
@@ -451,7 +543,7 @@ def _default_model_for_role(role: Role) -> str:
         from .audit_client import _DEFAULT_AUDIT_MODEL
 
         return _DEFAULT_AUDIT_MODEL
-    # drafting / impact / extraction share the LlmClient default.
+    # drafting / impact / extraction / partition share the LlmClient default.
     from .llm_client import _DEFAULT_MODEL
 
     return _DEFAULT_MODEL
@@ -485,6 +577,10 @@ def _prompt_version_for_role(role: Role) -> str | None:
         from .llm_client import _EXTRACTION_PROMPT_VERSION
 
         return _EXTRACTION_PROMPT_VERSION
+    if role is Role.partition:
+        from .llm_client import _PARTITION_PROMPT_VERSION
+
+        return _PARTITION_PROMPT_VERSION
     return None
 
 
@@ -612,8 +708,13 @@ def _resolve(
 
 
 def _llm_roles() -> frozenset[Role]:
-    """Roles backed by the ``LlmClient`` protocol (drafting/impact/extraction)."""
-    return frozenset({Role.drafting, Role.impact, Role.extraction})
+    """Roles backed by the ``LlmClient`` protocol (drafting/impact/extraction/partition).
+
+    ``partition`` (three-zone scope) is an LlmClient role: it proposes plain-language candidate
+    requirements from a segment via ``propose_candidate_rules``, the same text-in/text-out
+    protocol the other three share.
+    """
+    return frozenset({Role.drafting, Role.impact, Role.extraction, Role.partition})
 
 
 def _construct_anthropic(role: Role, resolved: _Resolved, provenance: RoleProvenance) -> object:
@@ -710,7 +811,7 @@ def _construct_cli(role: Role, resolved: _Resolved) -> object:
 
     ``CliLlmClient`` implements the ``LlmClient`` protocol (drafting / impact /
     extraction), the ``DecompositionClient`` protocol, AND the ``AuditClient`` protocol
-    (Work Item 3) — five methods total — so it is the CLI transport for ALL five roles.
+    (Work Item 3) — six methods total — so it is the CLI transport for ALL six roles.
     Construction never invokes the wrapper — a call does — so a configured cli role builds
     cleanly and only fails (with ``CliTransportError``) if the wrapper/contract is violated
     at run time.
@@ -785,6 +886,10 @@ def build_client_for_role(
         wrapper=resolved.wrapper,
         source=resolved.source,
         is_default=resolved.is_default,
+        # The provider FAMILY (three-zone §3), derived from the resolved kind+wrapper. Known at
+        # construction (the diversity gate runs before any call): anthropic→"anthropic",
+        # cli→wrapper family, recorded→None. NOT emitted by as_metadata() (AC1 byte-identity).
+        provider_family=provider_family_for(client_kind=resolved.kind, wrapper=resolved.wrapper),
     )
 
     if resolved.kind is ClientKind.anthropic:

@@ -1,0 +1,241 @@
+{
+  "$defs": {
+    "CandidateRule": {
+      "additionalProperties": false,
+      "description": "One proposed atomic candidate requirement derived from a behavioral segment.\n\n``[span_start, span_end)`` is a half-open span into the ORIGINAL document text locating\nthe source of this candidate (so a human can jump to it). For the deterministic default\nthe span is the whole segment; for an LLM-proposed candidate the span is computed by\nlocating the rule text inside the segment (falling back to the whole segment when the\nmodel paraphrased). ``source_segment_index`` ties the candidate back to its segment.\n\n``controlled_text`` / ``controlled_text_agreement_hash`` are populated by the per-candidate\nDRAFTING batch (scope \u00a74 / HELPER iter-2): ``controlled_text`` is the DSL controlled text the\ndrafting role produced for this candidate (None until drafting runs);\n``controlled_text_agreement_hash`` is the canonical hash of the agreed controlled text when\ndrafting ran under a cross-provider ensemble that AGREED (None for a single draft or a\ndisagreement). A candidate the drafter could not state (the ``[[NLR-CLARIFY]]`` sentinel) or\nwhose members disagreed is routed to the human queue via a ``needs_review`` flag rather than\ncarrying a controlled text \u2014 clarify routing is preserved per candidate (scope \u00a74).",
+      "properties": {
+        "controlled_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Controlled Text"
+        },
+        "controlled_text_agreement_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Controlled Text Agreement Hash"
+        },
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "source_segment_index": {
+          "title": "Source Segment Index",
+          "type": "integer"
+        },
+        "span_end": {
+          "title": "Span End",
+          "type": "integer"
+        },
+        "span_start": {
+          "title": "Span Start",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "text",
+        "span_start",
+        "span_end",
+        "source_segment_index"
+      ],
+      "title": "CandidateRule",
+      "type": "object"
+    },
+    "ClassifiedSegment": {
+      "additionalProperties": false,
+      "description": "A segment paired with its deterministic classification and the reason it was assigned.\n\nFlattened (rather than nesting ``Segment``) so the totality / round-trip invariants are\nasserted directly on the artifact's JSON without a nested dereference. Carries both the\ncode-point span (``start``/``end``, the str round-trip) and the UTF-8 byte span\n(``byte_start``/``byte_end``, the byte-totality oracle \u2014 every byte in exactly one classified\nsegment, AC6) \u2014 see ``Segment``.",
+      "properties": {
+        "byte_end": {
+          "title": "Byte End",
+          "type": "integer"
+        },
+        "byte_start": {
+          "title": "Byte Start",
+          "type": "integer"
+        },
+        "classification": {
+          "$ref": "#/$defs/SegmentClassification"
+        },
+        "end": {
+          "title": "End",
+          "type": "integer"
+        },
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "segment_kind": {
+          "$ref": "#/$defs/SegmentKind"
+        },
+        "start": {
+          "title": "Start",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "start",
+        "end",
+        "byte_start",
+        "byte_end",
+        "text",
+        "segment_kind",
+        "classification",
+        "reason"
+      ],
+      "title": "ClassifiedSegment",
+      "type": "object"
+    },
+    "PartitionFlag": {
+      "additionalProperties": false,
+      "description": "A human-queue flag raised during partitioning, each carrying a reason (never silent).",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/PartitionFlagKind"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "segment_index": {
+          "title": "Segment Index",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "segment_index",
+        "reason"
+      ],
+      "title": "PartitionFlag",
+      "type": "object"
+    },
+    "PartitionFlagKind": {
+      "description": "Why a behavioral segment's candidates were routed to the human queue instead of listed.\n\n``clarify`` \u2014 the partitioner emitted the ``[[NLR-CLARIFY]]`` sentinel (could not state a\nclear requirement). ``boundary_disagreement`` \u2014 ensemble members disagreed on how to\npartition the segment (one merged what another split, or some clarified while others\nproposed). ``unparseable`` \u2014 the partitioner's response could not be parsed into candidate\nrules (malformed JSON); routed to the human rather than silently dropped or guessed.",
+      "enum": [
+        "clarify",
+        "boundary_disagreement",
+        "unparseable"
+      ],
+      "title": "PartitionFlagKind",
+      "type": "string"
+    },
+    "SegmentClassification": {
+      "description": "The deterministic first-pass classification of a segment.\n\n``behavioral_candidate`` \u2014 the segment may state a testable requirement and is forwarded\nto the partitioner for a candidate-rule proposal. ``non_behavioral`` \u2014 structural\n(heading/separator) or clearly meta (reference/note/example/comment); excluded from the\ncandidate list but recorded with its reason. ``needs_clarification`` \u2014 the partitioner\ncould not state a clear requirement (the ``[[NLR-CLARIFY]]`` sentinel); the segment routes\nto the human queue, never a guessed candidate.",
+      "enum": [
+        "behavioral_candidate",
+        "non_behavioral",
+        "needs_clarification"
+      ],
+      "title": "SegmentClassification",
+      "type": "string"
+    },
+    "SegmentKind": {
+      "description": "Deterministic structural kind of a segment.\n\nThe four kinds are exhaustive over a document's characters: ``heading`` (a markdown ``#`` or\nsection-title line), ``list_item`` (a ``-``/``*``/``+`` or ``N.``/``N)`` prefixed line),\n``paragraph`` (a maximal run of plain prose lines), and ``separator`` (a maximal run of\nblank/whitespace-only lines). ``list_item`` is treated atomically (one segment per item)\nso the default candidate derivation has fine granularity; the other three merge maximal\nsame-kind runs.",
+      "enum": [
+        "heading",
+        "paragraph",
+        "list_item",
+        "separator"
+      ],
+      "title": "SegmentKind",
+      "type": "string"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The Zone 1 artifact: document hash + every segment + candidate rules + needs-review flags.\n\n``segments`` records EVERY segment (behavioral and non-behavioral) with its classification\nand reason, so ``extracted (candidate_rules' source segments) \u222a excluded (non-behavioral)\n== the full segmentation`` \u2014 no segment is silently dropped (completeness oracle). The\nhuman scans this manifest to confirm boundaries in seconds.",
+  "properties": {
+    "candidate_rules": {
+      "items": {
+        "$ref": "#/$defs/CandidateRule"
+      },
+      "title": "Candidate Rules",
+      "type": "array"
+    },
+    "document_hash": {
+      "title": "Document Hash",
+      "type": "string"
+    },
+    "document_length": {
+      "title": "Document Length",
+      "type": "integer"
+    },
+    "ensemble_member_provenance": {
+      "items": {
+        "additionalProperties": {
+          "type": "string"
+        },
+        "type": "object"
+      },
+      "title": "Ensemble Member Provenance",
+      "type": "array"
+    },
+    "ensemble_members": {
+      "title": "Ensemble Members",
+      "type": "integer"
+    },
+    "language": {
+      "title": "Language",
+      "type": "string"
+    },
+    "needs_review": {
+      "items": {
+        "$ref": "#/$defs/PartitionFlag"
+      },
+      "title": "Needs Review",
+      "type": "array"
+    },
+    "provenance": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "title": "Provenance",
+      "type": "object"
+    },
+    "segments": {
+      "items": {
+        "$ref": "#/$defs/ClassifiedSegment"
+      },
+      "title": "Segments",
+      "type": "array"
+    }
+  },
+  "required": [
+    "document_hash",
+    "document_length",
+    "language",
+    "segments",
+    "candidate_rules",
+    "needs_review",
+    "ensemble_members",
+    "provenance"
+  ],
+  "title": "SpecPartitionArtifact",
+  "type": "object"
+}

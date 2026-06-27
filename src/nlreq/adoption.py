@@ -23,6 +23,7 @@ from .protobuf_adapter import ProtobufAdapter
 from .protobuf_package import validate_protobuf_package
 from .python_adapter import PythonPackageAdapter
 from .python_package import validate_python_package
+from .status import is_human_accepted
 from .tla_adapter import TlaAdapter
 from .tla_package import validate_tla_package
 
@@ -545,7 +546,7 @@ def _index_summary(packages: list[dict[str, Any]]) -> dict[str, int]:
         "validation_skipped": sum(
             1 for package in packages if package["validation_status"] == "skipped"
         ),
-        "accepted": sum(1 for status in statuses if status.startswith("ACCEPTED")),
+        "accepted": sum(1 for status in statuses if is_human_accepted(status)),
         "refused": sum(1 for status in statuses if status.startswith("REFUSED")),
         "needs_spec_coverage": sum(
             1 for package in packages if package["evidence"]["needs_spec_coverage"]
@@ -561,6 +562,13 @@ def _index_summary(packages: list[dict[str, Any]]) -> dict[str, int]:
             1 for package in packages if package["evidence"]["unsupported_claims"]
         ),
         "pending_reviews": sum(
+            # CATEGORY-2 REVIEW CHECK — AC1 BASELINE (ADR 0206 §2): counts a non-approved review
+            # decision. Gates on ``decision == "approved"``, not ``is_real_human_review``, because
+            # the Phase 0 package builder fabricates an approved review.json on every default
+            # package and AC1 requires the default pipeline to pass byte-identically (tightening
+            # would block every default package). The machine-pin path is protected at the
+            # provenance axis (a machine-pinned package carries needs_review + a pinning record,
+            # never an approved review), not here. See ``gate.py`` for the full rationale.
             1
             for package in packages
             if package["evidence"]["pending_reviews"] or package["review"]["decision"] != "approved"
@@ -647,6 +655,11 @@ def _ci_findings(packages: list[dict[str, Any]]) -> list[dict[str, str | None]]:
                     "pending reviews: " + ", ".join(evidence["pending_reviews"]),
                 )
             )
+        # CATEGORY-2 REVIEW CHECK — AC1 BASELINE (ADR 0206 §2): gates on ``decision == "approved"``
+        # not ``is_real_human_review``. Tightening would block every default package (each carries
+        # the fabricated package-builder approval) — a direct AC1 violation. The machine-pin path
+        # is protected at the provenance axis (``validate_package`` refuses a machine-pinned package
+        # with an ``approved`` review), not here. See ``gate.py`` for the full rationale.
         if package["review"]["decision"] != "approved":
             findings.append(
                 _finding(
@@ -720,7 +733,7 @@ def _soft_gate_findings(
                     "referenced package has no status",
                 )
             )
-        elif not str(status).startswith("ACCEPTED"):
+        elif not is_human_accepted(status):
             findings.append(
                 _finding(
                     "blocker",
@@ -732,6 +745,11 @@ def _soft_gate_findings(
             )
 
         review = package["review"]
+        # CATEGORY-2 REVIEW CHECK — AC1 BASELINE (ADR 0206 §2): gates on ``decision == "approved"``
+        # not ``is_real_human_review``. Tightening would block every default package (each carries
+        # the fabricated package-builder approval) — a direct AC1 violation. The machine-pin path
+        # is protected at the provenance axis (``validate_package`` refuses a machine-pinned package
+        # with an ``approved`` review), not here. See ``gate.py`` for the full rationale.
         if review["decision"] != "approved":
             findings.append(
                 _finding(

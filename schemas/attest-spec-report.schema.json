@@ -1,0 +1,2423 @@
+{
+  "$defs": {
+    "Approval": {
+      "additionalProperties": false,
+      "properties": {
+        "approved_at": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved At"
+        },
+        "approved_by": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Approved By"
+        },
+        "self_audit": {
+          "default": false,
+          "title": "Self Audit",
+          "type": "boolean"
+        },
+        "status": {
+          "enum": [
+            "approved",
+            "needs_review",
+            "rejected"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "Approval",
+      "type": "object"
+    },
+    "AttestCoverageGate": {
+      "additionalProperties": false,
+      "description": "The document-wide spec-coverage gate (Zone 3 \u00a77 step 6), run when registry + impact supplied.\n\nModules with no registered system spec ``S`` route to a ``needs_coverage`` human-queue bucket\n(queued for ``specula-extract``) and are NEVER reported as passing (scope \u00a77 step 6 honesty).",
+      "properties": {
+        "result": {
+          "title": "Result",
+          "type": "string"
+        },
+        "unspecified_modules": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unspecified Modules",
+          "type": "array"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "title": "AttestCoverageGate",
+      "type": "object"
+    },
+    "AttestDownstreamStage": {
+      "description": "The downstream-graph stage recorded per agreed candidate (Zone 3 \u00a77 steps 3-9).",
+      "enum": [
+        "ir_v2_produced",
+        "needs_coverage",
+        "needs_downstream_artifacts",
+        "s_and_r_blocked"
+      ],
+      "title": "AttestDownstreamStage",
+      "type": "string"
+    },
+    "AttestHumanQueueItem": {
+      "additionalProperties": false,
+      "description": "One item in the consolidated human queue, each carrying its reason(s) and stage.\n\nThe consolidated queue contains ONLY flagged-hard items (scope \u00a77 step 10): a candidate the\npartitioner/drafter could not state (clarify), an ensemble/boundary disagreement, an unmet\nmachine-pin signal, or a rule needing downstream artifacts. Each item states WHY it is queued\nand at WHICH stage, so a human can triage in seconds.",
+      "properties": {
+        "candidate_index": {
+          "title": "Candidate Index",
+          "type": "integer"
+        },
+        "candidate_text": {
+          "title": "Candidate Text",
+          "type": "string"
+        },
+        "reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Reasons",
+          "type": "array"
+        },
+        "stage": {
+          "enum": [
+            "partition",
+            "drafting",
+            "routing",
+            "needs_downstream_artifacts",
+            "set_consistency",
+            "needs_coverage",
+            "s_and_r",
+            "downstream_blocker"
+          ],
+          "title": "Stage",
+          "type": "string"
+        }
+      },
+      "required": [
+        "candidate_index",
+        "candidate_text",
+        "stage"
+      ],
+      "title": "AttestHumanQueueItem",
+      "type": "object"
+    },
+    "AttestMachinePin": {
+      "additionalProperties": false,
+      "description": "A candidate rule the orchestrator machine-pinned (auto-advanced past human approval).\n\nCarries the agreed controlled text and the ``machine_agreement`` ``PinningProvenance`` the\nrouter emitted (members, resolved model ids, provider families, agreement, audit verdicts,\npolicy hash). A human MAY later promote it to ``human_review`` (promotion is upward only).\n\n``attention_required`` reconciles the pin against the downstream graph (HELPER iter-2 #2/#3):\na pin records that the ensemble agreed on the rule's MEANING, but a downstream check\n(requirement-set contradiction, a coverage gap on the change, or an S \u2227 R result that disproved\nOR could-not-validate the rule) means the SAME candidate ALSO needs human attention. A pin with\n``attention_required=True`` carries its blocker reason(s) in ``attention_reasons`` AND appears in\nthe consolidated ``human_queue`` \u2014 so the report never presents a candidate with an unresolved\ndownstream blocker as a clean, no-attention machine pin (scope \u00a77 step 10). A pin with\n``attention_required=False`` passed every downstream check that RAN and requires no attention to\nestablish its pinned meaning (the operator's optional next downstream step, when external impact/\nregistry were not supplied, is recorded separately in the report's ``prerequisites``).",
+      "properties": {
+        "attention_reasons": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Attention Reasons",
+          "type": "array"
+        },
+        "attention_required": {
+          "default": false,
+          "title": "Attention Required",
+          "type": "boolean"
+        },
+        "candidate_index": {
+          "title": "Candidate Index",
+          "type": "integer"
+        },
+        "candidate_text": {
+          "title": "Candidate Text",
+          "type": "string"
+        },
+        "controlled_text": {
+          "title": "Controlled Text",
+          "type": "string"
+        },
+        "pinning": {
+          "$ref": "#/$defs/PinningProvenance"
+        }
+      },
+      "required": [
+        "candidate_index",
+        "candidate_text",
+        "controlled_text",
+        "pinning"
+      ],
+      "title": "AttestMachinePin",
+      "type": "object"
+    },
+    "AttestPrerequisite": {
+      "additionalProperties": false,
+      "description": "An external graph artifact the orchestrator cannot produce from the document alone.\n\nZone 3's impact analysis (scope \u00a77 step 5) is per-source: it maps a requirement's symbols to\naffected modules through the real call graph, so it needs the SOURCE TREE (a manifest), not just\nthe spec document. The reviewed system-spec registry (step 6) is likewise an external input.\nWhen either is absent the orchestrator records an EXPLICIT, ACTIONABLE prerequisite here \u2014 the\nartifact name, why it cannot be produced, and the exact dedicated command that produces it\n(HELPER iter-1 #2: an explicitly-named prerequisite, NOT a vague ``needs_downstream_artifacts``\nnote). The operator runs the named command, then re-runs ``attest-spec`` with the artifact so\nthe orchestrator produces the rest of the graph (coverage gate, system-consistency, S&R).",
+      "properties": {
+        "artifact": {
+          "title": "Artifact",
+          "type": "string"
+        },
+        "command": {
+          "title": "Command",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "artifact",
+        "reason",
+        "command"
+      ],
+      "title": "AttestPrerequisite",
+      "type": "object"
+    },
+    "AttestRuleDownstream": {
+      "additionalProperties": false,
+      "description": "Per-rule downstream-graph result (Zone 3 \u00a77 steps 3-9), one per agreed candidate.\n\nRecords what the orchestrator PRODUCED (IR v0.2 + the lowered artifact \u2014 deterministic, always)\nand what it RAN when the operator supplied the external artifacts (coverage, S&R). A downstream\nblocker \u2014 a set contradiction/unchecked, a coverage gap, an S&R DISPROOF (counterexample /\ninvalid / timeout), or an S&R that COULD-NOT-VALIDATE (``unsupported``) \u2014 is surfaced in the\nhuman queue with its reason AND reverts any machine pin on that candidate to attention_required\n(HELPER iter-2 #2/#3). A ``needs_downstream_artifacts`` stage (external artifacts not supplied)\nis recorded here INFORMATIONALLY \u2014 the operator's next step is the dedicated commands, not a\nqueue item, so the human queue stays focused on actionable blockers (HELPER iter-3 #2).",
+      "properties": {
+        "candidate_index": {
+          "title": "Candidate Index",
+          "type": "integer"
+        },
+        "ir_v2": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RequirementIRV2"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "ir_v2_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Ir V2 Hash"
+        },
+        "ir_v2_produced": {
+          "default": false,
+          "title": "Ir V2 Produced",
+          "type": "boolean"
+        },
+        "lowered": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LoweredFormalArtifact"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "lowered_status": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Lowered Status"
+        },
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "s_and_r": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SandRCompositionReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "s_and_r_result": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "S And R Result"
+        },
+        "stage": {
+          "$ref": "#/$defs/AttestDownstreamStage"
+        },
+        "system_consistency": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SystemConsistencyResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "candidate_index",
+        "requirement_id",
+        "stage"
+      ],
+      "title": "AttestRuleDownstream",
+      "type": "object"
+    },
+    "AttestSetConsistency": {
+      "additionalProperties": false,
+      "description": "The ``requirement-set-consistency`` result over the IR-v0.2 set (deterministic, always run).\n\nRun over every candidate's IR v0.2 via ``check_requirement_set_consistency`` (no external\ninputs). A ``contradiction`` or ``unsupported`` result routes the contradicting/unchecked\ncandidates to the human queue with their reason (scope \u00a77 step 9).",
+      "properties": {
+        "contradicted_candidates": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Contradicted Candidates",
+          "type": "array"
+        },
+        "contradiction_count": {
+          "default": 0,
+          "title": "Contradiction Count",
+          "type": "integer"
+        },
+        "result": {
+          "title": "Result",
+          "type": "string"
+        },
+        "unchecked_candidates": {
+          "items": {
+            "type": "integer"
+          },
+          "title": "Unchecked Candidates",
+          "type": "array"
+        },
+        "unchecked_count": {
+          "default": 0,
+          "title": "Unchecked Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "title": "AttestSetConsistency",
+      "type": "object"
+    },
+    "BackendResult": {
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "title": "Backend",
+          "type": "string"
+        },
+        "details": {
+          "additionalProperties": true,
+          "title": "Details",
+          "type": "object"
+        },
+        "evidence_level": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EvidenceLevel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "status": {
+          "enum": [
+            "valid",
+            "invalid",
+            "counterexample",
+            "timeout",
+            "unsupported",
+            "needs_review"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "backend",
+        "status"
+      ],
+      "title": "BackendResult",
+      "type": "object"
+    },
+    "CandidateRule": {
+      "additionalProperties": false,
+      "description": "One proposed atomic candidate requirement derived from a behavioral segment.\n\n``[span_start, span_end)`` is a half-open span into the ORIGINAL document text locating\nthe source of this candidate (so a human can jump to it). For the deterministic default\nthe span is the whole segment; for an LLM-proposed candidate the span is computed by\nlocating the rule text inside the segment (falling back to the whole segment when the\nmodel paraphrased). ``source_segment_index`` ties the candidate back to its segment.\n\n``controlled_text`` / ``controlled_text_agreement_hash`` are populated by the per-candidate\nDRAFTING batch (scope \u00a74 / HELPER iter-2): ``controlled_text`` is the DSL controlled text the\ndrafting role produced for this candidate (None until drafting runs);\n``controlled_text_agreement_hash`` is the canonical hash of the agreed controlled text when\ndrafting ran under a cross-provider ensemble that AGREED (None for a single draft or a\ndisagreement). A candidate the drafter could not state (the ``[[NLR-CLARIFY]]`` sentinel) or\nwhose members disagreed is routed to the human queue via a ``needs_review`` flag rather than\ncarrying a controlled text \u2014 clarify routing is preserved per candidate (scope \u00a74).",
+      "properties": {
+        "controlled_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Controlled Text"
+        },
+        "controlled_text_agreement_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Controlled Text Agreement Hash"
+        },
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "source_segment_index": {
+          "title": "Source Segment Index",
+          "type": "integer"
+        },
+        "span_end": {
+          "title": "Span End",
+          "type": "integer"
+        },
+        "span_start": {
+          "title": "Span Start",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "text",
+        "span_start",
+        "span_end",
+        "source_segment_index"
+      ],
+      "title": "CandidateRule",
+      "type": "object"
+    },
+    "ClassifiedSegment": {
+      "additionalProperties": false,
+      "description": "A segment paired with its deterministic classification and the reason it was assigned.\n\nFlattened (rather than nesting ``Segment``) so the totality / round-trip invariants are\nasserted directly on the artifact's JSON without a nested dereference. Carries both the\ncode-point span (``start``/``end``, the str round-trip) and the UTF-8 byte span\n(``byte_start``/``byte_end``, the byte-totality oracle \u2014 every byte in exactly one classified\nsegment, AC6) \u2014 see ``Segment``.",
+      "properties": {
+        "byte_end": {
+          "title": "Byte End",
+          "type": "integer"
+        },
+        "byte_start": {
+          "title": "Byte Start",
+          "type": "integer"
+        },
+        "classification": {
+          "$ref": "#/$defs/SegmentClassification"
+        },
+        "end": {
+          "title": "End",
+          "type": "integer"
+        },
+        "index": {
+          "title": "Index",
+          "type": "integer"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "segment_kind": {
+          "$ref": "#/$defs/SegmentKind"
+        },
+        "start": {
+          "title": "Start",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "index",
+        "start",
+        "end",
+        "byte_start",
+        "byte_end",
+        "text",
+        "segment_kind",
+        "classification",
+        "reason"
+      ],
+      "title": "ClassifiedSegment",
+      "type": "object"
+    },
+    "ComposedSystemSpecRef": {
+      "additionalProperties": false,
+      "properties": {
+        "current_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Current Hash"
+        },
+        "formalism": {
+          "title": "Formalism",
+          "type": "string"
+        },
+        "freshness": {
+          "title": "Freshness",
+          "type": "string"
+        },
+        "path": {
+          "title": "Path",
+          "type": "string"
+        },
+        "recorded_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Recorded Hash"
+        },
+        "review_status": {
+          "title": "Review Status",
+          "type": "string"
+        },
+        "spec_id": {
+          "title": "Spec Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spec_id",
+        "path",
+        "formalism",
+        "review_status",
+        "freshness"
+      ],
+      "title": "ComposedSystemSpecRef",
+      "type": "object"
+    },
+    "CompositionArtifactRef": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_checkable": {
+          "default": true,
+          "title": "Backend Checkable",
+          "type": "boolean"
+        },
+        "kind": {
+          "enum": [
+            "tla_module",
+            "tla_config",
+            "backend_result"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "path": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Path"
+        },
+        "sha256": {
+          "title": "Sha256",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "sha256"
+      ],
+      "title": "CompositionArtifactRef",
+      "type": "object"
+    },
+    "Counterexample": {
+      "additionalProperties": false,
+      "properties": {
+        "actual": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Actual"
+        },
+        "backend": {
+          "title": "Backend",
+          "type": "string"
+        },
+        "claim_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Claim Id"
+        },
+        "counterexample_id": {
+          "title": "Counterexample Id",
+          "type": "string"
+        },
+        "description": {
+          "title": "Description",
+          "type": "string"
+        },
+        "expected": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected"
+        },
+        "inputs": {
+          "additionalProperties": true,
+          "title": "Inputs",
+          "type": "object"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        }
+      },
+      "required": [
+        "counterexample_id",
+        "backend",
+        "description"
+      ],
+      "title": "Counterexample",
+      "type": "object"
+    },
+    "EnsembleAgreementResult": {
+      "additionalProperties": false,
+      "description": "The agreement-computation result across the ensemble for a machine pinning.\n\nThis reuses the agreement *computation* (``decomposition_client`` / ``end_to_end_gate``) but\nNOT its human-approval precondition (scope \u00a73): auto-advance acts before human approval, so\nthe ``machine_agreement`` trust state defines its own requirements. ``agreed`` must be true\nfor a pinning (a divergent ensemble routes to the human queue, never a pin);\n``agreement_hash`` is the content hash of the agreed controlled text / IR shape the ensemble\nconverged on, so the pinned meaning is content-addressed.",
+      "properties": {
+        "agreed": {
+          "title": "Agreed",
+          "type": "boolean"
+        },
+        "agreement_hash": {
+          "title": "Agreement Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agreed",
+        "agreement_hash"
+      ],
+      "title": "EnsembleAgreementResult",
+      "type": "object"
+    },
+    "EnsembleAuditVerdict": {
+      "additionalProperties": false,
+      "description": "One ensemble member's audit verdict for a machine pinning.\n\nEach ensemble member's candidate must pass audit before the member may participate in a\nmachine pinning (scope \u00a75: \"passing audit verdicts\"). This is the provenance-axis audit\nsummary recorded on the pinning record, distinct from the decomposition ``AuditVerdict``\n(``audit_client``), which audits a decomposition result.",
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "member_id": {
+          "title": "Member Id",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "passed",
+            "failed"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "member_id",
+        "verdict"
+      ],
+      "title": "EnsembleAuditVerdict",
+      "type": "object"
+    },
+    "EnsembleEvidence": {
+      "additionalProperties": false,
+      "description": "The ensemble-evidence object a ``machine_agreement`` pinning is unrepresentable without.\n\nA machine-pinned rule's meaning was pinned by an ensemble of >=2 cross-provider (>=2 distinct\nprovider families) models that agreed, each passing audit, under a recorded policy whose\ncontent hash is carried here. The construction guard on ``PinningProvenance`` requires this\nobject to be present for a ``machine_agreement`` record, so a machine pinning cannot be held\nin memory without its ensemble evidence \u2014 modeled on the proof guards\n``_has_proof_artifact`` / ``_has_proof_assistant_identity`` (and the\n``BackendResult._validate_evidence_backing`` construction-time refusal pattern).\n\nThe signals here are all MEASURABLE (scope \u00a75 / acceptance #7): ensemble size, distinct\nprovider families, agreement, per-member audit verdicts, and the policy content hash \u2014 never a\nmodel-reported confidence scalar.\n\nThe stamping path is live (scope \u00a73/\u00a75): ``machine_agreement.route_machine_pinning`` constructs\nthis object from the measurable routing signals and ``package.build_package(pinning=...)`` writes\nit onto a machine-pinned package, under an opt-in ``--machine-pin-policy`` (cross-provider\ntransport, ensemble-FA calibration, deterministic threshold derivation, and the default-deny\nper-path gate). With no policy configured (the default) no production path constructs one, so the\ndefault pipeline is byte-identical to today (acceptance #1).",
+      "properties": {
+        "agreement": {
+          "$ref": "#/$defs/EnsembleAgreementResult"
+        },
+        "audit_verdicts": {
+          "items": {
+            "$ref": "#/$defs/EnsembleAuditVerdict"
+          },
+          "title": "Audit Verdicts",
+          "type": "array"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/EnsembleMember"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "policy_hash": {
+          "title": "Policy Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "members",
+        "agreement",
+        "audit_verdicts",
+        "policy_hash"
+      ],
+      "title": "EnsembleEvidence",
+      "type": "object"
+    },
+    "EnsembleMember": {
+      "additionalProperties": false,
+      "description": "One member of the cross-provider ensemble that pinned a machine-agreement rule.\n\n``resolved_model_id`` is the sidecar/API-resolved exact model id (ADR 0203 / ADR 0205 \u2014 never\nthe tier). ``provider_family`` is the family grouping THIS scope defines (scope \u00a73): coarser\nthan the wrapper ``provider`` so two distinct providers that resolve to the same family (e.g.\ntwo wrappers both resolving to Anthropic models) cannot satisfy the diversity requirement.\n\nEvery identifier must carry real content: a blank/whitespace-only ``member_id``,\n``resolved_model_id``, or ``provider_family`` would let a degenerate label satisfy the\ndistinct-family count (``{\"\", \"anthropic\"}`` is \"2 distinct families\") or the member/verdict\n1:1 correspondence vacuously, inflating the diversity and agreement signals a machine pinning\ngates on (ADR 0206; HELPER iter-5 review).",
+      "properties": {
+        "member_id": {
+          "title": "Member Id",
+          "type": "string"
+        },
+        "provider_family": {
+          "title": "Provider Family",
+          "type": "string"
+        },
+        "resolved_model_id": {
+          "title": "Resolved Model Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "member_id",
+        "resolved_model_id",
+        "provider_family"
+      ],
+      "title": "EnsembleMember",
+      "type": "object"
+    },
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    },
+    "ImpactAnalysisArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter_id": {
+          "title": "Adapter Id",
+          "type": "string"
+        },
+        "affected_modules": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Affected Modules",
+          "type": "array"
+        },
+        "call_graph_edges": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "title": "Call Graph Edges",
+          "type": "array"
+        },
+        "input_symbols": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Input Symbols",
+          "type": "array"
+        },
+        "language": {
+          "title": "Language",
+          "type": "string"
+        },
+        "metadata": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Metadata",
+          "type": "object"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "adapter_id",
+        "language",
+        "input_symbols",
+        "affected_modules"
+      ],
+      "title": "ImpactAnalysisArtifact",
+      "type": "object"
+    },
+    "LoweredFormalArtifact": {
+      "additionalProperties": false,
+      "properties": {
+        "content": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content"
+        },
+        "content_hash": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Content Hash"
+        },
+        "diagnostics": {
+          "items": {
+            "$ref": "#/$defs/LoweringDiagnostic"
+          },
+          "title": "Diagnostics",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "source_ir_hash": {
+          "title": "Source Ir Hash",
+          "type": "string"
+        },
+        "source_ir_version": {
+          "const": "0.2",
+          "title": "Source Ir Version",
+          "type": "string"
+        },
+        "status": {
+          "enum": [
+            "lowered",
+            "refused"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "target": {
+          "const": "tla",
+          "default": "tla",
+          "title": "Target",
+          "type": "string"
+        },
+        "temporal_bounds": {
+          "items": {
+            "$ref": "#/$defs/TemporalBoundRecord"
+          },
+          "title": "Temporal Bounds",
+          "type": "array"
+        },
+        "translator": {
+          "default": "nlreq.translator.tla_skeleton",
+          "title": "Translator",
+          "type": "string"
+        },
+        "translator_version": {
+          "default": "0.1",
+          "title": "Translator Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "source_ir_version",
+        "source_ir_hash",
+        "status"
+      ],
+      "title": "LoweredFormalArtifact",
+      "type": "object"
+    },
+    "LoweringDiagnostic": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "title": "Kind",
+          "type": "string"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "node_id",
+        "kind",
+        "reason"
+      ],
+      "title": "LoweringDiagnostic",
+      "type": "object"
+    },
+    "PartitionFlag": {
+      "additionalProperties": false,
+      "description": "A human-queue flag raised during partitioning, each carrying a reason (never silent).",
+      "properties": {
+        "kind": {
+          "$ref": "#/$defs/PartitionFlagKind"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "segment_index": {
+          "title": "Segment Index",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "kind",
+        "segment_index",
+        "reason"
+      ],
+      "title": "PartitionFlag",
+      "type": "object"
+    },
+    "PartitionFlagKind": {
+      "description": "Why a behavioral segment's candidates were routed to the human queue instead of listed.\n\n``clarify`` \u2014 the partitioner emitted the ``[[NLR-CLARIFY]]`` sentinel (could not state a\nclear requirement). ``boundary_disagreement`` \u2014 ensemble members disagreed on how to\npartition the segment (one merged what another split, or some clarified while others\nproposed). ``unparseable`` \u2014 the partitioner's response could not be parsed into candidate\nrules (malformed JSON); routed to the human rather than silently dropped or guessed.",
+      "enum": [
+        "clarify",
+        "boundary_disagreement",
+        "unparseable"
+      ],
+      "title": "PartitionFlagKind",
+      "type": "string"
+    },
+    "PinningProvenance": {
+      "additionalProperties": false,
+      "description": "Provenance of WHO pinned a controlled requirement's meaning \u2014 a separate axis from\n``EvidenceLevel`` (which records WHAT tool produced evidence).\n\nA package carries this record iff its controlled meaning was pinned by either a real human\nreview (``human_review``) or a machine agreement (``machine_agreement``). The two kinds are\nmutually exclusive and each is unrepresentable without its backing: a ``machine_agreement``\nrecord requires its ``EnsembleEvidence`` object, and a ``human_review`` record requires a REAL\nreview event \u2014 the actual ``ReviewArtifact`` that performed the review, carried INLINE as\n``review_event`` and required to carry ``review_origin=\"human\"`` (so ``is_real_human_review``\nis True). The event is carried INLINE (symmetric with the inline ``ensemble`` on a machine\npin) precisely so the pin is literally unrepresentable without a real review event \u2014 not\nmerely a reference to one \u2014 and scalar-only construction (a ``review_id`` + ``reviewer`` +\nhash with no event) is impossible. A fabricated package-builder ``review.json``\n(``review_origin=\"package_builder\"``) therefore cannot back a ``human_review`` pin, because\nits origin is not human (ADR 0206 \u00a72; acceptance #5). The ``ReviewArtifact`` construction\nguard already makes a ``review_origin=\"human\"`` event unrepresentable under a placeholder\nreviewer (``phase<N>@example.invalid``), so the provenance guard needs only to require the\nevent's origin be human \u2014 acceptance #5 is satisfied at BOTH axes.\n\n``review_id`` / ``reviewer`` / ``reviewed_artifact_hash`` are read-only accessors DERIVED\nfrom the embedded ``review_event`` (the reference signals scope \u00a76 names), not independently\nsettable scalar fields, so the pin's references and its backing event can never disagree.\n\nThe stamping path is live (scope \u00a73/\u00a75): the opt-in ``machine_agreement.route_machine_pinning``\nconstructs a ``machine_agreement`` record and ``package.build_package(pinning=...)`` emits it on\na package alongside a ``needs_review`` review (never a fabricated ``approved`` one); a human\nreview later promotes it to ``human_review`` (``package.promote_machine_pinned_package``, upward\nonly). With no machine-pin policy configured (the default) no production path constructs one, so\nthe default pipeline is byte-identical to today (acceptance #1).\n\nSCHEMA BOUNDARY (ADR 0206): ``schemas/pinning-provenance.schema.json`` is an AUTO-GENERATED\nstructural contract (drift-checked against this model), NOT the authoring contract. Pydantic\nvalidation is authoritative: the kind/backing mutual-exclusion (``machine_agreement`` requires\n``ensemble`` and forbids a review event; ``human_review`` requires a real review event with\n``review_origin=\"human\"`` and forbids ``ensemble``) and the human-origin requirement are\ncross-field / semantic guards the JSON Schema cannot express, so they live in the\n``model_validator`` below and are enforced on every construction / load. The schema therefore\nrequires only ``kind`` + ``timestamp``; a JSON-Schema-only consumer that accepts\n``kind: machine_agreement`` without ``ensemble`` is bypassing the runtime guard, not\nsatisfying it.",
+      "properties": {
+        "ensemble": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnsembleEvidence"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "kind": {
+          "enum": [
+            "human_review",
+            "machine_agreement"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "review_event": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ReviewArtifact"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "timestamp"
+      ],
+      "title": "PinningProvenance",
+      "type": "object"
+    },
+    "RequiredEvidence": {
+      "additionalProperties": false,
+      "properties": {
+        "claim_path": {
+          "title": "Claim Path",
+          "type": "string"
+        },
+        "minimum_level": {
+          "$ref": "#/$defs/EvidenceLevel"
+        }
+      },
+      "required": [
+        "claim_path",
+        "minimum_level"
+      ],
+      "title": "RequiredEvidence",
+      "type": "object"
+    },
+    "RequirementContradiction": {
+      "additionalProperties": false,
+      "properties": {
+        "contradiction_type": {
+          "enum": [
+            "numeric_range_disjointness",
+            "mutual_exclusion",
+            "action_order_conflict"
+          ],
+          "title": "Contradiction Type",
+          "type": "string"
+        },
+        "fragments": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Fragments",
+          "type": "array"
+        },
+        "requirement_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "minItems": 1,
+          "title": "Source Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "contradiction_type",
+        "requirement_ids",
+        "fragments",
+        "source_spans"
+      ],
+      "title": "RequirementContradiction",
+      "type": "object"
+    },
+    "RequirementIRV2": {
+      "additionalProperties": false,
+      "properties": {
+        "assumptions": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "title": "Assumptions",
+          "type": "array"
+        },
+        "bindings": {
+          "additionalProperties": {
+            "$ref": "#/$defs/SymbolBinding"
+          },
+          "title": "Bindings",
+          "type": "object"
+        },
+        "ir_version": {
+          "const": "0.2",
+          "default": "0.2",
+          "title": "Ir Version",
+          "type": "string"
+        },
+        "required_evidence": {
+          "items": {
+            "$ref": "#/$defs/RequiredEvidence"
+          },
+          "title": "Required Evidence",
+          "type": "array"
+        },
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "semantic_ir": {
+          "$ref": "#/$defs/SemanticNode"
+        },
+        "source": {
+          "$ref": "#/$defs/RequirementSource"
+        },
+        "title": {
+          "title": "Title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "title",
+        "source",
+        "semantic_ir"
+      ],
+      "title": "RequirementIRV2",
+      "type": "object"
+    },
+    "RequirementSetConsistencyReport": {
+      "additionalProperties": false,
+      "properties": {
+        "contradictions": {
+          "items": {
+            "$ref": "#/$defs/RequirementContradiction"
+          },
+          "title": "Contradictions",
+          "type": "array"
+        },
+        "result": {
+          "enum": [
+            "valid",
+            "contradiction",
+            "unsupported"
+          ],
+          "title": "Result",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.2",
+          "default": "0.2",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "unchecked": {
+          "items": {
+            "$ref": "#/$defs/UncheckedRequirement"
+          },
+          "title": "Unchecked",
+          "type": "array"
+        }
+      },
+      "required": [
+        "result"
+      ],
+      "title": "RequirementSetConsistencyReport",
+      "type": "object"
+    },
+    "RequirementSource": {
+      "additionalProperties": false,
+      "properties": {
+        "controlled_text": {
+          "title": "Controlled Text",
+          "type": "string"
+        },
+        "controlled_text_approval": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Approval"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "original_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Original Text"
+        }
+      },
+      "required": [
+        "controlled_text"
+      ],
+      "title": "RequirementSource",
+      "type": "object"
+    },
+    "ReviewArtifact": {
+      "additionalProperties": false,
+      "description": "A package's ``review.json`` \u2014 the review of the controlled requirement's pinned meaning.\n\nThe ``review_origin`` field is the POSITIVE contract that distinguishes a fabricated\npackage-builder approval (``review_origin=\"package_builder\"`` \u2014 the default Phase 0 /\nper-language ``_review`` fabrication under a ``phase<N>@example.invalid`` placeholder\nreviewer) from a real human review event (``review_origin=\"human\"``). A real human review is\nUNREPRESENTABLE under a placeholder reviewer: the construction guard refuses\n``review_origin=\"human\"`` whose ``reviewer`` is a package-builder placeholder, so a\nfabricated approval can never be labeled human (ADR 0206; acceptance #5). This closes the\n``ReviewArtifact`` / ``review.json`` fabrication gap the original provenance-axis guard left\nopen: a fabricated package-builder ``review.json`` now carries an explicit non-human origin and\ncannot validate as a real human review event. (The deeper stamping-path change \u2014 a machine\npackage emitting a pinning record INSTEAD of a fake ``review.json`` \u2014 has since shipped:\n``package.build_package(pinning=...)`` writes a ``needs_review`` review plus a\n``machine_agreement`` ``pinning-provenance.json`` for a machine-pinned package.)",
+      "properties": {
+        "checklist": {
+          "$ref": "#/$defs/ReviewChecklist"
+        },
+        "decision": {
+          "enum": [
+            "approved",
+            "needs_review",
+            "rejected"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "review_id": {
+          "title": "Review Id",
+          "type": "string"
+        },
+        "review_origin": {
+          "default": "package_builder",
+          "enum": [
+            "human",
+            "package_builder"
+          ],
+          "title": "Review Origin",
+          "type": "string"
+        },
+        "reviewed_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Reviewed Hashes",
+          "type": "object"
+        },
+        "reviewer": {
+          "title": "Reviewer",
+          "type": "string"
+        },
+        "self_audit": {
+          "default": false,
+          "title": "Self Audit",
+          "type": "boolean"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "review_id",
+        "reviewer",
+        "decision",
+        "reviewed_hashes",
+        "checklist",
+        "timestamp"
+      ],
+      "title": "ReviewArtifact",
+      "type": "object"
+    },
+    "ReviewChecklist": {
+      "additionalProperties": false,
+      "properties": {
+        "assumptions_explicit": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Assumptions Explicit",
+          "type": "string"
+        },
+        "bindings_justified": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Bindings Justified",
+          "type": "string"
+        },
+        "claim_shape_matches_controlled_form": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Claim Shape Matches Controlled Form",
+          "type": "string"
+        },
+        "controlled_form_matches_intent": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Controlled Form Matches Intent",
+          "type": "string"
+        },
+        "evidence_level_appropriate": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Evidence Level Appropriate",
+          "type": "string"
+        },
+        "source_spans_present": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Source Spans Present",
+          "type": "string"
+        },
+        "unsupported_claims_hidden": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Unsupported Claims Hidden",
+          "type": "string"
+        }
+      },
+      "required": [
+        "controlled_form_matches_intent",
+        "claim_shape_matches_controlled_form",
+        "source_spans_present",
+        "assumptions_explicit",
+        "bindings_justified",
+        "evidence_level_appropriate",
+        "unsupported_claims_hidden"
+      ],
+      "title": "ReviewChecklist",
+      "type": "object"
+    },
+    "SandRCompositionReport": {
+      "additionalProperties": false,
+      "properties": {
+        "backend_result_hash": {
+          "title": "Backend Result Hash",
+          "type": "string"
+        },
+        "blockers": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Blockers",
+          "type": "array"
+        },
+        "composition_artifacts": {
+          "items": {
+            "$ref": "#/$defs/CompositionArtifactRef"
+          },
+          "title": "Composition Artifacts",
+          "type": "array"
+        },
+        "composition_id": {
+          "title": "Composition Id",
+          "type": "string"
+        },
+        "impact_hash": {
+          "title": "Impact Hash",
+          "type": "string"
+        },
+        "limitations": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Limitations",
+          "type": "array"
+        },
+        "lowered_hash": {
+          "title": "Lowered Hash",
+          "type": "string"
+        },
+        "namespace_policy": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Namespace Policy",
+          "type": "array"
+        },
+        "preserved_invariants": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Preserved Invariants",
+          "type": "array"
+        },
+        "requirement_hash": {
+          "title": "Requirement Hash",
+          "type": "string"
+        },
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "result": {
+          "enum": [
+            "valid",
+            "counterexample",
+            "timeout",
+            "unsupported",
+            "invalid"
+          ],
+          "title": "Result",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "system_specs": {
+          "items": {
+            "$ref": "#/$defs/ComposedSystemSpecRef"
+          },
+          "title": "System Specs",
+          "type": "array"
+        },
+        "tool": {
+          "default": "nlreq.system_composition",
+          "title": "Tool",
+          "type": "string"
+        },
+        "tool_version": {
+          "default": "0.1",
+          "title": "Tool Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "result",
+        "composition_id",
+        "requirement_hash",
+        "lowered_hash",
+        "impact_hash",
+        "backend_result_hash"
+      ],
+      "title": "SandRCompositionReport",
+      "type": "object"
+    },
+    "SegmentClassification": {
+      "description": "The deterministic first-pass classification of a segment.\n\n``behavioral_candidate`` \u2014 the segment may state a testable requirement and is forwarded\nto the partitioner for a candidate-rule proposal. ``non_behavioral`` \u2014 structural\n(heading/separator) or clearly meta (reference/note/example/comment); excluded from the\ncandidate list but recorded with its reason. ``needs_clarification`` \u2014 the partitioner\ncould not state a clear requirement (the ``[[NLR-CLARIFY]]`` sentinel); the segment routes\nto the human queue, never a guessed candidate.",
+      "enum": [
+        "behavioral_candidate",
+        "non_behavioral",
+        "needs_clarification"
+      ],
+      "title": "SegmentClassification",
+      "type": "string"
+    },
+    "SegmentKind": {
+      "description": "Deterministic structural kind of a segment.\n\nThe four kinds are exhaustive over a document's characters: ``heading`` (a markdown ``#`` or\nsection-title line), ``list_item`` (a ``-``/``*``/``+`` or ``N.``/``N)`` prefixed line),\n``paragraph`` (a maximal run of plain prose lines), and ``separator`` (a maximal run of\nblank/whitespace-only lines). ``list_item`` is treated atomically (one segment per item)\nso the default candidate derivation has fine granularity; the other three merge maximal\nsame-kind runs.",
+      "enum": [
+        "heading",
+        "paragraph",
+        "list_item",
+        "separator"
+      ],
+      "title": "SegmentKind",
+      "type": "string"
+    },
+    "SemanticNode": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticNode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "annotations": {
+          "additionalProperties": {
+            "additionalProperties": true,
+            "type": "object"
+          },
+          "title": "Annotations",
+          "type": "object"
+        },
+        "args": {
+          "items": {
+            "$ref": "#/$defs/ValueRef"
+          },
+          "title": "Args",
+          "type": "array"
+        },
+        "children": {
+          "items": {
+            "$ref": "#/$defs/SemanticNode"
+          },
+          "title": "Children",
+          "type": "array"
+        },
+        "confidence": {
+          "enum": [
+            "reviewed",
+            "deterministic_parse",
+            "adapter_resolved",
+            "migration_inferred",
+            "llm_suggested",
+            "unknown"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "rule",
+            "premise",
+            "obligation",
+            "action_obligation",
+            "forall",
+            "exists",
+            "entity_scope",
+            "module_scope",
+            "and",
+            "or",
+            "not",
+            "implies",
+            "iff",
+            "predicate",
+            "comparison",
+            "membership",
+            "state_ref",
+            "action",
+            "call",
+            "event",
+            "transition",
+            "pre_state",
+            "post_state",
+            "invariant",
+            "state_delta",
+            "always",
+            "eventually",
+            "until",
+            "before",
+            "within",
+            "eq",
+            "neq",
+            "lt",
+            "lte",
+            "gt",
+            "gte",
+            "increase",
+            "decrease",
+            "system_spec_ref",
+            "code_symbol_ref",
+            "trace_ref",
+            "policy_ref"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "left": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticNode"
+            },
+            {
+              "$ref": "#/$defs/ValueRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Left"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "must": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticNode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "name": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Name"
+        },
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "obligation": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticNode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "premise": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticNode"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "provenance": {
+          "$ref": "#/$defs/SemanticProvenance"
+        },
+        "right": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SemanticNode"
+            },
+            {
+              "$ref": "#/$defs/ValueRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Right"
+        },
+        "scope": {
+          "items": {
+            "$ref": "#/$defs/SemanticNode"
+          },
+          "title": "Scope",
+          "type": "array"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        },
+        "target": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target"
+        },
+        "temporal_bound": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TemporalBound"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "value": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ValueRef"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "node_id",
+        "kind",
+        "provenance",
+        "confidence"
+      ],
+      "title": "SemanticNode",
+      "type": "object"
+    },
+    "SemanticProvenance": {
+      "additionalProperties": false,
+      "properties": {
+        "derived_from": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Derived From",
+          "type": "array"
+        },
+        "metadata": {
+          "additionalProperties": true,
+          "title": "Metadata",
+          "type": "object"
+        },
+        "method": {
+          "enum": [
+            "deterministic_parse",
+            "manual_review",
+            "migration",
+            "llm_draft",
+            "adapter",
+            "unknown"
+          ],
+          "title": "Method",
+          "type": "string"
+        },
+        "model": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Model"
+        },
+        "source_document": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Source Document"
+        },
+        "timestamp": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Timestamp"
+        },
+        "tool": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool"
+        },
+        "tool_version": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Tool Version"
+        }
+      },
+      "required": [
+        "method"
+      ],
+      "title": "SemanticProvenance",
+      "type": "object"
+    },
+    "SourceSpan": {
+      "additionalProperties": false,
+      "properties": {
+        "document": {
+          "title": "Document",
+          "type": "string"
+        },
+        "end_char": {
+          "minimum": 0,
+          "title": "End Char",
+          "type": "integer"
+        },
+        "start_char": {
+          "minimum": 0,
+          "title": "Start Char",
+          "type": "integer"
+        },
+        "text": {
+          "title": "Text",
+          "type": "string"
+        }
+      },
+      "required": [
+        "document",
+        "start_char",
+        "end_char",
+        "text"
+      ],
+      "title": "SourceSpan",
+      "type": "object"
+    },
+    "SpecCoverageGateReport": {
+      "additionalProperties": false,
+      "description": "Per-module spec-coverage gate over the affected set (PC-10).\n\n``needs_spec_coverage`` iff at least one affected module has NO registered system spec S. Such a\nrequirement cannot be verified \u2014 there is no S to conjoin or run S \u2227 R over \u2014 so the gate blocks\nwith ``NEEDS_SPEC_COVERAGE`` and queues a (placeholder) Specula extraction per unspec'd module,\nand no S \u2227 R runs. This is narrower than ``SpecCoverageReport`` (which also blocks on\nstale/unreviewed/missing-file specs); it isolates the genuinely-unspecified case so the gate can\ndistinguish \"no spec exists yet\" from \"a spec exists but is not yet usable\".",
+      "properties": {
+        "affected_modules": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Affected Modules",
+          "type": "array"
+        },
+        "covered_modules": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Covered Modules",
+          "type": "array"
+        },
+        "extraction_requests": {
+          "items": {
+            "$ref": "#/$defs/SpeculaExtractionRequest"
+          },
+          "title": "Extraction Requests",
+          "type": "array"
+        },
+        "result": {
+          "enum": [
+            "covered",
+            "needs_spec_coverage"
+          ],
+          "title": "Result",
+          "type": "string"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "unspecified_modules": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Unspecified Modules",
+          "type": "array"
+        }
+      },
+      "required": [
+        "result",
+        "affected_modules",
+        "covered_modules",
+        "unspecified_modules"
+      ],
+      "title": "SpecCoverageGateReport",
+      "type": "object"
+    },
+    "SpecPartitionArtifact": {
+      "additionalProperties": false,
+      "description": "The Zone 1 artifact: document hash + every segment + candidate rules + needs-review flags.\n\n``segments`` records EVERY segment (behavioral and non-behavioral) with its classification\nand reason, so ``extracted (candidate_rules' source segments) \u222a excluded (non-behavioral)\n== the full segmentation`` \u2014 no segment is silently dropped (completeness oracle). The\nhuman scans this manifest to confirm boundaries in seconds.",
+      "properties": {
+        "candidate_rules": {
+          "items": {
+            "$ref": "#/$defs/CandidateRule"
+          },
+          "title": "Candidate Rules",
+          "type": "array"
+        },
+        "document_hash": {
+          "title": "Document Hash",
+          "type": "string"
+        },
+        "document_length": {
+          "title": "Document Length",
+          "type": "integer"
+        },
+        "ensemble_member_provenance": {
+          "items": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": "object"
+          },
+          "title": "Ensemble Member Provenance",
+          "type": "array"
+        },
+        "ensemble_members": {
+          "title": "Ensemble Members",
+          "type": "integer"
+        },
+        "language": {
+          "title": "Language",
+          "type": "string"
+        },
+        "needs_review": {
+          "items": {
+            "$ref": "#/$defs/PartitionFlag"
+          },
+          "title": "Needs Review",
+          "type": "array"
+        },
+        "provenance": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Provenance",
+          "type": "object"
+        },
+        "segments": {
+          "items": {
+            "$ref": "#/$defs/ClassifiedSegment"
+          },
+          "title": "Segments",
+          "type": "array"
+        }
+      },
+      "required": [
+        "document_hash",
+        "document_length",
+        "language",
+        "segments",
+        "candidate_rules",
+        "needs_review",
+        "ensemble_members",
+        "provenance"
+      ],
+      "title": "SpecPartitionArtifact",
+      "type": "object"
+    },
+    "SpeculaExtractionRequest": {
+      "additionalProperties": false,
+      "description": "A queued (placeholder) request to extract a candidate spec S for an unspec'd module (PC-10).\n\nQueuing only RECORDS the need for coverage; the actual Specula extraction is PC-5 (Solidity) /\nPC-8 (Go) and is out of scope here. ``status`` stays ``queued`` until that extraction runs,\nis trace-validated, reviewed, and promoted into the ``SystemSpecRegistry``.",
+      "properties": {
+        "module_id": {
+          "title": "Module Id",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        },
+        "requested_formalism": {
+          "default": "tla",
+          "enum": [
+            "tla",
+            "smt"
+          ],
+          "title": "Requested Formalism",
+          "type": "string"
+        },
+        "status": {
+          "const": "queued",
+          "default": "queued",
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "module_id",
+        "reason"
+      ],
+      "title": "SpeculaExtractionRequest",
+      "type": "object"
+    },
+    "SymbolBinding": {
+      "additionalProperties": false,
+      "properties": {
+        "adapter": {
+          "title": "Adapter",
+          "type": "string"
+        },
+        "confidence": {
+          "enum": [
+            "generic_symbol_table",
+            "manual_override",
+            "adapter_resolved",
+            "llm_suggested"
+          ],
+          "title": "Confidence",
+          "type": "string"
+        },
+        "symbol": {
+          "title": "Symbol",
+          "type": "string"
+        },
+        "symbol_type": {
+          "title": "Symbol Type",
+          "type": "string"
+        }
+      },
+      "required": [
+        "adapter",
+        "symbol",
+        "symbol_type",
+        "confidence"
+      ],
+      "title": "SymbolBinding",
+      "type": "object"
+    },
+    "SystemConsistencyResult": {
+      "additionalProperties": false,
+      "properties": {
+        "counterexamples": {
+          "items": {
+            "$ref": "#/$defs/Counterexample"
+          },
+          "title": "Counterexamples",
+          "type": "array"
+        },
+        "requirement_id": {
+          "title": "Requirement Id",
+          "type": "string"
+        },
+        "result": {
+          "$ref": "#/$defs/BackendResult"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        },
+        "spec_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Spec Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "requirement_id",
+        "result"
+      ],
+      "title": "SystemConsistencyResult",
+      "type": "object"
+    },
+    "TemporalBound": {
+      "additionalProperties": false,
+      "properties": {
+        "unit": {
+          "enum": [
+            "second",
+            "minute",
+            "hour",
+            "day",
+            "block"
+          ],
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "value",
+        "unit"
+      ],
+      "title": "TemporalBound",
+      "type": "object"
+    },
+    "TemporalBoundRecord": {
+      "additionalProperties": false,
+      "properties": {
+        "node_id": {
+          "title": "Node Id",
+          "type": "string"
+        },
+        "unit": {
+          "title": "Unit",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "node_id",
+        "value",
+        "unit"
+      ],
+      "title": "TemporalBoundRecord",
+      "type": "object"
+    },
+    "UncheckedRequirement": {
+      "additionalProperties": false,
+      "properties": {
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        },
+        "reason": {
+          "enum": [
+            "lowering_refused",
+            "lowering_needs_review",
+            "contradiction_without_source_span",
+            "premise_overlap_undecidable"
+          ],
+          "title": "Reason",
+          "type": "string"
+        },
+        "refusal_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Refusal Code"
+        },
+        "requirement_ids": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Requirement Ids",
+          "type": "array"
+        },
+        "source_spans": {
+          "items": {
+            "$ref": "#/$defs/SourceSpan"
+          },
+          "title": "Source Spans",
+          "type": "array"
+        }
+      },
+      "required": [
+        "requirement_ids",
+        "reason",
+        "detail"
+      ],
+      "title": "UncheckedRequirement",
+      "type": "object"
+    },
+    "ValueRef": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": [
+            "identifier",
+            "number",
+            "string"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            }
+          ],
+          "title": "Value"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "ValueRef",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The consolidated ``attest-spec`` report (scope \u00a77 step 10).\n\n``machine_pinned`` lists the rules auto-advanced under the machine-pin policy (with their\npinning provenance); ``human_queue`` lists ONLY the flagged-hard items (clarify / disagreement\n/ unmet machine-pin signal / set contradiction / S&R counterexample / needs-coverage module),\neach with its reason and stage; ``downstream`` records the per-rule IR-v0.2 + lowered + S&R\nresults the orchestrator PRODUCED or RAN (Zone 3 \u00a77 steps 3-9), each EMBEDDING the real artifact\nobjects (``ir_v2`` / ``lowered`` / ``system_consistency`` / ``s_and_r``), not only hashes\n(HELPER iter-1 #1). ``set_consistency`` / ``coverage_gate`` are queue-routing summaries;\n``partition`` / ``set_consistency_report`` / ``coverage_report`` embed the FULL artifacts so the\nreport carries the whole graph. ``prerequisites`` names the external artifacts (impact /\nregistry) the orchestrator could not produce, each with the command to produce it (HELPER\niter-1 #2). ``policy_off`` is True when machine pinning is disabled (every rule queued \u2014 AC1).",
+  "properties": {
+    "coverage_gate": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AttestCoverageGate"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "coverage_report": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/SpecCoverageGateReport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "document_hash": {
+      "title": "Document Hash",
+      "type": "string"
+    },
+    "downstream": {
+      "items": {
+        "$ref": "#/$defs/AttestRuleDownstream"
+      },
+      "title": "Downstream",
+      "type": "array"
+    },
+    "human_queue": {
+      "items": {
+        "$ref": "#/$defs/AttestHumanQueueItem"
+      },
+      "title": "Human Queue",
+      "type": "array"
+    },
+    "impact": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ImpactAnalysisArtifact"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "impact_provenance": {
+      "anyOf": [
+        {
+          "enum": [
+            "produced",
+            "supplied"
+          ],
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Impact Provenance"
+    },
+    "limitations": {
+      "items": {
+        "type": "string"
+      },
+      "title": "Limitations",
+      "type": "array"
+    },
+    "machine_pinned": {
+      "items": {
+        "$ref": "#/$defs/AttestMachinePin"
+      },
+      "title": "Machine Pinned",
+      "type": "array"
+    },
+    "partition": {
+      "$ref": "#/$defs/SpecPartitionArtifact"
+    },
+    "policy_id": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "title": "Policy Id"
+    },
+    "policy_off": {
+      "title": "Policy Off",
+      "type": "boolean"
+    },
+    "prerequisites": {
+      "items": {
+        "$ref": "#/$defs/AttestPrerequisite"
+      },
+      "title": "Prerequisites",
+      "type": "array"
+    },
+    "set_consistency": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/AttestSetConsistency"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "set_consistency_report": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/RequirementSetConsistencyReport"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "total_candidates": {
+      "title": "Total Candidates",
+      "type": "integer"
+    }
+  },
+  "required": [
+    "document_hash",
+    "policy_id",
+    "policy_off",
+    "total_candidates",
+    "partition"
+  ],
+  "title": "AttestSpecReport",
+  "type": "object"
+}

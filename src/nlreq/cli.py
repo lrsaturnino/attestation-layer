@@ -543,6 +543,187 @@ def main(argv: list[str] | None = None) -> int:
         ),
     )
 
+    partition_spec_cmd = subcommands.add_parser(
+        "partition-spec",
+        help=(
+            "Zone 1: deterministically partition a spec document into segments and "
+            "candidate rules (three-zone scope)."
+        ),
+    )
+    partition_spec_cmd.add_argument("document", type=Path)
+    partition_spec_cmd.add_argument("--out", type=Path, required=True)
+    partition_spec_cmd.add_argument(
+        "--language",
+        default="en",
+        help=(
+            "Source language of the document (BCP-47-ish, e.g. 'en', 'pt'). Recorded as the "
+            "artifact language and, with --client, steers the partition prompt to keep candidate "
+            "text in the source language."
+        ),
+    )
+    partition_spec_cmd.add_argument(
+        "--client",
+        action="append",
+        dest="partition_clients",
+        default=[],
+        metavar="CLIENT",
+        help=(
+            "Partition role client scheme. Repeat for ≥2 to run a cross-provider ensemble whose "
+            "boundary disagreements route to the human queue. Schemes: 'live', 'live:<model-id>', "
+            "'recorded:<fixture-path>', or 'cli:<wrapper>[:<tier>|tier=<t>|model=<id>|<model-id>]'. "
+            "When omitted, partitioning is deterministic (no LLM): every behavioral segment "
+            "yields one default candidate. Resolution ladder (highest wins): per-call scheme → "
+            "NLREQ_PARTITION_* env vars → config file → pinned default."
+        ),
+    )
+    partition_spec_cmd.add_argument(
+        "--model-config",
+        type=Path,
+        default=None,
+        help="Path to a nlreq-models.toml per-role model config (partition role).",
+    )
+    partition_spec_cmd.add_argument(
+        "--draft-client",
+        action="append",
+        dest="draft_clients",
+        default=[],
+        metavar="CLIENT",
+        help=(
+            "Drafting role client scheme (three-zone scope §4): after partitioning, draft each "
+            "candidate rule into DSL controlled text through the drafting role, preserving the "
+            "[[NLR-CLARIFY]] sentinel discipline per candidate. Repeat for ≥2 to run a "
+            "cross-provider drafting ensemble whose agreement is recorded per candidate "
+            "(``controlled_text_agreement_hash``). A candidate the drafter cannot state, or whose "
+            "members disagree, routes to the needs-review queue. Same scheme syntax as --client."
+        ),
+    )
+    attest_spec_cmd = subcommands.add_parser(
+        "attest-spec",
+        help=(
+            "Zone 3: orchestrate partition → draft → machine-pin routing into one consolidated "
+            "human queue (three-zone scope)."
+        ),
+    )
+    attest_spec_cmd.add_argument("document", type=Path)
+    attest_spec_cmd.add_argument("--out", type=Path, required=True)
+    attest_spec_cmd.add_argument(
+        "--client",
+        action="append",
+        dest="partition_clients",
+        default=[],
+        metavar="CLIENT",
+        help="Partition role client scheme (repeat for ≥2 for a cross-provider partition ensemble).",
+    )
+    attest_spec_cmd.add_argument(
+        "--draft-client",
+        action="append",
+        dest="draft_clients",
+        default=[],
+        metavar="CLIENT",
+        help=(
+            "Drafting role client scheme (repeat for ≥2 for a cross-provider drafting ensemble "
+            "whose agreement a machine pin requires). Same scheme syntax as --client."
+        ),
+    )
+    attest_spec_cmd.add_argument(
+        "--machine-pin-policy",
+        type=Path,
+        default=None,
+        help=(
+            "Opt-in machine-pin policy file (three-zone scope §5). When omitted, machine pinning "
+            "is OFF and every rule routes to the human queue (AC1). Also settable via "
+            "NLREQ_MACHINE_PIN (a path, or a bare 1/true/yes to opt in with default rules)."
+        ),
+    )
+    attest_spec_cmd.add_argument(
+        "--model-config",
+        type=Path,
+        default=None,
+        help="Path to a nlreq-models.toml per-role model config (partition + drafting roles).",
+    )
+    attest_spec_cmd.add_argument(
+        "--changed-path",
+        action="append",
+        dest="changed_paths",
+        default=[],
+        metavar="PATH",
+        help=(
+            "A changed path covered by this attestation (repeat for each). The machine-pin "
+            "changed-path admission gate (scope §6, default-deny) admits a machine pin ONLY when "
+            "EVERY changed path matches the policy's low-risk allow-list and none matches the "
+            "block-list; an empty / unmatched / mixed-risk / auth-funds change routes to the human "
+            "queue (AC4). Required to ever machine-pin (the default-deny gate admits nothing "
+            "without supplied paths)."
+        ),
+    )
+    attest_spec_cmd.add_argument(
+        "--registry",
+        type=Path,
+        default=None,
+        help=(
+            "Reviewed system-spec registry (Zone 3 §7 step 6). An external input (the set of S "
+            "specs). When supplied WITH --impact, the orchestrator runs the spec-coverage gate, "
+            "PRODUCES the S ∧ R system-consistency from its own lowered artifact, and PRODUCES the "
+            "S ∧ R composition PER CANDIDATE (each candidate is one requirement). Absent → recorded "
+            "as an explicit prerequisite in the report (never a silent skip)."
+        ),
+    )
+    attest_spec_cmd.add_argument(
+        "--manifest",
+        type=Path,
+        default=None,
+        help=(
+            "Source manifest (Zone 3 §7 step 5; HELPER iter-2 #1). When supplied WITH --symbol, "
+            "attest-spec PRODUCES the source-impact artifact itself — running the same deterministic "
+            "call-graph impact analysis as the dedicated source-impact command for the manifest's "
+            "DECLARED language (python / javascript; selected from the manifest's `adapter`, never "
+            "silently Python) — then runs the coverage gate + system-consistency + S ∧ R against the "
+            "produced impact and embeds it in the report (impact_provenance=produced). Use this as "
+            "the primary path; --impact is the replay/override path."
+        ),
+    )
+    attest_spec_cmd.add_argument(
+        "--symbol",
+        action="append",
+        dest="impact_symbols",
+        default=[],
+        metavar="SYMBOL",
+        help=(
+            "A changed source symbol the attestation covers (repeat for each). With --manifest, "
+            "attest-spec maps these symbols to affected modules through the real call graph to "
+            "PRODUCE the impact artifact. Required alongside --manifest to produce impact."
+        ),
+    )
+    attest_spec_cmd.add_argument(
+        "--impact",
+        type=Path,
+        default=None,
+        help=(
+            "Source-impact artifact REPLAY/OVERRIDE (Zone 3 §7 step 5). Normally attest-spec PRODUCES "
+            "impact from --manifest/--symbol (HELPER iter-2 #1); supply --impact to replay a "
+            "pre-produced artifact instead (it takes precedence over --manifest, impact_provenance="
+            "supplied). Produce one with `nlreq python-source-impact`. When supplied WITH --registry "
+            "the orchestrator runs the coverage gate + produces system-consistency + S ∧ R. When "
+            "NEITHER --manifest nor --impact is given, impact is recorded as an explicit prerequisite."
+        ),
+    )
+    attest_spec_cmd.add_argument(
+        "--out-dir",
+        type=Path,
+        default=None,
+        help=(
+            "Directory to fan the produced graph artifacts out into as standalone files (HELPER "
+            "iter-1 #1): the partition manifest, each candidate's IR v0.2 + lowered artifact, the "
+            "set-consistency report, the coverage report, and each candidate's system-consistency + "
+            "S ∧ R report — the same artifacts the dedicated commands consume. The consolidated "
+            "report (--out) embeds them too; --out-dir writes them as separate, replayable files."
+        ),
+    )
+    attest_spec_cmd.add_argument(
+        "--project-root", type=Path, default=Path.cwd(), help="Project root for the coverage/S&R graph."
+    )
+    attest_spec_cmd.add_argument("--language", default="en")
+
     intake_approve_cmd = subcommands.add_parser(
         "intake-approve", help="Approve or reject a controlled rewrite proposal."
     )
@@ -759,6 +940,26 @@ def main(argv: list[str] | None = None) -> int:
     review_approve_cmd.add_argument("--self-audit", action="store_true")
     review_approve_cmd.add_argument("--self-audit-delay-hours", type=int)
     review_approve_cmd.add_argument("--out", type=Path, required=True)
+
+    promote_machine_pin_cmd = subcommands.add_parser(
+        "promote-machine-pin",
+        help=(
+            "Promote a machine-pinned package to human_review after an APPROVED real human review "
+            "(three-zone scope §6; promotion is upward only)."
+        ),
+    )
+    promote_machine_pin_cmd.add_argument("package", type=Path, help="The machine-pinned package directory.")
+    promote_machine_pin_cmd.add_argument(
+        "--review",
+        type=Path,
+        required=True,
+        help=(
+            "An APPROVED real human review event (a ReviewArtifact JSON with review_origin='human', "
+            "a non-placeholder reviewer, and decision='approved') whose requirement_ir hash matches "
+            "the package's IR. A 'rejected'/'needs_review' review is refused (promotion is upward only)."
+        ),
+    )
+    promote_machine_pin_cmd.add_argument("--promoted-at", default="2026-06-26T00:00:00Z")
 
     review_status_cmd = subcommands.add_parser(
         "review-status", help="Report whether review approvals are current."
@@ -2415,6 +2616,269 @@ def main(argv: list[str] | None = None) -> int:
             write_json(args.out, proposal)
             print(f"Controlled rewrite proposal: {args.out}")
             return 0
+        if args.command == "partition-spec":
+            # Zone 1 (three-zone scope §4): deterministic total segmentation + per-segment
+            # classification + (optional, proposal-only) partition-role LLM refinement. The
+            # deterministic path is byte-stable offline; --client adds the partitioner and
+            # ≥2 --client flags run a cross-provider ensemble whose boundary disagreements
+            # route to the human queue (never silently resolved).
+            from .jsonutil import write_json
+            from .spec_partition import partition_spec_document
+
+            document = args.document.read_text()
+            partition_clients: list[object] = []
+            member_provenance: list[dict[str, str]] = []
+            if args.partition_clients:
+                from .model_config import ModelConfigError, Role, load_model_config
+
+                try:
+                    model_config = load_model_config(args.model_config)
+                except ModelConfigError as exc:
+                    print(f"nlreq: {exc}", file=sys.stderr)
+                    return 2
+                for spec in args.partition_clients:
+                    try:
+                        built = _resolve_client_scheme(spec, Role.partition, model_config)
+                    except ModelConfigError as exc:
+                        print(f"nlreq: {exc}", file=sys.stderr)
+                        return 2
+                    partition_clients.append(built.client)
+                    # Record each member's per-role provenance (scope §3/§4): provider_family /
+                    # resolved_model / wrapper / client_kind / prompt_version, so the partition
+                    # artifact records WHICH providers partitioned the document and the ensemble
+                    # driver can enforce the ≥2-distinct-family diversity gate. The factory sets
+                    # ``provider_family`` from the resolved kind+wrapper (anthropic→"anthropic",
+                    # cli→wrapper family); a member whose family is unresolvable records no
+                    # ``provider_family`` and so cannot satisfy the diversity count from itself.
+                    member_meta: dict[str, str] = {"role": Role.partition.value}
+                    member_meta.update(built.provenance.as_metadata())
+                    if built.provenance.provider_family is not None:
+                        member_meta["provider_family"] = built.provenance.provider_family
+                    if built.provenance.resolved_model is not None:
+                        member_meta["resolved_model"] = built.provenance.resolved_model
+                    if built.provenance.wrapper is not None:
+                        member_meta["wrapper"] = built.provenance.wrapper
+                    member_provenance.append(member_meta)
+
+            # Provenance: the deterministic path records no client provenance (byte-stable);
+            # the LLM path records the partition prompt version so the artifact is
+            # self-describing (per-role provenance stamps land via the future machine-pin path).
+            provenance: dict[str, str] = {}
+            if partition_clients:
+                from .llm_client import _PARTITION_PROMPT_VERSION
+
+                provenance["prompt_version"] = _PARTITION_PROMPT_VERSION
+
+            try:
+                artifact = partition_spec_document(
+                    document,
+                    clients=partition_clients or None,
+                    language=args.language,
+                    provenance=provenance,
+                    member_provenance=member_provenance or None,
+                )
+            except ValueError as exc:
+                # A partition precondition failure (e.g. ensemble with <2 clients reaching the
+                # driver, a <2-distinct-family ensemble, or a cli-transport refusal) surfaces as
+                # exit 2 — consistent with the drafting/decomposition client paths.
+                print(f"nlreq: partition error: {exc}", file=sys.stderr)
+                return 2
+            # Per-candidate drafting batch (three-zone scope §4 / HELPER iter-2): after
+            # partitioning, draft each candidate rule into DSL controlled text through the drafting
+            # role (one or a cross-provider ensemble), preserving the clarify sentinel per
+            # candidate. A candidate the drafter cannot state, or whose members disagree, routes to
+            # the needs-review queue (never a guessed controlled text).
+            if args.draft_clients:
+                from .model_config import (
+                    ModelConfigError,
+                    Role as _Role,
+                    load_model_config,
+                )
+                from .spec_partition import draft_candidate_rules
+
+                try:
+                    model_config = load_model_config(args.model_config)
+                except ModelConfigError as exc:
+                    print(f"nlreq: {exc}", file=sys.stderr)
+                    return 2
+                drafting_clients: list[object] = []
+                for spec in args.draft_clients:
+                    try:
+                        built = _resolve_client_scheme(spec, _Role.drafting, model_config)
+                    except ModelConfigError as exc:
+                        print(f"nlreq: {exc}", file=sys.stderr)
+                        return 2
+                    drafting_clients.append(built.client)
+                try:
+                    artifact = draft_candidate_rules(
+                        artifact, drafting_clients, language=args.language
+                    )
+                except ValueError as exc:
+                    print(f"nlreq: drafting error: {exc}", file=sys.stderr)
+                    return 2
+            write_json(args.out, artifact)
+            print(
+                f"Spec partition: {args.out} "
+                f"({len(artifact.segments)} segments, "
+                f"{len(artifact.candidate_rules)} candidate rules, "
+                f"{len(artifact.needs_review)} needs-review flag(s), "
+                f"ensemble_members={artifact.ensemble_members})"
+            )
+            return 0
+        if args.command == "attest-spec":
+            # Zone 3 (three-zone scope §7): partition → draft → machine-pin routing → one
+            # consolidated human queue. This is the PRODUCTION WIRING of the machine_agreement
+            # trust state (scope §5; HELPER iter-2 #4): ``--machine-pin-policy`` / NLREQ_MACHINE_PIN
+            # loads the opt-in policy and ``attest_spec_document`` calls ``route_machine_pinning``
+            # with real routing input derived from each candidate. With the policy OFF (the
+            # default), every rule routes to the human queue and no pin is emitted (AC1).
+            from .attest import (
+                attest_spec_document,
+                deterministic_decomposition_audit_for_controlled_text,
+                deterministic_shape_for_controlled_text,
+            )
+            from .impact import ImpactAnalysisArtifact
+            from .jsonutil import write_json
+            from .machine_agreement import load_machine_pin_policy
+            from .model_config import ModelConfigError, Role, load_model_config
+
+            document = args.document.read_text()
+
+            def _resolve_clients(schemes, role):
+                clients = []
+                provenance = []
+                if not schemes:
+                    return clients, provenance
+                try:
+                    model_config = load_model_config(args.model_config)
+                except ModelConfigError as exc:
+                    print(f"nlreq: {exc}", file=sys.stderr)
+                    raise
+                for spec in schemes:
+                    try:
+                        built = _resolve_client_scheme(spec, role, model_config)
+                    except ModelConfigError as exc:
+                        print(f"nlreq: {exc}", file=sys.stderr)
+                        raise
+                    clients.append(built.client)
+                    member_meta: dict[str, str] = {"role": role.value}
+                    member_meta.update(built.provenance.as_metadata())
+                    if built.provenance.provider_family is not None:
+                        member_meta["provider_family"] = built.provenance.provider_family
+                    if built.provenance.resolved_model is not None:
+                        member_meta["resolved_model"] = built.provenance.resolved_model
+                    provenance.append(member_meta)
+                return clients, provenance
+
+            try:
+                partition_clients, partition_prov = _resolve_clients(
+                    args.partition_clients, Role.partition
+                )
+                drafting_clients, drafting_prov = _resolve_clients(
+                    args.draft_clients, Role.drafting
+                )
+            except ModelConfigError:
+                return 2
+            try:
+                policy = load_machine_pin_policy(args.machine_pin_policy)
+            except FileNotFoundError as exc:
+                print(f"nlreq: {exc}", file=sys.stderr)
+                return 2
+
+            # Zone 3 external inputs (scope §7 steps 5-6): the source-derived impact and the reviewed
+            # registry. The orchestrator PRODUCES IR v0.2 + lowering + set-consistency + system-
+            # consistency + S&R itself (HELPER iter-1 #1/#2); registry+impact remain external because
+            # impact is per-source. Absent → the report records an explicit prerequisite (never a
+            # silent skip).
+            registry = (
+                load_system_spec_registry(args.registry) if args.registry is not None else None
+            )
+            impact = (
+                ImpactAnalysisArtifact.model_validate_json(args.impact.read_text())
+                if args.impact is not None
+                else None
+            )
+
+            # attest-spec PRODUCES the impact artifact from the source manifest + changed symbols
+            # (HELPER iter-2 #1): when no --impact override is supplied, build a producer the
+            # orchestrator invokes before the coverage gate + S ∧ R — the SAME deterministic Python
+            # call-graph impact `nlreq python-source-impact` runs — then embeds it
+            # (impact_provenance=produced). Requires BOTH --manifest and --symbol; a half-supplied
+            # pair is a fail-fast usage error (never a silent no-op that drops to a prerequisite).
+            impact_producer = None
+            if impact is None:
+                if args.manifest is not None and not args.impact_symbols:
+                    print(
+                        "nlreq: --manifest requires at least one --symbol to produce the impact "
+                        "artifact",
+                        file=sys.stderr,
+                    )
+                    return 2
+                if args.impact_symbols and args.manifest is None:
+                    print(
+                        "nlreq: --symbol requires --manifest to produce the impact artifact",
+                        file=sys.stderr,
+                    )
+                    return 2
+                if args.manifest is not None and args.impact_symbols:
+                    # Select the source-impact adapter from the manifest's DECLARED language (HELPER
+                    # iter-3 followup #3): attest-spec produces impact for whichever language the
+                    # manifest declares (python / javascript), matching the dedicated source-impact
+                    # commands — never silently assuming Python. An unsupported / unreadable manifest
+                    # is a fail-fast usage error here, before the orchestrator runs.
+                    try:
+                        impact_adapter_cls = _source_impact_adapter_for_manifest(args.manifest)
+                    except ValueError as exc:
+                        print(f"nlreq: {exc}", file=sys.stderr)
+                        return 2
+
+                    def _produce_impact(
+                        adapter_cls=impact_adapter_cls,
+                        manifest_path: Path = args.manifest,
+                        symbols: list[str] = list(args.impact_symbols),
+                        project_root: Path = args.project_root,
+                    ) -> ImpactAnalysisArtifact:
+                        adapter = adapter_cls(project_root=project_root)
+                        manifest = adapter.parse_manifest(manifest_path)
+                        return analyze_source_impact(adapter, manifest, symbols=symbols)
+
+                    impact_producer = _produce_impact
+
+            report = attest_spec_document(
+                document,
+                partition_clients=partition_clients or None,
+                drafting_clients=drafting_clients or None,
+                partition_member_provenance=partition_prov or None,
+                drafting_member_provenance=drafting_prov or None,
+                policy=policy,
+                language=args.language,
+                shape_check=deterministic_shape_for_controlled_text,
+                audit_check=deterministic_decomposition_audit_for_controlled_text,
+                changed_paths=args.changed_paths or None,
+                registry=registry,
+                impact=impact,
+                impact_producer=impact_producer,
+                project_root=args.project_root,
+            )
+            write_json(args.out, report)
+            # Fan the produced graph artifacts out as standalone files (HELPER iter-1 #1): the report
+            # embeds them, and --out-dir writes them as separate, replayable artifacts the dedicated
+            # commands consume.
+            written = _write_attest_artifacts(args.out_dir, report) if args.out_dir else 0
+            attention_pins = sum(1 for pin in report.machine_pinned if pin.attention_required)
+            print(
+                f"Attest spec: {args.out} "
+                f"({report.total_candidates} candidates, "
+                f"{len(report.machine_pinned)} machine-pinned"
+                f"{f' ({attention_pins} need attention)' if attention_pins else ''}, "
+                f"{len(report.human_queue)} human-queue item(s), "
+                f"{len(report.prerequisites)} prerequisite(s), "
+                f"impact={report.impact_provenance or 'none'}, "
+                f"policy={'off' if report.policy_off else report.policy_id})"
+            )
+            if args.out_dir:
+                print(f"Attest spec artifacts: {args.out_dir} ({written} file(s))")
+            return 0
         if args.command == "intake-approve":
             from .jsonutil import write_json
 
@@ -2769,6 +3233,31 @@ def main(argv: list[str] | None = None) -> int:
             )
             write_json(args.out, updated)
             print(f"Review workflow: {args.out}")
+            return 0
+        if args.command == "promote-machine-pin":
+            # Promote a machine-pinned package to human_review after an APPROVED real human review
+            # (scope §6). The package's pinning-provenance.json becomes a human_review record backed
+            # by the approved real review event (bound to the package's IR hash), and the status is
+            # re-resolved (a fully-evidenced package resolves to ACCEPTED_WITH_EVIDENCE). A rejected
+            # or needs_review human review is refused (exit 2) and the package is left unchanged.
+            from .jsonutil import write_json
+            from .models import ReviewArtifact
+            from .package import promote_machine_pinned_package
+
+            review_event = ReviewArtifact.model_validate_json(args.review.read_text())
+            try:
+                status = promote_machine_pinned_package(
+                    args.package,
+                    review_event=review_event,
+                    promoted_at=args.promoted_at,
+                )
+            except ValueError as exc:
+                print(f"nlreq: {exc}", file=sys.stderr)
+                return 2
+            print(
+                f"Promoted machine pin: {args.package} "
+                f"(status={status.status.value})"
+            )
             return 0
         if args.command == "review-status":
             from .jsonutil import write_json
@@ -5666,6 +6155,97 @@ def _stamp_llm_role_provenance(report: object, extra: dict[str, str], cli_client
             })
         )
     return report.model_copy(update={"candidates": stamped})
+
+
+def _source_impact_adapter_for_manifest(manifest_path: "Path") -> type:
+    """Select the source-impact adapter matching the manifest's DECLARED adapter (HELPER iter-3 followup #3).
+
+    ``attest-spec`` produces impact for whichever language the source manifest declares, matching the
+    dedicated ``python-source-impact`` / ``javascript-source-impact`` commands — never silently
+    assuming Python. The manifest is self-describing (``SourceManifest.adapter``), so the adapter is
+    chosen from it; an unsupported adapter (or an unreadable manifest) is a fail-fast usage error (a
+    clear ``ValueError``, not a mis-parse of, say, a JavaScript tree under the Python adapter). Returns
+    the adapter CLASS — the impact producer instantiates it with the CLI's ``--project-root``.
+    """
+    from .source_adapter import SourceManifest
+
+    try:
+        declared = SourceManifest.model_validate_json(Path(manifest_path).read_text())
+    except Exception as exc:  # noqa: BLE001 — a malformed manifest is a usage error, surfaced clearly
+        raise ValueError(
+            f"could not read source manifest {manifest_path} to select an impact adapter: {exc}"
+        ) from exc
+    adapters = {
+        PythonSourceLanguageAdapter.adapter_id: PythonSourceLanguageAdapter,
+        JavaScriptSourceLanguageAdapter.adapter_id: JavaScriptSourceLanguageAdapter,
+    }
+    adapter_cls = adapters.get(declared.adapter)
+    if adapter_cls is None:
+        raise ValueError(
+            f"unsupported source-impact adapter {declared.adapter!r} declared in manifest "
+            f"{manifest_path}; attest-spec produces impact for {sorted(adapters)} — run the dedicated "
+            "source-impact command for another language, or supply a pre-produced --impact artifact"
+        )
+    return adapter_cls
+
+
+def _write_attest_artifacts(out_dir: "Path", report: object) -> int:
+    """Fan the produced ``attest-spec`` graph artifacts out to ``out_dir`` as standalone files.
+
+    The consolidated report (``--out``) EMBEDS every produced artifact; this writes each one as a
+    separate, replayable file the dedicated commands consume (HELPER iter-1 #1): the partition
+    manifest, the requirement-set-consistency + coverage reports, and — per agreed candidate — its
+    IR v0.2, lowered artifact, system-consistency result, and S ∧ R composition report. Returns the
+    number of files written. Pure file fan-out: it never re-derives an artifact, only serializes the
+    ones the orchestrator already produced and embedded.
+    """
+    from .jsonutil import write_json
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    written = 0
+
+    write_json(out_dir / "partition.json", report.partition)
+    written += 1
+    # The source-impact artifact attest-spec PRODUCED (or replayed) for the coverage gate + S ∧ R
+    # (HELPER iter-2 #1) — a standalone, replayable file the dedicated commands consume.
+    if report.impact is not None:
+        write_json(out_dir / "impact.json", report.impact)
+        written += 1
+    if report.set_consistency_report is not None:
+        write_json(out_dir / "set-consistency.json", report.set_consistency_report)
+        written += 1
+    if report.coverage_report is not None:
+        write_json(out_dir / "coverage.json", report.coverage_report)
+        written += 1
+    if report.prerequisites:
+        # Surface the explicit prerequisites as a standalone file too (the operator's next steps).
+        from .jsonutil import to_jsonable
+
+        write_json(
+            out_dir / "prerequisites.json",
+            [to_jsonable(prerequisite) for prerequisite in report.prerequisites],
+        )
+        written += 1
+
+    for kind, attribute in (
+        ("ir-v2", "ir_v2"),
+        ("lowered", "lowered"),
+        ("system-consistency", "system_consistency"),
+        ("s-and-r", "s_and_r"),
+    ):
+        subdir = out_dir / kind
+        kind_written = False
+        for entry in report.downstream:
+            artifact = getattr(entry, attribute, None)
+            if artifact is None:
+                continue
+            if not kind_written:
+                subdir.mkdir(parents=True, exist_ok=True)
+                kind_written = True
+            write_json(subdir / f"{entry.requirement_id}.json", artifact)
+            written += 1
+
+    return written
 
 
 def _semantic_suggestions_from_args(

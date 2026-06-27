@@ -15,6 +15,7 @@ from .jsonutil import read_json, sha256_text, write_json
 from .openapi_adapter import OpenApiAdapter
 from .protobuf_adapter import ProtobufAdapter
 from .python_adapter import PythonPackageAdapter
+from .status import is_human_accepted
 from .tla_adapter import TlaAdapter
 
 
@@ -371,7 +372,7 @@ def _implementation_task_blockers(
                     "; ".join(package["validation_errors"]) or "package validation failed",
                 )
             )
-        if not str(package["status"]).startswith("ACCEPTED"):
+        if not is_human_accepted(package["status"]):
             blockers.append(
                 _blocker(
                     "status",
@@ -379,6 +380,11 @@ def _implementation_task_blockers(
                     f"package status is {package['status']}",
                 )
             )
+        # CATEGORY-2 REVIEW CHECK — AC1 BASELINE (ADR 0206 §2): gates on ``decision == "approved"``
+        # not ``is_real_human_review``. Tightening would block every default package (each carries
+        # the fabricated package-builder approval) — a direct AC1 violation. The machine-pin path
+        # is protected at the provenance axis (``validate_package`` refuses a machine-pinned package
+        # with an ``approved`` review), not here. See ``gate.py`` for the full rationale.
         if package["review"]["decision"] != "approved":
             blockers.append(
                 _blocker(
@@ -462,7 +468,7 @@ def _retry_payloads(
             or bool(evidence["failed_checks"])
             or bool(evidence["unsupported_claims"])
             or bool(package_findings)
-            or not str(package["status"]).startswith("ACCEPTED")
+            or not is_human_accepted(package["status"])
         )
         if not should_retry:
             continue
@@ -495,7 +501,7 @@ def _retry_reason(package: dict[str, Any], findings: list[dict[str, Any]]) -> st
         return "evidence checks failed"
     if package["evidence"]["unsupported_claims"]:
         return "unsupported claims require specification review"
-    if not str(package["status"]).startswith("ACCEPTED"):
+    if not is_human_accepted(package["status"]):
         return f"package status is {package['status']}"
     if findings:
         return "gate or continuous attestation findings require attention"

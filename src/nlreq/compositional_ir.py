@@ -130,12 +130,20 @@ def legacy_projection_from_v2(ir: RequirementIRV2) -> RequirementIR:
 
 
 def _rule_node(ir: RequirementIR, *, tool_version: str, timestamp: str) -> SemanticNode:
+    # The v0.1 ``claim.kind`` is the requirement's semantic class. It is preserved under BOTH
+    # metadata names a downstream consumer reads: ``legacy_claim_kind`` (``legacy_projection_from_v2``
+    # projects a v0.2 IR back to the v0.1 flat claim) and ``requirement_class``
+    # (``build_formal_claim`` / ``lower_ir_v2_to_tla`` dispatch on it). Without ``requirement_class`` a
+    # migrated IR refuses formal-claim lowering (``_claim_class`` returns None), so the v0.1→v0.2
+    # migration would be lossy w.r.t. the class that drives downstream lowering. The two keys carry
+    # the SAME value (the v0.1 claim kind IS the requirement class) so there is no drift.
+    claim_class = ir.claim.kind
     return SemanticNode(
         node_id="rule.root",
         kind="rule",
         provenance=_provenance("claim", tool_version=tool_version, timestamp=timestamp),
         confidence="migration_inferred",
-        metadata={"legacy_claim_kind": ir.claim.kind},
+        metadata={"legacy_claim_kind": claim_class, "requirement_class": claim_class},
         scope=[
             _scope_node(item, index, tool_version=tool_version, timestamp=timestamp)
             for index, item in enumerate(ir.claim.forall)

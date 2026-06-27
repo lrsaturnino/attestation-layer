@@ -1,0 +1,304 @@
+{
+  "$defs": {
+    "EnsembleAgreementResult": {
+      "additionalProperties": false,
+      "description": "The agreement-computation result across the ensemble for a machine pinning.\n\nThis reuses the agreement *computation* (``decomposition_client`` / ``end_to_end_gate``) but\nNOT its human-approval precondition (scope \u00a73): auto-advance acts before human approval, so\nthe ``machine_agreement`` trust state defines its own requirements. ``agreed`` must be true\nfor a pinning (a divergent ensemble routes to the human queue, never a pin);\n``agreement_hash`` is the content hash of the agreed controlled text / IR shape the ensemble\nconverged on, so the pinned meaning is content-addressed.",
+      "properties": {
+        "agreed": {
+          "title": "Agreed",
+          "type": "boolean"
+        },
+        "agreement_hash": {
+          "title": "Agreement Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "agreed",
+        "agreement_hash"
+      ],
+      "title": "EnsembleAgreementResult",
+      "type": "object"
+    },
+    "EnsembleAuditVerdict": {
+      "additionalProperties": false,
+      "description": "One ensemble member's audit verdict for a machine pinning.\n\nEach ensemble member's candidate must pass audit before the member may participate in a\nmachine pinning (scope \u00a75: \"passing audit verdicts\"). This is the provenance-axis audit\nsummary recorded on the pinning record, distinct from the decomposition ``AuditVerdict``\n(``audit_client``), which audits a decomposition result.",
+      "properties": {
+        "detail": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Detail"
+        },
+        "member_id": {
+          "title": "Member Id",
+          "type": "string"
+        },
+        "verdict": {
+          "enum": [
+            "passed",
+            "failed"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "member_id",
+        "verdict"
+      ],
+      "title": "EnsembleAuditVerdict",
+      "type": "object"
+    },
+    "EnsembleEvidence": {
+      "additionalProperties": false,
+      "description": "The ensemble-evidence object a ``machine_agreement`` pinning is unrepresentable without.\n\nA machine-pinned rule's meaning was pinned by an ensemble of >=2 cross-provider (>=2 distinct\nprovider families) models that agreed, each passing audit, under a recorded policy whose\ncontent hash is carried here. The construction guard on ``PinningProvenance`` requires this\nobject to be present for a ``machine_agreement`` record, so a machine pinning cannot be held\nin memory without its ensemble evidence \u2014 modeled on the proof guards\n``_has_proof_artifact`` / ``_has_proof_assistant_identity`` (and the\n``BackendResult._validate_evidence_backing`` construction-time refusal pattern).\n\nThe signals here are all MEASURABLE (scope \u00a75 / acceptance #7): ensemble size, distinct\nprovider families, agreement, per-member audit verdicts, and the policy content hash \u2014 never a\nmodel-reported confidence scalar.\n\nThe stamping path is live (scope \u00a73/\u00a75): ``machine_agreement.route_machine_pinning`` constructs\nthis object from the measurable routing signals and ``package.build_package(pinning=...)`` writes\nit onto a machine-pinned package, under an opt-in ``--machine-pin-policy`` (cross-provider\ntransport, ensemble-FA calibration, deterministic threshold derivation, and the default-deny\nper-path gate). With no policy configured (the default) no production path constructs one, so the\ndefault pipeline is byte-identical to today (acceptance #1).",
+      "properties": {
+        "agreement": {
+          "$ref": "#/$defs/EnsembleAgreementResult"
+        },
+        "audit_verdicts": {
+          "items": {
+            "$ref": "#/$defs/EnsembleAuditVerdict"
+          },
+          "title": "Audit Verdicts",
+          "type": "array"
+        },
+        "members": {
+          "items": {
+            "$ref": "#/$defs/EnsembleMember"
+          },
+          "title": "Members",
+          "type": "array"
+        },
+        "policy_hash": {
+          "title": "Policy Hash",
+          "type": "string"
+        }
+      },
+      "required": [
+        "members",
+        "agreement",
+        "audit_verdicts",
+        "policy_hash"
+      ],
+      "title": "EnsembleEvidence",
+      "type": "object"
+    },
+    "EnsembleMember": {
+      "additionalProperties": false,
+      "description": "One member of the cross-provider ensemble that pinned a machine-agreement rule.\n\n``resolved_model_id`` is the sidecar/API-resolved exact model id (ADR 0203 / ADR 0205 \u2014 never\nthe tier). ``provider_family`` is the family grouping THIS scope defines (scope \u00a73): coarser\nthan the wrapper ``provider`` so two distinct providers that resolve to the same family (e.g.\ntwo wrappers both resolving to Anthropic models) cannot satisfy the diversity requirement.\n\nEvery identifier must carry real content: a blank/whitespace-only ``member_id``,\n``resolved_model_id``, or ``provider_family`` would let a degenerate label satisfy the\ndistinct-family count (``{\"\", \"anthropic\"}`` is \"2 distinct families\") or the member/verdict\n1:1 correspondence vacuously, inflating the diversity and agreement signals a machine pinning\ngates on (ADR 0206; HELPER iter-5 review).",
+      "properties": {
+        "member_id": {
+          "title": "Member Id",
+          "type": "string"
+        },
+        "provider_family": {
+          "title": "Provider Family",
+          "type": "string"
+        },
+        "resolved_model_id": {
+          "title": "Resolved Model Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "member_id",
+        "resolved_model_id",
+        "provider_family"
+      ],
+      "title": "EnsembleMember",
+      "type": "object"
+    },
+    "ReviewArtifact": {
+      "additionalProperties": false,
+      "description": "A package's ``review.json`` \u2014 the review of the controlled requirement's pinned meaning.\n\nThe ``review_origin`` field is the POSITIVE contract that distinguishes a fabricated\npackage-builder approval (``review_origin=\"package_builder\"`` \u2014 the default Phase 0 /\nper-language ``_review`` fabrication under a ``phase<N>@example.invalid`` placeholder\nreviewer) from a real human review event (``review_origin=\"human\"``). A real human review is\nUNREPRESENTABLE under a placeholder reviewer: the construction guard refuses\n``review_origin=\"human\"`` whose ``reviewer`` is a package-builder placeholder, so a\nfabricated approval can never be labeled human (ADR 0206; acceptance #5). This closes the\n``ReviewArtifact`` / ``review.json`` fabrication gap the original provenance-axis guard left\nopen: a fabricated package-builder ``review.json`` now carries an explicit non-human origin and\ncannot validate as a real human review event. (The deeper stamping-path change \u2014 a machine\npackage emitting a pinning record INSTEAD of a fake ``review.json`` \u2014 has since shipped:\n``package.build_package(pinning=...)`` writes a ``needs_review`` review plus a\n``machine_agreement`` ``pinning-provenance.json`` for a machine-pinned package.)",
+      "properties": {
+        "checklist": {
+          "$ref": "#/$defs/ReviewChecklist"
+        },
+        "decision": {
+          "enum": [
+            "approved",
+            "needs_review",
+            "rejected"
+          ],
+          "title": "Decision",
+          "type": "string"
+        },
+        "review_id": {
+          "title": "Review Id",
+          "type": "string"
+        },
+        "review_origin": {
+          "default": "package_builder",
+          "enum": [
+            "human",
+            "package_builder"
+          ],
+          "title": "Review Origin",
+          "type": "string"
+        },
+        "reviewed_hashes": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "title": "Reviewed Hashes",
+          "type": "object"
+        },
+        "reviewer": {
+          "title": "Reviewer",
+          "type": "string"
+        },
+        "self_audit": {
+          "default": false,
+          "title": "Self Audit",
+          "type": "boolean"
+        },
+        "timestamp": {
+          "title": "Timestamp",
+          "type": "string"
+        }
+      },
+      "required": [
+        "review_id",
+        "reviewer",
+        "decision",
+        "reviewed_hashes",
+        "checklist",
+        "timestamp"
+      ],
+      "title": "ReviewArtifact",
+      "type": "object"
+    },
+    "ReviewChecklist": {
+      "additionalProperties": false,
+      "properties": {
+        "assumptions_explicit": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Assumptions Explicit",
+          "type": "string"
+        },
+        "bindings_justified": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Bindings Justified",
+          "type": "string"
+        },
+        "claim_shape_matches_controlled_form": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Claim Shape Matches Controlled Form",
+          "type": "string"
+        },
+        "controlled_form_matches_intent": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Controlled Form Matches Intent",
+          "type": "string"
+        },
+        "evidence_level_appropriate": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Evidence Level Appropriate",
+          "type": "string"
+        },
+        "source_spans_present": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Source Spans Present",
+          "type": "string"
+        },
+        "unsupported_claims_hidden": {
+          "enum": [
+            "pass",
+            "fail",
+            "n/a"
+          ],
+          "title": "Unsupported Claims Hidden",
+          "type": "string"
+        }
+      },
+      "required": [
+        "controlled_form_matches_intent",
+        "claim_shape_matches_controlled_form",
+        "source_spans_present",
+        "assumptions_explicit",
+        "bindings_justified",
+        "evidence_level_appropriate",
+        "unsupported_claims_hidden"
+      ],
+      "title": "ReviewChecklist",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Provenance of WHO pinned a controlled requirement's meaning \u2014 a separate axis from\n``EvidenceLevel`` (which records WHAT tool produced evidence).\n\nA package carries this record iff its controlled meaning was pinned by either a real human\nreview (``human_review``) or a machine agreement (``machine_agreement``). The two kinds are\nmutually exclusive and each is unrepresentable without its backing: a ``machine_agreement``\nrecord requires its ``EnsembleEvidence`` object, and a ``human_review`` record requires a REAL\nreview event \u2014 the actual ``ReviewArtifact`` that performed the review, carried INLINE as\n``review_event`` and required to carry ``review_origin=\"human\"`` (so ``is_real_human_review``\nis True). The event is carried INLINE (symmetric with the inline ``ensemble`` on a machine\npin) precisely so the pin is literally unrepresentable without a real review event \u2014 not\nmerely a reference to one \u2014 and scalar-only construction (a ``review_id`` + ``reviewer`` +\nhash with no event) is impossible. A fabricated package-builder ``review.json``\n(``review_origin=\"package_builder\"``) therefore cannot back a ``human_review`` pin, because\nits origin is not human (ADR 0206 \u00a72; acceptance #5). The ``ReviewArtifact`` construction\nguard already makes a ``review_origin=\"human\"`` event unrepresentable under a placeholder\nreviewer (``phase<N>@example.invalid``), so the provenance guard needs only to require the\nevent's origin be human \u2014 acceptance #5 is satisfied at BOTH axes.\n\n``review_id`` / ``reviewer`` / ``reviewed_artifact_hash`` are read-only accessors DERIVED\nfrom the embedded ``review_event`` (the reference signals scope \u00a76 names), not independently\nsettable scalar fields, so the pin's references and its backing event can never disagree.\n\nThe stamping path is live (scope \u00a73/\u00a75): the opt-in ``machine_agreement.route_machine_pinning``\nconstructs a ``machine_agreement`` record and ``package.build_package(pinning=...)`` emits it on\na package alongside a ``needs_review`` review (never a fabricated ``approved`` one); a human\nreview later promotes it to ``human_review`` (``package.promote_machine_pinned_package``, upward\nonly). With no machine-pin policy configured (the default) no production path constructs one, so\nthe default pipeline is byte-identical to today (acceptance #1).\n\nSCHEMA BOUNDARY (ADR 0206): ``schemas/pinning-provenance.schema.json`` is an AUTO-GENERATED\nstructural contract (drift-checked against this model), NOT the authoring contract. Pydantic\nvalidation is authoritative: the kind/backing mutual-exclusion (``machine_agreement`` requires\n``ensemble`` and forbids a review event; ``human_review`` requires a real review event with\n``review_origin=\"human\"`` and forbids ``ensemble``) and the human-origin requirement are\ncross-field / semantic guards the JSON Schema cannot express, so they live in the\n``model_validator`` below and are enforced on every construction / load. The schema therefore\nrequires only ``kind`` + ``timestamp``; a JSON-Schema-only consumer that accepts\n``kind: machine_agreement`` without ``ensemble`` is bypassing the runtime guard, not\nsatisfying it.",
+  "properties": {
+    "ensemble": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/EnsembleEvidence"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "kind": {
+      "enum": [
+        "human_review",
+        "machine_agreement"
+      ],
+      "title": "Kind",
+      "type": "string"
+    },
+    "review_event": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ReviewArtifact"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null
+    },
+    "timestamp": {
+      "title": "Timestamp",
+      "type": "string"
+    }
+  },
+  "required": [
+    "kind",
+    "timestamp"
+  ],
+  "title": "PinningProvenance",
+  "type": "object"
+}

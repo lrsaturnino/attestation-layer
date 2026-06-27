@@ -1,8 +1,8 @@
 """Cross-provider LLM transport via operator wrapper executables (Work Item 2 / Work Item 3).
 
-``CliLlmClient`` implements the ``LlmClient`` protocol (drafting / impact / extraction —
-three methods), the ``DecompositionClient`` protocol (one method), and the ``AuditClient``
-protocol (one method), so a single class is the CLI transport for all five roles. It shells
+``CliLlmClient`` implements the ``LlmClient`` protocol (drafting / impact / extraction /
+partition — four methods), the ``DecompositionClient`` protocol (one method), and the ``AuditClient``
+protocol (one method), so a single class is the CLI transport for all six roles. It shells
 out to an operator wrapper executable (``run-claude`` / ``run-gpt`` / ``run-gemini`` /
 ``run-oss`` / ``run-oss-local``) rather than importing N provider SDKs — the same
 anti-corruption subprocess pattern nlreq already uses for every external verifier (slither,
@@ -64,6 +64,7 @@ from .jsonutil import sha256_text
 from .llm_client import (
     build_drafting_prompt,
     build_impact_estimate_prompt,
+    build_partition_prompt,
     build_spec_extraction_prompt,
 )
 from .model_config import ClientKind, ModelConfigError, Role
@@ -129,9 +130,10 @@ class CliLlmClient:
     """Cross-provider LLM transport via an operator wrapper executable.
 
     Implements ``LlmClient`` (propose_controlled_rewrite / estimate_impacted_modules /
-    extract_spec_invariants) and ``DecompositionClient`` (decompose_controlled_to_ir) —
-    four LlmClient/DecompositionClient methods plus the ``AuditClient`` method — so it is the
-    CLI transport for the drafting, impact, extraction, decomposition, and audit roles.
+    extract_spec_invariants / propose_candidate_rules) and ``DecompositionClient``
+    (decompose_controlled_to_ir) — five LlmClient/DecompositionClient methods plus the
+    ``AuditClient`` method — so it is the CLI transport for the drafting, impact, extraction,
+    partition, decomposition, and audit roles.
 
     Construct with the resolved ``CliRoleSpec`` fields (wrapper, tier, model_env,
     timeout_s) plus the ``requested_route`` the caller requires (default ``official``).
@@ -192,6 +194,16 @@ class CliLlmClient:
     ) -> str:
         prompt = build_spec_extraction_prompt(
             module_id=module_id, code_presentation=code_presentation, language=language
+        )
+        return self._run(prompt).text
+
+    def propose_candidate_rules(
+        self, *, segment_text: str, document_context: str, language: str = "en"
+    ) -> str:
+        prompt = build_partition_prompt(
+            segment_text=segment_text,
+            document_context=document_context,
+            language=language,
         )
         return self._run(prompt).text
 

@@ -1,0 +1,171 @@
+{
+  "$defs": {
+    "ChangedPathPolicy": {
+      "additionalProperties": false,
+      "description": "The DEFAULT-DENY changed-path admission policy a machine pin is recorded under (scope \u00a76).\n\nThis is the per-path gate the scope assigns to the machine-pin policy (``--machine-pin-policy``\ndeclares the changed-path allow-list, scope \u00a75/\u00a76): a machine-pinned package is admitted ONLY\nfor a change whose EVERY changed path matches an allow-list pattern AND none matches the\nblock-list. It lives INSIDE ``MachinePinPolicyRules`` (the object ``policy_content_hash``\nstamps on every machine pin) so the pin's ``policy_hash`` proves WHICH path policy admitted\nit \u2014 closing the HELPER iter-2 gap where the stamped hash covered ensemble rules +\ncalibration only and the path policy lived separately in ``GatePolicy.machine_pin``.\n\nMirrors ``gate.GateMachinePinRules`` (the gate's own evaluation config): same field names and\nauth/funds block defaults, so the canonical policy (here, in the hashed object) and the gate's\nview stay aligned. ``enabled=False`` (the default) is default-deny on every path.",
+      "properties": {
+        "allowed_changed_path_patterns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Changed Path Patterns",
+          "type": "array"
+        },
+        "block_changed_path_patterns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Block Changed Path Patterns",
+          "type": "array"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "title": "ChangedPathPolicy",
+      "type": "object"
+    },
+    "EnsembleCalibrationConfiguration": {
+      "additionalProperties": false,
+      "description": "One measured ensemble configuration in a false-acceptance calibration.\n\nA configuration is identified by (ensemble_size, distinct_provider_families) \u2014 the two axes\nthe diversity + agreement gates vary \u2014 and carries the measured false-acceptance rate over a\nlabeled corpus (agreed-but-wrong / agreed) and the sample count that backs it. The\ndeterministically-derived auto-advance threshold (``derive_ensemble_fa_threshold``) is a\nfunction of these rates, never a hand-set constant (AC9).",
+      "properties": {
+        "distinct_provider_families": {
+          "minimum": 1,
+          "title": "Distinct Provider Families",
+          "type": "integer"
+        },
+        "ensemble_size": {
+          "minimum": 1,
+          "title": "Ensemble Size",
+          "type": "integer"
+        },
+        "false_acceptance_rate": {
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "False Acceptance Rate",
+          "type": "number"
+        },
+        "sample_count": {
+          "minimum": 0,
+          "title": "Sample Count",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "ensemble_size",
+        "distinct_provider_families",
+        "false_acceptance_rate",
+        "sample_count"
+      ],
+      "title": "EnsembleCalibrationConfiguration",
+      "type": "object"
+    },
+    "EnsembleFalseAcceptanceCalibration": {
+      "additionalProperties": false,
+      "description": "The committed ensemble false-acceptance calibration the threshold is derived from (AC9).\n\nThis is a SEPARATE calibration from the per-role ``RoleCalibrationReport`` (scope \u00a73): the\nper-role calibration measures PER-MODEL false-acceptance/false-refusal on the translation\ncorpus, which is NOT an ensemble auto-advance false-acceptance metric. This calibration\nmeasures the ENSEMBLE's agreed-but-wrong rate across (size, families) configurations. The\nauto-advance threshold is derived deterministically from ``configurations`` via\n``derive_ensemble_fa_threshold`` \u2014 never a hand-set constant (AC9).",
+      "properties": {
+        "calibration_id": {
+          "title": "Calibration Id",
+          "type": "string"
+        },
+        "configurations": {
+          "items": {
+            "$ref": "#/$defs/EnsembleCalibrationConfiguration"
+          },
+          "title": "Configurations",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": "0.1",
+          "default": "0.1",
+          "title": "Schema Version",
+          "type": "string"
+        }
+      },
+      "required": [
+        "calibration_id"
+      ],
+      "title": "EnsembleFalseAcceptanceCalibration",
+      "type": "object"
+    },
+    "EvidenceLevel": {
+      "enum": [
+        "TYPE_CHECKED",
+        "CONSISTENCY_CHECKED",
+        "STATICALLY_RESOLVED",
+        "SMT_CHECKED",
+        "TEST_VALIDATED",
+        "TRACE_VALIDATED",
+        "BOUNDED_CHECKED",
+        "PROVEN_INDUCTIVE",
+        "REVIEWED"
+      ],
+      "title": "EvidenceLevel",
+      "type": "string"
+    },
+    "MachinePinPolicyRules": {
+      "additionalProperties": false,
+      "description": "The enforceable routing rules of an opt-in machine-pin policy.\n\nEvery field is a MEASURABLE constraint (scope \u00a75 / acceptance #7): ensemble size, distinct\nprovider families, the deterministic levels that must pass, and the calibration the threshold\nis derived from. There are NO model-confidence fields and NO hand-set threshold constants \u2014\nthe FA threshold is derived from ``calibration`` via ``derive_ensemble_fa_threshold`` (AC9).\n\nThe ``changed_path_policy`` (scope \u00a75/\u00a76) is the default-deny per-path admission gate; it is\npart of THIS object (not a separate ``GatePolicy`` section) precisely so ``policy_content_hash``\ncovers it and a stamped ``policy_hash`` proves which path policy admitted a pin (HELPER iter-2).",
+      "properties": {
+        "calibration": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/EnsembleFalseAcceptanceCalibration"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "changed_path_policy": {
+          "$ref": "#/$defs/ChangedPathPolicy"
+        },
+        "minimum_ensemble_size": {
+          "default": 2,
+          "minimum": 2,
+          "title": "Minimum Ensemble Size",
+          "type": "integer"
+        },
+        "required_deterministic_levels": {
+          "items": {
+            "$ref": "#/$defs/EvidenceLevel"
+          },
+          "title": "Required Deterministic Levels",
+          "type": "array"
+        },
+        "required_distinct_provider_families": {
+          "default": 2,
+          "minimum": 2,
+          "title": "Required Distinct Provider Families",
+          "type": "integer"
+        }
+      },
+      "title": "MachinePinPolicyRules",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "An opt-in machine-pin policy (``--machine-pin-policy`` / ``NLREQ_MACHINE_PIN``).\n\nOFF by default (``machine_pin_enabled`` is False when neither the file nor the env var is set):\nevery rule routes to a human and no pinning record is emitted \u2014 byte-identical to today (AC1).\nAn operator opts in by pointing ``--machine-pin-policy`` (or ``NLREQ_MACHINE_PIN``) at a policy\nfile; the router then evaluates the measurable signals and auto-advances only clean,\ncross-provider-agreed, calibrated configurations.",
+  "properties": {
+    "policy_id": {
+      "title": "Policy Id",
+      "type": "string"
+    },
+    "rules": {
+      "$ref": "#/$defs/MachinePinPolicyRules"
+    },
+    "schema_version": {
+      "default": "0.1",
+      "title": "Schema Version",
+      "type": "string"
+    }
+  },
+  "required": [
+    "policy_id"
+  ],
+  "title": "MachinePinPolicy",
+  "type": "object"
+}

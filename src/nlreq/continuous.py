@@ -18,6 +18,7 @@ from .openapi_adapter import OpenApiAdapter
 from .protobuf_adapter import ProtobufAdapter
 from .python_adapter import PythonPackageAdapter
 from .spec_drift import CodeSpecManifest, SpecDriftReport, build_spec_drift_report
+from .status import is_human_accepted
 from .trace_validation import build_trace_validation_report
 from .tla_adapter import TlaAdapter
 
@@ -677,7 +678,7 @@ def _validation_category(message: str) -> str:
 
 
 def _accepted(status: object) -> bool:
-    return isinstance(status, str) and status.startswith("ACCEPTED")
+    return is_human_accepted(status)
 
 
 def _utc_now() -> str:

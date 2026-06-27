@@ -122,6 +122,7 @@ def test_default_resolution_is_pinned_anthropic_constant(
         Role.extraction: _DEFAULT_MODEL,
         Role.decomposition: _DEFAULT_DECOMPOSITION_MODEL,
         Role.audit: _DEFAULT_AUDIT_MODEL,
+        Role.partition: _DEFAULT_MODEL,
     }[role]
     assert built.provenance.resolved_model == expected_model
 
@@ -202,7 +203,7 @@ def test_unknown_role_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
         build_client_for_role("not-a-role")  # type: ignore[arg-type]
 
 
-@pytest.mark.parametrize("role", [Role.drafting, Role.impact, Role.extraction, Role.decomposition])
+@pytest.mark.parametrize("role", [Role.drafting, Role.impact, Role.extraction, Role.partition])
 def test_cli_kind_constructs_client_for_eligible_roles(
     monkeypatch: pytest.MonkeyPatch, role: Role
 ) -> None:
@@ -486,6 +487,75 @@ def test_prompt_version_per_role(monkeypatch: pytest.MonkeyPatch) -> None:
     assert build_client_for_role(Role.decomposition, None, model="x").provenance.prompt_version == _DECOMPOSITION_PROMPT_VERSION
     assert build_client_for_role(Role.audit, None, model="x").provenance.prompt_version == _AUDIT_PROMPT_VERSION
     assert build_client_for_role(Role.drafting, None, model="x").provenance.prompt_version == _DRAFTING_PROMPT_VERSION
+    # The partition role (three-zone scope, Zone 1) carries its own versioned prompt.
+    from nlreq.llm_client import _PARTITION_PROMPT_VERSION
+
+    assert (
+        build_client_for_role(Role.partition, None, model="x").provenance.prompt_version
+        == _PARTITION_PROMPT_VERSION
+    )
+
+
+def test_partition_role_accepted_without_weakening_existing_roles(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The sixth ``partition`` role (three-zone scope §3) is accepted like the other LlmClient roles.
+
+    Regression guard: partition is an LlmClient role (text in/out) that shares the drafting
+    default model and resolves through the same four-rung ladder, so the existing five roles'
+    resolution is unchanged. partition builds an ``AnthropicLlmClient`` on the default path and a
+    ``CliLlmClient`` on the cli path, and its client implements ``propose_candidate_rules``.
+    """
+    from nlreq.cli_llm_client import CliLlmClient
+    from nlreq.llm_client import AnthropicLlmClient
+
+    _no_role_env(monkeypatch)
+
+    # Default path: anthropic + the shared LlmClient default model + is_default.
+    built = build_client_for_role(Role.partition, None)
+    assert built.provenance.client_kind is ClientKind.anthropic
+    assert built.provenance.is_default is True
+    assert built.provenance.resolved_model == _DEFAULT_MODEL
+    assert isinstance(built.client, AnthropicLlmClient)
+    # partition is an LlmClient role: its client implements the partition proposal method.
+    assert hasattr(built.client, "propose_candidate_rules")
+
+    # Per-call model override wins for partition just like drafting.
+    override = build_client_for_role(Role.partition, None, model="override-partition")
+    assert override.provenance.resolved_model == "override-partition"
+    assert override.provenance.source == "override"
+
+    # The cli path constructs a CliLlmClient for partition (it implements the protocol method).
+    monkeypatch.setenv("NLREQ_PARTITION_CLIENT", "cli")
+    monkeypatch.setenv("NLREQ_PARTITION_WRAPPER", "run-gpt")
+    cli_built = build_client_for_role(Role.partition, None)
+    assert cli_built.provenance.client_kind is ClientKind.cli
+    assert isinstance(cli_built.client, CliLlmClient)
+
+    # Regression: the existing five roles still resolve to their pinned defaults untouched.
+    monkeypatch.delenv("NLREQ_PARTITION_CLIENT", raising=False)
+    monkeypatch.delenv("NLREQ_PARTITION_WRAPPER", raising=False)
+    five_role_models = {
+        Role.drafting: _DEFAULT_MODEL,
+        Role.impact: _DEFAULT_MODEL,
+        Role.extraction: _DEFAULT_MODEL,
+        Role.decomposition: _DEFAULT_DECOMPOSITION_MODEL,
+        Role.audit: _DEFAULT_AUDIT_MODEL,
+    }
+    for role, expected in five_role_models.items():
+        again = build_client_for_role(role, None)
+        assert again.provenance.resolved_model == expected, role
+        assert again.provenance.is_default is True, role
+
+
+def test_config_partition_section_loads(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    """A ``[partition]`` config section is accepted and resolves through the ladder (§3)."""
+    _no_role_env(monkeypatch)
+    cfg = load_model_config(_write_config(tmp_path, {"partition": {"client": "anthropic", "model": "cfg-partition"}}))
+    built = build_client_for_role(Role.partition, cfg)
+    assert built.provenance.client_kind is ClientKind.anthropic
+    assert built.provenance.resolved_model == "cfg-partition"
+    assert built.provenance.source == "config-file"
 
 
 # ---------------------------------------------------------------------------

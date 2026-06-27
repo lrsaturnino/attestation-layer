@@ -28,6 +28,15 @@ class EvidenceLevel(str, Enum):
 class FinalStatus(str, Enum):
     ACCEPTED_WITH_EVIDENCE = "ACCEPTED_WITH_EVIDENCE"
     ACCEPTED_FOR_IMPLEMENTATION_WITH_REVIEW = "ACCEPTED_FOR_IMPLEMENTATION_WITH_REVIEW"
+    # Machine pinning is a provenance axis distinct from evidence (ADR 0206): a machine-pinned
+    # package's controlled meaning was pinned by a cross-provider ensemble, pending human review.
+    # Deliberately NOT "ACCEPTED"-prefixed so the six former ``startswith("ACCEPTED")`` consumers
+    # never silently treat it as human-accepted (acceptance #3); promotion to human_review is the
+    # only upward path. ``decide_status`` resolves to it for a machine-pinned package and the opt-in
+    # stamping path (``machine_agreement.route_machine_pinning`` → ``package.build_package(pinning=...)``)
+    # emits it; with no machine-pin policy configured (the default) nothing resolves here, so the
+    # default pipeline is byte-identical to today (acceptance #1).
+    MACHINE_PINNED_PENDING_REVIEW = "MACHINE_PINNED_PENDING_REVIEW"
     REFUSED_AMBIGUOUS = "REFUSED_AMBIGUOUS"
     REFUSED_UNBOUND_SYMBOLS = "REFUSED_UNBOUND_SYMBOLS"
     REFUSED_UNSUPPORTED_CLAIM = "REFUSED_UNSUPPORTED_CLAIM"
@@ -450,7 +459,55 @@ class ReviewChecklist(BaseModel):
     unsupported_claims_hidden: Literal["pass", "fail", "n/a"]
 
 
+# The package builders (``package._review`` and the per-language ``*_package.py`` builders)
+# fabricate an ``approved`` ``review.json`` under ``phase<N>@example.invalid`` placeholder reviewers.
+# Such a reviewer is NOT a real human review event — it is the default Phase 0 / per-language
+# fabrication the three-zone scope (§2, §6) replaces for a machine-pinned package (which carries a
+# ``needs_review`` review plus a ``machine_agreement`` pin instead). Two guards cooperate so a fabricated
+# package-builder review can never be represented as a real human review at EITHER axis (ADR 0206;
+# acceptance #5): the ``ReviewArtifact`` construction guard makes a ``review_origin="human"``
+# event unrepresentable under a placeholder reviewer, and the ``PinningProvenance(kind="human_review")``
+# guard requires the backing event (carried inline as ``review_event``) to carry
+# ``review_origin="human"`` — so a fabricated (``review_origin="package_builder"``) review cannot
+# back a human_review pin.
+_PHASE0_PLACEHOLDER_REVIEWER = "phase0@example.invalid"  # canonical example of the family below
+_PLACEHOLDER_REVIEWER_PATTERN = re.compile(r"^phase\d+@example\.invalid$")
+
+
+def _is_placeholder_reviewer(reviewer: object) -> bool:
+    """Whether ``reviewer`` is a package-builder placeholder, never a real human reviewer.
+
+    The placeholder family is ``phase<N>@example.invalid`` — the fabricated reviewers every
+    package builder writes its default ``approved`` ``review.json`` under (``package._review``
+    ``phase0@``, ``python_package`` ``phase2@``, ``openapi_package`` ``phase7@``,
+    ``command_package`` ``phase10@``, ``tla_package`` ``phase13@``, ``graphql_package``
+    ``phase14@``, ``jsonschema_package`` ``phase15@``, ``asyncapi_package`` ``phase16@``,
+    ``protobuf_package`` ``phase17@``). A real human review event is attributed to a
+    non-placeholder reviewer (``reviewer@example.org``, a real principal), so rejecting the full
+    family is the negative image of the positive ``review_origin`` contract on ``ReviewArtifact``
+    (ADR 0206; acceptance #5).
+    """
+    return isinstance(reviewer, str) and bool(_PLACEHOLDER_REVIEWER_PATTERN.match(reviewer))
+
+
 class ReviewArtifact(BaseModel):
+    """A package's ``review.json`` — the review of the controlled requirement's pinned meaning.
+
+    The ``review_origin`` field is the POSITIVE contract that distinguishes a fabricated
+    package-builder approval (``review_origin="package_builder"`` — the default Phase 0 /
+    per-language ``_review`` fabrication under a ``phase<N>@example.invalid`` placeholder
+    reviewer) from a real human review event (``review_origin="human"``). A real human review is
+    UNREPRESENTABLE under a placeholder reviewer: the construction guard refuses
+    ``review_origin="human"`` whose ``reviewer`` is a package-builder placeholder, so a
+    fabricated approval can never be labeled human (ADR 0206; acceptance #5). This closes the
+    ``ReviewArtifact`` / ``review.json`` fabrication gap the original provenance-axis guard left
+    open: a fabricated package-builder ``review.json`` now carries an explicit non-human origin and
+    cannot validate as a real human review event. (The deeper stamping-path change — a machine
+    package emitting a pinning record INSTEAD of a fake ``review.json`` — has since shipped:
+    ``package.build_package(pinning=...)`` writes a ``needs_review`` review plus a
+    ``machine_agreement`` ``pinning-provenance.json`` for a machine-pinned package.)
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     review_id: str
@@ -460,6 +517,44 @@ class ReviewArtifact(BaseModel):
     reviewed_hashes: dict[str, str]
     checklist: ReviewChecklist
     timestamp: str
+    # POSITIVE provenance contract (ADR 0206 §2; acceptance #5): the origin of this review event.
+    # Defaults to ``"package_builder"`` so a legacy / fabricated ``review.json`` (one written before
+    # this field existed, or produced by the package-builder ``_review`` helper) is honestly
+    # NON-human, never silently treated as a real human review. The construction guard below makes
+    # a ``"human"`` origin unrepresentable under a placeholder reviewer, so the two signals agree.
+    review_origin: Literal["human", "package_builder"] = "package_builder"
+
+    @model_validator(mode="after")
+    def _human_origin_requires_a_real_reviewer(self) -> ReviewArtifact:
+        # A real human review event (``review_origin="human"``) is unrepresentable when attributed
+        # to a package-builder placeholder reviewer (``phase<N>@example.invalid``) — that is exactly
+        # the fabricated default approval the three-zone scope replaces (ADR 0206 §2; acceptance #5).
+        # The reverse direction (``package_builder`` with a non-placeholder reviewer) is left
+        # unconstrained so the guard enforces only the AC5 invariant: a human review is never a
+        # fabrication. Modeled on the proof construction guards (``_has_proof_artifact``) and the
+        # ``PinningProvenance`` backing guard: an unbacked claim is refused at construction time.
+        if self.review_origin == "human" and _is_placeholder_reviewer(self.reviewer):
+            raise ValueError(
+                "a ReviewArtifact with review_origin='human' is unrepresentable under a "
+                f"package-builder placeholder reviewer ({self.reviewer}); a real human review "
+                "event is attributed to a non-placeholder reviewer, not the fabricated default "
+                "phase<N>@example.invalid approval"
+            )
+        return self
+
+
+def is_real_human_review(review: object) -> bool:
+    """Whether ``review`` is a REAL human review event — never a fabricated package-builder approval.
+
+    The positive contract backing ``PinningProvenance(kind="human_review")`` (ADR 0206; acceptance
+    #5): a review counts as a real human review iff it is a ``ReviewArtifact`` carrying
+    ``review_origin="human"`` (which the ``ReviewArtifact`` construction guard makes
+    unrepresentable under a placeholder reviewer). The default package-builder ``review.json``
+    carries ``review_origin="package_builder"`` and is therefore explicitly non-human, so it can
+    never stand in for a real review at the provenance axis a ``human_review`` pin references. A
+    ``None`` or non-``ReviewArtifact`` input is not a real human review.
+    """
+    return isinstance(review, ReviewArtifact) and review.review_origin == "human"
 
 
 _SHA256_DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
@@ -471,6 +566,19 @@ def _is_checked_proof_hash(value: Any) -> bool:
     A checked-proof reference must be the canonical ``sha256:<64 hex>`` digest the rest of the
     pipeline emits (see ``jsonutil.sha256_json``). A placeholder string such as
     ``"sha256:checked-proof"`` is not a hash of anything and cannot stand in for a proof.
+    """
+    return isinstance(value, str) and bool(_SHA256_DIGEST.match(value))
+
+
+def _is_content_hash(value: Any) -> bool:
+    """Whether ``value`` is a canonical ``sha256:<64 hex>`` content hash.
+
+    The canonical content-addressing format the pipeline emits (``jsonutil.sha256_json`` /
+    ``jsonutil.sha256_text``). Used by the pinning-provenance construction guards (ADR 0206) to
+    require a real, well-formed content hash for the policy a machine pinning was recorded under
+    (``EnsembleEvidence.policy_hash``), the artifact a human review pinned
+    (``PinningProvenance.reviewed_artifact_hash``), and the agreed meaning the ensemble converged
+    on (``EnsembleAgreementResult.agreement_hash``) — not a placeholder label.
     """
     return isinstance(value, str) and bool(_SHA256_DIGEST.match(value))
 
@@ -893,3 +1001,316 @@ class StatusDecision(BaseModel):
     reason: str
     next_actions: list[str] = Field(default_factory=list)
     source_span: SourceSpan | None = None
+
+
+class EnsembleMember(BaseModel):
+    """One member of the cross-provider ensemble that pinned a machine-agreement rule.
+
+    ``resolved_model_id`` is the sidecar/API-resolved exact model id (ADR 0203 / ADR 0205 — never
+    the tier). ``provider_family`` is the family grouping THIS scope defines (scope §3): coarser
+    than the wrapper ``provider`` so two distinct providers that resolve to the same family (e.g.
+    two wrappers both resolving to Anthropic models) cannot satisfy the diversity requirement.
+
+    Every identifier must carry real content: a blank/whitespace-only ``member_id``,
+    ``resolved_model_id``, or ``provider_family`` would let a degenerate label satisfy the
+    distinct-family count (``{"", "anthropic"}`` is "2 distinct families") or the member/verdict
+    1:1 correspondence vacuously, inflating the diversity and agreement signals a machine pinning
+    gates on (ADR 0206; HELPER iter-5 review).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    member_id: str
+    resolved_model_id: str
+    provider_family: str
+
+    @model_validator(mode="after")
+    def _require_non_blank_identifiers(self) -> EnsembleMember:
+        for field in ("member_id", "resolved_model_id", "provider_family"):
+            value = getattr(self, field)
+            if not isinstance(value, str) or not value.strip():
+                raise ValueError(
+                    f"EnsembleMember.{field} must be a non-empty, non-blank identifier for a "
+                    f"machine pinning (got {value!r}); a blank label could satisfy the "
+                    "distinct-family / member-identity requirements vacuously"
+                )
+        return self
+
+
+class EnsembleAgreementResult(BaseModel):
+    """The agreement-computation result across the ensemble for a machine pinning.
+
+    This reuses the agreement *computation* (``decomposition_client`` / ``end_to_end_gate``) but
+    NOT its human-approval precondition (scope §3): auto-advance acts before human approval, so
+    the ``machine_agreement`` trust state defines its own requirements. ``agreed`` must be true
+    for a pinning (a divergent ensemble routes to the human queue, never a pin);
+    ``agreement_hash`` is the content hash of the agreed controlled text / IR shape the ensemble
+    converged on, so the pinned meaning is content-addressed.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    agreed: bool
+    agreement_hash: str
+
+    @model_validator(mode="after")
+    def _require_agreed_with_content_hash(self) -> EnsembleAgreementResult:
+        if not self.agreed:
+            raise ValueError(
+                "EnsembleAgreementResult for a machine pinning must have agreed=True; a divergent "
+                "ensemble cannot pin a rule's meaning (disagreement routes to the human queue)"
+            )
+        if not _is_content_hash(self.agreement_hash):
+            raise ValueError(
+                "EnsembleAgreementResult.agreement_hash must be a canonical sha256:<64 hex> "
+                "content hash of the agreed controlled text / IR shape"
+            )
+        return self
+
+
+class EnsembleAuditVerdict(BaseModel):
+    """One ensemble member's audit verdict for a machine pinning.
+
+    Each ensemble member's candidate must pass audit before the member may participate in a
+    machine pinning (scope §5: "passing audit verdicts"). This is the provenance-axis audit
+    summary recorded on the pinning record, distinct from the decomposition ``AuditVerdict``
+    (``audit_client``), which audits a decomposition result.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    member_id: str
+    verdict: Literal["passed", "failed"]
+    detail: str | None = None
+
+    @model_validator(mode="after")
+    def _require_non_blank_member_id(self) -> EnsembleAuditVerdict:
+        # A blank/whitespace-only verdict member_id breaks the exact 1:1 correspondence the
+        # passing-audit requirement relies on (and would match a blank member_id vacuously), so it
+        # is rejected at construction (ADR 0206; HELPER iter-5 review).
+        if not self.member_id.strip():
+            raise ValueError(
+                "EnsembleAuditVerdict.member_id must be a non-empty, non-blank identifier for a "
+                "machine pinning; a blank verdict member_id breaks the member/verdict correspondence"
+            )
+        return self
+
+
+class EnsembleEvidence(BaseModel):
+    """The ensemble-evidence object a ``machine_agreement`` pinning is unrepresentable without.
+
+    A machine-pinned rule's meaning was pinned by an ensemble of >=2 cross-provider (>=2 distinct
+    provider families) models that agreed, each passing audit, under a recorded policy whose
+    content hash is carried here. The construction guard on ``PinningProvenance`` requires this
+    object to be present for a ``machine_agreement`` record, so a machine pinning cannot be held
+    in memory without its ensemble evidence — modeled on the proof guards
+    ``_has_proof_artifact`` / ``_has_proof_assistant_identity`` (and the
+    ``BackendResult._validate_evidence_backing`` construction-time refusal pattern).
+
+    The signals here are all MEASURABLE (scope §5 / acceptance #7): ensemble size, distinct
+    provider families, agreement, per-member audit verdicts, and the policy content hash — never a
+    model-reported confidence scalar.
+
+    The stamping path is live (scope §3/§5): ``machine_agreement.route_machine_pinning`` constructs
+    this object from the measurable routing signals and ``package.build_package(pinning=...)`` writes
+    it onto a machine-pinned package, under an opt-in ``--machine-pin-policy`` (cross-provider
+    transport, ensemble-FA calibration, deterministic threshold derivation, and the default-deny
+    per-path gate). With no policy configured (the default) no production path constructs one, so the
+    default pipeline is byte-identical to today (acceptance #1).
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    members: list[EnsembleMember]
+    agreement: EnsembleAgreementResult
+    audit_verdicts: list[EnsembleAuditVerdict]
+    policy_hash: str
+
+    @model_validator(mode="after")
+    def _require_cross_provider_passing_ensemble(self) -> EnsembleEvidence:
+        if len(self.members) < 2:
+            raise ValueError(
+                "EnsembleEvidence requires at least 2 ensemble members for a machine pinning; a "
+                "single model cannot satisfy the cross-provider agreement requirement"
+            )
+        families = {member.provider_family for member in self.members}
+        if len(families) < 2:
+            raise ValueError(
+                "EnsembleEvidence requires at least 2 distinct provider families for a machine "
+                f"pinning; a same-family ensemble ({sorted(families)}) cannot satisfy the "
+                "diversity requirement that catches correlated training bias"
+            )
+        # Member IDs must be unique — two members with the same id would let a single model
+        # masquerade as two ensemble voices, inflating the diversity and agreement signals.
+        member_ids = [member.member_id for member in self.members]
+        if len(set(member_ids)) != len(member_ids):
+            duplicate_members = sorted(
+                {member_id for member_id in member_ids if member_ids.count(member_id) > 1}
+            )
+            raise ValueError(
+                "EnsembleEvidence requires unique ensemble member_ids; duplicate member_ids: "
+                f"{duplicate_members}"
+            )
+        # Audit verdict IDs must be unique AND exactly cover the member set — a duplicate verdict
+        # would collapse one member's result, and a verdict for a non-member (or a member with no
+        # verdict) would break the 1:1 correspondence the passing-audit requirement relies on.
+        # Building ``verdict_by_member`` as a dict silently collapsed both, so this checks lists.
+        verdict_member_ids = [verdict.member_id for verdict in self.audit_verdicts]
+        if len(set(verdict_member_ids)) != len(verdict_member_ids):
+            duplicate_verdicts = sorted(
+                {member_id for member_id in verdict_member_ids if verdict_member_ids.count(member_id) > 1}
+            )
+            raise ValueError(
+                "EnsembleEvidence requires unique audit verdict member_ids; duplicate verdict "
+                f"member_ids: {duplicate_verdicts}"
+            )
+        member_id_set = set(member_ids)
+        verdict_id_set = set(verdict_member_ids)
+        missing_verdicts = member_id_set - verdict_id_set
+        extra_verdicts = verdict_id_set - member_id_set
+        if missing_verdicts or extra_verdicts:
+            raise ValueError(
+                "EnsembleEvidence requires an audit verdict for every ensemble member and no "
+                "others (exact 1:1 correspondence); missing audit verdicts for: "
+                f"{sorted(missing_verdicts)}, verdicts for non-members: {sorted(extra_verdicts)}"
+            )
+        failed = [
+            verdict.member_id
+            for verdict in self.audit_verdicts
+            if verdict.verdict != "passed"
+        ]
+        if failed:
+            raise ValueError(
+                "EnsembleEvidence requires every ensemble member's audit to pass for a machine "
+                f"pinning; failed audit verdicts for: {sorted(failed)}"
+            )
+        if not _is_content_hash(self.policy_hash):
+            raise ValueError(
+                "EnsembleEvidence.policy_hash must be a canonical sha256:<64 hex> content hash of "
+                "the machine-pin policy the pinning was recorded under"
+            )
+        return self
+
+
+class PinningProvenance(BaseModel):
+    """Provenance of WHO pinned a controlled requirement's meaning — a separate axis from
+    ``EvidenceLevel`` (which records WHAT tool produced evidence).
+
+    A package carries this record iff its controlled meaning was pinned by either a real human
+    review (``human_review``) or a machine agreement (``machine_agreement``). The two kinds are
+    mutually exclusive and each is unrepresentable without its backing: a ``machine_agreement``
+    record requires its ``EnsembleEvidence`` object, and a ``human_review`` record requires a REAL
+    review event — the actual ``ReviewArtifact`` that performed the review, carried INLINE as
+    ``review_event`` and required to carry ``review_origin="human"`` (so ``is_real_human_review``
+    is True). The event is carried INLINE (symmetric with the inline ``ensemble`` on a machine
+    pin) precisely so the pin is literally unrepresentable without a real review event — not
+    merely a reference to one — and scalar-only construction (a ``review_id`` + ``reviewer`` +
+    hash with no event) is impossible. A fabricated package-builder ``review.json``
+    (``review_origin="package_builder"``) therefore cannot back a ``human_review`` pin, because
+    its origin is not human (ADR 0206 §2; acceptance #5). The ``ReviewArtifact`` construction
+    guard already makes a ``review_origin="human"`` event unrepresentable under a placeholder
+    reviewer (``phase<N>@example.invalid``), so the provenance guard needs only to require the
+    event's origin be human — acceptance #5 is satisfied at BOTH axes.
+
+    ``review_id`` / ``reviewer`` / ``reviewed_artifact_hash`` are read-only accessors DERIVED
+    from the embedded ``review_event`` (the reference signals scope §6 names), not independently
+    settable scalar fields, so the pin's references and its backing event can never disagree.
+
+    The stamping path is live (scope §3/§5): the opt-in ``machine_agreement.route_machine_pinning``
+    constructs a ``machine_agreement`` record and ``package.build_package(pinning=...)`` emits it on
+    a package alongside a ``needs_review`` review (never a fabricated ``approved`` one); a human
+    review later promotes it to ``human_review`` (``package.promote_machine_pinned_package``, upward
+    only). With no machine-pin policy configured (the default) no production path constructs one, so
+    the default pipeline is byte-identical to today (acceptance #1).
+
+    SCHEMA BOUNDARY (ADR 0206): ``schemas/pinning-provenance.schema.json`` is an AUTO-GENERATED
+    structural contract (drift-checked against this model), NOT the authoring contract. Pydantic
+    validation is authoritative: the kind/backing mutual-exclusion (``machine_agreement`` requires
+    ``ensemble`` and forbids a review event; ``human_review`` requires a real review event with
+    ``review_origin="human"`` and forbids ``ensemble``) and the human-origin requirement are
+    cross-field / semantic guards the JSON Schema cannot express, so they live in the
+    ``model_validator`` below and are enforced on every construction / load. The schema therefore
+    requires only ``kind`` + ``timestamp``; a JSON-Schema-only consumer that accepts
+    ``kind: machine_agreement`` without ``ensemble`` is bypassing the runtime guard, not
+    satisfying it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["human_review", "machine_agreement"]
+    # human_review: the REAL review event the pinning is backed by (``review_origin="human"``),
+    # carried INLINE so the pin is unrepresentable without it. ``None`` for ``machine_agreement``.
+    review_event: ReviewArtifact | None = None
+    # machine_agreement: the ensemble-evidence object the pinning is unrepresentable without.
+    # ``None`` for ``human_review``.
+    ensemble: EnsembleEvidence | None = None
+    timestamp: str
+
+    @property
+    def review_id(self) -> str | None:
+        # Read-only accessor (scope §6's review-event reference signal), DERIVED from the embedded
+        # event so the pin's reference and its backing can never disagree. ``None`` for a machine
+        # pin (no review event).
+        return self.review_event.review_id if self.review_event is not None else None
+
+    @property
+    def reviewer(self) -> str | None:
+        # Read-only accessor (scope §6's reviewer reference signal), DERIVED from the embedded event.
+        return self.review_event.reviewer if self.review_event is not None else None
+
+    @property
+    def reviewed_artifact_hash(self) -> str | None:
+        # Read-only accessor (scope §6's reviewed-artifact content-hash reference signal), DERIVED
+        # from the embedded event. For a requirement package the reviewed artifact is the
+        # requirement IR, keyed ``requirement_ir`` in the event's ``reviewed_hashes`` (the canonical
+        # key the package builders and ``validate_package`` use).
+        if self.review_event is None:
+            return None
+        return self.review_event.reviewed_hashes.get("requirement_ir")
+
+    @model_validator(mode="after")
+    def _require_backing_for_kind(self) -> PinningProvenance:
+        if self.kind == "machine_agreement":
+            if self.ensemble is None:
+                raise ValueError(
+                    "a machine_agreement PinningProvenance is unrepresentable without its "
+                    "ensemble-evidence object (EnsembleEvidence)"
+                )
+            if self.review_event is not None:
+                raise ValueError(
+                    "a machine_agreement PinningProvenance must not carry a human review event; "
+                    "machine pinning and human review are mutually exclusive provenance kinds"
+                )
+        else:  # human_review
+            if self.ensemble is not None:
+                raise ValueError(
+                    "a human_review PinningProvenance must not carry machine ensemble evidence; "
+                    "machine pinning and human review are mutually exclusive provenance kinds"
+                )
+            if self.review_event is None:
+                raise ValueError(
+                    "a human_review PinningProvenance is unrepresentable without a real review "
+                    "event (the ReviewArtifact that performed the review); scalar-only "
+                    "construction is not representable"
+                )
+            if self.review_event.review_origin != "human":
+                raise ValueError(
+                    "a human_review PinningProvenance must be backed by a real human review event "
+                    "(review_origin='human'); a fabricated package-builder review "
+                    f"(review_origin={self.review_event.review_origin!r}) cannot pin a rule's "
+                    "meaning as human-reviewed"
+                )
+            # A human_review pin records that the meaning was PINNED — accepted — by human review.
+            # A real human review whose decision is ``rejected`` or ``needs_review`` did NOT pin the
+            # meaning as accepted, so it is unrepresentable as a human_review pin (the same
+            # "unbacked claim is refused at construction" discipline the origin guard uses). Without
+            # this, a human rejection would back a human_review pin and ``decide_status`` would
+            # resolve it to a human-accepted status — a human rejection silently becoming a human
+            # acceptance, contradicting "promotion only upward" (ADR 0206 §6).
+            if self.review_event.decision != "approved":
+                raise ValueError(
+                    "a human_review PinningProvenance must be backed by an APPROVED human review "
+                    f"event (decision={self.review_event.decision!r}); a 'rejected' or "
+                    "'needs_review' human review does not pin a rule's meaning as human-accepted"
+                )
+        return self

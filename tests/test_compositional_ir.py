@@ -54,6 +54,10 @@ def test_migrate_flat_ir_to_compositional_ir_records_auditable_diff() -> None:
     assert migrated.ir_version == "0.2"
     assert migrated.requirement_id == source.requirement_id
     assert migrated.semantic_ir.metadata["legacy_claim_kind"] == source.claim.kind
+    # The v0.1 claim kind is ALSO preserved as ``requirement_class`` (the metadata key
+    # ``build_formal_claim`` / ``lower_ir_v2_to_tla`` dispatch on), so a migrated IR does not refuse
+    # formal-claim lowering. The two keys carry the same value (no drift).
+    assert migrated.semantic_ir.metadata["requirement_class"] == source.claim.kind
     assert record.source_ir_version == "0.1"
     assert record.target_ir_version == "0.2"
     assert record.source_ir_hash.startswith("sha256:")

@@ -13,7 +13,7 @@ NLREQ_API_KEY_ENV = "NLREQ_ANTHROPIC_API_KEY"
 # best-effort reproducibility only; callers must still treat output as untrusted.
 _DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 
-# Version stamps for the three LlmClient prompt templates (drafting, impact, extraction).
+# Version stamps for the LlmClient prompt templates (drafting, impact, extraction).
 # Bump the relevant one when the semantic content of that prompt changes so prompt_hash /
 # provenance stays interpretable. These are the per-role prompt-version provenance the
 # model-config factory records (Work Item 1); Work Item 2 lifts the inline prompt builders
@@ -24,6 +24,11 @@ _DEFAULT_MODEL = "claude-haiku-4-5-20251001"
 _DRAFTING_PROMPT_VERSION = "0.1"
 _IMPACT_PROMPT_VERSION = "0.1"
 _EXTRACTION_PROMPT_VERSION = "0.1"
+# The partition role's prompt version (three-zone scope, Zone 1 / §4). Partition is a sixth
+# LlmClient role: it proposes plain-language candidate requirements from a behavioral segment
+# (proposal-only, never controlled DSL). Bump when build_partition_prompt's semantic content
+# changes so the partition role's provenance stays interpretable.
+_PARTITION_PROMPT_VERSION = "0.1"
 
 # Sentinel a drafting model emits in place of controlled text when it is NOT confident
 # it can faithfully translate a (typically non-English) fragment. The intake layer turns
@@ -118,6 +123,51 @@ def build_spec_extraction_prompt(
         '[{"expectation_id": "...", "kind": "event_emitted", "target": "...", '
         '"description": "..."}]} ' + kinds_instruction + ' No prose.\n\n'
         "SOURCE:\n" + code_presentation.strip()
+    )
+
+
+def build_partition_prompt(
+    *, segment_text: str, document_context: str, language: str = "en"
+) -> str:
+    """The spec-partitioning proposal prompt — single source shared by both transports.
+
+    The partitioner reads ONE behavioral segment (already classified as a candidate by the
+    deterministic segmenter in ``spec_partition``) and proposes one or more atomic,
+    single-meaning candidate requirements as plain-language sentences — NOT controlled DSL
+    (drafting to the controlled grammar is a later, separate role). The source span of each
+    candidate is computed deterministically by the partition layer (locating the rule text
+    inside the segment), never trusted from the model.
+
+    The proposal is UNTRUSTED and proposal-only: the partition layer routes a segment to the
+    human queue when the model cannot state a clear requirement (the ``[[NLR-CLARIFY]]``
+    sentinel — the same low-confidence refusal discipline drafting uses). ``language`` steers a
+    light instruction to keep candidate text in the source language; the controlled-DSL
+    translation addendum is intentionally NOT applied here (partition is pre-drafting). Both
+    transports call this so a prompt fork between the API and CLI transports is impossible.
+    """
+    context_line = (
+        f"\nDOCUMENT CONTEXT (heading path):\n{document_context.strip()}\n"
+        if document_context.strip()
+        else ""
+    )
+    keep_language = "" if language == "en" else (
+        f"\nThe segment is written in the language with code '{language}'. Keep each candidate "
+        "requirement in that source language; do not translate or transliterate identifiers.\n"
+    )
+    return (
+        "You partition one segment of a requirements specification into atomic, "
+        "single-meaning candidate requirements. Each candidate must state exactly ONE "
+        "testable requirement in plain language. Do NOT write controlled or formal DSL — "
+        "that is a later, separate step. Merge nothing; if a segment already states one "
+        "requirement, return that one requirement."
+        + keep_language
+        + context_line
+        + "\nSEGMENT:\n"
+        + segment_text.strip()
+        + "\n\nReply with ONLY a JSON array of objects of the form "
+        '{"rule": "<one atomic requirement in plain language>"}. If the segment does NOT '
+        f"state a clear, testable requirement, reply with '{CROSS_LANGUAGE_CLARIFY_SENTINEL} "
+        "<a short reason>' and nothing else. No prose outside the JSON array."
     )
 
 
@@ -258,6 +308,37 @@ class LlmClient(Protocol):
         """
         ...
 
+    def propose_candidate_rules(
+        self, *, segment_text: str, document_context: str, language: str = "en"
+    ) -> str:
+        """Return a JSON array of plain-language candidate requirements for ONE segment.
+
+        This is the Zone 1 spec-partitioning proposal (three-zone scope §4): the model reads a
+        single behavioral segment (already classified as a candidate by the deterministic
+        segmenter) and proposes one or more atomic, single-meaning candidate requirements as
+        plain-language sentences. The output is NOT controlled DSL — drafting to the controlled
+        grammar is a later, separate role (``propose_controlled_rewrite``). The source span of
+        each candidate is computed deterministically by the partition layer (locating the rule
+        text inside the segment), never trusted from the model.
+
+        The returned text is UNTRUSTED and proposal-only: the partition layer routes a segment
+        to the human queue when the model cannot state a clear requirement (the
+        ``[[NLR-CLARIFY]]`` sentinel). Parse the returned text with
+        :func:`nlreq.spec_partition.parse_candidate_rules_proposal`, which tolerates malformed
+        output and surfaces the clarify sentinel.
+
+        Args:
+            segment_text: The single behavioral segment to partition.
+            document_context: Heading path / surrounding context for naming (may be empty).
+            language: BCP-47-ish source-language code of ``segment_text``; steers the prompt to
+                keep candidate text in the source language and is recorded in provenance.
+
+        Returns:
+            A JSON array of objects ``{"rule": "<plain-language requirement>"}``, or the
+            ``[[NLR-CLARIFY]] <reason>`` sentinel. Not yet verified.
+        """
+        ...
+
 
 def parse_impact_estimate(text: str) -> list[str]:
     """Parse an UNTRUSTED LLM impact estimate into a sorted, de-duplicated list of module ids.
@@ -304,6 +385,7 @@ class RecordedLlmClient:
         *,
         impact_fixture: str | None = None,
         spec_fixture: str | None = None,
+        partition_fixture: str | None = None,
     ) -> None:
         self._fixture = fixture
         # The recorded semantic-impact estimate (a JSON array of module ids). Optional and separate
@@ -316,6 +398,12 @@ class RecordedLlmClient:
         # estimate, AND the PC-8 spec extraction; when omitted, extract_spec_invariants replays the
         # main fixture.
         self._spec_fixture = spec_fixture
+        # The recorded partition proposal (a JSON array of plain-language candidate rules, or a
+        # ``[[NLR-CLARIFY]]`` sentinel). Optional and separate so one client can replay the
+        # partition role (Zone 1) independently; when omitted, propose_candidate_rules replays the
+        # main fixture (so a client constructed solely with the rewrite fixture still serves a
+        # partition proposal for offline tests).
+        self._partition_fixture = partition_fixture
 
     def propose_controlled_rewrite(
         self, prose: str, grammar_summary: str, *, language: str = "en"
@@ -341,6 +429,16 @@ class RecordedLlmClient:
         # model — here they are accepted and ignored. Falls back to the rewrite fixture when no
         # dedicated spec fixture was recorded.
         return self._spec_fixture if self._spec_fixture is not None else self._fixture
+
+    def propose_candidate_rules(
+        self, *, segment_text: str, document_context: str, language: str = "en"
+    ) -> str:
+        # Deterministic replay: the recorded partition proposal already encodes the model's
+        # candidate rules for this segment (including any [[NLR-CLARIFY]] sentinel), so
+        # segment_text/document_context/language only steer a live model — here they are accepted
+        # and ignored. Falls back to the rewrite fixture when no dedicated partition fixture was
+        # recorded (so an offline partition test can reuse a single recorded fixture).
+        return self._partition_fixture if self._partition_fixture is not None else self._fixture
 
 
 def _extract_text(message: object) -> str:
@@ -486,6 +584,38 @@ class AnthropicLlmClient:
         )
         return _extract_text(message)
 
+    def propose_candidate_rules(
+        self, *, segment_text: str, document_context: str, language: str = "en"
+    ) -> str:
+        # Credential check first so a missing key surfaces as EnvironmentError even when the
+        # 'anthropic' package is not installed (mirrors propose_controlled_rewrite).
+        api_key = load_api_key()
+
+        try:
+            import anthropic
+        except ImportError as exc:
+            raise ImportError(
+                "Real LLM spec partitioning requires the 'anthropic' package. "
+                "Install it via: pip install anthropic  (or uv add anthropic)"
+            ) from exc
+        client = anthropic.Anthropic(api_key=api_key)
+        message = client.messages.create(
+            model=self._model,
+            max_tokens=1024,
+            temperature=0,
+            messages=[
+                {
+                    "role": "user",
+                    "content": build_partition_prompt(
+                        segment_text=segment_text,
+                        document_context=document_context,
+                        language=language,
+                    ),
+                }
+            ],
+        )
+        return _extract_text(message)
+
 
 class UnavailableLlmClient:
     """Raises a clear error when the real SDK is not installed.
@@ -515,5 +645,13 @@ class UnavailableLlmClient:
     ) -> str:
         raise NotImplementedError(
             "Real LLM spec extraction requires the 'anthropic' package. "
+            "Install it or supply a RecordedLlmClient for offline use."
+        )
+
+    def propose_candidate_rules(
+        self, *, segment_text: str, document_context: str, language: str = "en"
+    ) -> str:
+        raise NotImplementedError(
+            "Real LLM spec partitioning requires the 'anthropic' package. "
             "Install it or supply a RecordedLlmClient for offline use."
         )

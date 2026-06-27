@@ -11,6 +11,7 @@ from nlreq.models import (
     EvidenceObject,
     GeneratedTestsArtifact,
     NormalizedTraceArtifact,
+    PinningProvenance,
     RequirementIR,
     RequirementIRMigrationRecord,
     RequirementIRV2,
@@ -103,6 +104,14 @@ from nlreq.role_calibration import (
 )
 from nlreq.translation_repair import TranslationRepairHistory, TranslationRepairReport
 from nlreq.translator_workbench import TranslatorRunArtifact, TranslatorSelectionArtifact
+from nlreq.spec_partition import SpecPartitionArtifact
+from nlreq.attest import AttestSpecReport
+from nlreq.machine_agreement import (
+    EnsembleCalibrationConfiguration,
+    EnsembleFalseAcceptanceCalibration,
+    MachinePinPolicy,
+    MachinePinPolicyRules,
+)
 from nlreq.delta_extractor import DeltaReport
 from nlreq.end_to_end_gate import (
     EndToEndRequirementGateReport,
@@ -367,6 +376,12 @@ SCHEMAS = {
     "signature-verification-report.schema.json": SignatureVerificationReport,
     "s-and-r-composition-report.schema.json": SandRCompositionReport,
     "status-decision.schema.json": StatusDecision,
+    "pinning-provenance.schema.json": PinningProvenance,
+    "spec-partition.schema.json": SpecPartitionArtifact,
+    "attest-spec-report.schema.json": AttestSpecReport,
+    "machine-pin-policy.schema.json": MachinePinPolicy,
+    "ensemble-false-acceptance-calibration.schema.json": EnsembleFalseAcceptanceCalibration,
+    "ensemble-calibration-configuration.schema.json": EnsembleCalibrationConfiguration,
     "system-spec-registry.schema.json": SystemSpecRegistry,
     "system-spec-registry-report.schema.json": SystemSpecRegistryReport,
     "system-consistency-result.schema.json": SystemConsistencyResult,

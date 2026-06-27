@@ -53,7 +53,68 @@ class GatePolicyScope(BaseModel):
     requirement_id_patterns: list[str] = Field(default_factory=list)
 
 
+class GateMachinePinRules(BaseModel):
+    """The DEFAULT-DENY machine-pin gate (three-zone scope §6; acceptance #4).
+
+    A machine-pinned status (``MACHINE_PINNED_PENDING_REVIEW``) is accepted by the hard gate ONLY
+    for a change whose EVERY changed path matches an explicit low-risk allow-list pattern AND
+    whose NO changed path matches a block-list pattern (auth / funds / other sensitive surfaces).
+    This is default-deny: an UNMATCHED path (one not on the allow-list), a MIXED-risk change (some
+    allowed + some not), and EVERY auth/funds path all require a human ``REVIEWED`` package — a
+    machine pin never satisfies them (scope §6 / AC4). Evidence-level requirements are unchanged:
+    machine pinning never substitutes for a deterministic proof level (the ``minimum_evidence``
+    check still runs on a machine-pinned package).
+
+    ``enabled=False`` (the default) means the gate blocks a machine-pinned status on EVERY path
+    — the operator opts into per-path acceptance by enabling the section and populating the
+    allow-list. An empty allow-list with ``enabled=True`` is default-deny against every path
+    (nothing is allow-listed), which is the safe floor.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    enabled: bool = False
+    # fnmatch patterns for low-risk changed paths a machine pin MAY satisfy (e.g. 'docs/**',
+    # 'tests/**'). A machine-pinned package is accepted iff EVERY changed path matches at least
+    # one pattern here AND none match ``block_changed_path_patterns``.
+    allowed_changed_path_patterns: list[str] = Field(default_factory=list)
+    # fnmatch patterns for sensitive paths a machine pin MUST NEVER satisfy, even if they also
+    # match the allow-list (deny wins). Defaults to auth/funds surfaces; an operator widens it.
+    block_changed_path_patterns: list[str] = Field(
+        default_factory=lambda: [
+            "**/auth/**",
+            "**/authentication/**",
+            "**/authz/**",
+            "**/funds/**",
+            "**/payments/**",
+            "**/wallet/**",
+            "**/transfer/**",
+            "**/signing/**",
+            "**/crypto/**",
+        ]
+    )
+
+
 class GatePolicyRules(BaseModel):
+    """The enforceable rules of a hard-gate policy.
+
+    SCHEMA BOUNDARY (ADR 0206 §5): the committed ``schemas/gate-policy.schema.json`` is an
+    AUTO-GENERATED structural contract (``scripts/generate_schema.py`` from the Pydantic models,
+    enforced drift-free by ``scripts/check_schema_drift.py``). It is NOT the authoring contract:
+    Pydantic validation (``load_gate_policy`` -> ``GatePolicy.model_validate``) is authoritative,
+    and semantic / cross-field constraints that the JSON Schema cannot express live in the
+    ``model_validator`` below. In particular ``allowed_statuses`` is typed ``list[FinalStatus]``
+    so the generated enum advertises every ``FinalStatus`` member (including
+    ``MACHINE_PINNED_PENDING_REVIEW``), but the runtime validator REFUSES that member in
+    ``allowed_statuses``: a machine pin is accepted ONLY per-path via the dedicated
+    ``GatePolicy.machine_pin`` default-deny section (allow-list), never globally via
+    ``allowed_statuses`` — so a hand-authored
+    policy that lists it fails LOUDLY at load time (never silently accepted). The same boundary
+    applies to ``PinningProvenance``
+    backing guards (the schema requires only ``kind`` + ``timestamp``; the ``ensemble`` /
+    real-review-event backing is enforced at runtime).
+    """
+
     model_config = ConfigDict(extra="forbid")
 
     allowed_statuses: list[FinalStatus] = Field(
@@ -63,6 +124,22 @@ class GatePolicyRules(BaseModel):
     minimum_evidence: list[EvidenceLevel] = Field(default_factory=list)
     require_approved_review: bool = True
     report_only_findings: list[str] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def _reject_machine_pinned_status_in_allowed_statuses(self) -> GatePolicyRules:
+        # A machine-pinned status (``MACHINE_PINNED_PENDING_REVIEW``) is accepted ONLY per-path via
+        # the dedicated ``GatePolicy.machine_pin`` default-deny section (scope §6 / AC4), NEVER
+        # globally via ``allowed_statuses`` — so a hand-authored policy that lists it fails LOUDLY
+        # at load time. ``allowed_statuses`` is for the human-accepted statuses
+        # (``ACCEPTED_WITH_EVIDENCE`` / ``ACCEPTED_FOR_IMPLEMENTATION_WITH_REVIEW``); the machine
+        # pin has its own per-path gate precisely so an operator cannot blanket-allow it.
+        if any(status is FinalStatus.MACHINE_PINNED_PENDING_REVIEW for status in self.allowed_statuses):
+            raise ValueError(
+                "MACHINE_PINNED_PENDING_REVIEW is not allowed in rules.allowed_statuses: a "
+                "machine-pinned status is accepted ONLY per-path via the policy's machine_pin "
+                "default-deny section (allowed_changed_path_patterns), never globally"
+            )
+        return self
 
 
 class GatePolicyWaiverRules(BaseModel):
@@ -82,6 +159,10 @@ class GatePolicy(BaseModel):
     scope: GatePolicyScope = Field(default_factory=GatePolicyScope)
     rules: GatePolicyRules = Field(default_factory=GatePolicyRules)
     waivers: GatePolicyWaiverRules = Field(default_factory=GatePolicyWaiverRules)
+    # The default-deny machine-pin gate (scope §6 / AC4). Defaults to disabled (default-deny on
+    # every path): a machine-pinned status is blocked on every path until an operator enables the
+    # section and populates the low-risk allow-list.
+    machine_pin: GateMachinePinRules = Field(default_factory=GateMachinePinRules)
 
     @model_validator(mode="after")
     def validate_schema_version(self) -> GatePolicy:
@@ -164,12 +245,14 @@ def build_hard_gate_report(
         for package in package_index["packages"]
         if package["requirement_id"]
     }
-    raw_findings = _raw_hard_gate_findings(referenced_ids, packages_by_id, policy)
+    normalized_changed_paths = [_normalize_path(path) for path in changed_paths or []]
+    raw_findings = _raw_hard_gate_findings(
+        referenced_ids, packages_by_id, policy, changed_paths=normalized_changed_paths
+    )
     evaluated_findings: list[dict[str, Any]] = []
     waiver_decisions: list[dict[str, Any]] = []
     active_now = _as_utc(now or datetime.now(timezone.utc))
     active_waivers = waivers or []
-    normalized_changed_paths = [_normalize_path(path) for path in changed_paths or []]
 
     for finding in raw_findings:
         package = packages_by_id.get(finding["requirement_id"])
@@ -295,6 +378,8 @@ def _raw_hard_gate_findings(
     referenced_ids: list[str],
     packages_by_id: dict[str, dict[str, Any]],
     policy: GatePolicy,
+    *,
+    changed_paths: list[str] | None = None,
 ) -> list[dict[str, str | None]]:
     if not referenced_ids:
         return [
@@ -332,6 +417,13 @@ def _raw_hard_gate_findings(
 
         status = package["status"]
         allowed_statuses = {status.value for status in policy.rules.allowed_statuses}
+        # DEFAULT-DENY MACHINE-PIN GATE (three-zone scope §6; AC4): a machine-pinned status
+        # (``MACHINE_PINNED_PENDING_REVIEW``) is accepted ONLY per-path — every changed path on
+        # the explicit low-risk allow-list and none on the block-list. It is never in
+        # ``allowed_statuses`` (globally), so without the per-path acceptance it is flagged as a
+        # status finding (the safe default). ``_machine_pin_accepts`` returns False for any other
+        # status, so non-machine statuses are unaffected (AC1 byte-identity for the default path).
+        machine_pin_accepted = _machine_pin_accepts(status, changed_paths or [], policy)
         if status is None:
             findings.append(
                 _finding(
@@ -341,7 +433,7 @@ def _raw_hard_gate_findings(
                     "referenced package has no status",
                 )
             )
-        elif status not in allowed_statuses:
+        elif status not in allowed_statuses and not machine_pin_accepted:
             findings.append(
                 _finding(
                     "status",
@@ -352,7 +444,24 @@ def _raw_hard_gate_findings(
             )
 
         review = package["review"]
-        if policy.rules.require_approved_review and review["decision"] != "approved":
+        # CATEGORY-2 REVIEW CHECK (ADR 0206 §2; AC1 baseline): a package satisfies the review
+        # requirement when its review decision is ``approved`` (the default/human path — AC1
+        # byte-identity) OR when it is a machine-pinned package ACCEPTED by the per-path
+        # default-deny gate (the machine pin replaces human review for low-risk paths only). A
+        # machine-pinned package carries a ``needs_review`` review; without the per-path acceptance
+        # it is flagged here (and by the status check above) — a machine pin never fakes human
+        # approval. The fabricated package-builder approval (``review_origin="package_builder``,
+        # ``decision="approved"``) still satisfies the default path (AC1): this gate site keeps
+        # ``decision == "approved"`` (NOT ``is_real_human_review``) because tightening it would
+        # block every default package — a direct AC1 violation. The human/non-human distinction
+        # for MACHINE pins is enforced at the load-bearing provenance axis
+        # (``validate_package`` refuses a machine-pinned package with an ``approved`` review; the
+        # ``human_review`` pin backing guard requires ``review_origin="human"``), not here.
+        if (
+            policy.rules.require_approved_review
+            and review["decision"] != "approved"
+            and not machine_pin_accepted
+        ):
             findings.append(
                 _finding(
                     "pending_reviews",
@@ -553,6 +662,56 @@ def _stale_waiver_hashes(waiver: GateWaiver, package: dict[str, Any]) -> list[st
         if package_hashes.get(artifact) != expected_hash:
             stale.append(key)
     return stale
+
+
+def _machine_pin_accepts(
+    status: object,
+    changed_paths: list[str],
+    policy: GatePolicy,
+) -> bool:
+    """Whether a machine-pinned status is ACCEPTED by the default-deny per-path gate (scope §6).
+
+    Returns True ONLY when ALL of:
+      * ``status`` is ``MACHINE_PINNED_PENDING_REVIEW`` (any other status → False, so the default
+        path and human-accepted statuses are unaffected — AC1 byte-identity);
+      * the policy's ``machine_pin`` section is ``enabled``;
+      * there is at least one changed path (default-deny: an empty change set has no paths to
+        validate against the allow-list, so nothing is accepted);
+      * EVERY changed path matches at least one ``allowed_changed_path_patterns`` pattern; AND
+      * NO changed path matches any ``block_changed_path_patterns`` pattern (deny wins).
+
+    Unmatched paths, mixed-risk changes, and every auth/funds path therefore require a human
+    ``REVIEWED`` package — a machine pin never satisfies them (AC4). Evidence-level requirements
+    are NOT waived here (the ``minimum_evidence`` check still runs on an accepted machine-pinned
+    package): machine pinning records who pinned the meaning, never a deterministic proof level.
+    """
+    from .status import is_human_accepted
+
+    # Any non-machine status is unaffected (AC1): the per-path gate is scoped to the machine pin.
+    if is_human_accepted(status) or status is None:
+        return False
+    is_machine = (
+        (isinstance(status, FinalStatus) and status is FinalStatus.MACHINE_PINNED_PENDING_REVIEW)
+        or (
+            isinstance(status, str)
+            and status == FinalStatus.MACHINE_PINNED_PENDING_REVIEW.value
+        )
+    )
+    if not is_machine:
+        return False
+    rules = policy.machine_pin
+    if not rules.enabled:
+        return False
+    if not changed_paths:
+        # Default-deny: no changed paths to validate against the allow-list → reject.
+        return False
+    for path in changed_paths:
+        normalized = _normalize_path(path)
+        if _matches_any(normalized, rules.block_changed_path_patterns):
+            return False
+        if not any(fnmatchcase(normalized, _normalize_path(pattern)) for pattern in rules.allowed_changed_path_patterns):
+            return False
+    return True
 
 
 def _missing_required_evidence(

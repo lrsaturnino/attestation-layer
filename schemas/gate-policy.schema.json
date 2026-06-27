@@ -19,6 +19,7 @@
       "enum": [
         "ACCEPTED_WITH_EVIDENCE",
         "ACCEPTED_FOR_IMPLEMENTATION_WITH_REVIEW",
+        "MACHINE_PINNED_PENDING_REVIEW",
         "REFUSED_AMBIGUOUS",
         "REFUSED_UNBOUND_SYMBOLS",
         "REFUSED_UNSUPPORTED_CLAIM",
@@ -29,8 +30,36 @@
       "title": "FinalStatus",
       "type": "string"
     },
+    "GateMachinePinRules": {
+      "additionalProperties": false,
+      "description": "The DEFAULT-DENY machine-pin gate (three-zone scope \u00a76; acceptance #4).\n\nA machine-pinned status (``MACHINE_PINNED_PENDING_REVIEW``) is accepted by the hard gate ONLY\nfor a change whose EVERY changed path matches an explicit low-risk allow-list pattern AND\nwhose NO changed path matches a block-list pattern (auth / funds / other sensitive surfaces).\nThis is default-deny: an UNMATCHED path (one not on the allow-list), a MIXED-risk change (some\nallowed + some not), and EVERY auth/funds path all require a human ``REVIEWED`` package \u2014 a\nmachine pin never satisfies them (scope \u00a76 / AC4). Evidence-level requirements are unchanged:\nmachine pinning never substitutes for a deterministic proof level (the ``minimum_evidence``\ncheck still runs on a machine-pinned package).\n\n``enabled=False`` (the default) means the gate blocks a machine-pinned status on EVERY path\n\u2014 the operator opts into per-path acceptance by enabling the section and populating the\nallow-list. An empty allow-list with ``enabled=True`` is default-deny against every path\n(nothing is allow-listed), which is the safe floor.",
+      "properties": {
+        "allowed_changed_path_patterns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Allowed Changed Path Patterns",
+          "type": "array"
+        },
+        "block_changed_path_patterns": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Block Changed Path Patterns",
+          "type": "array"
+        },
+        "enabled": {
+          "default": false,
+          "title": "Enabled",
+          "type": "boolean"
+        }
+      },
+      "title": "GateMachinePinRules",
+      "type": "object"
+    },
     "GatePolicyRules": {
       "additionalProperties": false,
+      "description": "The enforceable rules of a hard-gate policy.\n\nSCHEMA BOUNDARY (ADR 0206 \u00a75): the committed ``schemas/gate-policy.schema.json`` is an\nAUTO-GENERATED structural contract (``scripts/generate_schema.py`` from the Pydantic models,\nenforced drift-free by ``scripts/check_schema_drift.py``). It is NOT the authoring contract:\nPydantic validation (``load_gate_policy`` -> ``GatePolicy.model_validate``) is authoritative,\nand semantic / cross-field constraints that the JSON Schema cannot express live in the\n``model_validator`` below. In particular ``allowed_statuses`` is typed ``list[FinalStatus]``\nso the generated enum advertises every ``FinalStatus`` member (including\n``MACHINE_PINNED_PENDING_REVIEW``), but the runtime validator REFUSES that member in\n``allowed_statuses``: a machine pin is accepted ONLY per-path via the dedicated\n``GatePolicy.machine_pin`` default-deny section (allow-list), never globally via\n``allowed_statuses`` \u2014 so a hand-authored\npolicy that lists it fails LOUDLY at load time (never silently accepted). The same boundary\napplies to ``PinningProvenance``\nbacking guards (the schema requires only ``kind`` + ``timestamp``; the ``ensemble`` /\nreal-review-event backing is enforced at runtime).",
       "properties": {
         "allowed_statuses": {
           "items": {
@@ -137,6 +166,9 @@
   },
   "additionalProperties": false,
   "properties": {
+    "machine_pin": {
+      "$ref": "#/$defs/GateMachinePinRules"
+    },
     "mode": {
       "const": "hard_gate",
       "default": "hard_gate",
