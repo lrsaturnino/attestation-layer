@@ -340,10 +340,10 @@ def test_env_cli_model_env_pins_explicit_model_override(monkeypatch: pytest.Monk
     _no_role_env(monkeypatch)
     monkeypatch.setenv("NLREQ_DRAFTING_CLIENT", "cli")
     monkeypatch.setenv("NLREQ_DRAFTING_WRAPPER", "run-gpt")
-    monkeypatch.setenv("NLREQ_DRAFTING_MODEL_ENV", json.dumps({"GPT_LITE_MODEL": "gpt-4o-mini"}))
+    monkeypatch.setenv("NLREQ_DRAFTING_MODEL_ENV", json.dumps({"GPT_TIER2_MODEL": "gpt-4o-mini"}))
     built = build_client_for_role(Role.drafting, None)
     assert isinstance(built.client, CliLlmClient)
-    assert built.client._model_env == {"GPT_LITE_MODEL": "gpt-4o-mini"}
+    assert built.client._model_env == {"GPT_TIER2_MODEL": "gpt-4o-mini"}
 
 
 def test_env_cli_timeout_pinned_into_client(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -686,10 +686,10 @@ def test_cli_spec_parses_in_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
         "[impact]\n"
         "client = 'cli'\n"
         "wrapper = 'run-gpt'\n"
-        "tier = 'lite'\n"
+        "tier = '2'\n"
         "timeout_s = 90.0\n"
         "[impact.model_env]\n"
-        "GPT_LITE_MODEL = 'gpt-4o-mini'\n"
+        "GPT_TIER2_MODEL = 'gpt-4o-mini'\n"
     )
     cfg = load_model_config(cfg_path)
     assert cfg.impact is not None
@@ -697,8 +697,8 @@ def test_cli_spec_parses_in_config(monkeypatch: pytest.MonkeyPatch, tmp_path: Pa
     assert isinstance(built.client, CliLlmClient)
     # The parsed spec fields are carried into the client (construction does not run the wrapper).
     assert built.client._wrapper == "run-gpt"
-    assert built.client._tier == "lite"
-    assert built.client._model_env == {"GPT_LITE_MODEL": "gpt-4o-mini"}
+    assert built.client._tier == "2"
+    assert built.client._model_env == {"GPT_TIER2_MODEL": "gpt-4o-mini"}
     assert built.client._timeout_s == 90.0
 
 

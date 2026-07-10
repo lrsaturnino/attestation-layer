@@ -5931,8 +5931,9 @@ def _resolve_client_scheme(spec: str, role: object, model_config: object):
                                             that exact model (also anthropic).
       * ``recorded:<fixture-path>``         — deterministic fixture replay.
       * ``cli:<wrapper>``                   — cross-provider CLI transport, wrapper defaults.
-      * ``cli:<wrapper>:<tier>``            — tier shorthand (tier ∈ heavy|lite|tiny).
-      * ``cli:<wrapper>:tier=<t>``          — explicit tier (t ∈ heavy|lite|tiny).
+      * ``cli:<wrapper>:<tier>``            — tier shorthand (tier ∈ 1|2|3|4|5; the spelled
+                                              ``tier-N`` form is also accepted).
+      * ``cli:<wrapper>:tier=<t>``          — explicit tier (t ∈ 1|2|3|4|5 or ``tier-N``).
       * ``cli:<wrapper>:model=<id>``        — explicit EXPECTED resolved model (sidecar must
                                               match; provenance records the resolved id, never
                                               the tier — scope §4). Verification-only BY DESIGN:
@@ -5942,13 +5943,16 @@ def _resolve_client_scheme(spec: str, role: object, model_config: object):
                                               rung's job, not this suffix's (ADR 0203).
 
     The ``cli:`` suffix grammar follows the scope's ``cli:<wrapper>[:<tier-or-model>]`` form: a
-    bare suffix that is a known tier (heavy|lite|tiny) is tier shorthand; a ``tier=``/``model=``
-    prefix is explicit; ANY OTHER bare suffix is the model-id VERIFICATION guard (the same
-    fail-closed sidecar check as ``model=<id>``: the sidecar MUST report exactly that resolved
-    model, else the call is refused — scope §4, ADR 0204 §4.1). A bare suffix reaching the
-    verification branch is by construction NOT a tier, so the only remaining interpretation is a
-    model id; a mis-typed tier (e.g. ``hevy``) becomes a verification the fail-closed sidecar
-    refuses, never a silent mis-selection. Explicit model *pinning* (choosing which model the
+    bare all-digit suffix or a ``tier-N`` spelled form is tier shorthand (a real model id always
+    contains a non-digit character, so a numeric suffix never collides with a model id); a
+    ``tier=``/``model=`` prefix is explicit; the legacy tier names ``heavy``/``lite``/``tiny``
+    are rejected in tier position with a migration hint — reinterpreting them as a model id
+    would be a silent mis-selection; ANY OTHER bare suffix is the model-id VERIFICATION guard
+    (the same fail-closed sidecar check as ``model=<id>``: the sidecar MUST report exactly that
+    resolved model, else the call is refused — scope §4, ADR 0204 §4.1). A bare suffix reaching
+    the verification branch is by construction NOT a tier, so the only remaining interpretation
+    is a model id; a mis-typed tier (e.g. ``ter-2``) becomes a verification the fail-closed
+    sidecar refuses, never a silent mis-selection. Explicit model *pinning* (choosing which model the
     wrapper resolves) is the config/env ``model_env`` rung's job, because the operator wrappers
     resolve models from wrapper+tier-specific env vars; ``model=<id>`` is the explicit
     verification form and a bare ``:<model-id>`` is the original grammar's shorthand for it.
@@ -5976,21 +5980,39 @@ def _resolve_client_scheme(spec: str, role: object, model_config: object):
             raise ModelConfigError(f"client spec {spec!r} has an empty wrapper")
         tier: str | None = None
         expected_model: str | None = None
+
+        def _tier_value(value: str) -> str:
+            """Validate one tier-position value; returns the canonical digit ("1".."5").
+
+            The spelled ``tier-N`` form is accepted by stripping the prefix (mirroring the
+            operator wrappers). The legacy tier names get the wrappers' migration-hint
+            refusal; anything else is an unknown-tier refusal.
+            """
+            stripped = value.removeprefix("tier-")
+            if stripped in {"1", "2", "3", "4", "5"}:
+                return stripped
+            if stripped in {"heavy", "lite", "tiny"}:
+                raise ModelConfigError(
+                    f"client spec {spec!r}: tier {stripped!r} was renamed — "
+                    "tiers are now 1..5 (heavy→1, lite→2, tiny→3)"
+                )
+            raise ModelConfigError(
+                f"client spec {spec!r}: unknown tier {stripped!r} (use 1|2|3|4|5)"
+            )
+
         # Each colon-separated segment after the wrapper is a suffix. At most one tier and one
-        # model may appear (in any order), so ``cli:w:tier=lite:model=x`` pins the lite tier AND
-        # verifies the resolved model in one scheme. A bare heavy|lite|tiny is tier shorthand;
-        # ``tier=<t>`` / ``model=<id>`` are explicit; ANY OTHER bare suffix is the model-id
-        # VERIFICATION guard (scope §4, ADR 0204 §4.1) — the original ``cli:<wrapper>[:<tier-or-model>]``
-        # grammar, where ``model=<id>`` is the explicit form and a bare ``:<model-id>`` is its shorthand.
+        # model may appear (in any order), so ``cli:w:tier=2:model=x`` pins tier 2 AND verifies
+        # the resolved model in one scheme. A bare all-digit or ``tier-N`` suffix is tier
+        # shorthand; ``tier=<t>`` / ``model=<id>`` are explicit; the legacy tier names
+        # heavy|lite|tiny are rejected with a migration hint; ANY OTHER bare suffix is the
+        # model-id VERIFICATION guard (scope §4, ADR 0204 §4.1) — the original
+        # ``cli:<wrapper>[:<tier-or-model>]`` grammar, where ``model=<id>`` is the explicit
+        # form and a bare ``:<model-id>`` is its shorthand.
         for suffix in parts[1:]:
             if not suffix:
                 raise ModelConfigError(f"client spec {spec!r} has an empty suffix segment")
             if suffix.startswith("tier="):
-                value = suffix.removeprefix("tier=")
-                if value not in {"heavy", "lite", "tiny"}:
-                    raise ModelConfigError(
-                        f"client spec {spec!r}: tier={value!r} is not one of heavy|lite|tiny"
-                    )
+                value = _tier_value(suffix.removeprefix("tier="))
                 if tier is not None:
                     raise ModelConfigError(f"client spec {spec!r} specifies tier more than once")
                 tier = value
@@ -6001,20 +6023,27 @@ def _resolve_client_scheme(spec: str, role: object, model_config: object):
                 if expected_model is not None:
                     raise ModelConfigError(f"client spec {spec!r} specifies model more than once")
                 expected_model = value
-            elif suffix in {"heavy", "lite", "tiny"}:
-                # Bare tier shorthand (backwards-compatible with the scope's cli:run-gpt:lite form).
+            elif suffix.isdigit() or suffix.startswith("tier-") or suffix in {"heavy", "lite", "tiny"}:
+                # Bare tier shorthand (the scope's cli:run-gpt:2 form). An all-digit suffix is
+                # unambiguously tier position — a real model id always contains a non-digit
+                # character — so an out-of-range number (e.g. "6") is an unknown-tier refusal
+                # here, never a model-verification guard. The legacy names heavy|lite|tiny are
+                # matched so ``_tier_value`` rejects them with the migration hint instead of
+                # letting them fall through as a model id (a silent mis-selection).
+                value = _tier_value(suffix)
                 if tier is not None:
                     raise ModelConfigError(f"client spec {spec!r} specifies tier more than once")
-                tier = suffix
+                tier = value
             else:
                 # Bare non-tier suffix: the scope's ``cli:<wrapper>[:<tier-or-model>]`` grammar
                 # treats this as the model-id VERIFICATION guard (the same fail-closed check as
                 # ``model=<id>``: the sidecar MUST report exactly this resolved model, else the call
                 # is refused — scope §4, ADR 0204 §4.1). A suffix reaching here is NOT a tier
-                # (heavy|lite|tiny shorthand is matched above), so the only remaining interpretation
-                # is a model id; a mis-typed tier (e.g. "hevy") becomes a verification the
-                # fail-closed sidecar check refuses, never a silent mis-selection. ``model=<id>`` is
-                # the explicit form; a bare ``:<model-id>`` is the original grammar's shorthand.
+                # (numeric/tier-N shorthand and the rejected legacy names are matched above), so the
+                # only remaining interpretation is a model id; a mis-typed tier (e.g. "ter-2")
+                # becomes a verification the fail-closed sidecar check refuses, never a silent
+                # mis-selection. ``model=<id>`` is the explicit form; a bare ``:<model-id>`` is the
+                # original grammar's shorthand.
                 if expected_model is not None:
                     raise ModelConfigError(f"client spec {spec!r} specifies model more than once")
                 expected_model = suffix

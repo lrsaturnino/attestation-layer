@@ -635,10 +635,12 @@ def test_cli_scheme_model_suffix_mismatch_refuses(tmp_path: Path, monkeypatch: p
 
 
 def test_cli_scheme_tier_shorthand_and_prefix_parse(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-    """The ``cli:`` suffix grammar parses bare tier shorthand (``cli:w:lite``) and explicit
-    ``tier=<t>`` (heavy|lite|tiny) into the client's ``--tier``; ``model=<id>`` AND a bare
-    ``<model-id>`` (the scope's ``cli:<wrapper>[:<tier-or-model>]`` form) both parse into the
-    expected-resolved-model verification guard, in any order relative to a tier (iter-2 fix)."""
+    """The ``cli:`` suffix grammar parses bare tier shorthand (``cli:w:2``, spelled ``cli:w:tier-2``)
+    and explicit ``tier=<t>`` (1|2|3|4|5, or ``tier-N``) into the client's ``--tier``;
+    ``model=<id>`` AND a bare ``<model-id>`` (the scope's ``cli:<wrapper>[:<tier-or-model>]``
+    form) both parse into the expected-resolved-model verification guard, in any order relative
+    to a tier (iter-2 fix). The spelled ``tier-N`` form is canonicalized to the bare digit —
+    the same prefix-stripping the operator wrappers do."""
     from nlreq.cli import _resolve_client_scheme
     from nlreq.model_config import ModelConfig
 
@@ -646,14 +648,16 @@ def test_cli_scheme_tier_shorthand_and_prefix_parse(monkeypatch: pytest.MonkeyPa
     cfg = ModelConfig()
     for spec, expect_tier, expect_model in [
         ("cli:run-gpt", None, None),
-        ("cli:run-gpt:lite", "lite", None),
-        ("cli:run-gpt:tier=tiny", "tiny", None),
+        ("cli:run-gpt:2", "2", None),
+        ("cli:run-gpt:tier-2", "2", None),  # spelled form → canonical digit
+        ("cli:run-gpt:tier=3", "3", None),
+        ("cli:run-gpt:tier=tier-3", "3", None),  # spelled form in the explicit prefix
         ("cli:run-gpt:model=gpt-4o-mini", None, "gpt-4o-mini"),
-        ("cli:run-gpt:tier=heavy:model=gpt-5.5", "heavy", "gpt-5.5"),
+        ("cli:run-gpt:tier=1:model=gpt-5.5", "1", "gpt-5.5"),
         # iter-2: a bare <model-id> suffix is the model-verification guard (NOT an ambiguous refusal).
         ("cli:run-gpt:gpt-5.4-mini", None, "gpt-5.4-mini"),
-        ("cli:run-gpt:heavy:gpt-5.5", "heavy", "gpt-5.5"),  # tier shorthand + bare model
-        ("cli:run-gpt:gpt-5.5:heavy", "heavy", "gpt-5.5"),  # bare model + tier (any order)
+        ("cli:run-gpt:1:gpt-5.5", "1", "gpt-5.5"),  # tier shorthand + bare model
+        ("cli:run-gpt:gpt-5.5:1", "1", "gpt-5.5"),  # bare model + tier (any order)
     ]:
         built = _resolve_client_scheme(spec, Role.drafting, cfg)
         assert built.client._tier == expect_tier, spec
@@ -664,9 +668,10 @@ def test_cli_scheme_bare_model_suffix_is_verification_guard(monkeypatch: pytest.
     """A bare ``cli:<wrapper>:<model-id>`` suffix (the scope's ``cli:<wrapper>[:<tier-or-model>]``
     grammar) is the model-id VERIFICATION guard — the same fail-closed sidecar check as
     ``model=<id>`` — NOT an ambiguous refusal (iter-2 fix). A bare suffix reaching the parser is
-    by construction not a tier (heavy|lite|tiny shorthand is matched first, case-sensitively), so
-    the only remaining interpretation is a model id; the fail-closed sidecar refuses if the
-    wrapper resolved a different model (ADR 0204 §4.1). ``model=<id>`` remains the explicit form."""
+    by construction not a tier (all-digit/tier-N shorthand is matched first, and the legacy tier
+    names are rejected outright), so the only remaining interpretation is a model id; the
+    fail-closed sidecar refuses if the wrapper resolved a different model (ADR 0204 §4.1).
+    ``model=<id>`` remains the explicit form."""
     from nlreq.cli import _resolve_client_scheme
     from nlreq.model_config import ModelConfig
 
@@ -675,12 +680,55 @@ def test_cli_scheme_bare_model_suffix_is_verification_guard(monkeypatch: pytest.
     for spec, expect_model in [
         ("cli:run-gpt:gpt-5.4-mini", "gpt-5.4-mini"),
         ("cli:run-gpt:bogus-model-id", "bogus-model-id"),
-        # Case-sensitive: "Lite" is NOT the "lite" tier, so it is the model-verification guard.
-        ("cli:run-gpt:Lite", "Lite"),
+        # A mis-typed tier prefix ("ter-2" is not "tier-2") contains non-digits, so it is the
+        # model-verification guard — the fail-closed sidecar refuses it at call time.
+        ("cli:run-gpt:ter-2", "ter-2"),
     ]:
         built = _resolve_client_scheme(spec, Role.drafting, cfg)
         assert built.client._expected_resolved_model == expect_model, spec
         assert built.client._tier is None, spec
+
+
+def test_cli_scheme_legacy_tier_names_rejected_with_migration_hint(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The legacy tier names (heavy|lite|tiny) are rejected in tier position — bare, ``tier=``,
+    or ``tier-`` spelled — with the wrappers' migration hint, NEVER silently reinterpreted as
+    the model-id verification guard (that would send the call through with a claimed tier the
+    wrapper no longer understands, or worse, treat the tier name as an expected model id)."""
+    from nlreq.cli import _resolve_client_scheme
+    from nlreq.model_config import ModelConfig, ModelConfigError
+
+    _clear_model_env(monkeypatch)
+    cfg = ModelConfig()
+    for spec in (
+        "cli:run-claude:heavy",
+        "cli:run-gpt:lite",
+        "cli:run-gpt:tiny",
+        "cli:run-gpt:tier=heavy",
+        "cli:run-gpt:tier-lite",
+    ):
+        with pytest.raises(
+            ModelConfigError,
+            match=r"was renamed — tiers are now 1\.\.5 \(heavy→1, lite→2, tiny→3\)",
+        ):
+            _resolve_client_scheme(spec, Role.drafting, cfg)
+
+
+def test_cli_scheme_out_of_range_numeric_tier_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An all-digit bare suffix is ALWAYS tier position (a real model id contains a non-digit
+    character), so an out-of-range number is an unknown-tier refusal — never a silent fall-through
+    to the model-verification guard."""
+    from nlreq.cli import _resolve_client_scheme
+    from nlreq.model_config import ModelConfig, ModelConfigError
+
+    _clear_model_env(monkeypatch)
+    cfg = ModelConfig()
+    for spec in ("cli:run-gpt:6", "cli:run-gpt:0", "cli:run-gpt:tier=12"):
+        with pytest.raises(
+            ModelConfigError, match=r"unknown tier '\d+' \(use 1\|2\|3\|4\|5\)"
+        ):
+            _resolve_client_scheme(spec, Role.drafting, cfg)
 
 
 def test_cli_scheme_repeated_model_suffix_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -703,12 +751,14 @@ def test_cli_scheme_repeated_model_suffix_refuses(monkeypatch: pytest.MonkeyPatc
 
 
 def test_cli_scheme_bad_tier_value_refuses(monkeypatch: pytest.MonkeyPatch) -> None:
-    """``tier=<not-a-tier>`` is rejected — the explicit tier form still validates heavy|lite|tiny."""
+    """``tier=<not-a-tier>`` is rejected — the explicit tier form validates 1|2|3|4|5."""
     from nlreq.cli import _resolve_client_scheme
     from nlreq.model_config import ModelConfig, ModelConfigError
 
     _clear_model_env(monkeypatch)
-    with pytest.raises(ModelConfigError, match="not one of heavy"):
+    with pytest.raises(
+        ModelConfigError, match=r"unknown tier 'medium' \(use 1\|2\|3\|4\|5\)"
+    ):
         _resolve_client_scheme("cli:run-gpt:tier=medium", Role.drafting, ModelConfig())
 
 
@@ -901,7 +951,7 @@ def test_model_env_exports_are_the_pinning_mechanism_and_profile_wins(
         wrapper="run-claude",
         role=Role.drafting,
         model_env={
-            "CLAUDE_TINY_MODEL": "claude-haiku-4-5-20251001",  # a model-pinning export
+            "CLAUDE_TIER3_MODEL": "claude-haiku-4-5-20251001",  # a model-pinning export
             # A hostile/misconfigured model_env trying to defeat the pure-completion profile:
             "OSS_SOFT_FALLBACK": "1",
             "PI_TOOLS": "read,bash",
@@ -910,7 +960,7 @@ def test_model_env_exports_are_the_pinning_mechanism_and_profile_wins(
     )
     env = client._build_env()
     # The model-pinning export reaches the wrapper env (wins over models.env defaults).
-    assert env["CLAUDE_TINY_MODEL"] == "claude-haiku-4-5-20251001"
+    assert env["CLAUDE_TIER3_MODEL"] == "claude-haiku-4-5-20251001"
     # The pure-completion profile WINS over the hostile model_env — non-negotiable.
     assert env["OSS_SOFT_FALLBACK"] == "0"
     assert env["PI_TOOLS"] == ""
@@ -1032,7 +1082,7 @@ def test_real_run_claude_wrapper_round_trip() -> None:
     wrapper = _real_wrapper_path("run-claude")
     if wrapper is None:
         pytest.skip("run-claude wrapper not found (PATH or operator bin dir)")
-    client = CliLlmClient(wrapper=wrapper, role=Role.drafting, tier="tiny", timeout_s=180.0)
+    client = CliLlmClient(wrapper=wrapper, role=Role.drafting, tier="3", timeout_s=180.0)
     text = client.propose_controlled_rewrite(
         "An unauthorized actor must be blocked before any state change.",
         "grammar summary",
@@ -1063,7 +1113,7 @@ def test_real_run_gpt_wrapper_round_trip() -> None:
         pytest.skip("run-gpt wrapper not found (PATH or operator bin dir)")
     # low reasoning effort keeps the opt-in test fast; the transport contract is effort-independent.
     client = CliLlmClient(
-        wrapper=wrapper, role=Role.drafting, tier="tiny", timeout_s=180.0,
+        wrapper=wrapper, role=Role.drafting, tier="3", timeout_s=180.0,
         model_env={"GPT_REASONING_EFFORT": "low"},
     )
     text = client.propose_controlled_rewrite(
@@ -1104,8 +1154,8 @@ def test_real_cli_two_provider_ensemble_records_two_distinct_providers(tmp_path:
         "semantic-translate", str(req),
         "--requirement-id", "R-REAL-CP",
         "--title", "real-cross-provider",
-        "--ensemble-client", f"cli:{wclaude}:tiny",
-        "--ensemble-client", f"cli:{wgpt}:tiny",
+        "--ensemble-client", f"cli:{wclaude}:3",
+        "--ensemble-client", f"cli:{wgpt}:3",
         "--out", str(out),
     ])
     assert exit_code in (0, 1), f"expected 0/1 (agreement/needs-review), got {exit_code}"
@@ -1156,7 +1206,7 @@ def test_ineligible_wrapper_refuses_upfront_with_zero_egress(wrapper_name: str) 
     wrapper = _real_wrapper_path(wrapper_name)
     if wrapper is None:
         pytest.skip(f"{wrapper_name} wrapper not found (PATH or operator bin dir)")
-    client = CliLlmClient(wrapper=wrapper, role=Role.drafting, tier="tiny", timeout_s=30.0)
+    client = CliLlmClient(wrapper=wrapper, role=Role.drafting, tier="3", timeout_s=30.0)
     with pytest.raises(CliTransportError) as exc_info:
         client.propose_controlled_rewrite(
             "An unauthorized actor must be blocked before any state change.",

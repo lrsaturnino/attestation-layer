@@ -161,8 +161,8 @@ class Role(str, Enum):
     """The six LLM roles nlreq configures independently.
 
     ``drafting`` / ``impact`` / ``extraction`` / ``partition`` share the ``LlmClient`` type
-    (four methods on one protocol) but are distinct roles: a project may want a heavy model
-    for drafting and a lite model for impact estimation. ``partition`` (three-zone scope §3/§4)
+    (four methods on one protocol) but are distinct roles: a project may want a stronger model
+    for drafting and a cheaper model for impact estimation. ``partition`` (three-zone scope §3/§4)
     is the spec-partitioning proposal role (document segment → candidate rules); it is named
     ``partition`` to avoid colliding with the existing ``decomposition`` (controlled→IR) and
     ``extraction`` (Specula) roles. ``decomposition`` and ``audit`` have their own protocol/
@@ -220,7 +220,7 @@ class _CliSpec(BaseModel):
     """Subprocess-wrapper transport for a role (cross-provider diversity).
 
     ``wrapper`` is the executable name/path (e.g. ``run-gpt``); ``tier`` is the
-    optional heavy|lite|tiny indirection. ``model_env`` exports explicit model ids
+    optional 1..5 capability-ladder indirection. ``model_env`` exports explicit model ids
     that win over the wrapper's ``models.env`` defaults (conditional-assignment form
     → process env wins), so the resolved model is chosen by nlreq, not by the file
     default at call time — provenance always records the resolved id, never the tier.
@@ -336,12 +336,12 @@ class CliOverride:
 
     The ``cli:<wrapper>[:<tier-or-model>]`` ensemble/audit scheme parses into this. It bypasses the
     env/file/default rungs (a per-call scheme is the highest-rung override) and selects the cli
-    kind with the given wrapper, an optional ``tier`` (heavy|lite|tiny, passed as ``--tier``),
+    kind with the given wrapper, an optional ``tier`` (1|2|3|4|5, passed as ``--tier``),
     and/or an optional ``expected_model`` (the exact resolved model id the sidecar MUST report).
     The factory then constructs a ``CliLlmClient`` for any of the six roles.
 
     **Explicit model vs tier.** The operator wrappers resolve a model from wrapper+tier-specific
-    env vars (e.g. ``CLAUDE_TINY_MODEL``) sourced from ``models.env`` in conditional-assignment
+    env vars (e.g. ``CLAUDE_TIER3_MODEL``) sourced from ``models.env`` in conditional-assignment
     form, so the per-call scheme CANNOT pin a model without wrapper-specific env-var knowledge —
     that pinning is the config/env ``model_env`` rung's job. The per-call ``expected_model`` is a
     *verification*: the fail-closed sidecar check refuses if the wrapper resolved a different

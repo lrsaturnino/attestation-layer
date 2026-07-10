@@ -78,7 +78,7 @@
 # live run below is an EXPLICIT OWNER-PENDING DEVIATION from the §5 floor-sized standard, not a
 # fully-closed floor-sized calibration. Closing the non-drafting floor dimension is an operator
 # action: expand each role corpus to per-domain >=30 and re-run `benchmark-role --run --llm-client
-# cli:<wrapper>:tiny` across both providers.
+# cli:<wrapper>:3` across both providers.
 #   role          | corpus shape            | recorded discriminator FA / FR / matched
 #   --------------+-------------------------+-----------------------------------------
 #   decomposition | controlled -> IR -> sig  | 4 / 4 / 4   (FA=divergent sig; FR=IR refuses lowering)
@@ -114,7 +114,7 @@
 # zero-config default (anthropic, pinned models) is the shipped operating point for all five
 # roles (the recorded path is the release-validated one). A prompt revision that produces a
 # viable operating point is re-run across both providers via `benchmark-role --run --llm-client
-# cli:<wrapper>:tiny` and appended here + activated in this file.
+# cli:<wrapper>:3` and appended here + activated in this file.
 #
 # ── Example: cross-provider cli operating point (§6 landed for run-claude + run-gpt) ───
 # The operator wrappers run-claude + run-gpt ARE §6-eligible (emit the sidecar + honor the
@@ -126,13 +126,13 @@
 #   [decomposition]
 #   client = "cli"
 #   wrapper = "run-claude"
-#   tier = "lite"
-#   model_env = { CLAUDE_LITE_MODEL = "claude-haiku-4-5-20251001" }
+#   tier = "2"
+#   model_env = { CLAUDE_TIER2_MODEL = "claude-haiku-4-5-20251001" }
 #
 #   [audit]
 #   client = "cli"
 #   wrapper = "run-gpt"
-#   tier = "lite"
+#   tier = "2"
 #
 # (Per-call cross-provider ensembles use the `cli:<wrapper>` scheme directly, e.g.
 #  `--ensemble-client cli:run-claude --ensemble-client cli:run-gpt`, which is the
